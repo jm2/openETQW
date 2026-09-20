@@ -106,6 +106,8 @@ public:
 
 	void				RunFrame( void );
 	void				SendReliableGameMessage( const idBitMsg &msg );
+	const usercmd_t*	GetClientUserCmd( int clientNum, int frameNum ) const;
+	void				ReadClientUserCmds( int clientNum, const idBitMsg &msg );
 
 	void				SendVersionCheck( bool fromMenu = false );
 	// pass NULL for the keys you don't care to auth for

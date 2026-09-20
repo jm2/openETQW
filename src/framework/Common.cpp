@@ -7,6 +7,8 @@
 #include "../idlib/precompiled.h"
 #pragma hdrstop
 
+#include <execinfo.h>
+#include <unistd.h>
 #include "precompiled.h"
 #include "AdManager.h"
 #include "GraphManager.h"
@@ -515,6 +517,9 @@ void idCommonLocal::FatalError( const char* fmt, ... ) {
 	FormatCommonMessage( errorMessage, sizeof( errorMessage ), fmt, args );
 	va_end( args );
 	Printf( "********************\nFATAL ERROR: %s\n********************\n", errorMessage );
+	void *callstack[ 64 ];
+	int frames = backtrace( callstack, 64 );
+	backtrace_symbols_fd( callstack, frames, STDERR_FILENO );
 	Sys_SetFatalError( errorMessage );
 	Shutdown();
 	Sys_Error( "%s", errorMessage );

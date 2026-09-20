@@ -70,7 +70,24 @@ struct_layout_test = executable(
 )
 test('struct-layout', struct_layout_test, timeout: 30)
 
-# 4. Zero-SDK compliance test
+# 4. UserCmd history, ring buffer & transport lifecycle test
+usercmd_history_test_src = files(
+  'test_usercmd_history.cpp',
+  game_stage_root / 'src' / 'idlib' / 'BitMsg.cpp',
+)
+
+usercmd_history_test = executable(
+  'openetqw-usercmd-history-test',
+  usercmd_history_test_src,
+  include_directories: test_include_dirs,
+  cpp_args: ['-D__IDLIB__', '-DSD_SDK_BUILD', '-DSD_PUBLIC_BUILD'],
+  dependencies: test_deps,
+  link_args: test_link_args,
+  install: false,
+)
+test('usercmd-history', usercmd_history_test, timeout: 30)
+
+# 5. Zero-SDK compliance test
 test(
   'zero-sdk',
   py,
