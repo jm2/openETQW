@@ -1,0 +1,49 @@
+option(
+  'build_engine',
+  type: 'boolean',
+  value: false,
+  description: 'Build openETQW client and dedicated engine executables (M1 target).',
+)
+
+option(
+  'build_dedicated',
+  type: 'boolean',
+  value: false,
+  description: 'Build openETQW dedicated server executable.',
+)
+
+option(
+  'build_games',
+  type: 'boolean',
+  value: true,
+  description: 'Build game module (game_<arch>) from companion openETQW-game repository.',
+)
+
+option(
+  'build_tests',
+  type: 'boolean',
+  value: true,
+  description: 'Build and run asset-free unit test harness under meson test.',
+)
+
+option(
+  'platform_backend',
+  type: 'combo',
+  choices: ['sdl3', 'native'],
+  value: 'sdl3',
+  description: 'Platform window/input backend.',
+)
+
+option(
+  'use_pch',
+  type: 'boolean',
+  value: false,
+  description: 'Enable precompiled header compilation (precompiled.h).',
+)
+
+option(
+  'macos_deployment_target',
+  type: 'string',
+  value: '11.0',
+  description: 'macOS minimum deployment target.',
+)
