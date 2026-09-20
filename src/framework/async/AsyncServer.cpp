@@ -814,28 +814,38 @@ void idAsyncServer::ProcessUnreliableClientMessage( int clientNum, const idBitMs
 			game->ServerApplySnapshot( clientNum, ackSnapshotSeq );
 		}
 
-		if ( clientGameFrame > gameFrame + MAX_USERCMD_BACKUP ) {
+		if ( clientGameFrame > gameFrame + MAX_USERCMD_BACKUP || clientGameFrame < gameFrame - MAX_USERCMD_BACKUP ) {
 			return;
 		}
 
 		const int firstClientGameFrame = clientGameFrame - numUsercmds + 1;
+		usercmd_t dummyLast;
 		const usercmd_t* last = NULL;
 		for ( int j = 0; j < numUsercmds; ++j ) {
 			int frame = firstClientGameFrame + j;
-			int index = frame & ( MAX_USERCMD_BACKUP - 1 );
-			usercmd_t& cmd = userCmds[ index ][ clientNum ];
-			idAsyncNetwork::ReadUserCmdDelta( msg, cmd, last );
+			usercmd_t decodedCmd;
+			idAsyncNetwork::ReadUserCmdDelta( msg, decodedCmd, last );
 			if ( msg.GetRemainingData() < 0 ) {
 				return;
 			}
+			if ( frame < 0 ) {
+				dummyLast = decodedCmd;
+				last = &dummyLast;
+				continue;
+			}
+			int index = frame & ( MAX_USERCMD_BACKUP - 1 );
+			usercmd_t& cmd = userCmds[ index ][ clientNum ];
+			cmd = decodedCmd;
 			cmd.gameFrame = frame;
 			cmd.gameTime = frame * USERCMD_MSEC;
 			cmd.duplicateCount = 0;
 			last = &cmd;
 		}
 
-		clients[ clientNum ].gameFrame = clientGameFrame;
-		clients[ clientNum ].gameTime = clientGameFrame * USERCMD_MSEC;
+		if ( clientGameFrame > clients[ clientNum ].gameFrame ) {
+			clients[ clientNum ].gameFrame = clientGameFrame;
+			clients[ clientNum ].gameTime = clientGameFrame * USERCMD_MSEC;
+		}
 		clients[ clientNum ].lastInputTime = realTime;
 	}
 }
