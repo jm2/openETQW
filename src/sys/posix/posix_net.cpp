@@ -12,7 +12,7 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "../../idlib/precompiled.h"
+#include "idlib/precompiled.h"
 #include "posix_public.h"
 
 idCVar net_ip( "net_ip", "localhost", CVAR_SYSTEM, "local IP address" );
@@ -204,7 +204,7 @@ bool Sys_StringToNetAdr( const char *s, netadr_t *a, bool doDNSResolve ) {
 }
 
 const char *Sys_NetAdrToString( const netadr_t& a ) {
-	static char s[ 64 ][ 4 ];
+	static char s[ 4 ][ 64 ];
 	static int index = 0;
 	index = ( index + 1 ) & 3;
 

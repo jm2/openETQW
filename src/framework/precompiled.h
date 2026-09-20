@@ -6,13 +6,16 @@
 #ifndef __FRAMEWORK_PRECOMPILED_H__
 #define __FRAMEWORK_PRECOMPILED_H__
 
-#include "../idlib/precompiled.h"
+#include <string>
+#include <vector>
+
+#include "idlib/precompiled.h"
 
 #ifndef ID_TIME_T
 #define ID_TIME_T unsigned int
 #endif
 
-#include "BuildVersion.h"
+#include "EngineVersion.h"
 #include "Licensee.h"
 #include "CmdSystem.h"
 #include "CVarSystem.h"

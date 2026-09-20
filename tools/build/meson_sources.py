@@ -10,7 +10,7 @@ import sys
 
 COMMON_FRAMEWORK_SOURCES = (
     "src/framework/AdManager.cpp",
-    "src/framework/BuildVersion.cpp",
+    "src/framework/EngineVersion.cpp",
     "src/framework/CVarSystem.cpp",
     "src/framework/CmdSystem.cpp",
     "src/framework/Common.cpp",

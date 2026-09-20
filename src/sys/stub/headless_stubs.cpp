@@ -1,7 +1,7 @@
 // Copyright (C) 2007 Id Software, Inc.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "../../idlib/precompiled.h"
+#include "idlib/precompiled.h"
 #pragma hdrstop
 
 #include "../../renderer/RenderSystem.h"
