@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Emit deterministic, static Meson source lists for openETQW engine targets."""
 
 from __future__ import annotations

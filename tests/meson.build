@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 # openETQW tests/meson.build
 
 test_include_dirs = [
