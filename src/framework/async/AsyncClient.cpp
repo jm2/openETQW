@@ -472,6 +472,9 @@ void idAsyncClient::ProcessUnreliableServerMessage( const idBitMsg& msg ) {
 			return;
 		}
 		int sequence = msg.ReadLong();
+		if ( sequence <= snapshotSequence ) {
+			return;
+		}
 		int sGameFrame = msg.ReadLong();
 		int sGameTime = msg.ReadLong();
 		int numDuplicatedUsercmds = msg.ReadByte();

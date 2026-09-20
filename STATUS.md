@@ -2,10 +2,10 @@
 
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
-Updated: 2026-09-20T16:35:00Z · session/agent: worker_m3_1 · host: mbp-m1max.local, macOS arm64
+Updated: 2026-09-20T18:45:00Z · session/agent: worker_m3_remediation_2 · host: mbp-m1max.local, macOS arm64
 Engine repo `~/openETQW`: commit [local] · game repo `~/openETQW-game`: commit [local] · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none)
 
-**Integrator role:** held by worker_m3_1 / mbp-m1max.local
+**Integrator role:** held by worker_m3_remediation_2 / mbp-m1max.local
 
 ## Owner decisions in effect
 D1 public source and binaries · D2 all RE methods · D3 hard fork · D4 macOS / Windows 11 / Arch / Fedora / Debian, inputs on request · D5 two repos: GPL-3.0-or-later engine; SDK license + MIT game · D6 Meson
@@ -43,26 +43,21 @@ python3 tests/test_loopback_session.py
 ## This session
 
 **Plan, and why it advances the engine:**
-Milestone 3 / Slice 1 Implementation (Authoritative Snapshot Path & Network Transport Lifecycle):
-1. Fix 16-bit short MsgChannel wire framing: Identified and corrected critical wire format framing divergence where `idMsgChannel::SendMessage` writes 16-bit short connection ID (`unsentMsg.WriteShort( id )`), but `AsyncServer.cpp` and `AsyncClient.cpp` were inadvertently reading 32-bit integer via `ReadLong()`. Replaced with `msg.ReadShort()` in both endpoints.
-2. Complete connection handshake state machine: Implemented challenge generation, challenge validation, connect response, and 3-pass slot allocation (`SCS_FREE` -> `SCS_CONNECTED` -> `SCS_INGAME`) in `AsyncServer.cpp`.
-3. Map loading flow control & keepalive: Handled client pacifier keepalives during map compilation (`CLIENT_UNRELIABLE_MESSAGE_EMPTY (mapLoad=true)`); server tracks `client.isMapLoading` and delays snapshot streaming until client finishes map load.
-4. Authoritative Usercmd Ring Buffer: Built robust client command history ring buffer (`MAX_USERCMD_BACKUP = 64`) with delta compression, sequence wrap, and duplicate count tracking in `idAsyncClient` and `idAsyncServer`.
-5. Snapshot Packaging & Transport: Implemented bidirectional snapshot stream packing `ucmdMsg` and `gameMsg` with 16-bit length headers and ingestion via `ClientReadSnapshot` + `ClientApplySnapshot`.
-6. Baseline Delta Synchronization: Identified and resolved delta compression desynchronization between server and client: `idAsyncServer::SendSnapshotToClient` now gates next snapshot on client acknowledgment (`acknowledgeSnapshotSequence >= snapshotSequence`), guaranteeing identical `nwInfo.states` baseline on both sides. Resolved server shutdown ordering in `idAsyncServer::Kill` to eliminate SIGSEGV.
-7. Automated Verification: Created `tests/test_usercmd_history.cpp` (5 unit tests in Meson) and `tests/test_loopback_session.py` (live loopback session streaming >= 150 snapshots on Valley with exit code 0).
+Milestone 3 / Slice 1 Review Remediation (Reviewer 2 Feedback Resolution):
+1. [Critical] test_usercmd_history.cpp Genuine Ring Buffer Testing: Rewrote `TestLateArrival()` to eliminate tautological stack calculations. Built a genuine `idNetworkSystem` test fixture verifying `networkSystem->ClientGetUserCmd`, `networkSystem->ReadClientUserCmds`, and authoritative `userCmds` ring buffer behavior across window boundaries, negative underflows, monotonic progression, and duplicate placeholder replacement.
+2. [Critical] AsyncServer.cpp Packet Ingestion Security Guards: Added lower-bound rejection for stale packets (`clientGameFrame < gameFrame - MAX_USERCMD_BACKUP`) and protected against negative `firstClientGameFrame < 0` indexing into slot 254 (`& 255`) while preserving non-negative frame ingestion.
+3. [Major] AsyncServer.cpp Monotonic Client Tracking: Ensured `clients[clientNum].gameFrame` and `gameTime` only update monotonically when `clientGameFrame > clients[clientNum].gameFrame`, preventing time regressions on out-of-order packet arrival.
+4. [Major] AsyncClient.cpp Snapshot Sequence Validation: Added duplicate and out-of-order snapshot rejection guard (`if ( sequence <= snapshotSequence ) { return; }`) preventing snapshot regressions and corrupted client time tracking.
+5. [Minor] docs/compat-ledger.md Parity: Synchronized line references in Row 014 to current line numbers (`AsyncServer.cpp:1080` and `AsyncClient.cpp:614`).
+6. Automated Verification: All 5 Meson tests pass cleanly (`bitmsg`, `usercmd-delta`, `struct-layout`, `usercmd-history`, `zero-sdk`), `test_zero_sdk.py` reports 0 violations, and `test_loopback_session.py` completes 150 snapshots with clean exit code 0.
 
 ### Changed
 | Repo | Files / symbols | What | Why | Reuse / provenance |
 |---|---|---|---|---|
-| openETQW | `src/framework/async/AsyncServer.cpp`, `AsyncClient.cpp` | MsgChannel 16-bit framing (`ReadShort()`) | Fix wire framing header desynchronization with `MsgChannel.cpp` | Network framing fix |
-| openETQW | `src/framework/async/AsyncServer.cpp` | Handshake state machine & 3-pass slot allocation | Complete challenge/connect protocol and slot management | Network lifecycle |
-| openETQW | `src/framework/async/AsyncServer.cpp` | Snapshot acknowledgment gating (`ackSeq >= seq`) | Enforce single-baseline delta compression parity across client and server | Snapshot engine fix |
-| openETQW | `src/framework/async/AsyncServer.cpp` | Shutdown ordering fix in `Kill()` | Avoid double client disconnect after `OnServerShutdown` | Server lifecycle fix |
-| openETQW | `src/framework/async/AsyncClient.cpp` | Authoritative usercmd history buffer and snapshot reader | Enable usercmd transmission and snapshot ingestion | Client network transport |
-| openETQW | `tests/test_usercmd_history.cpp` | 5 unit tests for usercmd buffer, delta compression, wrapping | Automated regression testing for command history | Engine unit test |
-| openETQW | `tests/test_loopback_session.py` | Full loopback integration test script | Automated validation of handshake and 150 snapshot transmissions on Valley | Integration test |
-| openETQW | `docs/compat-ledger.md` | Added Rows 014 (MsgChannel framing) and 015 (Delta snapshot pacing) | Track network serialization invariants per CHARTER §7.4 | Compatibility ledger |
+| openETQW | `src/framework/async/AsyncServer.cpp` | Added past history lower-bound check (`< gameFrame - MAX_USERCMD_BACKUP`), negative frame guard (`firstClientGameFrame < 0`), and monotonic tracking (`clientGameFrame > clients[clientNum].gameFrame`) | Prevent stale packet aliasing, negative ring buffer underflow, and out-of-order frame regression | Engine network security fix |
+| openETQW | `src/framework/async/AsyncClient.cpp` | Added duplicate and out-of-order snapshot rejection guard (`sequence <= snapshotSequence`) | Prevent snapshot state regression and baseline acknowledgment desynchronization | Client network transport fix |
+| openETQW | `tests/test_usercmd_history.cpp` | Rewrote `TestLateArrival()`, added `TestNetworkSystem` implementing `idNetworkSystem` | Eliminate facade assertions; genuinely test ring buffer bounds, underflow, monotonic progression, and placeholder replacement | Test integrity remediation |
+| openETQW | `docs/compat-ledger.md` | Updated Row 014 line numbers for `AsyncServer.cpp:1080` and `AsyncClient.cpp:614` | Accurate compatibility ledger line references | Documentation fix |
 
 ### Demonstrated
 | Claim | Evidence level | Host / OS / arch / compiler | Command | Result (log path) |
