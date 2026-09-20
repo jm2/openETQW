@@ -24,7 +24,11 @@
 #include "../decllib/declTypeHolder.h"
 #include "../libs/qglLib/qgl.h"
 
+#if defined( __APPLE__ )
+#include <OpenGL/gl.h>
+#else
 #include <GL/gl.h>
+#endif
 
 extern glconfig_t glConfig;
 extern idCVar com_gpuSpec;

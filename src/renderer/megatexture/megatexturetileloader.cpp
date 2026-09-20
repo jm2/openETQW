@@ -23,7 +23,7 @@ GNU General Public License for more details.
 #include "../../idlib/precompiled.h"
 #pragma hdrstop
 
-#include "../Image.h"
+#include "Image.h"
 #include "MegaTexture.h"
 #include "MegaTextureTileLoader.h"
 #include "MegaTextureTileDecompressor.h"

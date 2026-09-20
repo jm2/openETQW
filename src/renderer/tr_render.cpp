@@ -25,7 +25,11 @@
 #include "../libs/qglLib/qgl.h"
 #include "../sound/SoundEmitter.h"
 
+#if defined( __APPLE__ )
+#include <OpenGL/gl.h>
+#else
 #include <GL/gl.h>
+#endif
 
 extern idCVar r_renderProgramLodDistance;
 extern idCVar r_renderProgramLodFade;

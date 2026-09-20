@@ -6,7 +6,22 @@
 #include "RuntimeSpirvCompiler.h"
 #include "../idlib/hashing/MD5.h"
 
+#if defined( _WIN32 )
 #include <windows.h>
+typedef DWORD ProcessExitCode_t;
+#else
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <spawn.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <signal.h>
+#include <pthread.h>
+extern char **environ;
+typedef unsigned int ProcessExitCode_t;
+#endif
 
 namespace {
 
@@ -14,8 +29,20 @@ const char* SPIRV_CACHE_VERSION = "etqw-runtime-spirv-cache-v1";
 const char* SPIRV_TARGET_ENV = "vulkan1.3";
 const char* SPIRV_CACHE_DIRECTORY = "vkprogs/cache";
 
+#if defined( _WIN32 )
 LONG temporaryFileSerial = 0;
+#else
+static int temporaryFileSerial = 0;
+#endif
 bool commandsRegistered = false;
+
+static unsigned int GetTimestampMs() {
+#if defined( _WIN32 )
+	return GetTickCount();
+#else
+	return Sys_Milliseconds();
+#endif
+}
 
 idCVar r_vkShaderCompiler(
 	"r_vkShaderCompiler",
@@ -51,11 +78,17 @@ bool IsRegularFile( const char* path ) {
 	if ( path == NULL || path[ 0 ] == '\0' ) {
 		return false;
 	}
+#if defined( _WIN32 )
 	const DWORD attributes = GetFileAttributesA( path );
 	return attributes != INVALID_FILE_ATTRIBUTES &&
 		( attributes & FILE_ATTRIBUTE_DIRECTORY ) == 0;
+#else
+	struct stat st;
+	return ( stat( path, &st ) == 0 ) && S_ISREG( st.st_mode );
+#endif
 }
 
+#if defined( _WIN32 )
 void AppendWin32Error( idStr& text, const char* prefix, DWORD error ) {
 	char message[ 512 ];
 	message[ 0 ] = '\0';
@@ -66,11 +99,20 @@ void AppendWin32Error( idStr& text, const char* prefix, DWORD error ) {
 	text += va( "%s (error %u%s%s)", prefix, static_cast< unsigned int >( error ),
 		messageText.IsEmpty() ? "" : ": ", messageText.c_str() );
 }
+#endif
 
 bool ResolveExecutable( const char* configuredPath, const char* fileName,
 	idStr& resolvedPath, idStr& reason ) {
 	resolvedPath.Clear();
 	reason.Clear();
+
+	idList< idStr > candidateNames;
+	candidateNames.Append( fileName );
+	idStr cleanName = fileName;
+	if ( cleanName.Length() > 4 && idStr::Icmp( cleanName.c_str() + cleanName.Length() - 4, ".exe" ) == 0 ) {
+		cleanName.CapLength( cleanName.Length() - 4 );
+		candidateNames.Append( cleanName );
+	}
 
 	if ( configuredPath != NULL && configuredPath[ 0 ] != '\0' ) {
 		if ( IsRegularFile( configuredPath ) ) {
@@ -78,6 +120,7 @@ bool ResolveExecutable( const char* configuredPath, const char* fileName,
 			return true;
 		}
 
+#if defined( _WIN32 )
 		char found[ 4096 ];
 		const DWORD foundLength = SearchPathA( NULL, configuredPath, NULL,
 			sizeof( found ), found, NULL );
@@ -85,6 +128,7 @@ bool ResolveExecutable( const char* configuredPath, const char* fileName,
 			resolvedPath = found;
 			return true;
 		}
+#endif
 
 		reason = va( "configured executable was not found: %s", configuredPath );
 		return false;
@@ -93,42 +137,93 @@ bool ResolveExecutable( const char* configuredPath, const char* fileName,
 	idStr executableDirectory = Sys_EXEPath();
 	executableDirectory.StripFilename();
 	if ( !executableDirectory.IsEmpty() ) {
-		idStr candidate = executableDirectory;
-		candidate.AppendPath( "vkcompiler" );
-		candidate.AppendPath( fileName );
-		if ( IsRegularFile( candidate ) ) {
-			resolvedPath = candidate;
-			return true;
-		}
+		for ( int n = 0; n < candidateNames.Num(); ++n ) {
+			idStr candidate = executableDirectory;
+			candidate.AppendPath( "vkcompiler" );
+			candidate.AppendPath( candidateNames[ n ] );
+			if ( IsRegularFile( candidate ) ) {
+				resolvedPath = candidate;
+				return true;
+			}
 
-		candidate = executableDirectory;
-		candidate.AppendPath( fileName );
-		if ( IsRegularFile( candidate ) ) {
-			resolvedPath = candidate;
-			return true;
+			candidate = executableDirectory;
+			candidate.AppendPath( candidateNames[ n ] );
+			if ( IsRegularFile( candidate ) ) {
+				resolvedPath = candidate;
+				return true;
+			}
 		}
 	}
 
 	const char* vulkanSDK = Sys_GetEnv( "VULKAN_SDK" );
 	if ( vulkanSDK != NULL && vulkanSDK[ 0 ] != '\0' ) {
-		idStr candidate = vulkanSDK;
-		candidate.AppendPath( "Bin" );
-		candidate.AppendPath( fileName );
-		if ( IsRegularFile( candidate ) ) {
-			resolvedPath = candidate;
-			return true;
+		for ( int n = 0; n < candidateNames.Num(); ++n ) {
+			idStr candidate = vulkanSDK;
+			candidate.AppendPath( "Bin" );
+			candidate.AppendPath( candidateNames[ n ] );
+			if ( IsRegularFile( candidate ) ) {
+				resolvedPath = candidate;
+				return true;
+			}
+			candidate = vulkanSDK;
+			candidate.AppendPath( "bin" );
+			candidate.AppendPath( candidateNames[ n ] );
+			if ( IsRegularFile( candidate ) ) {
+				resolvedPath = candidate;
+				return true;
+			}
 		}
 	}
 
-	char found[ 4096 ];
-	const DWORD foundLength = SearchPathA( NULL, fileName, NULL,
-		sizeof( found ), found, NULL );
-	if ( foundLength > 0 && foundLength < sizeof( found ) && IsRegularFile( found ) ) {
-		resolvedPath = found;
-		return true;
+#if defined( _WIN32 )
+	for ( int n = 0; n < candidateNames.Num(); ++n ) {
+		char found[ 4096 ];
+		const DWORD foundLength = SearchPathA( NULL, candidateNames[ n ], NULL,
+			sizeof( found ), found, NULL );
+		if ( foundLength > 0 && foundLength < sizeof( found ) && IsRegularFile( found ) ) {
+			resolvedPath = found;
+			return true;
+		}
 	}
+#else
+	const char* pathEnv = Sys_GetEnv( "PATH" );
+	if ( pathEnv != NULL && pathEnv[ 0 ] != '\0' ) {
+		idStr pathStr = pathEnv;
+		int start = 0;
+		while ( start < pathStr.Length() ) {
+			int colon = pathStr.Find( ':', start );
+			idStr dir;
+			if ( colon >= 0 ) {
+				dir = pathStr.Mid( start, colon - start );
+				start = colon + 1;
+			} else {
+				dir = pathStr.Mid( start, pathStr.Length() - start );
+				start = pathStr.Length();
+			}
+			for ( int n = 0; n < candidateNames.Num(); ++n ) {
+				idStr candidate = dir;
+				candidate.AppendPath( candidateNames[ n ] );
+				if ( IsRegularFile( candidate ) && access( candidate.c_str(), X_OK ) == 0 ) {
+					resolvedPath = candidate;
+					return true;
+				}
+			}
+		}
+	}
+	const char* fallbackDirs[] = { "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin" };
+	for ( size_t i = 0; i < sizeof( fallbackDirs ) / sizeof( fallbackDirs[ 0 ] ); ++i ) {
+		for ( int n = 0; n < candidateNames.Num(); ++n ) {
+			idStr candidate = fallbackDirs[ i ];
+			candidate.AppendPath( candidateNames[ n ] );
+			if ( IsRegularFile( candidate ) && access( candidate.c_str(), X_OK ) == 0 ) {
+				resolvedPath = candidate;
+				return true;
+			}
+		}
+	}
+#endif
 
-	reason = va( "%s was not found in vkcompiler, beside etqw.exe, VULKAN_SDK, or PATH", fileName );
+	reason = va( "%s was not found in vkcompiler, beside executable, VULKAN_SDK, or PATH", fileName );
 	return false;
 }
 
@@ -142,6 +237,14 @@ bool ResolveValidator( const idStr& compilerPath, idStr& validatorPath,
 	idStr companion = compilerPath;
 	companion.StripFilename();
 	companion.AppendPath( "spirv-val.exe" );
+	if ( IsRegularFile( companion ) ) {
+		validatorPath = companion;
+		reason.Clear();
+		return true;
+	}
+	companion = compilerPath;
+	companion.StripFilename();
+	companion.AppendPath( "spirv-val" );
 	if ( IsRegularFile( companion ) ) {
 		validatorPath = companion;
 		reason.Clear();
@@ -295,10 +398,11 @@ void AppendCommandLineArgument( idStr& commandLine, const char* argument ) {
 }
 
 bool RunProcess( const char* executable, const idList< idStr >& arguments,
-	const char* logOSPath, int timeoutMilliseconds, DWORD& exitCode,
+	const char* logOSPath, int timeoutMilliseconds, ProcessExitCode_t& exitCode,
 	idStr& diagnostics ) {
 	exitCode = 0;
 
+#if defined( _WIN32 )
 	SECURITY_ATTRIBUTES security;
 	memset( &security, 0, sizeof( security ) );
 	security.nLength = sizeof( security );
@@ -368,6 +472,75 @@ bool RunProcess( const char* executable, const idList< idStr >& arguments,
 		return false;
 	}
 	return true;
+#else
+	int logFd = open( logOSPath, O_WRONLY | O_CREAT | O_TRUNC, 0644 );
+	if ( logFd < 0 ) {
+		diagnostics += va( "could not create shader compiler log '%s': %s", logOSPath, strerror( errno ) );
+		return false;
+	}
+
+	idList< const char* > argvList;
+	argvList.Append( executable );
+	for ( int i = 0; i < arguments.Num(); ++i ) {
+		argvList.Append( arguments[ i ].c_str() );
+	}
+	argvList.Append( NULL );
+
+	posix_spawn_file_actions_t actions;
+	posix_spawn_file_actions_init( &actions );
+	posix_spawn_file_actions_adddup2( &actions, logFd, STDOUT_FILENO );
+	posix_spawn_file_actions_adddup2( &actions, logFd, STDERR_FILENO );
+
+	pid_t pid = 0;
+	int spawnErr = posix_spawnp( &pid, executable, &actions, NULL,
+		const_cast< char* const* >( argvList.Begin() ), environ );
+	posix_spawn_file_actions_destroy( &actions );
+	close( logFd );
+
+	if ( spawnErr != 0 ) {
+		diagnostics += va( "could not spawn '%s': %s", executable, strerror( spawnErr ) );
+		return false;
+	}
+
+	int status = 0;
+	int waitedMs = 0;
+	const int pollIntervalMs = 10;
+	bool finished = false;
+
+	while ( waitedMs < timeoutMilliseconds ) {
+		pid_t res = waitpid( pid, &status, WNOHANG );
+		if ( res == pid ) {
+			finished = true;
+			break;
+		} else if ( res < 0 ) {
+			diagnostics += va( "waitpid error: %s", strerror( errno ) );
+			return false;
+		}
+		usleep( pollIntervalMs * 1000 );
+		waitedMs += pollIntervalMs;
+	}
+
+	if ( !finished ) {
+		kill( pid, SIGKILL );
+		waitpid( pid, &status, 0 );
+		diagnostics += va( "runtime shader compiler exceeded its %d ms timeout", timeoutMilliseconds );
+		return false;
+	}
+
+	if ( WIFEXITED( status ) ) {
+		exitCode = static_cast< unsigned int >( WEXITSTATUS( status ) );
+	} else if ( WIFSIGNALED( status ) ) {
+		exitCode = static_cast< unsigned int >( 128 + WTERMSIG( status ) );
+	} else {
+		exitCode = 1;
+	}
+
+	if ( exitCode != 0 ) {
+		diagnostics += va( "runtime shader compiler returned exit code %u", exitCode );
+		return false;
+	}
+	return true;
+#endif
 }
 
 void HashBytes( md5Context_t& context, const void* data, int length ) {
@@ -396,6 +569,7 @@ idStr BuildCacheKey( const sdSpirvCompilerConfig& config,
 	HashBytes( context, request.source, request.sourceLength );
 	HashString( context, request.cacheSalt );
 
+#if defined( _WIN32 )
 	WIN32_FILE_ATTRIBUTE_DATA compilerAttributes;
 	memset( &compilerAttributes, 0, sizeof( compilerAttributes ) );
 	if ( GetFileAttributesExA( config.compilerPath, GetFileExInfoStandard,
@@ -407,6 +581,13 @@ idStr BuildCacheKey( const sdSpirvCompilerConfig& config,
 		HashBytes( context, &compilerAttributes.nFileSizeLow,
 			sizeof( compilerAttributes.nFileSizeLow ) );
 	}
+#else
+	struct stat st;
+	if ( stat( config.compilerPath, &st ) == 0 ) {
+		HashBytes( context, &st.st_mtime, sizeof( st.st_mtime ) );
+		HashBytes( context, &st.st_size, sizeof( st.st_size ) );
+	}
+#endif
 
 	unsigned char digest[ 16 ];
 	MD5_FinishChecksum( context, digest );
@@ -607,7 +788,7 @@ const char* sdRuntimeSpirvCompiler::StageExtension( sdSpirvShaderStage stage ) {
 bool sdRuntimeSpirvCompiler::Compile( const sdSpirvCompilerConfig& config,
 	const sdSpirvCompileRequest& request, sdSpirvCompileResult& result ) const {
 	result.Clear();
-	const DWORD startTime = GetTickCount();
+	const unsigned int startTime = GetTimestampMs();
 
 	if ( request.source == NULL || request.sourceLength <= 0 ) {
 		result.diagnostics = "runtime shader compiler received empty GLSL source";
@@ -639,18 +820,26 @@ bool sdRuntimeSpirvCompiler::Compile( const sdSpirvCompilerConfig& config,
 	if ( !request.forceRecompile &&
 		ReadVirtualSpirvFile( result.cachePath, result.words, result.diagnostics ) ) {
 		result.cacheHit = true;
-		result.elapsedMilliseconds = static_cast< int >( GetTickCount() - startTime );
+		result.elapsedMilliseconds = static_cast< int >( GetTimestampMs() - startTime );
 		return true;
 	}
 	result.words.Clear();
 	result.diagnostics.Clear();
 
 	char temporaryStem[ 160 ];
+#if defined( _WIN32 )
 	idStr::snPrintf( temporaryStem, sizeof( temporaryStem ),
 		"%s.%s.%08x.%08x.%08x", cacheKey.c_str(), extension,
 		static_cast< unsigned int >( GetCurrentProcessId() ),
 		static_cast< unsigned int >( GetCurrentThreadId() ),
 		static_cast< unsigned int >( InterlockedIncrement( &temporaryFileSerial ) ) );
+#else
+	idStr::snPrintf( temporaryStem, sizeof( temporaryStem ),
+		"%s.%s.%08x.%08x.%08x", cacheKey.c_str(), extension,
+		static_cast< unsigned int >( getpid() ),
+		static_cast< unsigned int >( (uintptr_t)pthread_self() ),
+		static_cast< unsigned int >( ++temporaryFileSerial ) );
+#endif
 	idStr sourcePath = config.cacheDirectory;
 	sourcePath.AppendPath( va( "%s.%s", temporaryStem, extension ) );
 	idStr outputPath = config.cacheDirectory;
@@ -683,7 +872,7 @@ bool sdRuntimeSpirvCompiler::Compile( const sdSpirvCompilerConfig& config,
 	compilerArguments.Append( outputOSPath );
 	compilerArguments.Append( sourceOSPath );
 
-	DWORD compilerExitCode = 0;
+	ProcessExitCode_t compilerExitCode = 0;
 	const bool compiled = RunProcess( config.compilerPath, compilerArguments,
 		compileLogOSPath, config.timeoutMilliseconds, compilerExitCode,
 		result.diagnostics );
@@ -695,7 +884,7 @@ bool sdRuntimeSpirvCompiler::Compile( const sdSpirvCompilerConfig& config,
 		DeleteVirtualFile( outputPath );
 		DeleteVirtualFile( compileLogPath );
 		result.diagnostics += va( "\nGenerated source retained at %s", sourcePath.c_str() );
-		result.elapsedMilliseconds = static_cast< int >( GetTickCount() - startTime );
+		result.elapsedMilliseconds = static_cast< int >( GetTimestampMs() - startTime );
 		return false;
 	}
 
@@ -704,7 +893,7 @@ bool sdRuntimeSpirvCompiler::Compile( const sdSpirvCompilerConfig& config,
 		DeleteVirtualFile( outputPath );
 		DeleteVirtualFile( compileLogPath );
 		result.diagnostics += va( "\nGenerated source retained at %s", sourcePath.c_str() );
-		result.elapsedMilliseconds = static_cast< int >( GetTickCount() - startTime );
+		result.elapsedMilliseconds = static_cast< int >( GetTimestampMs() - startTime );
 		return false;
 	}
 
@@ -713,7 +902,7 @@ bool sdRuntimeSpirvCompiler::Compile( const sdSpirvCompilerConfig& config,
 		validatorArguments.Append( "--target-env" );
 		validatorArguments.Append( SPIRV_TARGET_ENV );
 		validatorArguments.Append( outputOSPath );
-		DWORD validatorExitCode = 0;
+		ProcessExitCode_t validatorExitCode = 0;
 		idStr validatorDiagnostics;
 		const bool validated = RunProcess( config.validatorPath, validatorArguments,
 			validateLogOSPath, config.timeoutMilliseconds, validatorExitCode,
@@ -732,12 +921,13 @@ bool sdRuntimeSpirvCompiler::Compile( const sdSpirvCompilerConfig& config,
 			DeleteVirtualFile( compileLogPath );
 			DeleteVirtualFile( validateLogPath );
 			result.diagnostics += va( "\nGenerated source retained at %s", sourcePath.c_str() );
-			result.elapsedMilliseconds = static_cast< int >( GetTickCount() - startTime );
+			result.elapsedMilliseconds = static_cast< int >( GetTimestampMs() - startTime );
 			return false;
 		}
 		AppendToolOutput( result.diagnostics, "spirv-val output", validatorOutput );
 	}
 
+#if defined( _WIN32 )
 	if ( !MoveFileExA( outputOSPath, cacheOSPath,
 		MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH ) ) {
 		const DWORD error = GetLastError();
@@ -747,16 +937,28 @@ bool sdRuntimeSpirvCompiler::Compile( const sdSpirvCompilerConfig& config,
 		DeleteVirtualFile( sourcePath );
 		DeleteVirtualFile( compileLogPath );
 		DeleteVirtualFile( validateLogPath );
-		result.elapsedMilliseconds = static_cast< int >( GetTickCount() - startTime );
+		result.elapsedMilliseconds = static_cast< int >( GetTimestampMs() - startTime );
 		return false;
 	}
+#else
+	if ( rename( outputOSPath, cacheOSPath ) != 0 ) {
+		result.diagnostics += va( "could not publish SPIR-V cache entry: %s", strerror( errno ) );
+		result.words.Clear();
+		DeleteVirtualFile( outputPath );
+		DeleteVirtualFile( sourcePath );
+		DeleteVirtualFile( compileLogPath );
+		DeleteVirtualFile( validateLogPath );
+		result.elapsedMilliseconds = static_cast< int >( GetTimestampMs() - startTime );
+		return false;
+	}
+#endif
 
 	fileSystem->ClearDirCache();
 	DeleteVirtualFile( sourcePath );
 	DeleteVirtualFile( compileLogPath );
 	DeleteVirtualFile( validateLogPath );
 	result.cacheHit = false;
-	result.elapsedMilliseconds = static_cast< int >( GetTickCount() - startTime );
+	result.elapsedMilliseconds = static_cast< int >( GetTimestampMs() - startTime );
 	return true;
 }
 

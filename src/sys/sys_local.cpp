@@ -421,11 +421,13 @@ void idSysLocal::FreeEvent( const sdSysEvent *event ) {
 	eventAllocator.Free( mutableEvent );
 }
 
+#if !defined( MACOS_X )
 void idSysLocal::OpenURL( const char *url, bool quit ) {
 	if ( quit ) {
 		Sys_Quit();
 	}
 }
+#endif
 
 void idSysLocal::StartProcess( const char *exeName, bool quit ) {
 	if ( quit ) {
@@ -467,6 +469,7 @@ void idSysLocal::InitInput() {
 void idSysLocal::ShutdownInput() {
 }
 
+#ifdef ID_DEDICATED
 idKeyboard& idSysLocal::Keyboard() {
 	return headlessKeyboard;
 }
@@ -478,6 +481,7 @@ idMouse& idSysLocal::Mouse() {
 sdIME& idSysLocal::IME() {
 	return headlessIME;
 }
+#endif
 
 void idSysLocal::SetSystemLocale() {
 }

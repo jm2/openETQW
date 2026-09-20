@@ -3238,8 +3238,12 @@ void idFileSystemLocal::Init( bool quiet ) {
 	// graphics screen when the font fails to load
 	// Dedicated servers can run with no outside files at all
 #ifndef ID_DEDICATED
-	if ( ( cvarSystem == NULL || !cvarSystem->GetCVarBool( "dedicated" ) ) && ReadFile( "default.cfg", NULL, NULL ) <= 0 ) {
-		common->FatalError( "Couldn't load default.cfg" );
+	if ( ( cvarSystem == NULL || !cvarSystem->GetCVarBool( "dedicated" ) ) &&
+		 ReadFile( "default.cfg", NULL, NULL ) <= 0 &&
+		 ReadFile( "localization/english/defaultbinds.cfg", NULL, NULL ) <= 0 &&
+		 ReadFile( "etqwbinds.cfg", NULL, NULL ) <= 0 &&
+		 ReadFile( "etqwconfig.cfg", NULL, NULL ) <= 0 ) {
+		common->FatalError( "Couldn't load default configuration files" );
 	}
 #endif
 }
@@ -3262,8 +3266,12 @@ void idFileSystemLocal::Restart( void ) {
 	// busted and error out now, rather than getting an unreadable
 	// graphics screen when the font fails to load
 #ifndef ID_DEDICATED
-	if ( ( cvarSystem == NULL || !cvarSystem->GetCVarBool( "dedicated" ) ) && ReadFile( "default.cfg", NULL, NULL ) <= 0 ) {
-		common->FatalError( "Couldn't load default.cfg" );
+	if ( ( cvarSystem == NULL || !cvarSystem->GetCVarBool( "dedicated" ) ) &&
+		 ReadFile( "default.cfg", NULL, NULL ) <= 0 &&
+		 ReadFile( "localization/english/defaultbinds.cfg", NULL, NULL ) <= 0 &&
+		 ReadFile( "etqwbinds.cfg", NULL, NULL ) <= 0 &&
+		 ReadFile( "etqwconfig.cfg", NULL, NULL ) <= 0 ) {
+		common->FatalError( "Couldn't load default configuration files" );
 	}
 #endif
 }

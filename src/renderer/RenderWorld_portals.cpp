@@ -17,7 +17,11 @@
 #include "../decllib/declTypeHolder.h"
 #include "../sys/sys_render.h"
 
+#if defined( __APPLE__ )
+#include <OpenGL/gl.h>
+#else
 #include <GL/gl.h>
+#endif
 
 int idRenderWorldLocal::NumPortals() const {
 	return 0;

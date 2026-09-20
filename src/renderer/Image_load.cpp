@@ -360,6 +360,9 @@ GLenum idImage::SelectInternalFormat(
 }
 
 void idImage::SetImageFilterAndRepeat() const {
+	if ( R_UseVulkanBackend() ) {
+		return;
+	}
 	const GLenum target = TextureTargetForType( type );
 	if ( target == 0 || !IsLoaded() ) {
 		return;
@@ -461,7 +464,7 @@ void idImage::Purge() {
 	if ( vulkanBackend.IsInitialized() ) {
 		vulkanBackend.DestroyImage( this );
 	}
-	if ( IsLoaded() && glConfig.isInitialized ) {
+	if ( IsLoaded() && glConfig.isInitialized && !R_UseVulkanBackend() ) {
 		glDeleteTextures( 1, &texnum );
 	}
 	texnum = TEXTURE_NOT_LOADED;
@@ -487,6 +490,9 @@ void idImage::Bind() {
 		vulkanBackend.SetToolImage( this );
 		return;
 	}
+	if ( R_UseVulkanBackend() ) {
+		return;
+	}
 	glBindTexture( TextureTargetForType( type ), texnum );
 }
 
@@ -505,6 +511,9 @@ void idImage::BindFragment() {
 	bindCount++;
 	if ( vulkanBackend.IsToolWindowActive() ) {
 		vulkanBackend.SetToolImage( this );
+		return;
+	}
+	if ( R_UseVulkanBackend() ) {
 		return;
 	}
 	glBindTexture( TextureTargetForType( type ), texnum );
@@ -608,8 +617,13 @@ void idImage::GenerateImageEx(
 		ApplyZeroClampBorder( levelPixels, scaledWidth, scaledHeight, repeat == TR_CLAMP_TO_ZERO_ALPHA );
 	}
 
-	glGenTextures( 1, &texnum );
-	glBindTexture( GL_TEXTURE_2D, texnum );
+	static int s_vulkanTexNum = 1000;
+	if ( R_UseVulkanBackend() ) {
+		texnum = s_vulkanTexNum++;
+	} else {
+		glGenTextures( 1, &texnum );
+		glBindTexture( GL_TEXTURE_2D, texnum );
+	}
 
 	int level = 0;
 	int levelWidth = scaledWidth;
@@ -629,17 +643,19 @@ void idImage::GenerateImageEx(
 				repeatParm == TR_REPEAT ) ) {
 			common->Warning( "Vulkan image upload failed for '%s'", imgName.c_str() );
 		}
-		glTexImage2D(
-			GL_TEXTURE_2D,
-			level,
-			internalFormat,
-			levelWidth,
-			levelHeight,
-			0,
-			GL_RGBA,
-			GL_UNSIGNED_BYTE,
-			levelPixels
-		);
+		if ( !R_UseVulkanBackend() ) {
+			glTexImage2D(
+				GL_TEXTURE_2D,
+				level,
+				internalFormat,
+				levelWidth,
+				levelHeight,
+				0,
+				GL_RGBA,
+				GL_UNSIGNED_BYTE,
+				levelPixels
+			);
+		}
 		if ( ( levelWidth == 1 && levelHeight == 1 ) || level + 1 >= maximumMipLevels ) {
 			break;
 		}
@@ -652,13 +668,15 @@ void idImage::GenerateImageEx(
 	}
 	numMipLevels = level + 1;
 	Mem_Free( levelPixels );
-	SetImageFilterAndRepeat();
-	// GenerateImageEx is used by the MegaTexture moving atlases to allocate
-	// only the mip range updated by a 128x128 streamed tile.  Retail clamps the
-	// texture immediately after SetImageFilterAndRepeat so OpenGL does not
-	// consider the deliberately partial mip chain incomplete.
-	if ( requestedMipLevels >= 0 ) {
-		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, Max( requestedMipLevels - 1, 0 ) );
+	if ( !R_UseVulkanBackend() ) {
+		SetImageFilterAndRepeat();
+		// GenerateImageEx is used by the MegaTexture moving atlases to allocate
+		// only the mip range updated by a 128x128 streamed tile.  Retail clamps the
+		// texture immediately after SetImageFilterAndRepeat so OpenGL does not
+		// consider the deliberately partial mip chain incomplete.
+		if ( requestedMipLevels >= 0 ) {
+			glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, Max( requestedMipLevels - 1, 0 ) );
+		}
 	}
 }
 
@@ -683,6 +701,12 @@ void idImage::Generate3DImage(
 	uploadDepth = imageDepth;
 	internalFormat = GL_RGBA8;
 	numMipLevels = 1;
+
+	if ( R_UseVulkanBackend() ) {
+		static int s_vulkanTexNum = 1000;
+		texnum = s_vulkanTexNum++;
+		return;
+	}
 
 	if ( !glConfig.isInitialized || !glConfig.texture3DAvailable || pic == NULL ) {
 		return;
@@ -733,6 +757,12 @@ void idImage::GenerateCubeImage(
 			filterParm != TF_NEAREST ) ) {
 		common->Warning( "Vulkan cube image upload failed for '%s'",
 			imgName.c_str() );
+	}
+
+	if ( R_UseVulkanBackend() ) {
+		static int s_vulkanTexNum = 1000;
+		texnum = s_vulkanTexNum++;
+		return;
 	}
 
 	if ( !glConfig.isInitialized || !glConfig.cubeMapAvailable || pic == NULL || size <= 0 ) {
@@ -808,6 +838,11 @@ void idImage::FromParameters(
 	numMipLevels = 1;
 
 	if ( !glConfig.isInitialized ) {
+		return;
+	}
+	if ( R_UseVulkanBackend() ) {
+		static int s_vulkanTexNum = 1000;
+		texnum = s_vulkanTexNum++;
 		return;
 	}
 	const GLenum target = TextureTargetForType( type );
@@ -1002,12 +1037,17 @@ void idImage::UploadPrecompressedImage( byte* data, int len ) {
 	}
 	GetDownsize( uploadWidth, uploadHeight );
 
-	glGenTextures( 1, &texnum );
-	if ( texnum == TEXTURE_NOT_LOADED ) {
-		precompressedFile = false;
-		return;
+	static int s_vulkanTexNum = 1000;
+	if ( R_UseVulkanBackend() ) {
+		texnum = s_vulkanTexNum++;
+	} else {
+		glGenTextures( 1, &texnum );
+		if ( texnum == TEXTURE_NOT_LOADED ) {
+			precompressedFile = false;
+			return;
+		}
+		glBindTexture( GL_TEXTURE_2D, texnum );
 	}
-	glBindTexture( GL_TEXTURE_2D, texnum );
 
 	const int fileMipCount = ( header->dwFlags & DDSF_MIPMAPCOUNT )
 		? Max( 1, static_cast< int >( header->dwMipMapCount ) )
@@ -1039,14 +1079,18 @@ void idImage::UploadPrecompressedImage( byte* data, int len ) {
 		if ( mipWidth > uploadWidth || mipHeight > uploadHeight ) {
 			skippedMips++;
 		} else if ( compressed ) {
-			qglCompressedTexImage2DARB(
-				GL_TEXTURE_2D, mip - skippedMips, internalFormat,
-				mipWidth, mipHeight, 0, mipSize, imageData );
+			if ( !R_UseVulkanBackend() ) {
+				qglCompressedTexImage2DARB(
+					GL_TEXTURE_2D, mip - skippedMips, internalFormat,
+					mipWidth, mipHeight, 0, mipSize, imageData );
+			}
 			uploadedMips++;
 		} else {
-			glTexImage2D(
-				GL_TEXTURE_2D, mip - skippedMips, internalFormat,
-				mipWidth, mipHeight, 0, externalFormat, GL_UNSIGNED_BYTE, imageData );
+			if ( !R_UseVulkanBackend() ) {
+				glTexImage2D(
+					GL_TEXTURE_2D, mip - skippedMips, internalFormat,
+					mipWidth, mipHeight, 0, externalFormat, GL_UNSIGNED_BYTE, imageData );
+			}
 			uploadedMips++;
 		}
 
@@ -1098,13 +1142,17 @@ void idImage::UploadPrecompressedImage( byte* data, int len ) {
 	}
 
 	if ( uploadedMips == 0 ) {
-		glDeleteTextures( 1, &texnum );
+		if ( !R_UseVulkanBackend() ) {
+			glDeleteTextures( 1, &texnum );
+		}
 		texnum = TEXTURE_NOT_LOADED;
 		precompressedFile = false;
 		return;
 	}
 	numMipLevels = uploadedMips;
-	SetImageFilterAndRepeat();
+	if ( !R_UseVulkanBackend() ) {
+		SetImageFilterAndRepeat();
+	}
 }
 
 bool idImage::StartBackgroundImageLoad() {
@@ -1182,6 +1230,9 @@ void idImage::ActuallyLoadImage( bool checkForPrecompressed ) {
 }
 
 void idImage::UploadCompressedNormalMap( int width, int height, const byte* rgba, int mipLevel ) {
+	if ( R_UseVulkanBackend() ) {
+		return;
+	}
 	glTexImage2D(
 		GL_TEXTURE_2D,
 		mipLevel,
@@ -1249,7 +1300,7 @@ int idImage::NumLevelsForImageSize( int width, int height ) {
 }
 
 void idImage::CopyFramebuffer( int x, int y, int width, int height, bool ) {
-	if ( width <= 0 || height <= 0 || !glConfig.isInitialized ) {
+	if ( width <= 0 || height <= 0 || !glConfig.isInitialized || R_UseVulkanBackend() ) {
 		return;
 	}
 	if ( !IsLoaded() || type != TT_RECT || uploadWidth != width || uploadHeight != height ) {
@@ -1260,7 +1311,7 @@ void idImage::CopyFramebuffer( int x, int y, int width, int height, bool ) {
 }
 
 void idImage::CopyFramebufferCube( int x, int y, int width, int height, int faceNum ) {
-	if ( faceNum < 0 || faceNum >= 6 || !glConfig.isInitialized ) {
+	if ( faceNum < 0 || faceNum >= 6 || !glConfig.isInitialized || R_UseVulkanBackend() ) {
 		return;
 	}
 	if ( !IsLoaded() || type != TT_CUBIC || uploadWidth != width || uploadHeight != height ) {
@@ -1280,7 +1331,7 @@ void idImage::CopyFramebufferCube( int x, int y, int width, int height, int face
 }
 
 void idImage::CopyDepthbuffer( int x, int y, int width, int height ) {
-	if ( width <= 0 || height <= 0 || !glConfig.isInitialized ) {
+	if ( width <= 0 || height <= 0 || !glConfig.isInitialized || R_UseVulkanBackend() ) {
 		return;
 	}
 	if ( !IsLoaded() || type != TT_RECT || uploadWidth != width || uploadHeight != height ) {
@@ -1292,6 +1343,22 @@ void idImage::CopyDepthbuffer( int x, int y, int width, int height ) {
 
 void idImage::UploadScratch( const byte* pic, int width, int height ) {
 	if ( pic == NULL || width <= 0 || height <= 0 ) {
+		return;
+	}
+
+	if ( R_UseVulkanBackend() ) {
+		static int s_vulkanTexNum = 1000;
+		if ( !IsLoaded() ) {
+			texnum = s_vulkanTexNum++;
+		}
+		const bool isCube = ( height == width * 6 );
+		type = isCube ? TT_CUBIC : TT_2D;
+		sourceWidth = uploadWidth = width;
+		sourceHeight = uploadHeight = isCube ? ( height / 6 ) : height;
+		const bool luminance = internalFormat == GL_LUMINANCE8;
+		if ( vulkanBackend.IsInitialized() && !luminance && !isCube ) {
+			vulkanBackend.UploadImage2D( this, pic, width, height, 1, true, true );
+		}
 		return;
 	}
 
@@ -1388,7 +1455,7 @@ void idImage::Download( byte** pixels, int* width, int* height ) {
 	if ( height != NULL ) {
 		*height = uploadHeight;
 	}
-	if ( pixels == NULL || !IsLoaded() || type != TT_2D ) {
+	if ( pixels == NULL || !IsLoaded() || type != TT_2D || R_UseVulkanBackend() ) {
 		return;
 	}
 	*pixels = static_cast< byte* >( Mem_Alloc( uploadWidth * uploadHeight * 4 ) );

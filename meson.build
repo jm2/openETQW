@@ -43,11 +43,11 @@ if host_system == 'darwin'
   macos_deployment_target = get_option('macos_deployment_target')
   add_project_arguments(
     '-mmacosx-version-min=' + macos_deployment_target,
-    language: ['c', 'cpp'],
+    language: ['c', 'cpp', 'objc', 'objcpp'],
   )
   add_project_link_arguments(
     '-mmacosx-version-min=' + macos_deployment_target,
-    language: ['c', 'cpp'],
+    language: ['c', 'cpp', 'objc', 'objcpp'],
   )
 endif
 
@@ -83,7 +83,7 @@ if cpp.get_argument_syntax() != 'msvc'
     '-Wno-switch',
     '-Wno-deprecated-non-prototype',
     '-Wno-parentheses-equality',
-    language: ['c', 'cpp'],
+    language: ['c', 'cpp', 'objc', 'objcpp'],
   )
 endif
 
@@ -155,6 +155,8 @@ navigation_inc = include_directories('src/navigation')
 detour_inc = include_directories('src/recast/Detour/Include')
 recast_inc = include_directories('src/recast/Recast/Include')
 sdnet_inc = include_directories('src/sdnet')
+imgui_inc = include_directories('src/imgui')
+qgl_inc = include_directories('src/libs/qglLib')
 
 staged_root_inc = include_directories('.tmp/gamelibs_stage')
 staged_inc = include_directories('.tmp/gamelibs_stage/src')
@@ -185,6 +187,8 @@ engine_include_dirs = [
   detour_inc,
   recast_inc,
   sdnet_inc,
+  imgui_inc,
+  qgl_inc,
   staged_root_inc,
   staged_inc,
   staged_framework_inc,
@@ -200,6 +204,20 @@ engine_include_dirs = [
   staged_idlib_inc,
 ]
 
+threads_dep = dependency('threads', required: true)
+zlib_dep = dependency('zlib', required: true)
+idlib_dep = cpp.find_library('idLib', dirs: [game_repo_root / 'build'], required: false)
+
+engine_common_deps = [threads_dep, zlib_dep]
+engine_common_link_args = []
+if idlib_dep.found()
+  engine_common_deps += [idlib_dep]
+elif fs_mod.is_file(game_repo_root / 'build' / 'libidLib.a')
+  engine_common_link_args += [game_repo_root / 'build' / 'libidLib.a']
+else
+  error('libidLib.a not found in ' + game_repo_root / 'build' + '. Build openETQW-game first.')
+endif
+
 if build_engine
   engine_source_discovery = run_command(
     py,
@@ -212,14 +230,32 @@ if build_engine
   engine_source_paths = engine_source_discovery.stdout().strip().split('\n')
   openetqw_client_sources = files(engine_source_paths)
 
+  sdl3_dep = dependency('sdl3', version: '>=3.2.0', required: true)
+  vulkan_dep = dependency('vulkan', version: '>=1.3.0', required: true)
+
+  apple_frameworks_dep = []
+  if host_system == 'darwin'
+    apple_frameworks_dep = [dependency(
+      'appleframeworks',
+      modules: ['Cocoa', 'IOKit', 'CoreVideo', 'Metal', 'QuartzCore', 'ApplicationServices', 'OpenGL'],
+      required: true,
+    )]
+  endif
+
+  client_deps = engine_common_deps + [sdl3_dep, vulkan_dep] + apple_frameworks_dep
+  client_link_args = engine_common_link_args
+  client_cpp_args = common_engine_defs + engine_pch_args + ['-DVK_ENABLE_BETA_EXTENSIONS', '-DUSE_SDL3']
+
   executable(
     engine_client_binary_name,
     openetqw_client_sources,
     include_directories: engine_include_dirs,
-    cpp_args: common_engine_defs,
+    cpp_args: client_cpp_args,
+    objcpp_args: client_cpp_args,
+    dependencies: client_deps,
+    link_args: client_link_args,
     install: true,
   )
-
 endif
 
 if build_dedicated
@@ -234,25 +270,23 @@ if build_dedicated
   ded_source_paths = ded_source_discovery.stdout().strip().split('\n')
   openetqw_ded_sources = files(ded_source_paths)
 
-  threads_dep = dependency('threads', required: true)
-  zlib_dep = dependency('zlib', required: true)
-  idlib_dep = cpp.find_library('idLib', dirs: [game_repo_root / 'build'], required: false)
-
-  ded_deps = [threads_dep, zlib_dep]
-  ded_link_args = []
-  if idlib_dep.found()
-    ded_deps += [idlib_dep]
-  elif fs_mod.is_file(game_repo_root / 'build' / 'libidLib.a')
-    ded_link_args += [game_repo_root / 'build' / 'libidLib.a']
-  else
-    error('libidLib.a not found in ' + game_repo_root / 'build' + '. Build openETQW-game first.')
+  ded_deps = engine_common_deps
+  if host_system == 'darwin'
+    ded_deps += [dependency(
+      'appleframeworks',
+      modules: ['Cocoa', 'IOKit', 'CoreVideo', 'Metal', 'QuartzCore', 'ApplicationServices', 'OpenGL'],
+      required: true,
+    )]
   endif
+  ded_link_args = engine_common_link_args
+  ded_cpp_args = common_engine_defs + ['-DID_DEDICATED'] + engine_pch_args
 
   executable(
     engine_ded_binary_name,
     openetqw_ded_sources,
     include_directories: engine_include_dirs,
-    cpp_args: common_engine_defs + ['-DID_DEDICATED'] + engine_pch_args,
+    cpp_args: ded_cpp_args,
+    objcpp_args: ded_cpp_args,
     dependencies: ded_deps,
     link_args: ded_link_args,
     install: true,

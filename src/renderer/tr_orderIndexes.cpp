@@ -28,7 +28,10 @@ If you have questions concerning this license or the applicable additional terms
 #include "../idlib/precompiled.h"
 #pragma hdrstop
 
-#include "tr_local.h"
+#include "tr_render.h"
+#include "draw_local.h"
+
+idCVar r_orderIndexes( "r_orderIndexes", "1", CVAR_RENDERER | CVAR_BOOL, "perform index reorganization to optimize vertex use" );
 
 
 /*

@@ -963,7 +963,7 @@ void idCommonLocal::InitCommands() {
 #ifdef ETQW_WITH_RADIANT
 	cmdSystem->AddCommand( "editor", Com_Editor_f, CMD_FL_TOOL, "opens the ETQW Radiant level editor" );
 #endif
-#ifndef ID_DEDICATED
+#if defined( ETQW_WITH_TOOLS ) && !defined( ID_DEDICATED )
 	cmdSystem->AddCommand( "dmap", Dmap_f, CMD_FL_TOOL, "compiles an ETQW map" );
 	cmdSystem->AddCommand( "navBuild", NavBuild_f, CMD_FL_TOOL, "builds Recast/Detour navigation for an ETQW map" );
 	cmdSystem->AddCommand( "navVerify", NavVerify_f, CMD_FL_TOOL, "validates a compiled ETQW navmesh" );
@@ -1059,7 +1059,11 @@ void idCommonLocal::LoadGameDLL() {
 		return;
 	}
 
-	game->Init();
+	try {
+		game->Init();
+	} catch ( const idException &e ) {
+		Warning( "idCommonLocal::LoadGameDLL: game->Init error: %s", e.error );
+	}
 	idKeyInput::SetupBinds();
 }
 

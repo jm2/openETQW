@@ -11,11 +11,26 @@
 
 #include <atomic>
 #include <mutex>
+#if !defined( _WIN32 )
+#include <pthread.h>
+#endif
 
 idCVar r_showMetrics( "r_showmetrics", "0", CVAR_RENDERER | CVAR_BOOL,
 	"show the previous Vulkan frame as an ImGui CPU timing timeline" );
 
 namespace {
+
+static inline unsigned int MetricsCurrentThreadId() {
+#if defined( _WIN32 )
+	return static_cast< unsigned int >( GetCurrentThreadId() );
+#elif defined( __APPLE__ )
+	uint64_t tid = 0;
+	pthread_threadid_np( NULL, &tid );
+	return static_cast< unsigned int >( tid );
+#else
+	return static_cast< unsigned int >( (uintptr_t)pthread_self() );
+#endif
+}
 
 static const int MAX_RENDER_METRICS = 256;
 
@@ -332,7 +347,7 @@ idRenderMetricScope::idRenderMetricScope( const char* scopeLabel ) :
 		return;
 	}
 	frameSerial = collectingSerial.load( std::memory_order_relaxed );
-	threadId = GetCurrentThreadId();
+	threadId = MetricsCurrentThreadId();
 	depth = metricDepth++;
 	startTicks = MetricsNow();
 	enabled = true;
@@ -358,7 +373,7 @@ void R_RenderMetricsBeginFrame() {
 	currentFrame.startTicks = MetricsNow();
 	currentFrame.endTicks = currentFrame.startTicks;
 	currentFrame.serial = ++nextFrameSerial;
-	currentFrame.mainThreadId = GetCurrentThreadId();
+	currentFrame.mainThreadId = MetricsCurrentThreadId();
 	collectingSerial.store( currentFrame.serial, std::memory_order_relaxed );
 	collecting.store( true, std::memory_order_release );
 }

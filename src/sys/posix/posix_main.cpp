@@ -11,6 +11,7 @@
 #include <dlfcn.h>
 #include <termios.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -26,6 +27,7 @@
 
 #include "idlib/precompiled.h"
 #include "sys_local.h"
+#include "sys_render.h"
 #include "posix_public.h"
 
 static pthread_t mainThread;
@@ -201,6 +203,7 @@ time_t Sys_RealTime( sysTime_t* sysTime ) {
 	return t;
 }
 
+#if !defined( MACOS_X )
 double Sys_GetClockTicks( void ) {
 #if defined( __APPLE__ )
 	return static_cast< double >( mach_absolute_time() );
@@ -210,7 +213,13 @@ double Sys_GetClockTicks( void ) {
 	return static_cast< double >( ts.tv_sec ) * 1000000000.0 + static_cast< double >( ts.tv_nsec );
 #endif
 }
+#endif
 
+double Sys_GetClockTicksNoFlush( void ) {
+	return Sys_GetClockTicks();
+}
+
+#if !defined( MACOS_X )
 double Sys_ClockTicksPerSecond( void ) {
 #if defined( __APPLE__ )
 	static double ticksPerSec = 0.0;
@@ -224,6 +233,7 @@ double Sys_ClockTicksPerSecond( void ) {
 	return 1000000000.0;
 #endif
 }
+#endif
 
 /*
 ================
@@ -250,6 +260,7 @@ void Sys_CPUInfo( cpuInfo_t& info ) {
 #endif
 }
 
+#if !defined( MACOS_X )
 cpuid_t Sys_GetProcessorId( void ) {
 	return static_cast< cpuid_t >( 0 );
 }
@@ -263,6 +274,7 @@ const char *Sys_GetProcessorString( void ) {
 	return "Generic";
 #endif
 }
+#endif
 
 const char *Sys_FPU_GetState( void ) {
 	return "OK";
@@ -272,9 +284,15 @@ bool Sys_FPU_StackIsEmpty( void ) {
 	return true;
 }
 
+#if !defined( MACOS_X )
 void Sys_FPU_SetFTZ( bool ) {}
 void Sys_FPU_SetDAZ( bool ) {}
 void Sys_FPU_EnableExceptions( int ) {}
+#endif
+
+const char *Sys_GetEnv( const char *name ) {
+	return name != NULL ? getenv( name ) : NULL;
+}
 
 void Sys_GetCurrentMemoryStatus( sysMemoryStats_t &stats ) {
 	memset( &stats, 0, sizeof( stats ) );
@@ -302,6 +320,7 @@ void Sys_GetProcessMemoryStatus( sysProcessMemoryStats_t &stats ) {
 Path & Dynamic Library Management
 ================
 */
+#if !defined( __APPLE__ ) && ( defined( ID_DEDICATED ) || !defined( MACOS_X ) )
 const char *Sys_EXEPath( void ) {
 	if ( s_exePath[0] != '\0' ) {
 		return s_exePath;
@@ -332,6 +351,7 @@ const char *Sys_DefaultBasePath( void ) {
 const char *Sys_DefaultSavePath( void ) {
 	return Posix_Cwd();
 }
+#endif
 
 const char *Sys_DefaultUserPath( void ) {
 	return Posix_Cwd();
@@ -351,9 +371,11 @@ int Sys_Rmdir( const char *path ) {
 	return rmdir( path );
 }
 
+#if !defined( __APPLE__ ) && ( defined( ID_DEDICATED ) || !defined( MACOS_X ) )
 const char *Sys_DefaultCDPath( void ) {
 	return "";
 }
+#endif
 
 void Sys_Init( void ) {
 }
@@ -375,9 +397,23 @@ void Sys_PumpEvents( void ) {
 }
 
 void Sys_ShowWindow( bool show ) {
+#ifndef ID_DEDICATED
+	if ( sys3D != NULL ) {
+		if ( show ) {
+			sys3D->ShowGameWindow();
+		} else {
+			sys3D->HideGameWindow();
+		}
+	}
+#endif
 }
 
 bool Sys_IsWindowVisible( void ) {
+#ifndef ID_DEDICATED
+	if ( sys3D != NULL && sys3D->GetGameWindow() != NULL ) {
+		return !sys3D->IsMinimized();
+	}
+#endif
 	return false;
 }
 
@@ -502,6 +538,18 @@ char* Posix_ConsoleInput( void ) {
 		return NULL;
 	}
 
+	struct pollfd pfd;
+	pfd.fd = STDIN_FILENO;
+	pfd.events = POLLIN;
+	pfd.revents = 0;
+	int pollRet = poll( &pfd, 1, 0 );
+	if ( pollRet <= 0 || ( pfd.revents & POLLIN ) == 0 ) {
+		if ( pollRet > 0 && ( pfd.revents & ( POLLERR | POLLHUP | POLLNVAL ) ) != 0 && !isatty( STDIN_FILENO ) ) {
+			s_stdinEOF = true;
+		}
+		return NULL;
+	}
+
 	char ch;
 	ssize_t n = 0;
 	while ( ( n = read( STDIN_FILENO, &ch, 1 ) ) == 1 ) {
@@ -538,6 +586,10 @@ char* Posix_ConsoleInput( void ) {
 }
 
 void Sys_GenerateEvents( void ) {
+#ifndef ID_DEDICATED
+	void Sys_ProcessSDLEvents( void );
+	Sys_ProcessSDLEvents();
+#endif
 	Posix_ConsoleFrame();
 
 	char *cmd = Posix_ConsoleInput();
@@ -556,6 +608,7 @@ void Sys_GenerateEvents( void ) {
 Main Entry Point
 ================
 */
+#ifdef ID_DEDICATED
 int main( int argc, const char **argv ) {
 	Posix_EarlyInit();
 
@@ -575,3 +628,4 @@ int main( int argc, const char **argv ) {
 
 	return 0;
 }
+#endif

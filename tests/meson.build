@@ -94,3 +94,15 @@ test(
   args: [meson.project_source_root() / 'tests' / 'test_zero_sdk.py'],
   timeout: 30,
 )
+
+# 6. Client lifecycle & graphics verification test
+if build_engine
+  test(
+    'client-lifecycle',
+    py,
+    args: [meson.project_source_root() / 'tests' / 'test_client_lifecycle.py'],
+    workdir: meson.project_source_root(),
+    timeout: 120,
+  )
+endif
+
