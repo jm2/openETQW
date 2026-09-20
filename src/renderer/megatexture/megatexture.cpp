@@ -25,7 +25,7 @@ GNU General Public License for more details.
 
 #include "../RendererTypesImpl.h"
 #include "../draw_local.h"
-#include "../Image.h"
+#include "Image.h"
 #include "../RendererMetrics.h"
 #include "../VulkanBackend.h"
 #include "../renderbindings.h"

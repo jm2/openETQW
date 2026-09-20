@@ -29,17 +29,26 @@
 #include "../libs/qglLib/qcg.h"
 #include "../sys/sys_render.h"
 
+#if defined( __APPLE__ )
+#include <OpenGL/gl.h>
+#else
 #include <GL/gl.h>
+#endif
 
 glconfig_t glConfig;
 
 namespace {
 const char* renderAPIValues[] = { "opengl", "vulkan", NULL };
+#if defined( __APPLE__ )
+const char* defaultRenderAPI = "vulkan";
+#else
+const char* defaultRenderAPI = "opengl";
+#endif
 }
 
 idCVar r_renderAPI(
 	"r_renderAPI",
-	"opengl",
+	defaultRenderAPI,
 	CVAR_RENDERER | CVAR_ARCHIVE | CVAR_NOCHEAT,
 	"renderer backend; changes take effect after a renderer restart",
 	renderAPIValues
@@ -466,6 +475,44 @@ void R_InitOpenGL() {
 		common->FatalError( "R_InitOpenGL called while active" );
 	}
 
+	if ( R_UseVulkanBackend() ) {
+		glConfig.vendor_string = "Apple / MoltenVK";
+		glConfig.renderer_string = vulkanBackend.GetDeviceName();
+		glConfig.version_string = "Vulkan 1.3 / MoltenVK";
+		glConfig.extensions_string = "";
+		glConfig.wgl_extensions_string = "";
+		glConfig.glVersion = 4.5f;
+		glConfig.maxTextureSize = 16384;
+		glConfig.maxTextureUnits = 32;
+		glConfig.maxTextureCoords = 32;
+		glConfig.maxTextureImageUnits = 32;
+		glConfig.maxTextureAnisotropy = 16.0f;
+		glConfig.maxVertexAttribs = 16;
+		glConfig.maxProgramLocalParameters = 256;
+		glConfig.maxProgramEnvParameters = 256;
+		glConfig.multitextureAvailable = true;
+		glConfig.texture3DAvailable = true;
+		glConfig.rectangleTextureAvailable = true;
+		glConfig.occlusionQueryAvailable = true;
+		glConfig.ARBVertexProgramAvailable = true;
+		glConfig.ARBFragmentProgramAvailable = true;
+		glConfig.textureCompressionAvailable = true;
+		glConfig.anisotropicAvailable = true;
+		glConfig.multiSampleAvailable = false;
+		glConfig.samples = 0;
+		glConfig.isInitialized = true;
+		r_glDriverVendor.SetString( "Apple" );
+
+		common->Printf( "GL_VENDOR: %s\n", glConfig.vendor_string );
+		common->Printf( "GL_RENDERER: %s\n", glConfig.renderer_string );
+		common->Printf( "GL_VERSION: %s\n", glConfig.version_string );
+		common->Printf( "GL_MAX_TEXTURE_SIZE: %d\n", glConfig.maxTextureSize );
+		R_ARB2_Init();
+		vertexCache.Init();
+		common->Printf( "------------------------\n" );
+		return;
+	}
+
 	const char* vendor = reinterpret_cast< const char* >( glGetString( GL_VENDOR ) );
 	const char* renderer = reinterpret_cast< const char* >( glGetString( GL_RENDERER ) );
 	const char* version = reinterpret_cast< const char* >( glGetString( GL_VERSION ) );
@@ -554,7 +601,7 @@ void idRenderSystemLocal::Init() {
 			common->FatalError( "Failed to initialize the Vulkan renderer" );
 		}
 		R_InitOpenGL();
-		openGLRunning = true;
+		openGLRunning = !R_UseVulkanBackend();
 	} else {
 		common->Printf( "renderSystem running without OpenGL (dedicated or skipped renderer)\n" );
 	}

@@ -19,10 +19,15 @@
 #include "../decllib/declSkin.h"
 #include "../decllib/declTypeHolder.h"
 #include "../decllib/declAmbientCubeMap.h"
-#include "../bse/BSE.h"
+#include "RenderBSE.h"
 #include "../sys/sys_render.h"
+#include "VulkanBackend.h"
 
+#if defined( __APPLE__ )
+#include <OpenGL/gl.h>
+#else
 #include <GL/gl.h>
+#endif
 
 struct bseEffectState_t {
 	bseEffectState_t() : decl( NULL ), model( NULL ), startTime( 0 ), stopTime( 0.0f ), stopped( false ) {
@@ -548,7 +553,11 @@ void idRenderWorldLocal::RenderScene( const renderView_t *renderView ) {
 void idRenderWorldLocal::PerformRenderScene( const renderView_t *renderView ) {
 	RENDER_METRIC_SCOPE( "Render scene" );
 	SetRenderView( renderView );
+#if defined( _WIN32 )
 	if ( renderView == NULL || !glConfig.isInitialized || wglGetCurrentContext() == NULL ) {
+#else
+	if ( renderView == NULL || !glConfig.isInitialized ) {
+#endif
 		return;
 	}
 
@@ -565,6 +574,26 @@ void idRenderWorldLocal::PerformRenderScene( const renderView_t *renderView ) {
 	renderSystemBackend.RenderViewToViewport( renderView, &viewport );
 	const int viewportWidth = Max( 1, viewport.x2 - viewport.x1 + 1 );
 	const int viewportHeight = Max( 1, viewport.y2 - viewport.y1 + 1 );
+
+	if ( R_UseVulkanBackend() ) {
+		{
+			RENDER_METRIC_SCOPE( "Build draw view" );
+			RB_SetDrawViewContext( this, renderView );
+		}
+		viewDef_s* viewDef = RB_GetViewDef();
+		if ( viewDef != NULL ) {
+			RB_SetImmediateViewState( renderView, viewDef->projectionMatrix, viewportWidth, viewportHeight );
+			{
+				RENDER_METRIC_SCOPE( "Draw view" );
+				RB_STD_DrawView();
+			}
+		}
+		{
+			RENDER_METRIC_SCOPE( "Free draw view" );
+			RB_ClearDrawViewContext();
+		}
+		return;
+	}
 
 	glPushAttrib( GL_COLOR_BUFFER_BIT | GL_CURRENT_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT |
 		GL_ENABLE_BIT | GL_POLYGON_BIT | GL_SCISSOR_BIT | GL_TEXTURE_BIT |

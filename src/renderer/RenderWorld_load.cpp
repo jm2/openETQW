@@ -17,7 +17,11 @@
 #include "../decllib/declTypeHolder.h"
 #include "../sys/sys_render.h"
 
+#if defined( __APPLE__ )
+#include <OpenGL/gl.h>
+#else
 #include <GL/gl.h>
+#endif
 
 namespace {
 
@@ -404,7 +408,7 @@ bool idRenderWorldLocal::ParseMegatextureInfo_Binary( idFile* file ) {
 	int height = 0;
 	if ( !ReadProcInt( file, width ) || !ReadProcInt( file, height ) ||
 		width < 0 || height < 0 || width > ( 1 << 16 ) || height > ( 1 << 16 ) ) return false;
-	const __int64 gridCount = static_cast< __int64 >( width ) * height;
+	const int64_t gridCount = static_cast< int64_t >( width ) * height;
 	if ( gridCount > ( 1 << 26 ) || gridCount > INT_MAX ) return false;
 	idList< idVec2 > grid;
 	grid.SetNum( static_cast< int >( gridCount ) );

@@ -21,12 +21,17 @@
 #include "../libs/qglLib/qgl.h"
 #include "../sound/SoundEmitter.h"
 
+#if defined( __APPLE__ )
+#include <OpenGL/gl.h>
+#else
 #include <GL/gl.h>
+#endif
 
 extern idCVar r_32ByteVtx;
 
 namespace {
 
+#if defined( _WIN32 )
 struct bitmapFontCache_t {
 	int		pixelHeight;
 	GLuint	listBase;
@@ -35,6 +40,7 @@ struct bitmapFontCache_t {
 
 idList< bitmapFontCache_t > bitmapFontCache;
 HGLRC bitmapFontContext = NULL;
+#endif
 
 struct vulkanBitmapFont_t {
 	int		pixelHeight;
@@ -61,6 +67,7 @@ int GuiNextPowerOfTwo( int value ) {
 	return result;
 }
 
+#if defined( _WIN32 )
 bitmapFontCache_t* GetBitmapFont( HDC deviceContext, int pixelHeight ) {
 	const HGLRC currentContext = wglGetCurrentContext();
 	if ( currentContext == NULL || deviceContext == NULL ) {
@@ -124,6 +131,7 @@ bitmapFontCache_t* GetBitmapFont( HDC deviceContext, int pixelHeight ) {
 	const int index = bitmapFontCache.Append( cache );
 	return &bitmapFontCache[ index ];
 }
+#endif
 
 void BuildDisplayText( const wchar_t* source, idWStr& displayText ) {
 	displayText.Clear();
@@ -245,6 +253,7 @@ void sdGuiModel::RenderScene() {
 	writePosition += sizeof( int );
 }
 
+#if defined( _WIN32 )
 vulkanBitmapFont_t* GetVulkanBitmapFont( HDC windowDC, int pixelHeight ) {
 	if ( globalImages == NULL || windowDC == NULL ) {
 		return NULL;
@@ -356,6 +365,11 @@ vulkanBitmapFont_t* GetVulkanBitmapFont( HDC windowDC, int pixelHeight ) {
 	DeleteObject( windowsFont );
 	return image != NULL && image->IsLoaded() ? font : NULL;
 }
+#else
+vulkanBitmapFont_t* GetVulkanBitmapFont( void* windowDC, int pixelHeight ) {
+	return NULL;
+}
+#endif
 
 idImage* ResolveVulkanStageImage( const materialStage_t* stage,
 	idImage* overrideImage ) {
@@ -712,6 +726,7 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 		}
 	};
 
+#if defined( _WIN32 )
 	HDC windowDC = wglGetCurrentDC();
 	const float pixelScale = Max( 1.0f, static_cast< float >( windowHeight ) / 480.0f );
 	auto submitText = [&]( const guiText_t& command ) {
@@ -760,6 +775,7 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 		glListBase( font->listBase );
 		glCallLists( displayText.Length(), GL_UNSIGNED_SHORT, displayText.c_str() );
 	};
+#endif
 
 	// The retail GUI model is one command stream.  Keeping primitives and text
 	// in separate decoded arrays is fine only if they are merged again here;
@@ -773,7 +789,11 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 		if ( usePrimitive ) {
 			submitPrimitive( primitives[ primitiveIndex++ ] );
 		} else {
+#if defined( _WIN32 )
 			submitText( texts[ textIndex++ ] );
+#else
+			textIndex++;
+#endif
 		}
 	}
 
@@ -785,7 +805,11 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 }
 
 void sdGuiModel::SubmitFrameVulkan() {
+#if defined( _WIN32 )
 	HDC windowDC = wglGetCurrentDC();
+#else
+	void* windowDC = NULL;
+#endif
 	idList< float > evaluated;
 	idList< sdVulkanToolVertex > batchedVertices;
 	batchedVertices.SetGranularity( 1024 );

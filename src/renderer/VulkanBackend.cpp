@@ -17,12 +17,19 @@
 #include "../decllib/declAtmosphere.h"
 #include "../decllib/declAmbientCubeMap.h"
 #include "../decllib/declRenderBinding.h"
+#include "../decllib/declRenderProgram.h"
 
-#define VK_USE_PLATFORM_WIN32_KHR
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_vulkan.h>
+#define VK_ENABLE_BETA_EXTENSIONS
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>
 
+#if defined( _WIN32 )
 #include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
 #include "draw_raytracing.h"
 
@@ -318,8 +325,8 @@ void AppendRayTracingInstances( idList< sdRayTracingGeometry >& destination,
 } // namespace
 
 struct sdVulkanBackendState {
-	HMODULE					vulkanLibrary;
-	HWND					nativeWindow;
+	void*					vulkanLibrary;
+	void*					nativeWindow;
 
 	VkInstance				instance;
 	VkDebugUtilsMessengerEXT	debugMessenger;
@@ -357,7 +364,7 @@ struct sdVulkanBackendState {
 	bool					frameActive;
 
 	struct sdToolWindow {
-		HWND				window;
+		void*				window;
 		VkSurfaceKHR		surface;
 		VkSwapchainKHR		swapchain;
 		VkExtent2D			extent;
@@ -513,7 +520,9 @@ struct sdVulkanBackendState {
 	PFN_vkDestroyInstance				DestroyInstance;
 	PFN_vkCreateDebugUtilsMessengerEXT	CreateDebugUtilsMessengerEXT;
 	PFN_vkDestroyDebugUtilsMessengerEXT	DestroyDebugUtilsMessengerEXT;
+#if defined( _WIN32 )
 	PFN_vkCreateWin32SurfaceKHR			CreateWin32SurfaceKHR;
+#endif
 	PFN_vkDestroySurfaceKHR			DestroySurfaceKHR;
 	PFN_vkEnumeratePhysicalDevices		EnumeratePhysicalDevices;
 	PFN_vkGetPhysicalDeviceProperties		GetPhysicalDeviceProperties;
@@ -722,7 +731,9 @@ struct sdVulkanBackendState {
 		CLEAR_VK_FUNCTION( DestroyInstance );
 		CLEAR_VK_FUNCTION( CreateDebugUtilsMessengerEXT );
 		CLEAR_VK_FUNCTION( DestroyDebugUtilsMessengerEXT );
+#if defined( _WIN32 )
 		CLEAR_VK_FUNCTION( CreateWin32SurfaceKHR );
+#endif
 		CLEAR_VK_FUNCTION( DestroySurfaceKHR );
 		CLEAR_VK_FUNCTION( EnumeratePhysicalDevices );
 		CLEAR_VK_FUNCTION( GetPhysicalDeviceProperties );
@@ -949,15 +960,14 @@ void ReportVulkanDrawMaterial( sdVulkanBackendState& state,
 }
 
 bool LoadVulkanLibrary( sdVulkanBackendState& state ) {
-	state.vulkanLibrary = LoadLibraryA( "vulkan-1.dll" );
-	if ( state.vulkanLibrary == NULL ) {
-		common->Warning( "Could not load the 32-bit Vulkan loader (vulkan-1.dll)" );
+	if ( !SDL_Vulkan_LoadLibrary( NULL ) ) {
+		common->Warning( "Could not load Vulkan library via SDL3: %s", SDL_GetError() );
 		return false;
 	}
 	state.GetInstanceProcAddr = reinterpret_cast< PFN_vkGetInstanceProcAddr >(
-		GetProcAddress( state.vulkanLibrary, "vkGetInstanceProcAddr" ) );
+		SDL_Vulkan_GetVkGetInstanceProcAddr() );
 	if ( state.GetInstanceProcAddr == NULL ) {
-		common->Warning( "vulkan-1.dll does not export vkGetInstanceProcAddr" );
+		common->Warning( "SDL3 could not obtain vkGetInstanceProcAddr" );
 		return false;
 	}
 
@@ -976,7 +986,9 @@ bool LoadInstanceFunctions( sdVulkanBackendState& state ) {
 	bool loaded = true;
 #define LOAD_INSTANCE_FUNCTION( name ) loaded = LoadInstanceFunction( state.GetInstanceProcAddr, state.instance, "vk" #name, state.name ) && loaded
 	LOAD_INSTANCE_FUNCTION( DestroyInstance );
+#if defined( _WIN32 )
 	LOAD_INSTANCE_FUNCTION( CreateWin32SurfaceKHR );
+#endif
 	LOAD_INSTANCE_FUNCTION( DestroySurfaceKHR );
 	LOAD_INSTANCE_FUNCTION( EnumeratePhysicalDevices );
 	LOAD_INSTANCE_FUNCTION( GetPhysicalDeviceProperties );
@@ -1098,10 +1110,24 @@ bool CreateVulkanInstance( sdVulkanBackendState& state ) {
 		"vkEnumerateInstanceExtensionProperties" ) ) {
 		return false;
 	}
-	if ( !HasExtension( extensions, VK_KHR_SURFACE_EXTENSION_NAME ) ||
-		!HasExtension( extensions, VK_KHR_WIN32_SURFACE_EXTENSION_NAME ) ) {
-		common->Warning( "The Vulkan loader does not expose the required Win32 surface extensions" );
+	Uint32 sdlExtCount = 0;
+	char const * const * sdlExtNames = SDL_Vulkan_GetInstanceExtensions( &sdlExtCount );
+	if ( sdlExtNames == NULL || sdlExtCount == 0 ) {
+		common->Warning( "SDL_Vulkan_GetInstanceExtensions failed: %s", SDL_GetError() );
 		return false;
+	}
+
+	idList< const char* > enabledExtensions;
+	for ( Uint32 i = 0; i < sdlExtCount; ++i ) {
+		if ( HasExtension( extensions, sdlExtNames[ i ] ) ) {
+			enabledExtensions.Append( sdlExtNames[ i ] );
+		}
+	}
+
+	bool portabilityEnumeration = false;
+	if ( HasExtension( extensions, "VK_KHR_portability_enumeration" ) ) {
+		enabledExtensions.Append( "VK_KHR_portability_enumeration" );
+		portabilityEnumeration = true;
 	}
 
 	unsigned int layerCount = 0;
@@ -1119,12 +1145,8 @@ bool CreateVulkanInstance( sdVulkanBackendState& state ) {
 	const bool enableDebugUtils = enableValidation &&
 		HasExtension( extensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME );
 
-	const char* enabledExtensions[ 3 ];
-	unsigned int enabledExtensionCount = 0;
-	enabledExtensions[ enabledExtensionCount++ ] = VK_KHR_SURFACE_EXTENSION_NAME;
-	enabledExtensions[ enabledExtensionCount++ ] = VK_KHR_WIN32_SURFACE_EXTENSION_NAME;
 	if ( enableDebugUtils ) {
-		enabledExtensions[ enabledExtensionCount++ ] = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
+		enabledExtensions.Append( VK_EXT_DEBUG_UTILS_EXTENSION_NAME );
 	}
 	const char* enabledLayers[ 1 ];
 	unsigned int enabledLayerCount = 0;
@@ -1146,10 +1168,13 @@ bool CreateVulkanInstance( sdVulkanBackendState& state ) {
 	VkInstanceCreateInfo createInfo;
 	memset( &createInfo, 0, sizeof( createInfo ) );
 	createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+	if ( portabilityEnumeration ) {
+		createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+	}
 	createInfo.pNext = enableDebugUtils ? &debugCreateInfo : NULL;
 	createInfo.pApplicationInfo = &applicationInfo;
-	createInfo.enabledExtensionCount = enabledExtensionCount;
-	createInfo.ppEnabledExtensionNames = enabledExtensions;
+	createInfo.enabledExtensionCount = enabledExtensions.Num();
+	createInfo.ppEnabledExtensionNames = enabledExtensions.Begin();
 	createInfo.enabledLayerCount = enabledLayerCount;
 	createInfo.ppEnabledLayerNames = enabledLayers;
 
@@ -1171,13 +1196,14 @@ bool CreateVulkanInstance( sdVulkanBackendState& state ) {
 }
 
 bool CreateVulkanSurface( sdVulkanBackendState& state ) {
-	VkWin32SurfaceCreateInfoKHR createInfo;
-	memset( &createInfo, 0, sizeof( createInfo ) );
-	createInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
-	createInfo.hinstance = GetModuleHandleA( NULL );
-	createInfo.hwnd = state.nativeWindow;
-	return CheckVulkanResult( state.CreateWin32SurfaceKHR( state.instance,
-		&createInfo, NULL, &state.surface ), "vkCreateWin32SurfaceKHR" );
+	VkSurfaceKHR surface = VK_NULL_HANDLE;
+	if ( !SDL_Vulkan_CreateSurface( static_cast< SDL_Window* >( state.nativeWindow ),
+		state.instance, NULL, &surface ) ) {
+		common->Warning( "SDL_Vulkan_CreateSurface failed: %s", SDL_GetError() );
+		return false;
+	}
+	state.surface = surface;
+	return true;
 }
 
 bool DeviceHasExtension( sdVulkanBackendState& state, VkPhysicalDevice device,
@@ -1309,7 +1335,8 @@ bool SelectPhysicalDevice( sdVulkanBackendState& state ) {
 }
 
 bool CreateLogicalDevice( sdVulkanBackendState& state,
-	sdRayTracingDeviceConfiguration& rayTracingConfiguration ) {
+	sdRayTracingDeviceConfiguration& rayTracingConfiguration,
+	bool rayTracingAvailable ) {
 	const float queuePriority = 1.0f;
 	VkDeviceQueueCreateInfo queueCreateInfo;
 	memset( &queueCreateInfo, 0, sizeof( queueCreateInfo ) );
@@ -1324,28 +1351,58 @@ bool CreateLogicalDevice( sdVulkanBackendState& state,
 	features13.dynamicRendering = VK_TRUE;
 	features13.synchronization2 = VK_TRUE;
 	features13.shaderDemoteToHelperInvocation = VK_TRUE;
-	features13.pNext = &rayTracingConfiguration.bufferDeviceAddress;
-	rayTracingConfiguration.coreFeatures.fillModeNonSolid =
-		state.fillModeNonSolid ? VK_TRUE : VK_FALSE;
 
-	const char* extensions[ 4 ];
-	unsigned int extensionCount = 0;
-	extensions[ extensionCount++ ] = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
-	for ( unsigned int extensionIndex = 0;
-		extensionIndex < rayTracingConfiguration.deviceExtensionCount;
-		++extensionIndex ) {
-		extensions[ extensionCount++ ] =
-			rayTracingConfiguration.deviceExtensions[ extensionIndex ];
+	VkPhysicalDeviceFeatures coreFeatures;
+	memset( &coreFeatures, 0, sizeof( coreFeatures ) );
+	if ( state.fillModeNonSolid ) {
+		coreFeatures.fillModeNonSolid = VK_TRUE;
 	}
+
+	if ( rayTracingAvailable ) {
+		features13.pNext = &rayTracingConfiguration.bufferDeviceAddress;
+		if ( state.fillModeNonSolid ) {
+			rayTracingConfiguration.coreFeatures.fillModeNonSolid = VK_TRUE;
+		}
+		coreFeatures = rayTracingConfiguration.coreFeatures;
+	}
+
+	bool hasPortabilitySubset = DeviceHasExtension( state, state.physicalDevice, "VK_KHR_portability_subset" );
+	VkPhysicalDevicePortabilitySubsetFeaturesKHR portabilityFeatures;
+	memset( &portabilityFeatures, 0, sizeof( portabilityFeatures ) );
+	portabilityFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR;
+	if ( hasPortabilitySubset ) {
+		VkPhysicalDeviceFeatures2 features2;
+		memset( &features2, 0, sizeof( features2 ) );
+		features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+		features2.pNext = &portabilityFeatures;
+		state.GetPhysicalDeviceFeatures2( state.physicalDevice, &features2 );
+
+		portabilityFeatures.pNext = features13.pNext;
+		features13.pNext = &portabilityFeatures;
+	}
+
+	idList< const char* > extensions;
+	extensions.Append( VK_KHR_SWAPCHAIN_EXTENSION_NAME );
+	if ( hasPortabilitySubset ) {
+		extensions.Append( "VK_KHR_portability_subset" );
+	}
+	if ( rayTracingAvailable ) {
+		for ( unsigned int extensionIndex = 0;
+			extensionIndex < rayTracingConfiguration.deviceExtensionCount;
+			++extensionIndex ) {
+			extensions.Append( rayTracingConfiguration.deviceExtensions[ extensionIndex ] );
+		}
+	}
+
 	VkDeviceCreateInfo createInfo;
 	memset( &createInfo, 0, sizeof( createInfo ) );
 	createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 	createInfo.pNext = &features13;
-	createInfo.pEnabledFeatures = &rayTracingConfiguration.coreFeatures;
+	createInfo.pEnabledFeatures = &coreFeatures;
 	createInfo.queueCreateInfoCount = 1;
 	createInfo.pQueueCreateInfos = &queueCreateInfo;
-	createInfo.enabledExtensionCount = extensionCount;
-	createInfo.ppEnabledExtensionNames = extensions;
+	createInfo.enabledExtensionCount = extensions.Num();
+	createInfo.ppEnabledExtensionNames = extensions.Begin();
 	if ( !CheckVulkanResult( state.CreateDevice( state.physicalDevice,
 		&createInfo, NULL, &state.device ), "vkCreateDevice" ) ) {
 		return false;
@@ -4506,11 +4563,11 @@ sdVulkanBackend::~sdVulkanBackend() {
 bool sdVulkanBackend::Init( void* nativeWindow, int width, int height ) {
 	Shutdown();
 	if ( nativeWindow == NULL ) {
-		common->Warning( "Vulkan initialization requires a Win32 window" );
+		common->Warning( "Vulkan initialization requires a valid window handle" );
 		return false;
 	}
 	state = new sdVulkanBackendState;
-	state->nativeWindow = reinterpret_cast< HWND >( nativeWindow );
+	state->nativeWindow = nativeWindow;
 
 	common->Printf( "---------- Vulkan Init ----------\n" );
 	if ( !LoadVulkanLibrary( *state ) ||
@@ -4522,43 +4579,40 @@ bool sdVulkanBackend::Init( void* nativeWindow, int width, int height ) {
 	}
 	sdRayTracingDeviceConfiguration rayTracingConfiguration;
 	idStr rayTracingReason;
-	if ( !R_RayTracingConfigureDevice( state->GetPhysicalDeviceFeatures2,
+	bool rayTracingAvailable = R_RayTracingConfigureDevice( state->GetPhysicalDeviceFeatures2,
 		state->EnumerateDeviceExtensionProperties, state->physicalDevice,
-		rayTracingConfiguration, rayTracingReason ) ) {
-		R_RayTracingSelectStencilFallback( rayTracingReason.c_str() );
-		Shutdown();
-		return true;
+		rayTracingConfiguration, rayTracingReason );
+	if ( !rayTracingAvailable ) {
+		common->Printf( "Vulkan ray tracing unavailable: %s (falling back to rasterization)\n", rayTracingReason.c_str() );
 	}
-	if ( !SurfaceSupportsRayTracingImages( *state, state->physicalDevice ) ) {
-		R_RayTracingSelectStencilFallback(
-			"the Vulkan presentation surface does not support storage and reflection-copy images" );
-		Shutdown();
-		return true;
+	if ( rayTracingAvailable && !SurfaceSupportsRayTracingImages( *state, state->physicalDevice ) ) {
+		common->Printf( "Vulkan surface does not support ray tracing images (falling back to rasterization)\n" );
+		rayTracingAvailable = false;
 	}
-	if ( !CreateLogicalDevice( *state, rayTracingConfiguration ) ||
+	if ( !CreateLogicalDevice( *state, rayTracingConfiguration, rayTracingAvailable ) ||
 		!CreateSwapchain( *state, width, height ) ||
 		!CreateGuiResources( *state ) ||
 		!CreateFrames( *state ) ) {
 		Shutdown();
 		return false;
 	}
-	sdRayTracingVulkanContext rayTracingContext;
-	memset( &rayTracingContext, 0, sizeof( rayTracingContext ) );
-	rayTracingContext.physicalDevice = state->physicalDevice;
-	rayTracingContext.device = state->device;
-	rayTracingContext.memoryProperties = state->memoryProperties;
-	rayTracingContext.colorFormat = state->swapchainFormat;
-	rayTracingContext.depthFormat = VK_FORMAT_D32_SFLOAT;
-	rayTracingContext.frameCount = NUM_VULKAN_FRAMES;
-	rayTracingContext.GetDeviceProcAddr = state->GetDeviceProcAddr;
-	if ( !R_RayTracingInit( rayTracingContext ) ) {
-		R_RayTracingSelectStencilFallback(
-			"the Vulkan ray-tracing resources or shader could not be initialized" );
-		Shutdown();
-		return true;
+	if ( rayTracingAvailable ) {
+		sdRayTracingVulkanContext rayTracingContext;
+		memset( &rayTracingContext, 0, sizeof( rayTracingContext ) );
+		rayTracingContext.physicalDevice = state->physicalDevice;
+		rayTracingContext.device = state->device;
+		rayTracingContext.memoryProperties = state->memoryProperties;
+		rayTracingContext.colorFormat = state->swapchainFormat;
+		rayTracingContext.depthFormat = VK_FORMAT_D32_SFLOAT;
+		rayTracingContext.frameCount = NUM_VULKAN_FRAMES;
+		rayTracingContext.GetDeviceProcAddr = state->GetDeviceProcAddr;
+		if ( !R_RayTracingInit( rayTracingContext ) ) {
+			common->Printf( "Vulkan ray tracing initialization failed (falling back to rasterization)\n" );
+		}
 	}
 	common->Printf( "Vulkan device: %s\n", state->deviceName );
 	common->Printf( "---------------------------------\n" );
+	return true;
 	return true;
 }
 
@@ -4613,7 +4667,11 @@ void sdVulkanBackend::Shutdown() {
 	}
 	state->instance = VK_NULL_HANDLE;
 	if ( state->vulkanLibrary != NULL ) {
-		FreeLibrary( state->vulkanLibrary );
+#if defined( _WIN32 )
+		FreeLibrary( static_cast< HMODULE >( state->vulkanLibrary ) );
+#else
+		SDL_Vulkan_UnloadLibrary();
+#endif
 		state->vulkanLibrary = NULL;
 	}
 	delete state;
@@ -4625,11 +4683,21 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 		state->toolFrameActive ) {
 		return false;
 	}
+#if defined( _WIN32 )
 	RECT clientRect;
-	if ( GetClientRect( state->nativeWindow, &clientRect ) ) {
+	if ( GetClientRect( static_cast< HWND >( state->nativeWindow ), &clientRect ) ) {
 		width = clientRect.right - clientRect.left;
 		height = clientRect.bottom - clientRect.top;
 	}
+#else
+	int pxWidth = 0, pxHeight = 0;
+	if ( SDL_GetWindowSizeInPixels( static_cast< SDL_Window* >( state->nativeWindow ), &pxWidth, &pxHeight ) ) {
+		if ( pxWidth > 0 && pxHeight > 0 ) {
+			width = pxWidth;
+			height = pxHeight;
+		}
+	}
+#endif
 	if ( width <= 0 || height <= 0 ) {
 		return false;
 	}
@@ -4930,6 +4998,9 @@ void sdVulkanBackend::EndFrame( bool ) {
 
 bool sdVulkanBackend::BeginToolWindow( void* nativeWindow, int width, int height,
 	const float clearColor[ 4 ] ) {
+#if !defined( _WIN32 )
+	return false;
+#else
 	if ( state == NULL || state->device == VK_NULL_HANDLE || nativeWindow == NULL ||
 		state->frameActive || state->toolFrameActive ) {
 		return false;
@@ -5127,6 +5198,7 @@ bool sdVulkanBackend::BeginToolWindow( void* nativeWindow, int width, int height
 	state->toolImageOwner = NULL;
 	state->toolFrameActive = true;
 	return true;
+#endif
 }
 
 static unsigned int ToolRenderTargetAllocationSize( int requested ) {

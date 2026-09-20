@@ -5,7 +5,9 @@
 #ifndef __ETQW_DRAW_RAYTRACING_H__
 #define __ETQW_DRAW_RAYTRACING_H__
 
+#if defined( _WIN32 )
 #define VK_USE_PLATFORM_WIN32_KHR
+#endif
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>
 

@@ -83,7 +83,7 @@ void R_TimerFrame() {
 				qglGetQueryObjectui64vEXT( i + 1, GL_QUERY_RESULT_ARB, &elapsed );
 				elapsed /= 1000;
 				common->Printf( "Timer: %s (%lli micro-s)\n",
-					timers[ i ].description, static_cast< signed __int64 >( elapsed ) );
+					timers[ i ].description, static_cast< int64_t >( elapsed ) );
 			} else {
 				common->Printf( "Timer: %s (%i ms)\n",
 					timers[ i ].description, timers[ i ].startTime );

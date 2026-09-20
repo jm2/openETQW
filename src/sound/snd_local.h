@@ -29,21 +29,12 @@ If you have questions concerning this license or the applicable additional terms
 #ifndef __SND_LOCAL_H__
 #define __SND_LOCAL_H__
 
-// you need the OpenAL headers for build, even if AL is not enabled - http://www.openal.org/
-#ifdef _WIN32
 #include "../openal/include/al.h"
 #include "../openal/include/alc.h"
 #include "../openal/idal.h"
-// broken OpenAL SDK ?
 #define ID_ALCHAR (ALubyte *)
-#elif defined( MACOS_X )
-#include <OpenAL/al.h>
-#include <OpenAL/alc.h>
-#define ID_ALCHAR
-#else         
-#include <AL/al.h>
-#include <AL/alc.h>
-#define ID_ALCHAR
+#ifndef OPENAL
+#define OPENAL
 #endif
 #include "../openal/include/efxlib.h"
 

@@ -14,6 +14,13 @@
 
 #pragma once
 
+#ifdef vsnprintf
+#undef vsnprintf
+#endif
+#ifdef strncmp
+#undef strncmp
+#endif
+
 //---- Define assertion handler. Defaults to calling assert().
 // - If your macro uses multiple statements, make sure is enclosed in a 'do { .. } while (0)' block so it can be used as a single statement.
 // - Compiling with NDEBUG will usually strip out assert() to nothing, which is NOT recommended because we use asserts to notify of programmer mistakes.

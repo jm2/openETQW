@@ -190,7 +190,7 @@ static_assert( sizeof( sdRenderBindings ) == 708, "sdRenderBindings must match t
 
 ID_INLINE void sdRenderBindings::Init() {
 #define INIT_RENDER_BINDING( member ) \
-	member = declHolder.FindRenderBinding( #member, false ); \
+	member = declHolder.FindRenderBinding( #member, true ); \
 	if ( member == NULL ) { common->FatalError( "Unable to find render binding '%s'", #member ); }
 
 	INIT_RENDER_BINDING( diffuseMap );
@@ -313,19 +313,19 @@ ID_INLINE void sdRenderBindings::Init() {
 
 	for ( int i = 0; i < 6; i++ ) {
 		const char* name = va( "megaMaskParams_%d", i );
-		megaMaskParams[ i ] = declHolder.FindRenderBinding( name, false );
+		megaMaskParams[ i ] = declHolder.FindRenderBinding( name, true );
 		if ( megaMaskParams[ i ] == NULL ) { common->FatalError( "Unable to find render binding '%s'", name ); }
 
 		name = va( "megaTextureParams_%d", i );
-		megaTextureParams[ i ] = declHolder.FindRenderBinding( name, false );
+		megaTextureParams[ i ] = declHolder.FindRenderBinding( name, true );
 		if ( megaTextureParams[ i ] == NULL ) { common->FatalError( "Unable to find render binding '%s'", name ); }
 
 		name = va( "megaTextureLevel_%d", i );
-		megaTextureLevel[ i ] = declHolder.FindRenderBinding( name, false );
+		megaTextureLevel[ i ] = declHolder.FindRenderBinding( name, true );
 		if ( megaTextureLevel[ i ] == NULL ) { common->FatalError( "Unable to find render binding '%s'", name ); }
 	}
 
-	megaTextureOpacity15 = declHolder.FindRenderBinding( "megaTextureLevelOpacity_1_5", false );
+	megaTextureOpacity15 = declHolder.FindRenderBinding( "megaTextureLevelOpacity_1_5", true );
 	if ( megaTextureOpacity15 == NULL ) { common->FatalError( "Unable to find render binding '%s'", "megaTextureLevelOpacity_1_5" ); }
 	INIT_RENDER_BINDING( megaDetailTextureMask );
 	INIT_RENDER_BINDING( megaDetailTexture );
@@ -352,7 +352,7 @@ ID_INLINE void sdRenderBindings::Init() {
 #undef INIT_RENDER_BINDING
 
 #define INIT_RENDER_PROGRAM( member, name ) \
-	member = declHolder.FindRenderProgram( name, false ); \
+	member = declHolder.FindRenderProgram( name, true ); \
 	if ( member == NULL ) { common->FatalError( "Unable to find render program '%s'", name ); }
 
 	INIT_RENDER_PROGRAM( trivialProgram, "trivial" );

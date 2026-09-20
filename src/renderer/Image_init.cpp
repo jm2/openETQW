@@ -822,7 +822,7 @@ void idImageManager::BindNull() {
 		vulkanBackend.SetToolImage( NULL );
 		return;
 	}
-	if ( glConfig.isInitialized ) {
+	if ( glConfig.isInitialized && !R_UseVulkanBackend() ) {
 		glBindTexture( GL_TEXTURE_2D, 0 );
 		if ( glConfig.cubeMapAvailable ) {
 			glBindTexture( GL_TEXTURE_CUBE_MAP_ARB, 0 );

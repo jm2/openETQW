@@ -125,40 +125,18 @@ BSE_PARTICLE_SOURCES = (
 
 CLIENT_SOUND_SOURCES = (
     "src/sound/SoundSystemBootstrap.cpp",
-    "src/sound/snd_cache.cpp",
-    "src/sound/snd_decoder.cpp",
-    "src/sound/snd_efxfile.cpp",
-    "src/sound/snd_emitter.cpp",
-    "src/sound/snd_shader.cpp",
-    "src/sound/snd_system.cpp",
-    "src/sound/snd_wavefile.cpp",
-    "src/sound/snd_world.cpp",
 )
 
 CLIENT_RENDERER_SOURCES = (
-    "src/renderer/Cinematic.cpp",
     "src/renderer/DeviceContext.cpp",
     "src/renderer/GuiModel.cpp",
     "src/renderer/Image_init.cpp",
     "src/renderer/Image_load.cpp",
     "src/renderer/Image_process.cpp",
     "src/renderer/Image_program.cpp",
-    "src/renderer/Interaction.cpp",
     "src/renderer/Model.cpp",
-    "src/renderer/ModelDecal.cpp",
     "src/renderer/ModelManager.cpp",
-    "src/renderer/ModelOverlay.cpp",
     "src/renderer/Model_Stuff.cpp",
-    "src/renderer/Model_ase.cpp",
-    "src/renderer/Model_beam.cpp",
-    "src/renderer/Model_liquid.cpp",
-    "src/renderer/Model_lwo.cpp",
-    "src/renderer/Model_ma.cpp",
-    "src/renderer/Model_md3.cpp",
-    "src/renderer/Model_md5.cpp",
-    "src/renderer/Model_prt.cpp",
-    "src/renderer/Model_sprite.cpp",
-    "src/renderer/RenderEntity.cpp",
     "src/renderer/RenderSystem.cpp",
     "src/renderer/RenderSystemBackend.cpp",
     "src/renderer/RenderSystem_init.cpp",
@@ -172,7 +150,6 @@ CLIENT_RENDERER_SOURCES = (
     "src/renderer/ScreenRect.cpp",
     "src/renderer/VertexCache.cpp",
     "src/renderer/VulkanBackend.cpp",
-    "src/renderer/cg_explicit.cpp",
     "src/renderer/draw_arb2.cpp",
     "src/renderer/draw_atmosphere.cpp",
     "src/renderer/draw_common.cpp",
@@ -183,6 +160,31 @@ CLIENT_RENDERER_SOURCES = (
     "src/renderer/draw_shadow.cpp",
     "src/renderer/draw_shadowmap.cpp",
     "src/renderer/dynamicmodelcache.cpp",
+    "src/renderer/image_processor.cpp",
+    "src/renderer/image_resampler.cpp",
+    "src/renderer/megatexture/megatexture.cpp",
+    "src/renderer/megatexture/megatexturecodec.cpp",
+    "src/renderer/megatexture/megatexturecompressor.cpp",
+    "src/renderer/megatexture/megatexturetiledecompressor.cpp",
+    "src/renderer/megatexture/megatexturetileloader.cpp",
+    "src/renderer/Material.cpp",
+    "src/renderer/Model_lwo.cpp",
+    "src/renderer/querytimers.cpp",
+    "src/renderer/renderbindingmanager.cpp",
+    "src/renderer/renderbindings.cpp",
+    "src/renderer/renderlog.cpp",
+    "src/renderer/tr_backend.cpp",
+    "src/renderer/tr_light.cpp",
+    "src/renderer/tr_lightrun.cpp",
+    "src/renderer/tr_main.cpp",
+    "src/renderer/tr_matrixmath.cpp",
+    "src/renderer/tr_orderIndexes.cpp",
+    "src/renderer/tr_polytope.cpp",
+    "src/renderer/tr_render.cpp",
+    "src/renderer/tr_rendertools.cpp",
+    "src/renderer/tr_trisurf.cpp",
+    "src/libs/qglLib/cg.cpp",
+    "src/libs/qglLib/qgllib.cpp",
 )
 
 IMGUI_SOURCES = (
@@ -198,12 +200,23 @@ PLATFORM_POSIX_SOURCES = (
     "src/sys/posix/posix_signal.cpp",
     "src/sys/posix/posix_syscon.cpp",
     "src/sys/posix/posix_threads.cpp",
+    "src/sys/sys_local.cpp",
 )
 
-DARWIN_PLATFORM_SOURCES = (
+DARWIN_COMMON_SOURCES = (
     "src/sys/osx/macosx_compat.mm",
     "src/sys/osx/macosx_misc.mm",
+)
+
+DARWIN_CLIENT_SOURCES = (
     "src/sys/osx/macosx_sdl3.cpp",
+    "src/sys/osx/macosx_sdl3_main.cpp",
+)
+
+SDL3_PLATFORM_SOURCES = (
+    "src/sys/sdl/sdl_glimp.cpp",
+    "src/sys/sdl/sdl_events.cpp",
+    "src/sys/sdl/sdl_sound.cpp",
 )
 
 LINUX_DEDICATED_PLATFORM_SOURCES = (
@@ -214,7 +227,6 @@ LINUX_DEDICATED_PLATFORM_SOURCES = (
 
 
 DEDICATED_STUB_SOURCES = (
-    "src/sys/sys_local.cpp",
     "src/sys/stub/headless_stubs.cpp",
 )
 
@@ -243,7 +255,8 @@ def main(argv: list[str]) -> int:
         sources.extend(CLIENT_SOUND_SOURCES)
         sources.extend(CLIENT_RENDERER_SOURCES)
         sources.extend(IMGUI_SOURCES)
-        sources.extend(BSE_PARTICLE_SOURCES)
+        if args.platform_backend == "sdl3":
+            sources.extend(SDL3_PLATFORM_SOURCES)
     elif args.target_kind == "dedicated":
         sources.append("src/decllib/DeclRenderProgram_headless.cpp")
         sources.extend(DEDICATED_STUB_SOURCES)
@@ -251,8 +264,10 @@ def main(argv: list[str]) -> int:
     # Platform selection
     if args.host_system in ("darwin", "linux"):
         sources.extend(PLATFORM_POSIX_SOURCES)
-        if args.host_system == "darwin" and args.target_kind == "client":
-            sources.extend(DARWIN_PLATFORM_SOURCES)
+        if args.host_system == "darwin":
+            sources.extend(DARWIN_COMMON_SOURCES)
+            if args.target_kind == "client":
+                sources.extend(DARWIN_CLIENT_SOURCES)
         elif args.host_system == "linux" and args.target_kind == "dedicated":
             sources.extend(LINUX_DEDICATED_PLATFORM_SOURCES)
 

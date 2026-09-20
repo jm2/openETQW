@@ -11,6 +11,7 @@
 #include "SoundSystem.h"
 #include "SoundWorld.h"
 #include "SoundShader.h"
+#include "AudioHardware.h"
 
 namespace {
 
@@ -61,21 +62,18 @@ struct binkHeaderBootstrap_t {
 	unsigned int width;
 	unsigned int height;
 	unsigned int frames;
-	unsigned int frameNum;
-	unsigned int lastFrameNum;
 	unsigned int frameRate;
 	unsigned int frameRateDiv;
 };
 
-class binkApiBootstrap_t {
-public:
-	typedef void* ( __stdcall *open_t )( const char*, unsigned int );
-	typedef void ( __stdcall *close_t )( void* );
-	typedef int ( __stdcall *doFrame_t )( void* );
-	typedef int ( __stdcall *copyToBuffer_t )( void*, void*, int, unsigned int, unsigned int, unsigned int, unsigned int );
-	typedef void ( __stdcall *nextFrame_t )( void* );
-	typedef const char* ( __stdcall *getError_t )();
+typedef void* ( *open_t )( const char*, unsigned int );
+typedef void ( *close_t )( void* );
+typedef int ( *doFrame_t )( void* );
+typedef int ( *copyToBuffer_t )( void*, void*, int, unsigned int, unsigned int, unsigned int, unsigned int );
+typedef void ( *nextFrame_t )( void* );
+typedef const char* ( *getError_t )( void );
 
+struct binkApiBootstrap_t {
 	binkApiBootstrap_t() :
 		module( NULL ),
 		open( NULL ),
@@ -92,7 +90,9 @@ public:
 			return module != NULL;
 		}
 		attemptedLoad = true;
-
+#if !defined( _WIN32 )
+		return false;
+#else
 		char executablePath[ MAX_OSPATH ];
 		const DWORD pathLength = GetModuleFileNameA( NULL, executablePath, sizeof( executablePath ) );
 		if ( pathLength > 0 && pathLength < sizeof( executablePath ) ) {
@@ -127,9 +127,14 @@ public:
 			return false;
 		}
 		return true;
+#endif
 	}
 
+#if defined( _WIN32 )
 	HMODULE module;
+#else
+	void* module;
+#endif
 	open_t open;
 	close_t close;
 	doFrame_t doFrame;
@@ -170,6 +175,9 @@ bool ResolveBinkOSPath( const char* samplePath, idStr& osPath ) {
 		return false;
 	}
 
+#if !defined( _WIN32 )
+	return false;
+#else
 	char executablePath[ MAX_OSPATH ];
 	const DWORD pathLength = GetModuleFileNameA( NULL, executablePath, sizeof( executablePath ) );
 	if ( pathLength == 0 || pathLength >= sizeof( executablePath ) ) {
@@ -196,6 +204,7 @@ bool ResolveBinkOSPath( const char* samplePath, idStr& osPath ) {
 	osPath += "runtime/base/";
 	osPath += normalized;
 	return GetFileAttributesA( osPath.c_str() ) != INVALID_FILE_ATTRIBUTES;
+#endif
 }
 
 class binkMovieBootstrap_t {
@@ -474,7 +483,8 @@ public:
 		hardwareInitialized( false ),
 		muted( false ),
 		capturing( false ),
-		playingWorld( NULL ) {
+		playingWorld( NULL ),
+		audioHardware( NULL ) {
 	}
 
 	virtual ~idSoundSystemBootstrap() {
@@ -494,6 +504,7 @@ public:
 		initialized = true;
 	}
 	virtual void Shutdown() {
+		ShutdownHW();
 		playingWorld = NULL;
 		for ( int i = 0; i < worlds.Num(); i++ ) {
 			delete worlds[ i ];
@@ -504,15 +515,30 @@ public:
 	}
 	virtual void ClearBuffer() {}
 	virtual bool InitHW() {
+		if ( audioHardware == NULL ) {
+			audioHardware = idAudioHardware::Alloc();
+			if ( audioHardware != NULL ) {
+				audioHardware->Initialize();
+			}
+		}
 		hardwareInitialized = true;
 		return true;
 	}
 	virtual bool ShutdownHW() {
+		if ( audioHardware != NULL ) {
+			delete audioHardware;
+			audioHardware = NULL;
+		}
 		hardwareInitialized = false;
 		return true;
 	}
 	virtual sdLock& GetLock() { return lock; }
-	virtual int AsyncUpdate( int time ) { return time; }
+	virtual int AsyncUpdate( int time ) {
+		if ( audioHardware != NULL ) {
+			audioHardware->Write( false );
+		}
+		return time;
+	}
 	virtual void SetMute( bool value ) { muted = value; }
 	virtual bool IsMuted() const { return muted; }
 	virtual cinData_t ImageForTime( const int, const bool ) { return EmptyCinematicData(); }
@@ -577,6 +603,7 @@ private:
 	bool muted;
 	bool capturing;
 	idSoundWorld* playingWorld;
+	idAudioHardware* audioHardware;
 };
 
 idSoundSystemBootstrap soundSystemBootstrap;
