@@ -134,7 +134,7 @@ void idCollisionModelManagerLocal::GetFullModelName( idStr &out, const char *map
 void idCollisionModelManagerLocal::LoadMap( const char *fileName, bool forceReload ) {
 	idStr worldName;
 	GetFullModelName( worldName, fileName, WORLD_MODEL_NAME );
-	if ( !forceReload && FindModel( worldName.c_str() ) >= 0 ) {
+	if ( !forceReload && ( FindModel( worldName.c_str() ) >= 0 || FindModel( ( worldName + "0" ).c_str() ) >= 0 ) ) {
 		return;
 	}
 

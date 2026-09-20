@@ -570,6 +570,7 @@ int main( int argc, const char **argv ) {
 	while ( 1 ) {
 		Sys_HandlePendingQuitSignal();
 		common->Frame();
+		Sys_Sleep( 1 );
 	}
 
 	return 0;

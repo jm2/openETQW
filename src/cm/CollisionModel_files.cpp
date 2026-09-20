@@ -796,11 +796,13 @@ bool idCollisionModelManagerLocal::ParseCollisionModelBinary( idFile *file, cons
 			file->ReadString( materialName );
 			valid = !materialName.IsEmpty();
 			if ( valid ) {
-				materialCache[ i ] = declHolder.FindMaterial( materialName, false );
+				materialCache[ i ] = declHolder.FindMaterial( materialName, true );
 				if ( materialCache[ i ] == NULL ) {
-					common->Error( "idCollisionModelManagerLocal::ParseCollisionModelBinary: invalid material '%s' in '%s'",
+					materialCache[ i ] = declHolder.FindMaterial( "_default" );
+				}
+				if ( materialCache[ i ] == NULL ) {
+					common->Warning( "idCollisionModelManagerLocal::ParseCollisionModelBinary: invalid material '%s' in '%s', defaulting",
 						materialName.c_str(), file->GetName() );
-					valid = false;
 				}
 			}
 		}

@@ -24,6 +24,7 @@ GNU General Public License for more details.
 #pragma hdrstop
 
 #include "BSE.h"
+#include "../framework/DeclManager.h"
 
 rvDeclEffect::rvDeclEffect() {
 	size = 8.0f;
@@ -84,9 +85,24 @@ void rvDeclEffect::FreeData() {
 
 bool rvDeclEffect::Parse( const char *text, const int textLength ) {
 	FreeData();
+	if ( ( text == NULL || textLength <= 0 ) && !HasBinaryBuffer() ) {
+		return false;
+	}
 	idLexer src;
-	src.LoadMemory( text, textLength, GetFileName(), GetLineNum() );
 	src.SetFlags( DECL_LEXER_FLAGS );
+	if ( HasBinaryBuffer() && GetState() != DS_DEFAULTED ) {
+		const byte *declBuffer = NULL;
+		int declBufferLength = 0;
+		GetBinarySource( declBuffer, declBufferLength );
+		idTokenCache *cache = NULL;
+		const idDeclType *type = declManager->GetDeclType( GetType() );
+		if ( type && !type->UsePrivateTokens() ) {
+			cache = &declManager->GetGlobalTokenCache();
+		}
+		src.LoadMemoryBinary( declBuffer, declBufferLength, va( "%s: %s", GetFileName(), GetName() ), cache );
+	} else {
+		src.LoadMemory( text, textLength, GetFileName(), GetLineNum() );
+	}
 	if ( !src.SkipUntilString( "{" ) ) {
 		return false;
 	}

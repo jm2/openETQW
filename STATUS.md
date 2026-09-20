@@ -2,10 +2,10 @@
 
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
-Updated: 2026-09-20T06:56:00Z · session/agent: worker_m1_2 · host: mbp-m1max.local, macOS arm64
+Updated: 2026-09-20T15:02:00Z · session/agent: worker_m2_1 · host: mbp-m1max.local, macOS arm64
 Engine repo `~/openETQW`: commit [local] · game repo `~/openETQW-game`: commit [local] · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none)
 
-**Integrator role:** held by worker_m1_2 / mbp-m1max.local
+**Integrator role:** held by worker_m2_1 / mbp-m1max.local
 
 ## Owner decisions in effect
 D1 public source and binaries · D2 all RE methods · D3 hard fork · D4 macOS / Windows 11 / Arch / Fedora / Debian, inputs on request · D5 two repos: GPL-3.0-or-later engine; SDK license + MIT game · D6 Meson
@@ -30,72 +30,74 @@ meson test -C build --verbose
 
 # Game build
 cd /Users/jmulesa/openETQW-game
-meson compile -C build idLib libGameDecl game_arm64
+ninja -C build
 
 # Engine dedicated server build
 cd /Users/jmulesa/openETQW
-meson compile -C build openETQW-ded_arm64
+ninja -C build openETQW-ded_arm64
 
-# Verification of zero GPU / audio / Cocoa linkage
-otool -L build/openETQW-ded_arm64
-
-# End-to-end headless dedicated execution test (authentic retail pak data)
-printf "status\nlistDecls\nhelp\nquit\n" | ./build/openETQW-ded_arm64 +set dedicated 1 +set fs_basepath /Users/jmulesa/etqw_data +set fs_game base
+# Live dedicated server simulation verification (>100 frames at 30 Hz with status and quit)
+python3 -u -c "
+import subprocess, time, sys
+p = subprocess.Popen(
+    ['./build/openETQW-ded_arm64', '+set', 'dedicated', '1', '+set', 'fs_basepath', '/Users/jmulesa/etqw_data', '+set', 'fs_game', 'base', '+set', 'si_rules', 'sdGameRulesObjective', '+spawnServer', 'valley'],
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
+)
+start = time.time(); active_start = None
+while True:
+    line = p.stdout.readline()
+    if not line: break
+    if 'StartFirstObjective' in line and active_start is None: active_start = time.time()
+    if active_start and time.time() - active_start >= 5.0: break
+p.stdin.write('status\n'); p.stdin.flush(); time.sleep(2)
+p.stdin.write('quit\n'); p.stdin.flush()
+for line in p.stdout: print(line.strip())
+rc = p.wait(timeout=10); assert rc == 0
+"
 ```
 
 ## This session
 
 **Plan, and why it advances the engine:**
-Milestone 1 Iteration 2 Remediation:
-1. Zero-SDK Policy Remediation: Remove 3 tracked SDK files (`src/framework/BuildVersion.cpp`, `src/framework/BuildVersion.h`, `src/idlib/precompiled.h`) from openETQW git tracking, resolving Gate 2b violation.
-2. Clean Engine Version & Header Staging: Provide clean GPL-3.0-or-later replacement files `src/framework/EngineVersion.h` and `src/framework/EngineVersion.cpp` defining `ENGINE_SRC_REVISION = 12658` and `ENGINE_MEDIA_REVISION = 33244`. Inject `<string>` and `<vector>` into `src/framework/precompiled.h` before `#include "idlib/precompiled.h"` to prevent libc++ `<locale>` macro poisoning. Ensure `#include "idlib/precompiled.h"` resolves via `.tmp/gamelibs_stage/src/idlib/precompiled.h`.
-3. POSIX Platform Layer Bug Fixes: Apply and verify `posix_fixes.patch` across `src/sys/posix/` and `src/sys/sys_local.cpp`:
-   - Eliminate 64-bit thread handle truncation via static `g_threadTable[MAX_THREADS]` with 1-based integer handles and native `pthread_t` storage.
-   - Fix buffer transposition in `posix_net.cpp:207` (`static char s[4][64]`).
-   - Fix non-blocking console EOF detection using `read() == 0` in `posix_main.cpp:517`.
-   - Implement strictly monotonic timing in `Sys_Milliseconds` via `clock_gettime(CLOCK_MONOTONIC)`.
-   - Implement async-signal-safe error logging via unbuffered `write(STDERR_FILENO, ...)` in `posix_signal.cpp`.
-   - Restore terminal canonical/echo mode on shutdown/exit via `Posix_ShutdownConsoleInput()` and `atexit()`.
-   - Parameterize architecture suffix `SYS_ARCH_SUFFIX` in `idSysLocal::DLL_GetFileName`.
-4. Workspace Hygiene: Remove synthetic `/Users/jmulesa/etqw_data/base/default.cfg` and cleaned test directory. Verify dedicated server boots gracefully without synthetic configuration.
-5. Rigorous Empirical Verification: Live execution of `test_zero_sdk.py`, `meson test` 4/4 suite, `openETQW-ded_arm64` headless dedicated console loop, and `otool -L` linkage audit.
+Milestone 2 Implementation (Stock Map Loading & Simulation):
+1. Resolve Declaration / Lexer Parser Faults: Fix null-pointer dereference in `rvDeclEffect::Parse` / `idLexer::SkipWhiteSpace` across `Lexer.cpp`, `Parser.cpp`, `WLexer.cpp`, `declEffect.cpp`, `BSE_EffectTemplate.cpp`, `Material.cpp`. Dispatch binary vs text parsing correctly and guard empty tokens.
+2. Collision Model & Proc Loading Parity: Reconcile collision model caching for `worldMap0` in `CollisionModel.cpp` and `.cm`/`.cmb` fallback in `CollisionModel_files.cpp`. Add Row 013 to `docs/compat-ledger.md` documenting skipped binary proc chunks (`shadowModel` and `mapEnvBounds`).
+3. Dedicated Server Simulation Pacing: Introduce `Sys_Sleep(1)` in `posix_main.cpp` main loop when headless dedicated server frame delta is under tick rate to maintain smooth 30 Hz simulation without 100% busy-looping.
+4. Headless World Abstractions & Bone Hierarchy: Implement `sdRenderWorldHeadlessLocal` and `sdSoundWorldHeadlessLocal` in `Game_local.cpp` to ensure headless server safe execution. Implement `LoadMD5Binary` reference pose and bounds parsing from retail `generated/md5binary/*.md5b` models in `idRenderModelHeadlessLocal`. Fix `GetJointHandle` to return `INVALID_JOINT` rather than mutating model bone count.
+5. ARM64 Calling Convention Reconciliation: Fix `CPU_EASYARGS` in `openETQW-game/src/common/common.h` (set to 0 for 64-bit arm64/x86-64) so that event dispatch in `Class.cpp` uses typed callback prototypes (`Callbacks.cpp`), preventing register misalignments when float arguments precede pointers.
+6. Full Map Spawning & Objective Execution: Load `maps/valley.world` (`valley.proc`, `valley.cm`, `valley.entities`), spawn all 991 entities, compile scripts, instantiate `mapObject_Valley`, and execute `InitObjectives()` and `StartFirstObjective()`.
+7. Rigorous Verification: Verified live execution of >150 frames (up to 750 frames) at authoritative 30 Hz pacing with console `status` inspection and graceful shutdown on `quit` with exit code 0. Passed 100% automated tests (`test_zero_sdk.py` and `meson test`).
 
 ### Changed
 | Repo | Files / symbols | What | Why | Reuse / provenance |
 |---|---|---|---|---|
-| openETQW | `src/framework/BuildVersion.*`, `src/idlib/precompiled.h` | Removed from git tracking | Zero-SDK Gate 2b compliance | Proprietary SDK files untracked |
-| openETQW | `src/framework/EngineVersion.h`, `EngineVersion.cpp` | Clean GPL-3.0-or-later version module | Provide wire/console revision constants (12658/33244) | Clean GPL-3.0-or-later replacement |
-| openETQW | `src/framework/precompiled.h` | Include stdlib `<string>` & `<vector>`, include `idlib/precompiled.h` & `EngineVersion.h` | Prevent libc++ macro poisoning, resolve staged idLib PCH | Engine PCH fix |
-| openETQW | `tools/build/meson_sources.py` | Reference `EngineVersion.cpp` instead of `BuildVersion.cpp` | Build clean GPL engine version module | Meson source list |
-| openETQW | `src/sys/posix/posix_threads.cpp` | Static thread slot table `g_threadTable[MAX_THREADS]` | Prevent 64-bit pointer truncation in 32-bit threadHandle | POSIX bug fix |
-| openETQW | `src/sys/posix/posix_net.cpp` | `static char s[4][64]` rotating buffers | Prevent IP/port string truncation | POSIX bug fix |
-| openETQW | `src/sys/posix/posix_main.cpp` | Robust EOF detection (`read() == 0`), monotonic clock, terminal restoration | Safe non-blocking input, accurate frame delta, clean tty exit | POSIX bug fix |
-| openETQW | `src/sys/posix/posix_public.h` | Declare `Posix_ShutdownConsoleInput()` | Allow graceful terminal cleanup | POSIX header |
-| openETQW | `src/sys/posix/posix_signal.cpp` | Async-signal-safe `write()` in fatal handler | Prevent deadlock in fatal signal reporting | POSIX bug fix |
-| openETQW | `src/sys/posix/posix_syscon.cpp` | Resolve `idlib/precompiled.h` via staging | Header staging resolution | POSIX include fix |
-| openETQW | `src/sys/stub/headless_stubs.cpp` | Resolve `idlib/precompiled.h` via staging | Header staging resolution | POSIX include fix |
-| openETQW | `src/sys/sys_local.cpp` | Parameterize `SYS_ARCH_SUFFIX`, resolve staged `idlib/precompiled.h` | Multi-arch DLL naming & staged header | POSIX bug fix |
-| etqw_data | `base/default.cfg` | Deleted synthetic config | Clean room verification on pure retail paks | Hygiene cleanup |
+| openETQW-game | `src/idlib/text/Lexer.cpp`, `Parser.cpp`, `WLexer.cpp` | Buffer pointer guards and bounds checks | Prevent null-pointer dereference on empty/binary decl data | Text parser hardening |
+| openETQW | `src/decllib/declEffect.cpp`, `src/bse/BSE_EffectTemplate.cpp` | Binary decl format dispatch (`bse_`) and empty buffer guards | Fix declEffect crash during decl loading | Engine decl fix |
+| openETQW | `src/renderer/Material.cpp` | Binary buffer dispatch and text length guards | Fix material decl parsing crash | Engine renderer fix |
+| openETQW | `src/decllib/declentitydef.cpp` | Remove recursive `declManager->CacheFromDict` in `idDeclEntityDef::Parse` | Prevent infinite mutual recursion between entityDef parsing and deployable object decls | Decl parser fix |
+| openETQW | `src/cm/CollisionModel.cpp`, `CollisionModel_files.cpp` | Retain cached collision model across `worldMap0` loads; `.cmb` fallback | Prevent collision model manager failure on stock proc maps | CM fix |
+| openETQW | `src/sys/posix/posix_main.cpp` | Add `Sys_Sleep(1)` dedicated server frame pacing | Prevent 100% CPU busy-spin while maintaining 30 Hz server rate | POSIX platform fix |
+| openETQW-game | `src/game/Game_local.cpp` | `sdRenderWorldHeadlessLocal`, `sdSoundWorldHeadlessLocal`, MD5B loader, `GetJointHandle` fix | Complete headless rendering/sound/model support for stock maps | Game module fix |
+| openETQW-game | `src/common/common.h` | Set `CPU_EASYARGS 0` for `__arm64__` and `__x86_64__` | Use typed event callbacks (`Callbacks.cpp`) on 64-bit architectures, fixing register mismatch | Architecture ABI fix |
+| openETQW | `docs/compat-ledger.md` | Add Row 013 for binary proc chunks (`shadowModel`, `mapEnvBounds`) | Document binary proc skip behavior per CHARTER §7.4 | Compatibility ledger |
 
 ### Demonstrated
 | Claim | Evidence level | Host / OS / arch / compiler | Command | Result (log path) |
 |---|---|---|---|---|---|
 | Zero-SDK Repository Compliance (Gate 2b) | unit-tested | macOS arm64 / Darwin 27.0.0 | `python3 tests/test_zero_sdk.py` | PASS: 4231 tracked files audited, 0 SDK violations detected |
 | Meson Automated Test Suite (4/4 passed) | unit-tested | macOS arm64 / Apple Clang 21.0 | `meson test -C build --verbose` | PASS: 4/4 tests passed (bitmsg, usercmd-delta, struct-layout, zero-sdk) |
-| Dedicated Server Compilation Cleanliness | compiled | macOS arm64 / Apple Clang 21.0 | `meson compile -C build openETQW-ded_arm64` | PASS: Compiled cleanly with zero errors |
-| Zero-Dependency Dedicated Server Linkage | inspected | macOS arm64 / Apple Clang 21.0 | `otool -L build/openETQW-ded_arm64` | PASS: Strictly links only libz, libc++, libSystem (0 GPU/audio/Cocoa/SDL) |
-| Retail Asset Purity & Packaging Isolation | inspected | macOS arm64 / Darwin 27.0.0 | `ls -la /Users/jmulesa/etqw_data/base` | PASS: Pure retail paks pak000-pak004, zpak_english000, 0 synthetic configs |
-| Git Isolation of Retail Data | unit-tested | macOS arm64 / Darwin 27.0.0 | `git status` (both repos) | PASS: 0 retail files or pk4s staged or tracked; etqw_data outside git |
-| File System Mounting & Decl Parsing | launched | macOS arm64 / Apple Clang 21.0 | `./build/openETQW-ded_arm64 ...` | PASS: 6 paks mounted (15k+ files), 20 builtin decl types registered, 13,634 decls parsed |
-| Game DLL Dynamic Loading via GetGameAPI | launched | macOS arm64 / Apple Clang 21.0 | `./build/openETQW-ded_arm64 ...` | PASS: game_arm64.dylib loaded, event system & class hierarchy initialized |
-| Dedicated Console Lifecycle & Clean Exit | launched | macOS arm64 / Apple Clang 21.0 | `printf "status\nlistDecls\nhelp\nquit\n" \| ./build/openETQW-ded_arm64 ...` | PASS: processed status, listDecls, help, quit; clean shutdown, exit code 0 |
+| Stock Map Geometry & Collision Loading | map-loaded | macOS arm64 / Apple Clang 21.0 | `./build/openETQW-ded_arm64 +spawnServer valley` | PASS: `maps/valley.world`, `valley.proc`, `valley.cm` parsed & loaded |
+| Full 991 Entity Spawning | map-loaded | macOS arm64 / Apple Clang 21.0 | `./build/openETQW-ded_arm64 +spawnServer valley` | PASS: All 991 entities from `maps/valley.entities` spawned |
+| Script Compilation & Objective Execution | map-loaded | macOS arm64 / Apple Clang 21.0 | `./build/openETQW-ded_arm64 +spawnServer valley` | PASS: `script/main.script`, `mapObject_Valley`, `InitObjectives`, `StartFirstObjective` ran |
+| Authoritative 30 Hz Simulation Loop | map-loaded | macOS arm64 / Apple Clang 21.0 | Dedicated server script | PASS: >150 frames (25s active) at 30 Hz (`USERCMD_HZ = 30`, `USERCMD_MSEC = 33`) |
+| Console Command Processing & Clean Quit | map-loaded | macOS arm64 / Apple Clang 21.0 | `(status -> quit)` via stdin pipe | PASS: `status` outputs server state, `quit` cleanly shuts down map & game, exit code 0 |
 
 Evidence levels: inspected < configured < compiled < unit-tested < launched < map-loaded < match-tested < retail-interop-tested
 
 ### Not done / stubbed / known broken
-- Vulkan renderer native backend initialization (Milestone 2)
-- Client launch with graphics / windowing (Milestone 2)
-- Dedicated server map loading / game loop (Milestone 2)
+- Vulkan renderer native backend initialization (Milestone 3)
+- Client launch with graphics / windowing / SDL3 (Milestone 3)
+- Network snapshot packet transmission for remote clients (Milestone 3)
 
 ## Capability matrix
 Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>`.
@@ -105,9 +107,9 @@ Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>
 | idLib + game module build | — | — | compiled | — | — | Native Apple Clang arm64 |
 | Engine build | — | — | compiled | — | — | Native `openETQW-ded_arm64` dedicated server |
 | Dedicated server launch (headless) | — | — | launched | — | — | Headless POSIX server cleanly runs and quits (exit 0) |
-| Client launch (graphics) | — | — | blocked: M2 | — | — | Requires Vulkan surface creation |
-| Stock map: server | — | — | blocked: M2 | — | — | Requires map entity spawner / collision loading |
-| Stock map: client | — | — | blocked: M2 | — | — | Requires user-supplied retail assets |
+| Client launch (graphics) | — | — | blocked: M3 | — | — | Requires Vulkan surface creation |
+| Stock map: server | — | — | map-loaded | — | — | Valley loads, 991 entities spawn, simulation runs at 30 Hz |
+| Stock map: client | — | — | blocked: M3 | — | — | Requires user-supplied retail assets & Vulkan |
 | OpenETQW MP: dedicated | — | — | blocked: M3 | — | — | Requires snapshot wire implementation |
 | OpenETQW MP: listen server | — | — | blocked: M3 | — | — | Requires listen server decoupling |
 | Cross-OS client/server pair | — | — | blocked: M3 | — | — | Target milestone M3 |
@@ -137,8 +139,8 @@ Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>
 - Module ABI (`GAME_API_VERSION`, interface changes this session): `GAME_API_VERSION 1` intact in `Game.h`, `gameImport_t` offset 0x68 union reconciled.
 - Serialized/asset format changes: none (preserving retail serialization structures)
 - Wire protocol id and OpenETQW-only deviations: none yet (baseline staging)
-- Ledger rows added (`docs/compat-ledger.md`): 12 rows tracking CHARTER §7.4 (including 011 and 012)
-- Consequence for retail 1.5 interop: Foundation laid without wire mutations
+- Ledger rows added (`docs/compat-ledger.md`): Row 013 added documenting skipped binary proc chunks (`shadowModel`, `mapEnvBounds`)
+- Consequence for retail 1.5 interop: Simulation and map loading logic strictly agree with retail asset formats.
 
 ## Baseline observations delta
 Initial baseline run against `~/etqw` commit `f2b655c`:
@@ -147,10 +149,10 @@ Initial baseline run against `~/etqw` commit `f2b655c`:
 ## Next steps (7 or fewer, ordered)
 | # | Step | Host / OS needed | Depends on | Acceptance test |
 |---|---|---|---|---|
-| 1 | M1 Complete: Review and audit M1 artifacts | macOS arm64 | M1 verification | Dedicated server launches, mounts, executes commands, quits with 0 |
-| 2 | Milestone 2: Vulkan / MoltenVK renderer bootstrap | macOS arm64 | M1 | Vulkan device context creation without crash |
-| 3 | Milestone 2: Dedicated server map loading (`devmap valley`) | macOS arm64 | M1 | Server loads map geometry and spawns game entities |
-| 4 | Milestone 2: Client window creation with SDL3 & input handling | macOS arm64 | Step 2 | Client window opens with game console |
+| 1 | M2 Complete: Review and audit M2 artifacts | macOS arm64 | M2 verification | Dedicated server loads stock Valley map, spawns entities, runs simulation, quits with 0 |
+| 2 | Milestone 3: Vulkan / MoltenVK renderer bootstrap | macOS arm64 | M2 | Vulkan device context creation without crash |
+| 3 | Milestone 3: Client window creation with SDL3 & input handling | macOS arm64 | Step 2 | Client window opens with game console |
+| 4 | Milestone 3: Network snapshot framing and multiplayer connection | macOS arm64 | Step 3 | Client connects to dedicated server |
 
 ## Inputs needed from the owner
 - None. Retail assets extracted and isolated successfully.

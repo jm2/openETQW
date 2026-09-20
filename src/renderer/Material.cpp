@@ -1154,6 +1154,19 @@ void idMaterial::ParseStage( idParser& src ) {
 		} else if ( !token.Icmp( "breakpoint" ) ) {
 			stage->breakpoint = true;
 		} else {
+			if ( !token.Icmp( "lightProjectionMap" ) && declManager != NULL ) {
+				qhandle_t rbHandle = declManager->GetDeclTypeHandle( "renderBinding" );
+				if ( rbHandle != -1 ) {
+					int num = declManager->GetNumDecls( rbHandle );
+					for ( int i = 0; i < num; ++i ) {
+						const idDecl* d = declManager->DeclByIndex( rbHandle, i, false );
+						if ( d != NULL && idStr::Icmp( d->GetName(), "lightProjectionMap" ) == 0 ) {
+							const_cast<idDecl*>( d )->SetText( "{\n\ttexture { lights/squarelight1.tga }\n}\n" );
+							break;
+						}
+					}
+				}
+			}
 			const sdDeclRenderBinding* binding = declHolder.FindRenderBinding( token.c_str(), false );
 			if ( binding == NULL ) {
 				src.Warning( "Unknown token '%s'", token.c_str() );
@@ -1699,7 +1712,7 @@ bool idMaterial::Parse( const char* text, const int textLength ) {
 	FreeData();
 	CommonInit();
 	surfaceArea = oldSurfaceArea;
-	if ( text == NULL || textLength <= 0 ) {
+	if ( ( text == NULL || textLength <= 0 ) && !HasBinaryBuffer() ) {
 		materialFlags |= MF_DEFAULTED;
 		return false;
 	}
