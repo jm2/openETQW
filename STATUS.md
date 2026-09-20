@@ -3,7 +3,7 @@
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
 Updated: 2026-09-20T20:35:00Z · session/agent: worker_m4_1 · host: mbp-m1max.local, macOS arm64
-Engine repo `~/openETQW`: commit [local] · game repo `~/openETQW-game`: commit [local] · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none)
+Engine repo `~/openETQW`: commit 2992c27 (tracking https://github.com/jm2/openETQW.git) · game repo `~/openETQW-game`: commit cbda7a8 (tracking https://github.com/jm2/openETQW-game.git) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none)
 
 **Integrator role:** held by worker_m4_1 / mbp-m1max.local
 
