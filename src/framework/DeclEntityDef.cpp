@@ -123,7 +123,7 @@ bool idDeclEntityDef::Parse( const char *text, const int textLength ) {
 	// precache all referenced media
 	// do this as long as we arent in modview
 	if ( !( com_editors & (EDITOR_RADIANT|EDITOR_AAS) ) ) {
-		game->CacheDictionaryMedia( &dict );
+		game->CacheDictionaryMedia( dict );
 	}
 
 	return true;

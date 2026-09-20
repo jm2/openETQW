@@ -70,6 +70,7 @@ void idCollisionModelLocal::DrawNode_r( const cm_node_t *node, int surfaceMask, 
 			continue;
 		}
 
+#if !defined(ID_DEDICATED)
 		qglBegin( GL_POLYGON );
 		qglNormal3fv( polygon.plane.ToFloatPtr() );
 		for ( int i = polygon.numEdges - 1; i >= 0; --i ) {
@@ -78,6 +79,7 @@ void idCollisionModelLocal::DrawNode_r( const cm_node_t *node, int surfaceMask, 
 			qglVertex3fv( vertices[ vertexNum ].p.ToFloatPtr() );
 		}
 		qglEnd();
+#endif
 	}
 
 	if ( node->planeType != -1 ) {

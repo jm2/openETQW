@@ -48,3 +48,10 @@ __pycache__/
 *.log
 *.log.*
 logs/
+
+# Retail game assets and archives
+*.pk4
+*.mega
+*.bik
+/base/
+/etqw_data/

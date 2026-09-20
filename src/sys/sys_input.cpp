@@ -5,8 +5,10 @@
 #pragma hdrstop
 
 #include "sys_local.h"
+#ifdef _WIN32
 #include "win32/input/win_dinput.h"
 #include "win32/input/win_xinput.h"
+#endif
 
 namespace {
 
@@ -397,6 +399,7 @@ sdControllerManagerLocal::~sdControllerManagerLocal() {
 }
 
 void sdControllerManagerLocal::Init() {
+#ifdef _WIN32
 	sdControllerAPIXInput* xInput = new sdControllerAPIXInput;
 	controllerAPIs.Append( xInput );
 	xInput->Init( controllerAPIs.Num() - 1 );
@@ -404,6 +407,7 @@ void sdControllerManagerLocal::Init() {
 	sdControllerAPIDInput* dInput = new sdControllerAPIDInput;
 	controllerAPIs.Append( dInput );
 	dInput->Init( controllerAPIs.Num() - 1 );
+#endif
 
 	cmdSystem->AddCommand( "listControllers", Controller_List_f, CMD_FL_SYSTEM, "lists connected controller devices" );
 }

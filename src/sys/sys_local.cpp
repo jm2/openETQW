@@ -1,48 +1,148 @@
-/*
-===========================================================================
-
-Doom 3 GPL Source Code
-Copyright (C) 1999-2011 id Software LLC, a ZeniMax Media company. 
-
-This file is part of the Doom 3 GPL Source Code (?Doom 3 Source Code?).  
-
-Doom 3 Source Code is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-Doom 3 Source Code is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with Doom 3 Source Code.  If not, see <http://www.gnu.org/licenses/>.
-
-In addition, the Doom 3 Source Code is also subject to certain additional terms. You should have received a copy of these additional terms immediately following the terms and conditions of the GNU General Public License which accompanied the Doom 3 Source Code.  If not, please request a copy in writing from id Software at the address below.
-
-If you have questions concerning this license or the applicable additional terms, you may contact in writing id Software LLC, c/o ZeniMax Media Inc., Suite 120, Rockville, Maryland 20850 USA.
-
-===========================================================================
-*/
+// Copyright (C) 2007 Id Software, Inc.
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "../idlib/precompiled.h"
 #pragma hdrstop
+
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <time.h>
+
 #include "sys_local.h"
+#include "posix/posix_public.h"
 
 const char * sysLanguageNames[] = {
 	"english", "spanish", "italian", "german", "french", "russian", 
 	"polish", "korean", "japanese", "chinese", NULL
 };
 
-idCVar sys_lang( "sys_lang", "english", CVAR_SYSTEM | CVAR_ARCHIVE,  "", sysLanguageNames, idCmdSystem::ArgCompletion_String<sysLanguageNames> );
+idCVar sys_lang( "sys_lang", "english", CVAR_SYSTEM | CVAR_ARCHIVE, "", sysLanguageNames, idCmdSystem::ArgCompletion_String<sysLanguageNames> );
 
 idSysLocal			sysLocal;
 idSys *				sys = &sysLocal;
 
+/*
+==============================================================
+sdSysEvent
+==============================================================
+*/
+sdSysEvent::~sdSysEvent() {
+	FreeData();
+}
+
+void sdSysEvent::Init( sysEventType_t _type, int _value, int _value2, int _ptrLength, void* _ptr ) {
+	FreeData();
+	type = _type;
+	value = _value;
+	value2 = _value2;
+	ptrLength = _ptrLength;
+	ptr = _ptr;
+	node.SetOwner( this );
+}
+
+void sdSysEvent::FreeData() {
+	if ( ptr != NULL ) {
+		Mem_Free( ptr );
+		ptr = NULL;
+	}
+	ptrLength = 0;
+}
+
+/*
+==============================================================
+Headless Input Stubs
+==============================================================
+*/
+namespace {
+
+class idKeyboardHeadless : public idKeyboard {
+public:
+	virtual ~idKeyboardHeadless() {}
+	virtual bool Init() { return true; }
+	virtual void Shutdown() {}
+	virtual void Activate() {}
+	virtual void Deactivate() {}
+	virtual int PollInputEvents( bool ) { return 0; }
+	virtual int ReturnInputEvent( const int, keyNum_t&, bool& ) { return 0; }
+	virtual void EndInputEvents() {}
+	virtual keyNum_t ConvertScanToKey( unsigned int ) const { return K_INVALID; }
+	virtual keyNum_t ConvertCharToKey( char ) const { return K_INVALID; }
+	virtual char ConvertScanToChar( unsigned int ) const { return 0; }
+	virtual unsigned int ConvertCharToScan( char ) const { return 0; }
+	virtual char ConvertKeyToChar( const keyNum_t ) const { return 0; }
+	virtual bool IsConsoleKey( const sdSysEvent& ) const { return false; }
+};
+
+class idMouseHeadless : public idMouse {
+public:
+	virtual ~idMouseHeadless() {}
+	virtual bool Init() { return true; }
+	virtual void Shutdown() {}
+	virtual bool IsActive() const { return false; }
+	virtual void Activate() {}
+	virtual void Deactivate() {}
+	virtual void GrabCursor( bool ) {}
+	virtual int PollInputEvents( bool ) { return 0; }
+	virtual int ReturnInputEvent( const int, int&, int& ) { return 0; }
+	virtual void EndInputEvents() {}
+};
+
+class sdIMEHeadless : public sdIME {
+public:
+	virtual bool Init() { return true; }
+	virtual void Shutdown() {}
+	virtual bool LangSupportsIME() const { return false; }
+	virtual void Enable( bool ) {}
+	virtual bool IsEnabled() const { return false; }
+	virtual void FinalizeString( bool ) {}
+	virtual int GetCursorChars() const { return 0; }
+	virtual bool IsReadingWindowActive() const { return false; }
+	virtual bool IsHorizontalReading() const { return false; }
+	virtual bool VerticalCandidateLine() const { return false; }
+	virtual state_e GetState() const { return IME_STATE_OFF; }
+	virtual const wchar_t* GetIndicator() const { return L""; }
+	virtual bool IsCandidateListActive() const { return false; }
+	virtual const wchar_t* GetCandidate( const unsigned int ) const { return L""; }
+	virtual int GetCandidateCount() const { return 0; }
+	virtual int GetCandidateSelection() const { return 0; }
+	virtual const wchar_t* GetCompositionString() const { return L""; }
+	virtual const byte* GetCompositionStringAttributes() const { return NULL; }
+	virtual const lang_e GetLanguage() const { return IME_LANG_NEUTRAL; }
+	virtual const lang_e GetPrimaryLanguage() const { return IME_LANG_NEUTRAL; }
+};
+
+static idKeyboardHeadless headlessKeyboard;
+static idMouseHeadless headlessMouse;
+static sdIMEHeadless headlessIME;
+
+} // namespace
+
+/*
+==============================================================
+idSysLocal
+==============================================================
+*/
+idSysLocal::~idSysLocal( void ) {
+	ClearEvents();
+}
+
+void idSysLocal::Init( void ) {
+	ClearEvents();
+	Sys_InitNetworking();
+}
+
+void idSysLocal::PostGameInit( void ) {
+}
+
+void idSysLocal::Shutdown( void ) {
+	ClearEvents();
+	Sys_ShutdownNetworking();
+	Posix_ShutdownConsole();
+}
+
 void idSysLocal::DebugPrintf( const char *fmt, ... ) {
 	va_list argptr;
-
 	va_start( argptr, fmt );
 	Sys_DebugVPrintf( fmt, argptr );
 	va_end( argptr );
@@ -52,12 +152,81 @@ void idSysLocal::DebugVPrintf( const char *fmt, va_list arg ) {
 	Sys_DebugVPrintf( fmt, arg );
 }
 
+void idSysLocal::GetCPUInfo( cpuInfo_t& info ) {
+	Sys_CPUInfo( info );
+}
+
 double idSysLocal::GetClockTicks( void ) {
 	return Sys_GetClockTicks();
 }
 
 double idSysLocal::ClockTicksPerSecond( void ) {
 	return Sys_ClockTicksPerSecond();
+}
+
+void idSysLocal::Sleep( int msec ) {
+	Sys_Sleep( msec );
+}
+
+int idSysLocal::Milliseconds() {
+	return Sys_Milliseconds();
+}
+
+time_t idSysLocal::RealTime( sysTime_t* sysTime ) {
+	return Sys_RealTime( sysTime );
+}
+
+const char* idSysLocal::TimeToSystemStr( const sysTime_t& sysTime ) {
+	static char buffer[ 64 ];
+	idStr::snPrintf( buffer, sizeof( buffer ), "%02d:%02d:%02d", sysTime.tm_hour, sysTime.tm_min, sysTime.tm_sec );
+	return buffer;
+}
+
+const char* idSysLocal::TimeAndDateToSystemStr( const sysTime_t& sysTime ) {
+	static char buffer[ 128 ];
+	idStr::snPrintf( buffer, sizeof( buffer ), "%04d-%02d-%02d %02d:%02d:%02d",
+		sysTime.tm_year + 1900, sysTime.tm_mon + 1, sysTime.tm_mday,
+		sysTime.tm_hour, sysTime.tm_min, sysTime.tm_sec );
+	return buffer;
+}
+
+time_t idSysLocal::TimeDiff( const sysTime_t& from, const sysTime_t& to ) {
+	struct tm tmFrom, tmTo;
+	memset( &tmFrom, 0, sizeof( tmFrom ) );
+	memset( &tmTo, 0, sizeof( tmTo ) );
+	tmFrom.tm_sec = from.tm_sec; tmFrom.tm_min = from.tm_min; tmFrom.tm_hour = from.tm_hour;
+	tmFrom.tm_mday = from.tm_mday; tmFrom.tm_mon = from.tm_mon; tmFrom.tm_year = from.tm_year;
+	tmTo.tm_sec = to.tm_sec; tmTo.tm_min = to.tm_min; tmTo.tm_hour = to.tm_hour;
+	tmTo.tm_mday = to.tm_mday; tmTo.tm_mon = to.tm_mon; tmTo.tm_year = to.tm_year;
+	return static_cast< time_t >( difftime( mktime( &tmTo ), mktime( &tmFrom ) ) );
+}
+
+void idSysLocal::SecondsToTime( const time_t t, sysTime_t& out, bool localTime ) {
+	struct tm result;
+	if ( localTime ) {
+		localtime_r( &t, &result );
+	} else {
+		gmtime_r( &t, &result );
+	}
+	out.tm_sec = result.tm_sec;
+	out.tm_min = result.tm_min;
+	out.tm_hour = result.tm_hour;
+	out.tm_mday = result.tm_mday;
+	out.tm_mon = result.tm_mon;
+	out.tm_year = result.tm_year;
+	out.tm_wday = result.tm_wday;
+	out.tm_yday = result.tm_yday;
+	out.tm_isdst = result.tm_isdst;
+}
+
+const char *idSysLocal::TimeToStr( const sysTime_t& t ) {
+	return TimeToSystemStr( t );
+}
+
+const char *idSysLocal::SecondsToStr( const time_t t, bool localTime ) {
+	sysTime_t st;
+	SecondsToTime( t, st, localTime );
+	return TimeAndDateToSystemStr( st );
 }
 
 cpuid_t idSysLocal::GetProcessorId( void ) {
@@ -84,20 +253,45 @@ void idSysLocal::FPU_SetDAZ( bool enable ) {
 	Sys_FPU_SetDAZ( enable );
 }
 
+void idSysLocal::FPU_EnableExceptions( int exceptions ) {
+	Sys_FPU_EnableExceptions( exceptions );
+}
+
 void idSysLocal::GetCurCallStack( address_t *callStack, const int callStackSize ) {
-	Sys_GetCurCallStack( callStack, callStackSize );
+	if ( callStack != NULL && callStackSize > 0 ) {
+		memset( callStack, 0, callStackSize * sizeof( address_t ) );
+	}
 }
 
-const char * idSysLocal::GetCallStackStr( const address_t *callStack, const int callStackSize ) {
-	return Sys_GetCallStackStr( callStack, callStackSize );
+const char *idSysLocal::GetCurCallStackStr( int depth ) {
+	return "";
 }
 
-const char * idSysLocal::GetCurCallStackStr( int depth ) {
-	return Sys_GetCurCallStackStr( depth );
+const char *idSysLocal::GetCallStackStr( const address_t *callStack, const int callStackSize ) {
+	return "";
+}
+
+const char *idSysLocal::GetFunctionName( const address_t function ) {
+	return "";
+}
+
+const char *idSysLocal::GetFunctionSourceFile( const address_t function ) {
+	return "";
 }
 
 void idSysLocal::ShutdownSymbols( void ) {
-	Sys_ShutdownSymbols();
+}
+
+void idSysLocal::GetCurrentMemoryStatus( sysMemoryStats_t &stats ) {
+	Sys_GetCurrentMemoryStatus( stats );
+}
+
+void idSysLocal::GetExeLaunchMemoryStatus( sysMemoryStats_t &stats ) {
+	Sys_GetExeLaunchMemoryStatus( stats );
+}
+
+void idSysLocal::GetProcessMemoryStatus( sysProcessMemoryStats_t &stats ) {
+	Sys_GetProcessMemoryStatus( stats );
 }
 
 void *idSysLocal::DLL_Load( const char *dllName, bool checkFullPathMatch ) {
@@ -114,14 +308,48 @@ void idSysLocal::DLL_Unload( void *dllHandle ) {
 
 void idSysLocal::DLL_GetFileName( const char *baseName, char *dllName, int maxLength ) {
 #ifdef _WIN32
-	idStr::snPrintf( dllName, maxLength, "%s" CPUSTRING ".dll", baseName );
+	idStr::snPrintf( dllName, maxLength, "%s_arm64.dll", baseName );
 #elif defined( __linux__ )
-	idStr::snPrintf( dllName, maxLength, "%s" CPUSTRING ".so", baseName );
+	idStr::snPrintf( dllName, maxLength, "%s_arm64.so", baseName );
 #elif defined( MACOS_X )
-	idStr::snPrintf( dllName, maxLength, "%s" ".dylib", baseName );
+	idStr::snPrintf( dllName, maxLength, "%s_arm64.dylib", baseName );
 #else
 #error OS define is required
 #endif
+}
+
+const char *idSysLocal::EXEPath( void ) {
+	return Sys_EXEPath();
+}
+
+long idSysLocal::File_TimeStamp( FILE* f ) {
+	return Sys_FileTimeStamp( f );
+}
+
+int idSysLocal::File_Stat( const char* OSPath ) {
+	struct stat st;
+	return ( OSPath != NULL && stat( OSPath, &st ) == 0 ) ? 0 : -1;
+}
+
+const sdSysEvent *idSysLocal::GenerateBlankEvent( void ) {
+	sdScopedLock< true > queueLock( eventLock );
+	sdSysEvent *event = eventAllocator.Alloc();
+	event->Init( SE_NONE, 0, 0, 0, NULL );
+	return event;
+}
+
+const sdSysEvent *idSysLocal::GenerateCharEvent( int ch ) {
+	sdScopedLock< true > queueLock( eventLock );
+	sdSysEvent *event = eventAllocator.Alloc();
+	event->Init( SE_CHAR, 0, ch, 0, NULL );
+	return event;
+}
+
+const sdSysEvent *idSysLocal::GenerateKeyEvent( keyNum_t key, bool down ) {
+	sdScopedLock< true > queueLock( eventLock );
+	sdSysEvent *event = eventAllocator.Alloc();
+	event->Init( SE_KEY, SE_KEY_VALUE( key, key ), SE_KEY_VALUE2( down, false ), 0, NULL );
+	return event;
 }
 
 const sdSysEvent *idSysLocal::GenerateMouseButtonEvent( int button, bool down ) {
@@ -138,59 +366,140 @@ const sdSysEvent *idSysLocal::GenerateMouseMoveEvent( int deltax, int deltay ) {
 	return event;
 }
 
-void idSysLocal::FPU_EnableExceptions( int exceptions ) {
-	Sys_FPU_EnableExceptions( exceptions );
+const sdSysEvent *idSysLocal::GenerateGuiEvent( int value ) {
+	sdScopedLock< true > queueLock( eventLock );
+	sdSysEvent *event = eventAllocator.Alloc();
+	event->Init( SE_GUI, value, 0, 0, NULL );
+	return event;
 }
 
-/*
-=================
-Sys_TimeStampToStr
-=================
-*/
-const char *Sys_TimeStampToStr( ID_TIME_T timeStamp ) {
-	static char timeString[MAX_STRING_CHARS];
-	timeString[0] = '\0';
-
-	time_t nativeTime = static_cast< time_t >( timeStamp );
-	tm*	time = localtime( &nativeTime );
-	idStr out;
-	
-	idStr lang = cvarSystem->GetCVarString( "sys_lang" );
-	if ( lang.Icmp( "english" ) == 0 ) {
-		// english gets "month/day/year  hour:min" + "am" or "pm"
-		out = va( "%02d", time->tm_mon + 1 );
-		out += "/";
-		out += va( "%02d", time->tm_mday );
-		out += "/";
-		out += va( "%d", time->tm_year + 1900 );
-		out += "\t";
-		if ( time->tm_hour > 12 ) {
-			out += va( "%02d", time->tm_hour - 12 );
-		} else if ( time->tm_hour == 0 ) {
-				out += "12";
-		} else {
-			out += va( "%02d", time->tm_hour );
-		}
-		out += ":";
-		out +=va( "%02d", time->tm_min );
-		if ( time->tm_hour >= 12 ) {
-			out += "pm";
-		} else {
-			out += "am";
-		}
-	} else {
-		// europeans get "day/month/year  24hour:min"
-		out = va( "%02d", time->tm_mday );
-		out += "/";
-		out += va( "%02d", time->tm_mon + 1 );
-		out += "/";
-		out += va( "%d", time->tm_year + 1900 );
-		out += "\t";
-		out += va( "%02d", time->tm_hour );
-		out += ":";
-		out += va( "%02d", time->tm_min );
+const sdSysEvent *idSysLocal::GetEvent( void ) {
+	ProcessOSEvents();
+	sdScopedLock< true > queueLock( eventLock );
+	sdSysEvent *event = eventQue.Next();
+	if ( event == NULL ) {
+		return NULL;
 	}
-	idStr::Copynz( timeString, out, sizeof( timeString ) );
+	event->GetNode().Remove();
+	return event;
+}
 
-	return timeString;
+void idSysLocal::QueEvent( sysEventType_t type, int value, int value2, int ptrLength, void *ptr ) {
+	sdScopedLock< true > queueLock( eventLock );
+	sdSysEvent *event = eventAllocator.Alloc();
+	event->Init( type, value, value2, ptrLength, ptr );
+	event->GetNode().AddToEnd( eventQue );
+}
+
+void idSysLocal::ClearEvents( void ) {
+	sdScopedLock< true > queueLock( eventLock );
+	while ( !eventQue.IsListEmpty() ) {
+		sdSysEvent *event = eventQue.Next();
+		event->GetNode().Remove();
+		event->FreeData();
+		eventAllocator.Free( event );
+	}
+}
+
+void idSysLocal::FreeEvent( const sdSysEvent *event ) {
+	if ( event == NULL ) {
+		return;
+	}
+	sdScopedLock< true > queueLock( eventLock );
+	sdSysEvent *mutableEvent = const_cast< sdSysEvent* >( event );
+	mutableEvent->GetNode().Remove();
+	mutableEvent->FreeData();
+	eventAllocator.Free( mutableEvent );
+}
+
+void idSysLocal::OpenURL( const char *url, bool quit ) {
+	if ( quit ) {
+		Sys_Quit();
+	}
+}
+
+void idSysLocal::StartProcess( const char *exeName, bool quit ) {
+	if ( quit ) {
+		Sys_Quit();
+	}
+}
+
+int idSysLocal::MessageBox( const char* title, const char* buffer, messageBoxType_t type ) {
+	return Sys_MessageBox( title, buffer, type );
+}
+
+void idSysLocal::ProcessOSEvents() {
+	Sys_GenerateEvents();
+}
+
+sdPerformanceQuery* idSysLocal::GetPerformanceQuery( sdPerformanceQueryType pqType ) {
+	return NULL;
+}
+
+void idSysLocal::CollectPerformanceData( void ) {
+}
+
+idWStr idSysLocal::GetClipboardData( void ) {
+	return idWStr();
+}
+
+void idSysLocal::SetClipboardData( const wchar_t *string ) {
+}
+
+void idSysLocal::SetServerInfo( const char* key, const char* value ) {
+}
+
+void idSysLocal::FlushServerInfo( void ) {
+}
+
+void idSysLocal::InitInput() {
+}
+
+void idSysLocal::ShutdownInput() {
+}
+
+idKeyboard& idSysLocal::Keyboard() {
+	return headlessKeyboard;
+}
+
+idMouse& idSysLocal::Mouse() {
+	return headlessMouse;
+}
+
+sdIME& idSysLocal::IME() {
+	return headlessIME;
+}
+
+void idSysLocal::SetSystemLocale() {
+}
+
+void idSysLocal::SetDefaultLocale() {
+}
+
+sdLogitechLCDSystem* idSysLocal::GetLCDSystem( void ) {
+	return NULL;
+}
+
+const char *idSysLocal::NetAdrToString( const netadr_t& a ) const {
+	return Sys_NetAdrToString( a );
+}
+
+bool idSysLocal::IsLANAddress( const netadr_t& a ) const {
+	return Sys_IsLANAddress( a );
+}
+
+bool idSysLocal::StringToNetAdr( const char *s, netadr_t *a, bool doDNSResolve ) const {
+	return Sys_StringToNetAdr( s, a, doDNSResolve );
+}
+
+int idSysLocal::GetGUID( unsigned char* guid, const int len ) const {
+	if ( guid == NULL || len <= 0 ) {
+		return 0;
+	}
+	unsigned int state = static_cast< unsigned int >( Sys_Milliseconds() ^ getpid() );
+	for ( int i = 0; i < len; i++ ) {
+		state = state * 1664525u + 1013904223u;
+		guid[ i ] = static_cast< unsigned char >( state >> 24 );
+	}
+	return len;
 }

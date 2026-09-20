@@ -17,14 +17,7 @@ COMMON_FRAMEWORK_SOURCES = (
     "src/framework/Compressor.cpp",
     "src/framework/Compressor_FixedHuffman.cpp",
     "src/framework/Console.cpp",
-    "src/framework/DeclAF.cpp",
-    "src/framework/DeclEntityDef.cpp",
-    "src/framework/DeclFX.cpp",
     "src/framework/DeclManager.cpp",
-    "src/framework/DeclPDA.cpp",
-    "src/framework/DeclParticle.cpp",
-    "src/framework/DeclSkin.cpp",
-    "src/framework/DeclTable.cpp",
     "src/framework/DemoFile.cpp",
     "src/framework/EditField.cpp",
     "src/framework/EventLoop.cpp",
@@ -43,8 +36,15 @@ COMMON_FRAMEWORK_SOURCES = (
     "src/framework/async/NetworkSystem.cpp",
     "src/framework/async/ServerScan.cpp",
     "src/framework/file_inzip.cpp",
-    "src/framework/minizip/ioapi.cpp",
-    "src/framework/minizip/unzip.cpp",
+    "src/framework/minizip/ioapi.c",
+    "src/framework/minizip/unzip.c",
+    "src/libs/filelib/File.cpp",
+    "src/sys/sys_input.cpp",
+    "src/renderer/Image_files.cpp",
+    "src/renderer/Material.cpp",
+    "src/renderer/SurfaceTypeMap.cpp",
+    "src/renderer/image_sequence.cpp",
+    "src/sound/SoundShader.cpp",
 )
 
 COLLISION_MODEL_SOURCES = (
@@ -60,10 +60,10 @@ COLLISION_MODEL_SOURCES = (
 )
 
 DECL_LIB_SOURCES = (
-    "src/decllib/DeclRenderProgram_opengl.cpp",
     "src/decllib/DeclSurfaceTypeMap.cpp",
-    "src/decllib/DeclType.cpp",
+    ".tmp/gamelibs_stage/src/decllib/DeclType.cpp",
     "src/decllib/RenderProgramParser.cpp",
+    "src/decllib/declEffect.cpp",
     "src/decllib/declRenderProgram.cpp",
     "src/decllib/declTemplate.cpp",
     "src/decllib/declaf.cpp",
@@ -124,7 +124,6 @@ BSE_PARTICLE_SOURCES = (
 )
 
 CLIENT_SOUND_SOURCES = (
-    "src/sound/SoundShader.cpp",
     "src/sound/SoundSystemBootstrap.cpp",
     "src/sound/snd_cache.cpp",
     "src/sound/snd_decoder.cpp",
@@ -140,13 +139,11 @@ CLIENT_RENDERER_SOURCES = (
     "src/renderer/Cinematic.cpp",
     "src/renderer/DeviceContext.cpp",
     "src/renderer/GuiModel.cpp",
-    "src/renderer/Image_files.cpp",
     "src/renderer/Image_init.cpp",
     "src/renderer/Image_load.cpp",
     "src/renderer/Image_process.cpp",
     "src/renderer/Image_program.cpp",
     "src/renderer/Interaction.cpp",
-    "src/renderer/Material.cpp",
     "src/renderer/Model.cpp",
     "src/renderer/ModelDecal.cpp",
     "src/renderer/ModelManager.cpp",
@@ -173,7 +170,6 @@ CLIENT_RENDERER_SOURCES = (
     "src/renderer/RendererMetrics.cpp",
     "src/renderer/RuntimeSpirvCompiler.cpp",
     "src/renderer/ScreenRect.cpp",
-    "src/renderer/SurfaceTypeMap.cpp",
     "src/renderer/VertexCache.cpp",
     "src/renderer/VulkanBackend.cpp",
     "src/renderer/cg_explicit.cpp",
@@ -217,6 +213,12 @@ LINUX_DEDICATED_PLATFORM_SOURCES = (
 )
 
 
+DEDICATED_STUB_SOURCES = (
+    "src/sys/sys_local.cpp",
+    "src/sys/stub/headless_stubs.cpp",
+)
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Emit Meson static source lists for openETQW")
     parser.add_argument("--host-system", choices=("windows", "linux", "darwin"), default="darwin")
@@ -235,12 +237,16 @@ def main(argv: list[str]) -> int:
     sources.extend(DECL_LIB_SOURCES)
     sources.extend(NAVIGATION_RECAST_SOURCES)
     sources.extend(SDNET_SOURCES)
-    sources.extend(BSE_PARTICLE_SOURCES)
 
     if args.target_kind == "client":
+        sources.append("src/decllib/DeclRenderProgram_opengl.cpp")
         sources.extend(CLIENT_SOUND_SOURCES)
         sources.extend(CLIENT_RENDERER_SOURCES)
         sources.extend(IMGUI_SOURCES)
+        sources.extend(BSE_PARTICLE_SOURCES)
+    elif args.target_kind == "dedicated":
+        sources.append("src/decllib/DeclRenderProgram_headless.cpp")
+        sources.extend(DEDICATED_STUB_SOURCES)
 
     # Platform selection
     if args.host_system in ("darwin", "linux"):

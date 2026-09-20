@@ -15,8 +15,17 @@
 #include "../libs/qglLib/qgl.h"
 #include "../libs/qglLib/qcg.h"
 
-#include <GL/gl.h>
-#include <malloc.h>
+#include "../libs/qglLib/gl.h"
+#include <stdlib.h>
+
+#ifndef _WIN32
+static inline void* _aligned_malloc( size_t size, size_t alignment ) {
+	void* ptr = NULL;
+	if ( posix_memalign( &ptr, alignment, size ) != 0 ) return NULL;
+	return ptr;
+}
+#define _aligned_free(ptr) free(ptr)
+#endif
 
 const unsigned int sdRenderProgramARB::shaderTypes[ ST_NUM_SHADERS ] = {
 	GL_VERTEX_PROGRAM_ARB,
@@ -507,9 +516,16 @@ sdRenderShaderGLSL::~sdRenderShaderGLSL() {
 	Purge();
 }
 
+static inline GLhandleARB ToGLHandle( unsigned int val ) {
+	return (GLhandleARB)(uintptr_t)val;
+}
+static inline unsigned int FromGLHandle( GLhandleARB val ) {
+	return (unsigned int)(uintptr_t)val;
+}
+
 void sdRenderShaderGLSL::Purge() {
 	sdRenderShader::Purge();
-	if ( shader != 0 && qglDeleteObjectARB != NULL ) qglDeleteObjectARB( shader );
+	if ( shader != 0 && qglDeleteObjectARB != NULL ) qglDeleteObjectARB( ToGLHandle( shader ) );
 	shader = 0;
 }
 
@@ -532,13 +548,13 @@ bool sdRenderShaderGLSL::PreCompile( idStr& source, sdDeclRenderProgram& renderP
 
 bool sdRenderShaderGLSL::Compile( const idStr& source, sdDeclRenderProgram& renderProgram ) {
 	if ( qglCreateShaderObjectARB == NULL || qglShaderSourceARB == NULL || qglCompileShaderARB == NULL ) return false;
-	if ( shader == 0 ) shader = qglCreateShaderObjectARB( sdRenderProgramGLSL::shaderTypes[ shaderType ] );
+	if ( shader == 0 ) shader = FromGLHandle( qglCreateShaderObjectARB( sdRenderProgramGLSL::shaderTypes[ shaderType ] ) );
 	const char* sourceText = source.c_str();
 	const int sourceLength = source.Length();
-	qglShaderSourceARB( shader, 1, &sourceText, &sourceLength );
-	qglCompileShaderARB( shader );
+	qglShaderSourceARB( ToGLHandle( shader ), 1, &sourceText, &sourceLength );
+	qglCompileShaderARB( ToGLHandle( shader ) );
 	int status = 0;
-	qglGetObjectParameterivARB( shader, GL_OBJECT_COMPILE_STATUS_ARB, &status );
+	qglGetObjectParameterivARB( ToGLHandle( shader ), GL_OBJECT_COMPILE_STATUS_ARB, &status );
 	if ( status != 0 ) return true;
 	common->Warning( "GLSL compile failure in '%s'", renderProgram.GetName() );
 	sdRenderProgramGLSL::WarningInfoLog( "", shader );
@@ -557,7 +573,7 @@ sdRenderProgramGLSL::~sdRenderProgramGLSL() {
 }
 
 void sdRenderProgramGLSL::Purge() {
-	if ( program != 0 && qglDeleteObjectARB != NULL ) qglDeleteObjectARB( program );
+	if ( program != 0 && qglDeleteObjectARB != NULL ) qglDeleteObjectARB( ToGLHandle( program ) );
 	program = 0;
 	for ( int i = 0; i < ST_NUM_SHADERS; ++i ) {
 		if ( shaders[ i ] != NULL ) shaders[ i ]->DecRef();
@@ -582,27 +598,27 @@ sdRenderShader* sdRenderProgramGLSL::GetShader( shaderType_t shaderType ) {
 void sdRenderProgramGLSL::WarningInfoLog( const char* prefix, unsigned int object ) {
 	if ( qglGetObjectParameterivARB == NULL || qglGetInfoLogARB == NULL ) return;
 	int length = 0;
-	qglGetObjectParameterivARB( object, GL_OBJECT_INFO_LOG_LENGTH_ARB, &length );
+	qglGetObjectParameterivARB( ToGLHandle( object ), GL_OBJECT_INFO_LOG_LENGTH_ARB, &length );
 	if ( length <= 1 ) return;
 	char* log = new char[ length ];
-	qglGetInfoLogARB( object, length, NULL, log );
+	qglGetInfoLogARB( ToGLHandle( object ), length, NULL, log );
 	common->Warning( "%s%s", prefix != NULL ? prefix : "", log );
 	delete[] log;
 }
 
 bool sdRenderProgramGLSL::Link( const sdDeclRenderProgram& renderProgram ) {
 	if ( shaders[ 0 ] == NULL || shaders[ 1 ] == NULL || qglCreateProgramObjectARB == NULL ) return false;
-	program = qglCreateProgramObjectARB();
+	program = FromGLHandle( qglCreateProgramObjectARB() );
 	for ( int shaderIndex = 0; shaderIndex < ST_NUM_SHADERS; ++shaderIndex ) {
-		qglAttachObjectARB( program, shaders[ shaderIndex ]->GetShader() );
+		qglAttachObjectARB( ToGLHandle( program ), ToGLHandle( shaders[ shaderIndex ]->GetShader() ) );
 		for ( int i = 0; i < shaders[ shaderIndex ]->GetNumVertexAttribBindings(); ++i ) {
 			const sdDeclRenderBinding* binding = shaders[ shaderIndex ]->GetVertexAttribBinding( i );
-			qglBindAttribLocationARB( program, binding->GetAttribIndex(), binding->GetName() );
+			qglBindAttribLocationARB( ToGLHandle( program ), binding->GetAttribIndex(), binding->GetName() );
 		}
 	}
-	qglLinkProgramARB( program );
+	qglLinkProgramARB( ToGLHandle( program ) );
 	int status = 0;
-	qglGetObjectParameterivARB( program, GL_OBJECT_LINK_STATUS_ARB, &status );
+	qglGetObjectParameterivARB( ToGLHandle( program ), GL_OBJECT_LINK_STATUS_ARB, &status );
 	if ( status == 0 ) {
 		WarningInfoLog( "GLSL link failure: ", program );
 		return false;
@@ -610,13 +626,13 @@ bool sdRenderProgramGLSL::Link( const sdDeclRenderProgram& renderProgram ) {
 	int locationIndex = 0;
 	for ( int shaderIndex = 0; shaderIndex < ST_NUM_SHADERS; ++shaderIndex ) {
 		sdRenderShaderGLSL* shader = shaders[ shaderIndex ];
-		for ( int i = 0; i < shader->GetNumParameterBindings() && locationIndex < 32; ++i ) uniformLocations[ locationIndex++ ] = qglGetUniformLocationARB( program, shader->GetParameterBinding( i )->GetName() );
-		for ( int i = 0; i < shader->GetNumInfrequentParameterBindings() && locationIndex < 32; ++i ) uniformLocations[ locationIndex++ ] = qglGetUniformLocationARB( program, shader->GetInfrequentParameterBinding( i )->GetName() );
+		for ( int i = 0; i < shader->GetNumParameterBindings() && locationIndex < 32; ++i ) uniformLocations[ locationIndex++ ] = qglGetUniformLocationARB( ToGLHandle( program ), shader->GetParameterBinding( i )->GetName() );
+		for ( int i = 0; i < shader->GetNumInfrequentParameterBindings() && locationIndex < 32; ++i ) uniformLocations[ locationIndex++ ] = qglGetUniformLocationARB( ToGLHandle( program ), shader->GetInfrequentParameterBinding( i )->GetName() );
 	}
-	hwSkinningUniformLocation = qglGetUniformLocationARB( program, "joints" );
+	hwSkinningUniformLocation = qglGetUniformLocationARB( ToGLHandle( program ), "joints" );
 	Bind();
 	for ( int i = 0; i < renderProgram.GetNumTextureBindings(); ++i ) {
-		const int location = qglGetUniformLocationARB( program, renderProgram.GetTextureBinding( i )->GetName() );
+		const int location = qglGetUniformLocationARB( ToGLHandle( program ), renderProgram.GetTextureBinding( i )->GetName() );
 		if ( location >= 0 ) qglUniform1iARB( location, i );
 	}
 	return true;
@@ -625,7 +641,7 @@ bool sdRenderProgramGLSL::Link( const sdDeclRenderProgram& renderProgram ) {
 void sdRenderProgramGLSL::Bind() {
 	glDisable( GL_VERTEX_PROGRAM_ARB );
 	glDisable( GL_FRAGMENT_PROGRAM_ARB );
-	if ( qglUseProgramObjectARB != NULL ) qglUseProgramObjectARB( program );
+	if ( qglUseProgramObjectARB != NULL ) qglUseProgramObjectARB( ToGLHandle( program ) );
 }
 
 void sdRenderProgramGLSL::UpdateParameters() {

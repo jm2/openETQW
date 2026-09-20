@@ -25,6 +25,9 @@
 #include <stdio.h>
 #include <stdarg.h>
 
+#undef vsnprintf
+#undef snprintf
+
 namespace
 {
 /// Allocates and constructs an object of the given type, returning a pointer.
