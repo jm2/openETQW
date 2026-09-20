@@ -1,0 +1,104 @@
+{
+  "scope": "read-only static textual observations; not compile/runtime tests",
+  "source_root": "~/etqw",
+  "engine_cmake_include_exists": false,
+  "git_history_present": true,
+  "user_command_constants": [
+    {
+      "path": "src/framework/UsercmdGen.h",
+      "line": 15,
+      "text": "const int USERCMD_HZ\t\t\t= 30;\t\t\t// 30 frames per second"
+    },
+    {
+      "path": "src/framework/UsercmdGen.h",
+      "line": 16,
+      "text": "const int USERCMD_MSEC\t\t\t= 1000 / USERCMD_HZ;"
+    }
+  ],
+  "engine_game_snapshot_prediction_calls": [],
+  "engine_extra_view_calls": [
+    {
+      "path": "src/framework/Session.cpp",
+      "line": 343,
+      "text": "game->ClientUpdateView( cmd, Com_GetGameTimeLeft() );"
+    }
+  ],
+  "frame_pacing_cvar_occurrences": [
+    {
+      "path": "src/framework/Common.cpp",
+      "line": 70,
+      "text": "idCVar com_unlock_avgFrames( \"com_unlock_avgFrames\", \"4\", CVAR_INTEGER | CVAR_SYSTEM | CVAR_NOCHEAT,"
+    },
+    {
+      "path": "src/framework/Common.cpp",
+      "line": 72,
+      "text": "idCVar com_unlock_safetyMargin( \"com_unlock_safetyMargin\", \"0.1\", CVAR_FLOAT | CVAR_SYSTEM | CVAR_NOCHEAT,"
+    },
+    {
+      "path": "src/framework/Common.cpp",
+      "line": 74,
+      "text": "idCVar com_unlock_timingMethod( \"com_unlock_timingMethod\", \"2\", CVAR_INTEGER | CVAR_SYSTEM | CVAR_NOCHEAT,"
+    },
+    {
+      "path": "src/framework/Common.cpp",
+      "line": 76,
+      "text": "idCVar com_unlock_maxFPS( \"com_unlock_maxFPS\", \"60\", CVAR_INTEGER | CVAR_SYSTEM | CVAR_NOCHEAT,"
+    }
+  ],
+  "moving_entity_interpolation_registration": [
+    {
+      "path": "src/game/Entity.cpp",
+      "line": 1745,
+      "text": "interpolateNode.AddToFront( gameLocal.interpolateEntities );"
+    }
+  ],
+  "client_game_frame_occurrences": [
+    {
+      "path": "src/framework/async/AsyncClient.cpp",
+      "line": 41,
+      "text": "gameFrame( 0 ),"
+    },
+    {
+      "path": "src/framework/async/AsyncClient.cpp",
+      "line": 85,
+      "text": "gameFrame = 0;"
+    },
+    {
+      "path": "src/framework/async/AsyncClient.cpp",
+      "line": 359,
+      "text": "const int index = gameFrame & ( MAX_USERCMD_BACKUP - 1 );"
+    },
+    {
+      "path": "src/framework/async/AsyncClient.cpp",
+      "line": 367,
+      "text": "msg.WriteLong( gameFrame );"
+    },
+    {
+      "path": "src/framework/async/AsyncClient.cpp",
+      "line": 374,
+      "text": "gameFrame = serverGameFrame;"
+    }
+  ],
+  "server_empty_functions": {
+    "ProcessChallengeMessage": true,
+    "ProcessConnectMessage": true,
+    "SendGameInitToClient": true,
+    "SendApplySnapshotToClient": true
+  },
+  "snapshot_sender_uses_empty_message": true,
+  "client_setup_logs_challenge": true,
+  "selected_file_sha256": {
+    "src/CMakeLists.txt": "237086db831e261874b828b251cec43418f2a8871395cc0cfe1f622546a6fbcb",
+    "src/framework/async/AsyncClient.cpp": "b9cf3edab69fe3b89f226348f57e7d22a57b1c72632d88d9d8b853942e35642e",
+    "src/framework/async/AsyncServer.cpp": "d18a9c27b224489798f9fe9fead7b4ea0b2f1a639dc62a9857dfed819c4f0b89",
+    "src/framework/async/NetworkSystem.cpp": "60de9e270d666c5b9ff0fe97efb1c33566cb79a5a79456c9e1e13405c5482caa",
+    "src/framework/Common.cpp": "454a9cedba069f77b9b7af5d4b494bff2d395e8965da960e84211f67ae78421e",
+    "src/framework/Session.cpp": "61a7cd48abbd3cbc27ecd3478a3d799cb67bea1278dd7d2497e89476f632a00c",
+    "src/game/Game.h": "a2c408c8d01e8ee8ddf96c5a9328406a4471d2ede324d4ca5ef6974ee5e174df",
+    "src/game/Game_network.cpp": "9df7bd9c9bfa9a2934290dc0e71ed895ca64dcca63b244345932d3549f2c1b82",
+    "src/game/Game_local.cpp": "e734652e51a0e230cf639af7ba7f6a60628b7a6b4cd0951c09df912d4d4456d4",
+    "src/game/Player.cpp": "16195f6757ba56ae6120541d8e870e3d8db3a51327ee9ec109201456bb177ace",
+    "src/game/Entity.cpp": "0a52bcb583ee2be707643d0d4df231ebc0b453ffcb1f711fb82304a6babe7951",
+    "src/renderer/RenderWorld_load.cpp": "3fec402d475579704737fd41050e5b7e9cb14d5102c598bbe5537d3aaad6679f"
+  }
+}
