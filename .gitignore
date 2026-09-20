@@ -1,0 +1,50 @@
+# Meson and Ninja build directories
+/build/
+/builddir*/
+/meson-private/
+/meson-logs/
+/meson-info/
+/.ninja_log
+/.ninja_deps
+/compile_commands.json
+
+# Dynamic game staging directory (CRITICAL: prevents staged SDK headers from entering engine git)
+/.tmp/
+
+# Compiled objects, binaries, and libraries
+*.o
+*.obj
+*.lo
+*.la
+*.dylib
+*.so
+*.so.*
+*.dll
+*.a
+*.lib
+*.exe
+*.out
+*.app
+*.pdb
+
+# Local environment, agent metadata, and handoff bundles
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+/.agents/
+/openetqw_handoff_v3/
+/ORIGINAL_REQUEST.md
+
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Diagnostic logs
+*.log
+*.log.*
+logs/
