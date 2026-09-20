@@ -34,6 +34,10 @@ void idDeclEntityDef::CacheFromDict( const idDict& source ) {
 }
 
 bool idDeclEntityDef::Parse( const char* text, const int textLength ) {
+	if ( ( text == NULL || textLength <= 0 ) && !HasBinaryBuffer() ) {
+		MakeDefault();
+		return false;
+	}
 	idParser src;
 	idToken key;
 	idToken value;
@@ -84,6 +88,5 @@ bool idDeclEntityDef::Parse( const char* text, const int textLength ) {
 	for ( int i = 0; i < inherited.Num(); i++ ) {
 		dict.SetDefaults( &inherited[ i ]->dict );
 	}
-	declManager->CacheFromDict( dict );
 	return true;
 }

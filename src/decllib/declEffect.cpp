@@ -8,6 +8,7 @@
 
 #include "BSE.h"
 #include "../framework/DeclManager.h"
+#include "../framework/DeclParseHelper.h"
 
 void rvDeclEffect::Init( void ) {
 	FreeData();
@@ -39,10 +40,14 @@ size_t rvDeclEffect::Size( void ) const {
 
 bool rvDeclEffect::Parse( const char *text, const int textLength ) {
 	FreeData();
-	idLexer src;
-	src.LoadMemory( text, textLength, GetFileName(), GetLineNum() );
+	if ( ( text == NULL || textLength <= 0 ) && !HasBinaryBuffer() ) {
+		return false;
+	}
+	idParser src;
 	src.SetFlags( DECL_LEXER_FLAGS );
-	if ( !src.SkipUntilString( "{" ) ) {
+	sdDeclParseHelper declHelper( this, text, textLength, src );
+	idToken token;
+	if ( !src.SkipUntilString( "{", &token ) ) {
 		return false;
 	}
 	return src.SkipBracedSection( false ) != 0;
