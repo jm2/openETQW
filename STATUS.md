@@ -2,10 +2,10 @@
 
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
-Updated: 2026-09-20T06:40:00Z · session/agent: worker_m1_1 · host: mbp-m1max.local, macOS arm64
+Updated: 2026-09-20T06:56:00Z · session/agent: worker_m1_2 · host: mbp-m1max.local, macOS arm64
 Engine repo `~/openETQW`: commit [local] · game repo `~/openETQW-game`: commit [local] · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none)
 
-**Integrator role:** held by worker_m1_1 / mbp-m1max.local
+**Integrator role:** held by worker_m1_2 / mbp-m1max.local
 
 ## Owner decisions in effect
 D1 public source and binaries · D2 all RE methods · D3 hard fork · D4 macOS / Windows 11 / Arch / Fedora / Debian, inputs on request · D5 two repos: GPL-3.0-or-later engine; SDK license + MIT game · D6 Meson
@@ -21,9 +21,12 @@ Environment corrections vs. SESSION_BRIEF: none
   - Git 2.55.0
 - Setup / compile / test commands, exactly as run:
 ```sh
-# Staging and verification
+# Staging and Zero-SDK verification
 python3 tools/build/stage_game.py . ../openETQW-game .tmp/gamelibs_stage
 python3 tests/test_zero_sdk.py
+
+# Full Meson automated test suite
+meson test -C build --verbose
 
 # Game build
 cd /Users/jmulesa/openETQW-game
@@ -31,50 +34,61 @@ meson compile -C build idLib libGameDecl game_arm64
 
 # Engine dedicated server build
 cd /Users/jmulesa/openETQW
-meson setup build -Dbuild_dedicated=true -Dbuild_engine=false
 meson compile -C build openETQW-ded_arm64
 
 # Verification of zero GPU / audio / Cocoa linkage
 otool -L build/openETQW-ded_arm64
 
-# End-to-end headless dedicated execution test
+# End-to-end headless dedicated execution test (authentic retail pak data)
 printf "status\nlistDecls\nhelp\nquit\n" | ./build/openETQW-ded_arm64 +set dedicated 1 +set fs_basepath /Users/jmulesa/etqw_data +set fs_game base
 ```
 
 ## This session
 
 **Plan, and why it advances the engine:**
-Execute Milestone 1 (Native Execution & Headless Dedicated Server):
-1. Extract retail assets from `/Users/jmulesa/Desktop/etqw-data-steam-1-1-any.pkg.tar.zst` into isolated directory `/Users/jmulesa/etqw_data/base` outside git repositories. Verify git status remains clean in both repos.
-2. Implement POSIX platform layer for macOS arm64 (`src/sys/posix/`, `src/sys/sys_local.cpp`, `src/sys/stub/headless_stubs.cpp`) without GPU/audio dependencies, configured in Meson for `openETQW-ded_arm64`. Verify zero runtime linkage to OpenGL, Metal, OpenAL, or Cocoa.
-3. Fix filesystem mounting and declaration initialization: handle `default.cfg` missing in Steam retail paks, stage `DeclType.cpp` to register all 20 builtin decl types, reconcile `gameImport_t` offset 0x68 union, and load `game_arm64.dylib` via `GetGameAPI`.
-4. Implement dedicated server console lifecycle: process `status`, `listDecls`, `help`, and `quit` with clean exit code 0.
+Milestone 1 Iteration 2 Remediation:
+1. Zero-SDK Policy Remediation: Remove 3 tracked SDK files (`src/framework/BuildVersion.cpp`, `src/framework/BuildVersion.h`, `src/idlib/precompiled.h`) from openETQW git tracking, resolving Gate 2b violation.
+2. Clean Engine Version & Header Staging: Provide clean GPL-3.0-or-later replacement files `src/framework/EngineVersion.h` and `src/framework/EngineVersion.cpp` defining `ENGINE_SRC_REVISION = 12658` and `ENGINE_MEDIA_REVISION = 33244`. Inject `<string>` and `<vector>` into `src/framework/precompiled.h` before `#include "idlib/precompiled.h"` to prevent libc++ `<locale>` macro poisoning. Ensure `#include "idlib/precompiled.h"` resolves via `.tmp/gamelibs_stage/src/idlib/precompiled.h`.
+3. POSIX Platform Layer Bug Fixes: Apply and verify `posix_fixes.patch` across `src/sys/posix/` and `src/sys/sys_local.cpp`:
+   - Eliminate 64-bit thread handle truncation via static `g_threadTable[MAX_THREADS]` with 1-based integer handles and native `pthread_t` storage.
+   - Fix buffer transposition in `posix_net.cpp:207` (`static char s[4][64]`).
+   - Fix non-blocking console EOF detection using `read() == 0` in `posix_main.cpp:517`.
+   - Implement strictly monotonic timing in `Sys_Milliseconds` via `clock_gettime(CLOCK_MONOTONIC)`.
+   - Implement async-signal-safe error logging via unbuffered `write(STDERR_FILENO, ...)` in `posix_signal.cpp`.
+   - Restore terminal canonical/echo mode on shutdown/exit via `Posix_ShutdownConsoleInput()` and `atexit()`.
+   - Parameterize architecture suffix `SYS_ARCH_SUFFIX` in `idSysLocal::DLL_GetFileName`.
+4. Workspace Hygiene: Remove synthetic `/Users/jmulesa/etqw_data/base/default.cfg` and cleaned test directory. Verify dedicated server boots gracefully without synthetic configuration.
+5. Rigorous Empirical Verification: Live execution of `test_zero_sdk.py`, `meson test` 4/4 suite, `openETQW-ded_arm64` headless dedicated console loop, and `otool -L` linkage audit.
 
 ### Changed
 | Repo | Files / symbols | What | Why | Reuse / provenance |
 |---|---|---|---|---|
-| openETQW | `src/sys/posix/*` | POSIX platform layer implementation | Provide macOS arm64 headless execution, terminal I/O, signals, threads | openQ4 adaptation |
-| openETQW | `src/sys/stub/headless_stubs.cpp` | Zero-dependency headless stubs | Provide dummy renderSystem, soundSystem, etc. for dedicated server | New (GPL-3.0-or-later) |
-| openETQW | `src/sys/sys_local.cpp` | POSIX sys_local methods | Event queue, timing, memory, DLL loading | New / openQ4 adaptation |
-| openETQW | `src/decllib/DeclRenderProgram_headless.cpp` | Headless render program backend | Allow decl loading without OpenGL dependency | New (GPL-3.0-or-later) |
-| openETQW | `src/decllib/declEffect.cpp` | Effect declaration implementation | Register `declEffectsType` in builtin decl table | New (GPL-3.0-or-later) |
-| openETQW | `src/framework/Common.cpp` | Headless lifecycle, `status`, `help` commands, game DLL loading | Enable dedicated console commands and game loading | Clean GPL reconstruction |
-| openETQW | `src/framework/FileSystem.cpp` | Tolerant default.cfg loading in dedicated mode | Steam retail paks omit default.cfg | Clean GPL reconstruction |
-| openETQW | `meson.build`, `meson_sources.py` | Dedicated build target decoupling & flags | Enable standalone `openETQW-ded_arm64` build | New build configuration |
-| openETQW | `.gitignore` | Ignore pk4, mega, bik, base, etqw_data | Maintain strict asset isolation | Git configuration |
-| openETQW-game | `src/game/Game.h` | Anonymous union for `bse`/`networkService` and `navigationSystem` | Reconcile gameImport_t ABI offset 0x68 | SDK parity fix |
-| openETQW-game | `src/decllib/DeclType.cpp` | Decl registration table staging | Provide all 20 builtin decl types | SDK parity fix |
-| openETQW-game | `.gitignore` | Ignore pk4, mega, bik, base, etqw_data | Maintain strict asset isolation | Git configuration |
+| openETQW | `src/framework/BuildVersion.*`, `src/idlib/precompiled.h` | Removed from git tracking | Zero-SDK Gate 2b compliance | Proprietary SDK files untracked |
+| openETQW | `src/framework/EngineVersion.h`, `EngineVersion.cpp` | Clean GPL-3.0-or-later version module | Provide wire/console revision constants (12658/33244) | Clean GPL-3.0-or-later replacement |
+| openETQW | `src/framework/precompiled.h` | Include stdlib `<string>` & `<vector>`, include `idlib/precompiled.h` & `EngineVersion.h` | Prevent libc++ macro poisoning, resolve staged idLib PCH | Engine PCH fix |
+| openETQW | `tools/build/meson_sources.py` | Reference `EngineVersion.cpp` instead of `BuildVersion.cpp` | Build clean GPL engine version module | Meson source list |
+| openETQW | `src/sys/posix/posix_threads.cpp` | Static thread slot table `g_threadTable[MAX_THREADS]` | Prevent 64-bit pointer truncation in 32-bit threadHandle | POSIX bug fix |
+| openETQW | `src/sys/posix/posix_net.cpp` | `static char s[4][64]` rotating buffers | Prevent IP/port string truncation | POSIX bug fix |
+| openETQW | `src/sys/posix/posix_main.cpp` | Robust EOF detection (`read() == 0`), monotonic clock, terminal restoration | Safe non-blocking input, accurate frame delta, clean tty exit | POSIX bug fix |
+| openETQW | `src/sys/posix/posix_public.h` | Declare `Posix_ShutdownConsoleInput()` | Allow graceful terminal cleanup | POSIX header |
+| openETQW | `src/sys/posix/posix_signal.cpp` | Async-signal-safe `write()` in fatal handler | Prevent deadlock in fatal signal reporting | POSIX bug fix |
+| openETQW | `src/sys/posix/posix_syscon.cpp` | Resolve `idlib/precompiled.h` via staging | Header staging resolution | POSIX include fix |
+| openETQW | `src/sys/stub/headless_stubs.cpp` | Resolve `idlib/precompiled.h` via staging | Header staging resolution | POSIX include fix |
+| openETQW | `src/sys/sys_local.cpp` | Parameterize `SYS_ARCH_SUFFIX`, resolve staged `idlib/precompiled.h` | Multi-arch DLL naming & staged header | POSIX bug fix |
+| etqw_data | `base/default.cfg` | Deleted synthetic config | Clean room verification on pure retail paks | Hygiene cleanup |
 
 ### Demonstrated
 | Claim | Evidence level | Host / OS / arch / compiler | Command | Result (log path) |
 |---|---|---|---|---|---|
-| Retail Asset Extraction & Storage Isolation | inspected | macOS arm64 / Darwin 27.0.0 | `ls -la /Users/jmulesa/etqw_data/base` | 4.6 GB retail data extracted (pak000-pak004, zpak_english000, 12 megatextures) outside git tracking |
-| Git Isolation of Retail Data | unit-tested | macOS arm64 / Darwin 27.0.0 | `git status` (both repos) | PASS: 0 retail files or pk4s staged or tracked |
-| Zero-Dependency Dedicated Server Linkage | inspected | macOS arm64 / Apple Clang 21.0 | `otool -L build/openETQW-ded_arm64` | PASS: Strictly links only libz, libc++, libSystem (0 GPU/audio/Cocoa) |
-| File System Mounting & Decl Parsing | launched | macOS arm64 / Apple Clang 21.0 | `./build/openETQW-ded_arm64` | PASS: 6 paks mounted (15k+ files), 20 builtin decl types registered, 13,634 decls parsed |
-| Game DLL Dynamic Loading via GetGameAPI | launched | macOS arm64 / Apple Clang 21.0 | `./build/openETQW-ded_arm64` | PASS: game_arm64.dylib loaded, event system & class hierarchy initialized |
-| Dedicated Console Lifecycle & Clean Exit | launched | macOS arm64 / Apple Clang 21.0 | `printf "status\nlistDecls\nhelp\nquit\n" \| ./build/openETQW-ded_arm64 ...` | PASS: processed status, listDecls, help, quit; exit code 0 |
+| Zero-SDK Repository Compliance (Gate 2b) | unit-tested | macOS arm64 / Darwin 27.0.0 | `python3 tests/test_zero_sdk.py` | PASS: 4231 tracked files audited, 0 SDK violations detected |
+| Meson Automated Test Suite (4/4 passed) | unit-tested | macOS arm64 / Apple Clang 21.0 | `meson test -C build --verbose` | PASS: 4/4 tests passed (bitmsg, usercmd-delta, struct-layout, zero-sdk) |
+| Dedicated Server Compilation Cleanliness | compiled | macOS arm64 / Apple Clang 21.0 | `meson compile -C build openETQW-ded_arm64` | PASS: Compiled cleanly with zero errors |
+| Zero-Dependency Dedicated Server Linkage | inspected | macOS arm64 / Apple Clang 21.0 | `otool -L build/openETQW-ded_arm64` | PASS: Strictly links only libz, libc++, libSystem (0 GPU/audio/Cocoa/SDL) |
+| Retail Asset Purity & Packaging Isolation | inspected | macOS arm64 / Darwin 27.0.0 | `ls -la /Users/jmulesa/etqw_data/base` | PASS: Pure retail paks pak000-pak004, zpak_english000, 0 synthetic configs |
+| Git Isolation of Retail Data | unit-tested | macOS arm64 / Darwin 27.0.0 | `git status` (both repos) | PASS: 0 retail files or pk4s staged or tracked; etqw_data outside git |
+| File System Mounting & Decl Parsing | launched | macOS arm64 / Apple Clang 21.0 | `./build/openETQW-ded_arm64 ...` | PASS: 6 paks mounted (15k+ files), 20 builtin decl types registered, 13,634 decls parsed |
+| Game DLL Dynamic Loading via GetGameAPI | launched | macOS arm64 / Apple Clang 21.0 | `./build/openETQW-ded_arm64 ...` | PASS: game_arm64.dylib loaded, event system & class hierarchy initialized |
+| Dedicated Console Lifecycle & Clean Exit | launched | macOS arm64 / Apple Clang 21.0 | `printf "status\nlistDecls\nhelp\nquit\n" \| ./build/openETQW-ded_arm64 ...` | PASS: processed status, listDecls, help, quit; clean shutdown, exit code 0 |
 
 Evidence levels: inspected < configured < compiled < unit-tested < launched < map-loaded < match-tested < retail-interop-tested
 

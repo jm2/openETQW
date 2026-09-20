@@ -1,7 +1,7 @@
 // Copyright (C) 2007 Id Software, Inc.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "../idlib/precompiled.h"
+#include "idlib/precompiled.h"
 #pragma hdrstop
 
 #include <sys/types.h>
@@ -307,12 +307,21 @@ void idSysLocal::DLL_Unload( void *dllHandle ) {
 }
 
 void idSysLocal::DLL_GetFileName( const char *baseName, char *dllName, int maxLength ) {
+#if defined( __aarch64__ ) || defined( __arm64__ ) || defined( _M_ARM64 )
+	#define SYS_ARCH_SUFFIX "_arm64"
+#elif defined( __x86_64__ ) || defined( _M_X64 )
+	#define SYS_ARCH_SUFFIX "_x64"
+#elif defined( __i386__ ) || defined( _M_IX86 )
+	#define SYS_ARCH_SUFFIX "_x86"
+#else
+	#define SYS_ARCH_SUFFIX ""
+#endif
 #ifdef _WIN32
-	idStr::snPrintf( dllName, maxLength, "%s_arm64.dll", baseName );
+	idStr::snPrintf( dllName, maxLength, "%s%s.dll", baseName, SYS_ARCH_SUFFIX );
 #elif defined( __linux__ )
-	idStr::snPrintf( dllName, maxLength, "%s_arm64.so", baseName );
+	idStr::snPrintf( dllName, maxLength, "%s%s.so", baseName, SYS_ARCH_SUFFIX );
 #elif defined( MACOS_X )
-	idStr::snPrintf( dllName, maxLength, "%s_arm64.dylib", baseName );
+	idStr::snPrintf( dllName, maxLength, "%s%s.dylib", baseName, SYS_ARCH_SUFFIX );
 #else
 #error OS define is required
 #endif

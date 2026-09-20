@@ -24,7 +24,7 @@
 #include <sys/sysctl.h>
 #endif
 
-#include "../../idlib/precompiled.h"
+#include "idlib/precompiled.h"
 #include "sys_local.h"
 #include "posix_public.h"
 
@@ -67,6 +67,7 @@ void Posix_LateInit( void ) {
 
 void Posix_Shutdown( void ) {
 	Posix_ShutdownConsole();
+	Posix_ShutdownConsoleInput();
 	Posix_ClearSigs();
 }
 
@@ -159,19 +160,19 @@ void Sys_Error( const char *error, ... ) {
 Timing Functions
 ================
 */
-static uint64_t baseTimeMs = 0;
-
-static uint64_t Posix_GetRawMilliseconds( void ) {
-	struct timeval tv;
-	gettimeofday( &tv, NULL );
-	return static_cast< uint64_t >( tv.tv_sec ) * 1000 + ( tv.tv_usec / 1000 );
-}
+static uint64_t sys_timeBaseNs = 0;
 
 int Sys_Milliseconds( void ) {
-	if ( baseTimeMs == 0 ) {
-		baseTimeMs = Posix_GetRawMilliseconds();
+	struct timespec ts;
+	if ( clock_gettime( CLOCK_MONOTONIC, &ts ) != 0 ) {
+		return 0;
 	}
-	return static_cast< int >( Posix_GetRawMilliseconds() - baseTimeMs );
+	const uint64_t nowNs = static_cast< uint64_t >( ts.tv_sec ) * 1000000000ull + static_cast< uint64_t >( ts.tv_nsec );
+	if ( sys_timeBaseNs == 0 ) {
+		sys_timeBaseNs = nowNs;
+		return 0;
+	}
+	return static_cast< int >( ( nowNs - sys_timeBaseNs ) / 1000000ull );
 }
 
 void Sys_Sleep( int msec ) {
@@ -466,6 +467,13 @@ static bool s_stdinEOF = false;
 static bool s_ttyConfigured = false;
 static struct termios s_origTermios;
 
+void Posix_ShutdownConsoleInput( void ) {
+	if ( s_ttyConfigured ) {
+		tcsetattr( STDIN_FILENO, TCSANOW, &s_origTermios );
+		s_ttyConfigured = false;
+	}
+}
+
 void Posix_InitConsoleInput( void ) {
 	if ( isatty( STDIN_FILENO ) ) {
 		if ( tcgetattr( STDIN_FILENO, &s_origTermios ) == 0 ) {
@@ -475,6 +483,7 @@ void Posix_InitConsoleInput( void ) {
 			raw.c_cc[ VTIME ] = 0;
 			tcsetattr( STDIN_FILENO, TCSANOW, &raw );
 			s_ttyConfigured = true;
+			atexit( Posix_ShutdownConsoleInput );
 		}
 	} else {
 		// Non-tty / piped stdin: set O_NONBLOCK
@@ -494,7 +503,8 @@ char* Posix_ConsoleInput( void ) {
 	}
 
 	char ch;
-	while ( read( STDIN_FILENO, &ch, 1 ) == 1 ) {
+	ssize_t n = 0;
+	while ( ( n = read( STDIN_FILENO, &ch, 1 ) ) == 1 ) {
 		if ( ch == '\r' || ch == '\n' ) {
 			if ( linePos > 0 ) {
 				lineBuffer[ linePos ] = '\0';
@@ -514,7 +524,7 @@ char* Posix_ConsoleInput( void ) {
 		}
 	}
 
-	if ( errno == 0 && !isatty( STDIN_FILENO ) ) {
+	if ( n == 0 && !isatty( STDIN_FILENO ) ) {
 		// EOF reached on piped input
 		if ( linePos > 0 ) {
 			lineBuffer[ linePos ] = '\0';

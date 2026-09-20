@@ -48,6 +48,7 @@ void		Posix_Exit( int ret );
 void		Posix_SetExit( int ret );
 
 void		Posix_InitConsoleInput( void );
+void		Posix_ShutdownConsoleInput( void );
 char*		Posix_ConsoleInput( void );
 void		Posix_ConsoleAppendText( const char *message );
 void		Posix_ConsoleSetFatalError( const char *message );

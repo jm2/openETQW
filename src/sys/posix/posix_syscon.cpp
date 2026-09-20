@@ -6,7 +6,7 @@
 #include <pthread.h>
 #include <unistd.h>
 
-#include "../../idlib/precompiled.h"
+#include "idlib/precompiled.h"
 #include "posix_public.h"
 
 namespace {

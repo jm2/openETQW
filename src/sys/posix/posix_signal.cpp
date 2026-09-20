@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include <stdio.h>
 
-#include "../../idlib/precompiled.h"
+#include "idlib/precompiled.h"
 #include "posix_public.h"
 
 struct posixSignalRoute_t {
@@ -63,7 +63,11 @@ static void Posix_SignalHandler( int signum ) {
 	activeFatalSignal = signum;
 
 	const char *sigName = Posix_SignalName( signum );
-	fprintf( stderr, "\nFATAL SIGNAL CAUGHT: %s (%d)\n", sigName, signum );
+	const char prefix[] = "\nFATAL SIGNAL CAUGHT: ";
+	const char suffix[] = "\n";
+	(void)write( STDERR_FILENO, prefix, sizeof( prefix ) - 1 );
+	if ( sigName ) (void)write( STDERR_FILENO, sigName, strlen( sigName ) );
+	(void)write( STDERR_FILENO, suffix, sizeof( suffix ) - 1 );
 	_exit( 128 + signum );
 }
 

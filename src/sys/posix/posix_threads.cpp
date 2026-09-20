@@ -10,7 +10,7 @@
 #include <string.h>
 #include <assert.h>
 
-#include "../../idlib/precompiled.h"
+#include "idlib/precompiled.h"
 #include "posix_public.h"
 
 static pthread_mutex_t global_lock[ MAX_LOCAL_CRITICAL_SECTIONS ];
@@ -116,9 +116,16 @@ void Sys_TriggerEvent( int index ) {
 	Sys_UnlockCriticalSection( MAX_LOCAL_CRITICAL_SECTIONS - 1, "Sys_TriggerEvent" );
 }
 
-xthreadInfo *g_threads[MAX_THREADS];
+struct posixThreadEntry_t {
+	pthread_t			thread;
+	xthreadInfo *		info;
+	volatile bool		stopRequested;
+	bool				inUse;
+};
+
+static posixThreadEntry_t g_threadTable[ MAX_THREADS ];
+xthreadInfo *g_threads[ MAX_THREADS ];
 int g_thread_count = 0;
-static volatile bool g_stopRequested[MAX_THREADS];
 
 typedef void *(*pthread_function_t)( void * );
 
@@ -135,6 +142,19 @@ void Sys_CreateThread( xthread_t function, void *parms, threadPriority_e priorit
 	}
 
 	Sys_EnterCriticalSection( CRITICAL_SECTION_ZERO );
+	int slot = -1;
+	for ( int i = 0; i < MAX_THREADS; i++ ) {
+		if ( !g_threadTable[ i ].inUse ) {
+			slot = i;
+			break;
+		}
+	}
+	if ( slot == -1 ) {
+		Sys_LeaveCriticalSection( CRITICAL_SECTION_ZERO );
+		common->Printf( "Sys_CreateThread: MAX_THREADS (%d) reached for %s\n", MAX_THREADS, threadName );
+		return;
+	}
+
 	pthread_attr_t attr;
 	pthread_attr_init( &attr );
 	pthread_attr_setdetachstate( &attr, PTHREAD_CREATE_JOINABLE );
@@ -150,25 +170,27 @@ void Sys_CreateThread( xthread_t function, void *parms, threadPriority_e priorit
 	pthread_attr_destroy( &attr );
 
 	if ( result == 0 ) {
-		uintptr_t handle = 0;
-		memcpy( &handle, &thread, sizeof( thread ) );
-		info.threadHandle = static_cast< int >( handle );
+		g_threadTable[ slot ].thread = thread;
+		g_threadTable[ slot ].info = &info;
+		g_threadTable[ slot ].stopRequested = false;
+		g_threadTable[ slot ].inUse = true;
+
+		info.threadHandle = slot + 1;
 		info.threadId = static_cast< unsigned long >( reinterpret_cast< uintptr_t >( thread ) );
 		if ( *thread_count < MAX_THREADS ) {
-			g_stopRequested[ *thread_count ] = false;
 			threads[ ( *thread_count )++ ] = &info;
 		}
+	} else {
+		common->Printf( "Sys_CreateThread: pthread_create %s failed: %s\n", threadName, strerror( result ) );
 	}
 	Sys_LeaveCriticalSection( CRITICAL_SECTION_ZERO );
 }
 
 void Sys_RequestThreadStop( xthreadInfo& info ) {
 	Sys_EnterCriticalSection( CRITICAL_SECTION_ZERO );
-	for ( int i = 0; i < g_thread_count; i++ ) {
-		if ( g_threads[ i ] == &info ) {
-			g_stopRequested[ i ] = true;
-			break;
-		}
+	int slot = info.threadHandle - 1;
+	if ( slot >= 0 && slot < MAX_THREADS && g_threadTable[ slot ].inUse && g_threadTable[ slot ].info == &info ) {
+		g_threadTable[ slot ].stopRequested = true;
 	}
 	Sys_LeaveCriticalSection( CRITICAL_SECTION_ZERO );
 
@@ -180,11 +202,9 @@ void Sys_RequestThreadStop( xthreadInfo& info ) {
 bool Sys_IsThreadStopRequested( const xthreadInfo& info ) {
 	bool stop = false;
 	Sys_EnterCriticalSection( CRITICAL_SECTION_ZERO );
-	for ( int i = 0; i < g_thread_count; i++ ) {
-		if ( g_threads[ i ] == &info ) {
-			stop = g_stopRequested[ i ];
-			break;
-		}
+	int slot = info.threadHandle - 1;
+	if ( slot >= 0 && slot < MAX_THREADS && g_threadTable[ slot ].inUse && g_threadTable[ slot ].info == &info ) {
+		stop = g_threadTable[ slot ].stopRequested;
 	}
 	Sys_LeaveCriticalSection( CRITICAL_SECTION_ZERO );
 	return stop;
@@ -195,15 +215,10 @@ bool Sys_IsCurrentThreadStopRequested( void ) {
 	bool stop = false;
 
 	Sys_EnterCriticalSection( CRITICAL_SECTION_ZERO );
-	for ( int i = 0; i < g_thread_count; i++ ) {
-		if ( g_threads[ i ] != NULL ) {
-			pthread_t pt;
-			uintptr_t h = static_cast< uintptr_t >( g_threads[ i ]->threadHandle );
-			memcpy( &pt, &h, sizeof( pt ) );
-			if ( pthread_equal( current, pt ) ) {
-				stop = g_stopRequested[ i ];
-				break;
-			}
+	for ( int i = 0; i < MAX_THREADS; i++ ) {
+		if ( g_threadTable[ i ].inUse && pthread_equal( current, g_threadTable[ i ].thread ) ) {
+			stop = g_threadTable[ i ].stopRequested;
+			break;
 		}
 	}
 	Sys_LeaveCriticalSection( CRITICAL_SECTION_ZERO );
@@ -211,22 +226,35 @@ bool Sys_IsCurrentThreadStopRequested( void ) {
 }
 
 void Sys_DestroyThread( xthreadInfo& info ) {
-	if ( info.threadHandle == 0 ) {
+	if ( info.threadHandle <= 0 || info.threadHandle > MAX_THREADS ) {
 		return;
 	}
-	pthread_t thread;
-	uintptr_t h = static_cast< uintptr_t >( info.threadHandle );
-	memcpy( &thread, &h, sizeof( thread ) );
+	int slot = info.threadHandle - 1;
+	Sys_EnterCriticalSection( CRITICAL_SECTION_ZERO );
+	if ( !g_threadTable[ slot ].inUse || g_threadTable[ slot ].info != &info ) {
+		Sys_LeaveCriticalSection( CRITICAL_SECTION_ZERO );
+		return;
+	}
+	pthread_t thread = g_threadTable[ slot ].thread;
+	Sys_LeaveCriticalSection( CRITICAL_SECTION_ZERO );
+
+	if ( pthread_equal( thread, pthread_self() ) ) {
+		common->Error( "ERROR: Sys_DestroyThread attempted to join current thread %s\n", info.name );
+	}
 
 	Sys_RequestThreadStop( info );
 	pthread_join( thread, NULL );
 
 	Sys_EnterCriticalSection( CRITICAL_SECTION_ZERO );
+	g_threadTable[ slot ].inUse = false;
+	memset( &g_threadTable[ slot ].thread, 0, sizeof( pthread_t ) );
+	g_threadTable[ slot ].info = NULL;
+	g_threadTable[ slot ].stopRequested = false;
+
 	for ( int i = 0; i < g_thread_count; i++ ) {
 		if ( g_threads[ i ] == &info ) {
 			for ( int j = i + 1; j < g_thread_count; j++ ) {
 				g_threads[ j - 1 ] = g_threads[ j ];
-				g_stopRequested[ j - 1 ] = g_stopRequested[ j ];
 			}
 			g_threads[ g_thread_count - 1 ] = NULL;
 			g_thread_count--;
@@ -241,17 +269,12 @@ void Sys_DestroyThread( xthreadInfo& info ) {
 const char* Sys_GetThreadName( int *index ) {
 	const pthread_t current = pthread_self();
 	Sys_EnterCriticalSection( CRITICAL_SECTION_ZERO );
-	for ( int i = 0; i < g_thread_count; i++ ) {
-		if ( g_threads[ i ] != NULL ) {
-			pthread_t pt;
-			uintptr_t h = static_cast< uintptr_t >( g_threads[ i ]->threadHandle );
-			memcpy( &pt, &h, sizeof( pt ) );
-			if ( pthread_equal( current, pt ) ) {
-				if ( index ) *index = i;
-				const char *n = g_threads[ i ]->name;
-				Sys_LeaveCriticalSection( CRITICAL_SECTION_ZERO );
-				return n;
-			}
+	for ( int i = 0; i < MAX_THREADS; i++ ) {
+		if ( g_threadTable[ i ].inUse && pthread_equal( current, g_threadTable[ i ].thread ) ) {
+			if ( index ) *index = i;
+			const char *n = g_threadTable[ i ].info != NULL ? g_threadTable[ i ].info->name : "unnamed";
+			Sys_LeaveCriticalSection( CRITICAL_SECTION_ZERO );
+			return n;
 		}
 	}
 	if ( index ) *index = -1;
@@ -277,8 +300,11 @@ void Posix_InitPThreads( void ) {
 	}
 
 	for ( int i = 0; i < MAX_THREADS; i++ ) {
+		g_threadTable[ i ].inUse = false;
+		memset( &g_threadTable[ i ].thread, 0, sizeof( pthread_t ) );
+		g_threadTable[ i ].info = NULL;
+		g_threadTable[ i ].stopRequested = false;
 		g_threads[ i ] = NULL;
-		g_stopRequested[ i ] = false;
 	}
 	g_thread_count = 0;
 }
