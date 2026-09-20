@@ -649,6 +649,7 @@ bool idMsgChannel::Process( const netadr_t from, int time, idBitMsg &msg, int &s
 	}
 
 	fragMsg.InitRead( fragmentBuffer, fragmentLength );
+	fragMsg.SetSize( fragmentLength );
 	fragMsg.BeginReading();
 
 	incomingSequence = sequence;

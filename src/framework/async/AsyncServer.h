@@ -123,6 +123,7 @@ typedef struct serverClient_s {
 	int					acknowledgeSnapshotSequence;
 	int					numDuplicatedUsercmds;
 	bool				isBot;
+	bool				isMapLoading;
 
 	char				guid[12];  // Even Balance - M. Quinn
 
@@ -163,6 +164,8 @@ public:
 	int					AllocateClientSlotForBot( int maxPlayersOnServer );
 	int					SetBotUserCommand( int clientNum, int frameNum, const usercmd_t& cmd );
 	int					SetBotUserName( int clientNum, const char* playerName );
+	void				WriteClientUserCmds( int clientNum, idBitMsg& msg );
+	netadr_t			GetClientAddress( int clientNum ) const;
 
 	void				RunFrame( void );
 	void				ProcessConnectionLessMessages( void );

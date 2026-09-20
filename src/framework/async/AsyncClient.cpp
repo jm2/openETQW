@@ -275,7 +275,8 @@ void idAsyncClient::RunFrame() {
 	int size = 0;
 	while ( clientPort.GetPacket( from, buffer, size, sizeof( buffer ) ) ) {
 		idBitMsg msg;
-		msg.InitRead( buffer, size );
+		msg.InitWrite( buffer, sizeof( buffer ) );
+		msg.SetSize( size );
 		ProcessMessage( from, msg );
 	}
 
@@ -286,7 +287,15 @@ void idAsyncClient::RunFrame() {
 	}
 
 	SetupConnection();
-	if ( clientState >= CS_CONNECTED ) {
+	if ( clientState == CS_INGAME && !sessLocal.insideExecuteMapChange ) {
+		while ( gameTimeResidual >= USERCMD_MSEC ) {
+			SendUsercmdsToServer();
+			++gameFrame;
+			gameTime += USERCMD_MSEC;
+			gameTimeResidual -= USERCMD_MSEC;
+		}
+		ProcessReliableServerMessages();
+	} else if ( clientState >= CS_CONNECTED && !sessLocal.insideExecuteMapChange ) {
 		SendUsercmdsToServer();
 		ProcessReliableServerMessages();
 	}
@@ -294,7 +303,39 @@ void idAsyncClient::RunFrame() {
 
 void idAsyncClient::SendReliableGameMessage( const idBitMsg& msg ) {
 	if ( active && clientState >= CS_CONNECTED ) {
-		channel.SendReliableMessage( msg );
+		byte buffer[ MAX_MESSAGE_SIZE ];
+		idBitMsg out;
+		out.InitWrite( buffer, sizeof( buffer ) );
+		out.BeginWriting();
+		out.WriteByte( CLIENT_RELIABLE_MESSAGE_GAME );
+		out.WriteData( msg.GetData(), msg.GetSize() );
+		channel.SendReliableMessage( out );
+	}
+}
+
+const usercmd_t* idAsyncClient::GetClientUserCmd( int clientNum, int frameNum ) const {
+	if ( clientNum < 0 || clientNum >= MAX_ASYNC_CLIENTS || frameNum < 0 ) {
+		return NULL;
+	}
+	return &userCmds[ frameNum & ( MAX_USERCMD_BACKUP - 1 ) ][ clientNum ];
+}
+
+void idAsyncClient::ReadClientUserCmds( int clientNum, const idBitMsg& msg ) {
+	if ( clientNum < 0 || clientNum >= MAX_ASYNC_CLIENTS ) {
+		return;
+	}
+	int numUsercmds = msg.ReadByte();
+	if ( numUsercmds < 1 || numUsercmds > MAX_USERCMD_RELAY ) {
+		return;
+	}
+	const usercmd_t* last = NULL;
+	for ( int j = 0; j < numUsercmds; ++j ) {
+		int index = ( snapshotGameFrame + j ) & ( MAX_USERCMD_BACKUP - 1 );
+		usercmd_t& cmd = userCmds[ index ][ clientNum ];
+		idAsyncNetwork::ReadUserCmdDelta( msg, cmd, last );
+		cmd.gameFrame = snapshotGameFrame + j;
+		cmd.duplicateCount = 0;
+		last = &cmd;
 	}
 }
 
@@ -307,9 +348,11 @@ bool idAsyncClient::SendAuthCheck( const char* cdkey, const char* xpkey ) {
 }
 
 void idAsyncClient::PacifierUpdate() {
-	if ( active ) {
-		RunFrame();
+	if ( !active ) {
+		return;
 	}
+	UpdateTime( 100 );
+	SendEmptyToServer( false, true );
 }
 
 void idAsyncClient::DuplicateUsercmds( int frame, int time ) {
@@ -336,7 +379,7 @@ void idAsyncClient::SendEmptyToServer( bool force, bool mapLoad ) {
 	idBitMsg msg;
 	msg.InitWrite( buffer, sizeof( buffer ) );
 	msg.BeginWriting();
-	msg.WriteByte( SERVER_UNRELIABLE_MESSAGE_EMPTY );
+	msg.WriteByte( CLIENT_UNRELIABLE_MESSAGE_EMPTY );
 	msg.WriteBool( mapLoad );
 	channel.SendMessage( clientPort, realTime, msg );
 	lastEmptyTime = realTime;
@@ -358,15 +401,35 @@ void idAsyncClient::SendUsercmdsToServer() {
 	}
 	const int index = gameFrame & ( MAX_USERCMD_BACKUP - 1 );
 	userCmds[ index ][ clientNum ] = usercmdGen->GetDirectUsercmd();
+	userCmds[ index ][ clientNum ].gameFrame = gameFrame;
+	userCmds[ index ][ clientNum ].gameTime = gameTime;
+
+	int requestedUsercmds = idMath::ClampInt( 1, MAX_USERCMD_RELAY, idAsyncNetwork::clientUsercmdBackup.GetInteger() );
+	int numUsercmds = gameFrame >= requestedUsercmds - 1 ? requestedUsercmds : gameFrame + 1;
+	if ( numUsercmds < 1 ) {
+		numUsercmds = 1;
+	}
 
 	byte buffer[ MAX_MESSAGE_SIZE ];
 	idBitMsg msg;
 	msg.InitWrite( buffer, sizeof( buffer ) );
 	msg.BeginWriting();
 	msg.WriteByte( CLIENT_UNRELIABLE_MESSAGE_USERCMD );
+	msg.WriteLong( snapshotSequence );
 	msg.WriteLong( gameFrame );
-	idAsyncNetwork::WriteUserCmdDelta( msg, userCmds[ index ][ clientNum ], NULL );
+	msg.WriteByte( numUsercmds );
+
+	const usercmd_t* last = NULL;
+	for ( int i = gameFrame - numUsercmds + 1; i <= gameFrame; ++i ) {
+		int cmdIndex = i & ( MAX_USERCMD_BACKUP - 1 );
+		idAsyncNetwork::WriteUserCmdDelta( msg, userCmds[ cmdIndex ][ clientNum ], last );
+		last = &userCmds[ cmdIndex ][ clientNum ];
+	}
+
 	channel.SendMessage( clientPort, realTime, msg );
+	while ( channel.UnsentFragmentsLeft() ) {
+		channel.SendNextFragment( clientPort, realTime );
+	}
 }
 
 void idAsyncClient::InitGame( int serverGameInitId, int serverGameFrame, int serverGameTime, const idDict& serverSI ) {
@@ -377,6 +440,13 @@ void idAsyncClient::InitGame( int serverGameInitId, int serverGameFrame, int ser
 	snapshotGameTime = serverGameTime;
 	sessLocal.mapSpawnData.serverInfo = serverSI;
 	game->SetServerInfo( serverSI );
+
+	idStr mapName = serverSI.GetString( "si_map" );
+	if ( mapName.Length() > 0 ) {
+		common->Printf( "Client initializing map %s\n", mapName.c_str() );
+		sessLocal.ExecuteMapChange( mapName.c_str(), 0, true, true, true );
+	}
+	game->SetClientNum( clientNum, false );
 	clientState = CS_INGAME;
 }
 
@@ -386,6 +456,53 @@ void idAsyncClient::ProcessUnreliableServerMessage( const idBitMsg& msg ) {
 		SendPingResponseToServer( msg.ReadLong() );
 	} else if ( type == SERVER_UNRELIABLE_MESSAGE_EMPTY ) {
 		lastPacketTime = realTime;
+	} else if ( type == SERVER_UNRELIABLE_MESSAGE_GAMEINIT ) {
+		int sGameInitId = msg.ReadLong();
+		int sGameFrame = msg.ReadLong();
+		int sGameTime = msg.ReadLong();
+		idDict sServerInfo;
+		msg.ReadDeltaDict( sServerInfo, NULL );
+		InitGame( sGameInitId, sGameFrame, sGameTime, sServerInfo );
+	} else if ( type == SERVER_UNRELIABLE_MESSAGE_SNAPSHOT ) {
+		if ( clientState != CS_INGAME || sessLocal.insideExecuteMapChange ) {
+			return;
+		}
+		int sGameInitId = msg.ReadLong();
+		if ( sGameInitId != gameInitId ) {
+			return;
+		}
+		int sequence = msg.ReadLong();
+		int sGameFrame = msg.ReadLong();
+		int sGameTime = msg.ReadLong();
+		int numDuplicatedUsercmds = msg.ReadByte();
+		int aheadOfServer = msg.ReadShort();
+
+		int ucmdBytes = msg.ReadShort();
+		byte ucmdBuffer[ MAX_MESSAGE_SIZE ];
+		if ( ucmdBytes > 0 && ucmdBytes <= (int)sizeof( ucmdBuffer ) ) {
+			msg.ReadData( ucmdBuffer, ucmdBytes );
+		}
+		idBitMsg ucmdMsg;
+		ucmdMsg.InitRead( ucmdBuffer, ucmdBytes );
+		ucmdMsg.SetSize( ucmdBytes );
+
+		int gameBytes = msg.ReadShort();
+		byte gameBuffer[ MAX_MESSAGE_SIZE ];
+		if ( gameBytes > 0 && gameBytes <= (int)sizeof( gameBuffer ) ) {
+			msg.ReadData( gameBuffer, gameBytes );
+		}
+		idBitMsg gameMsg;
+		gameMsg.InitRead( gameBuffer, gameBytes );
+		gameMsg.SetSize( gameBytes );
+
+		if ( game->ClientReadSnapshot( sequence, sGameFrame, sGameTime, numDuplicatedUsercmds, aheadOfServer, gameMsg, ucmdMsg ) ) {
+			game->ClientApplySnapshot( sequence );
+			snapshotSequence = sequence;
+			snapshotGameFrame = sGameFrame;
+			snapshotGameTime = sGameTime;
+			lastSnapshotTime = realTime;
+			common->Printf( "Client received snapshot %d (frame %d)\n", sequence, sGameFrame );
+		}
 	}
 }
 
@@ -404,8 +521,16 @@ void idAsyncClient::ProcessReliableServerMessages() {
 				game->ClientProcessReliableMessage( msg );
 				break;
 			case SERVER_RELIABLE_MESSAGE_ENTERGAME:
-				clientState = CS_INGAME;
+				if ( !sessLocal.insideExecuteMapChange ) {
+					clientState = CS_INGAME;
+				}
 				break;
+			case SERVER_RELIABLE_MESSAGE_SYNCEDCVARS: {
+				idDict& info = sessLocal.mapSpawnData.syncedCVars;
+				msg.ReadDeltaDict( info, &info );
+				cvarSystem->SetCVarsFromDict( info );
+				break;
+			}
 			default:
 				break;
 		}
@@ -430,6 +555,7 @@ void idAsyncClient::ProcessConnectResponseMessage( const netadr_t from, const id
 	channel.Init( from, clientId );
 	clientState = CS_CONNECTED;
 	lastPacketTime = realTime;
+	common->Printf( "Client connected to server (slot %d, serverId %d)\n", clientNum, serverId );
 }
 
 void idAsyncClient::ProcessDisconnectMessage( const netadr_t from, const idBitMsg& msg ) {
@@ -441,13 +567,15 @@ void idAsyncClient::ProcessDisconnectMessage( const netadr_t from, const idBitMs
 
 void idAsyncClient::ProcessInfoResponseMessage( const netadr_t from, const idBitMsg& msg ) {
 	networkServer_t server;
-	memset( &server, 0, sizeof( server ) );
+	memset( (void*)&server, 0, sizeof( server ) );
 	server.adr = from;
 	server.ping = 0;
 	serverList.InfoResponse( server );
 }
 
 void idAsyncClient::ProcessPrintMessage( const netadr_t from, const idBitMsg& msg ) {
+	int opcode = msg.ReadByte();
+	(void)opcode;
 	char text[ 4096 ];
 	msg.ReadString( text, sizeof( text ) );
 	common->Printf( "%s\n", text );
@@ -480,7 +608,7 @@ void idAsyncClient::ConnectionlessMessage( const netadr_t from, const idBitMsg& 
 
 void idAsyncClient::ProcessMessage( const netadr_t from, idBitMsg& msg ) {
 	msg.BeginReading();
-	const int id = msg.ReadLong();
+	const short id = msg.ReadShort();
 	if ( id == CONNECTIONLESS_MESSAGE_ID ) {
 		ConnectionlessMessage( from, msg );
 		return;
@@ -488,10 +616,14 @@ void idAsyncClient::ProcessMessage( const netadr_t from, idBitMsg& msg ) {
 	if ( !active || !Sys_CompareNetAdrBase( from, channel.GetRemoteAddress() ) ) {
 		return;
 	}
+	if ( sessLocal.insideExecuteMapChange ) {
+		return;
+	}
 	int sequence = 0;
 	if ( channel.Process( from, realTime, msg, sequence ) ) {
 		serverMessageSequence = sequence;
 		lastPacketTime = realTime;
+		ProcessReliableServerMessages();
 		ProcessUnreliableServerMessage( msg );
 	}
 }
@@ -500,11 +632,31 @@ void idAsyncClient::SetupConnection() {
 	if ( realTime - lastConnectTime < CLIENT_CONNECT_RESEND_MSEC ) {
 		return;
 	}
+	byte buffer[ MAX_MESSAGE_SIZE ];
+	idBitMsg msg;
+	msg.InitWrite( buffer, sizeof( buffer ) );
+	msg.BeginWriting();
+
 	if ( clientState == CS_CHALLENGING ) {
-		common->DPrintf( "sending challenge to %s\n", Sys_NetAdrToString( serverAddress ) );
+		common->Printf( "Sending challenge request to %s (clientId: %d)\n", Sys_NetAdrToString( serverAddress ), clientId );
+		msg.WriteShort( CONNECTIONLESS_MESSAGE_ID );
+		msg.WriteString( "getChallenge" );
+		msg.WriteLong( clientId );
+		clientPort.SendPacket( serverAddress, msg.GetData(), msg.GetSize() );
 		lastConnectTime = realTime;
 	} else if ( clientState == CS_CONNECTING ) {
-		common->DPrintf( "sending connect to %s\n", Sys_NetAdrToString( serverAddress ) );
+		common->Printf( "Sending connect request to %s (challenge: %d)\n", Sys_NetAdrToString( serverAddress ), serverChallenge );
+		msg.WriteShort( CONNECTIONLESS_MESSAGE_ID );
+		msg.WriteString( "connect" );
+		msg.WriteLong( ASYNC_PROTOCOL_VERSION );
+		msg.WriteShort( 0 ); // OS
+		msg.WriteLong( clientDataChecksum );
+		msg.WriteLong( serverChallenge );
+		msg.WriteShort( clientId );
+		msg.WriteLong( idAsyncNetwork::clientMaxRate.GetInteger() );
+		msg.WriteString( cvarSystem->GetCVarString( "com_guid" ) );
+		msg.WriteString( cvarSystem->GetCVarString( "password" ) );
+		clientPort.SendPacket( serverAddress, msg.GetData(), msg.GetSize() );
 		lastConnectTime = realTime;
 	}
 }

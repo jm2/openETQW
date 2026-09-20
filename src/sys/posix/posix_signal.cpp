@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <execinfo.h>
 
 #include "idlib/precompiled.h"
 #include "posix_public.h"
@@ -68,6 +69,11 @@ static void Posix_SignalHandler( int signum ) {
 	(void)write( STDERR_FILENO, prefix, sizeof( prefix ) - 1 );
 	if ( sigName ) (void)write( STDERR_FILENO, sigName, strlen( sigName ) );
 	(void)write( STDERR_FILENO, suffix, sizeof( suffix ) - 1 );
+
+	void *callstack[ 64 ];
+	int frames = backtrace( callstack, 64 );
+	backtrace_symbols_fd( callstack, frames, STDERR_FILENO );
+
 	_exit( 128 + signum );
 }
 

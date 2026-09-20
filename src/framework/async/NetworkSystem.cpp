@@ -231,6 +231,14 @@ idNetworkSystem::~idNetworkSystem() {
 
 void idNetworkSystem::ServerGetClientNetworkInfo( int clientNum, clientNetworkAddress_t& info ) {
 	memset( &info, 0, sizeof( info ) );
+	if ( idAsyncNetwork::server.IsActive() && clientNum >= 0 && clientNum < MAX_ASYNC_CLIENTS ) {
+		netadr_t adr = idAsyncNetwork::server.GetClientAddress( clientNum );
+		info.ip[ 0 ] = adr.ip[ 0 ];
+		info.ip[ 1 ] = adr.ip[ 1 ];
+		info.ip[ 2 ] = adr.ip[ 2 ];
+		info.ip[ 3 ] = adr.ip[ 3 ];
+		info.port = adr.port;
+	}
 }
 
 void idNetworkSystem::ServerGetClientNetId( int clientNum, sdNetClientId& netClientId ) {
@@ -271,13 +279,25 @@ int idNetworkSystem::ServerSetBotUserName( int clientNum, const char* playerName
 }
 
 const usercmd_t* idNetworkSystem::ClientGetUserCmd( int clientNum, int frameNum ) {
+	if ( idAsyncNetwork::client.IsActive() ) {
+		return idAsyncNetwork::client.GetClientUserCmd( clientNum, frameNum );
+	}
+	if ( idAsyncNetwork::server.IsActive() ) {
+		return idAsyncNetwork::server.GetClientUserCmd( clientNum, frameNum );
+	}
 	return NULL;
 }
 
 void idNetworkSystem::WriteClientUserCmds( int clientNum, idBitMsg& msg ) {
+	if ( idAsyncNetwork::server.IsActive() ) {
+		idAsyncNetwork::server.WriteClientUserCmds( clientNum, msg );
+	}
 }
 
 void idNetworkSystem::ReadClientUserCmds( int clientNum, const idBitMsg& msg ) {
+	if ( idAsyncNetwork::client.IsActive() ) {
+		idAsyncNetwork::client.ReadClientUserCmds( clientNum, msg );
+	}
 }
 
 bool idNetworkSystem::IsDedicated() {
