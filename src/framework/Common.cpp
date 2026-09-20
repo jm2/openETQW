@@ -902,6 +902,22 @@ static void Com_Quit_f( const idCmdArgs& ) {
 	common->Quit();
 }
 
+static void Com_Status_f( const idCmdArgs& ) {
+	common->Printf( "ETQW Dedicated Server Status:\n" );
+	common->Printf( "  Version: %s\n", versionString.string );
+	common->Printf( "  Dedicated: %s\n", cvarSystem->GetCVarBool( "dedicated" ) ? "Yes" : "No" );
+	common->Printf( "  State: Running (Headless Dedicated)\n" );
+}
+
+static void Com_Help_f( const idCmdArgs& ) {
+	common->Printf( "Commonly used commands:\n" );
+	common->Printf( "  status       - display server status\n" );
+	common->Printf( "  listDecls    - list parsed declarations\n" );
+	common->Printf( "  listCmds     - list all console commands\n" );
+	common->Printf( "  listCvars    - list all console variables\n" );
+	common->Printf( "  quit         - shutdown and exit server\n" );
+}
+
 static void Com_WriteConfig_f( const idCmdArgs& args ) {
 	if ( args.Argc() != 2 ) {
 		common->Printf( "Usage: writeConfig <filename>\n" );
@@ -935,11 +951,14 @@ static void Com_Editor_f( const idCmdArgs& args ) {
 void idCommonLocal::InitCommands() {
 	cmdSystem->AddCommand( "quit", Com_Quit_f, CMD_FL_SYSTEM, "quits the game" );
 	cmdSystem->AddCommand( "exit", Com_Quit_f, CMD_FL_SYSTEM, "exits the game" );
+	cmdSystem->AddCommand( "status", Com_Status_f, CMD_FL_SYSTEM, "displays server status" );
+	cmdSystem->AddCommand( "help", Com_Help_f, CMD_FL_SYSTEM, "displays commonly used commands" );
 	cmdSystem->AddCommand( "writeConfig", Com_WriteConfig_f, CMD_FL_SYSTEM, "writes a configuration file" );
 	cmdSystem->AddCommand( "listModes", Com_ListModes_f, CMD_FL_RENDERER, "lists video modes" );
 #ifdef ETQW_WITH_RADIANT
 	cmdSystem->AddCommand( "editor", Com_Editor_f, CMD_FL_TOOL, "opens the ETQW Radiant level editor" );
 #endif
+#ifndef ID_DEDICATED
 	cmdSystem->AddCommand( "dmap", Dmap_f, CMD_FL_TOOL, "compiles an ETQW map" );
 	cmdSystem->AddCommand( "navBuild", NavBuild_f, CMD_FL_TOOL, "builds Recast/Detour navigation for an ETQW map" );
 	cmdSystem->AddCommand( "navVerify", NavVerify_f, CMD_FL_TOOL, "validates a compiled ETQW navmesh" );
@@ -947,6 +966,7 @@ void idCommonLocal::InitCommands() {
 	cmdSystem->AddCommand( "megaCreate", MegaTextureCreate_f, CMD_FL_TOOL, "creates a MegaTexture terrain project" );
 	cmdSystem->AddCommand( "megaCompile", MegaTextureCompile_f, CMD_FL_TOOL, "compiles a MegaTexture terrain project" );
 	cmdSystem->AddCommand( "megaVerify", MegaTextureVerify_f, CMD_FL_TOOL, "validates a compiled MegaTexture" );
+#endif
 }
 
 void idCommonLocal::LoadGameDLL() {
@@ -958,9 +978,11 @@ void idCommonLocal::LoadGameDLL() {
 	dllPath[ 0 ] = '\0';
 	fileSystem->FindDLL( "game", dllPath, true, true );
 	if ( dllPath[ 0 ] == '\0' ) {
+		char defaultDllName[ MAX_OSPATH ];
+		sys->DLL_GetFileName( "game", defaultDllName, sizeof( defaultDllName ) );
 		idStr localDLL = Sys_EXEPath();
 		localDLL.StripFilename();
-		localDLL.AppendPath( "game" CPUSTRING ".dll" );
+		localDLL.AppendPath( defaultDllName );
 		if ( fileSystem->FileExistsExplicit( localDLL ) ) {
 			idStr::Copynz( dllPath, localDLL, sizeof( dllPath ) );
 		}

@@ -3237,9 +3237,11 @@ void idFileSystemLocal::Init( bool quiet ) {
 	// busted and error out now, rather than getting an unreadable
 	// graphics screen when the font fails to load
 	// Dedicated servers can run with no outside files at all
-	if ( ReadFile( "default.cfg", NULL, NULL ) <= 0 ) {
+#ifndef ID_DEDICATED
+	if ( ( cvarSystem == NULL || !cvarSystem->GetCVarBool( "dedicated" ) ) && ReadFile( "default.cfg", NULL, NULL ) <= 0 ) {
 		common->FatalError( "Couldn't load default.cfg" );
 	}
+#endif
 }
 
 /*
@@ -3259,9 +3261,11 @@ void idFileSystemLocal::Restart( void ) {
 	// if we can't find default.cfg, assume that the paths are
 	// busted and error out now, rather than getting an unreadable
 	// graphics screen when the font fails to load
-	if ( ReadFile( "default.cfg", NULL, NULL ) <= 0 ) {
+#ifndef ID_DEDICATED
+	if ( ( cvarSystem == NULL || !cvarSystem->GetCVarBool( "dedicated" ) ) && ReadFile( "default.cfg", NULL, NULL ) <= 0 ) {
 		common->FatalError( "Couldn't load default.cfg" );
 	}
+#endif
 }
 
 /*

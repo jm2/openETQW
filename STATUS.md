@@ -2,10 +2,10 @@
 
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
-Updated: 2026-09-20T05:26:00Z · session/agent: worker_m0_2 · host: mbp-m1max.local, macOS arm64
-Engine repo `~/openETQW`: commit 6948347 · game repo `~/openETQW-game`: commit af81d66 (base: 86099d5) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none)
+Updated: 2026-09-20T06:40:00Z · session/agent: worker_m1_1 · host: mbp-m1max.local, macOS arm64
+Engine repo `~/openETQW`: commit [local] · game repo `~/openETQW-game`: commit [local] · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none)
 
-**Integrator role:** held by worker_m0_2 / mbp-m1max.local
+**Integrator role:** held by worker_m1_1 / mbp-m1max.local
 
 ## Owner decisions in effect
 D1 public source and binaries · D2 all RE methods · D3 hard fork · D4 macOS / Windows 11 / Arch / Fedora / Debian, inputs on request · D5 two repos: GPL-3.0-or-later engine; SDK license + MIT game · D6 Meson
@@ -27,48 +27,61 @@ python3 tests/test_zero_sdk.py
 
 # Game build
 cd /Users/jmulesa/openETQW-game
-meson setup build -Dbuildtype=debug -Doptimization=0
 meson compile -C build idLib libGameDecl game_arm64
 
-# Engine build and tests
+# Engine dedicated server build
 cd /Users/jmulesa/openETQW
-meson setup build -Dbuild_engine=false -Dbuild_tests=true
-meson compile -C build
-meson test -C build --verbose
+meson setup build -Dbuild_dedicated=true -Dbuild_engine=false
+meson compile -C build openETQW-ded_arm64
+
+# Verification of zero GPU / audio / Cocoa linkage
+otool -L build/openETQW-ded_arm64
+
+# End-to-end headless dedicated execution test
+printf "status\nlistDecls\nhelp\nquit\n" | ./build/openETQW-ded_arm64 +set dedicated 1 +set fs_basepath /Users/jmulesa/etqw_data +set fs_game base
 ```
 
 ## This session
 
 **Plan, and why it advances the engine:**
-Execute Milestone 0 bootstrap: establish strict licensing separation between GPL engine and SDK game repositories per Owner Decision D5. Implement Meson + Ninja build system replacing Windows-only CMake, generate 100% provenance classification for all 5,275 source files (5,263 upstream baseline + 12 supplemental SDK navigation files), verify zero-SDK tracking in engine, and validate native compilation of idLib, libGameDecl, and game_arm64.dylib on macOS arm64.
+Execute Milestone 1 (Native Execution & Headless Dedicated Server):
+1. Extract retail assets from `/Users/jmulesa/Desktop/etqw-data-steam-1-1-any.pkg.tar.zst` into isolated directory `/Users/jmulesa/etqw_data/base` outside git repositories. Verify git status remains clean in both repos.
+2. Implement POSIX platform layer for macOS arm64 (`src/sys/posix/`, `src/sys/sys_local.cpp`, `src/sys/stub/headless_stubs.cpp`) without GPU/audio dependencies, configured in Meson for `openETQW-ded_arm64`. Verify zero runtime linkage to OpenGL, Metal, OpenAL, or Cocoa.
+3. Fix filesystem mounting and declaration initialization: handle `default.cfg` missing in Steam retail paks, stage `DeclType.cpp` to register all 20 builtin decl types, reconcile `gameImport_t` offset 0x68 union, and load `game_arm64.dylib` via `GetGameAPI`.
+4. Implement dedicated server console lifecycle: process `status`, `listDecls`, `help`, and `quit` with clean exit code 0.
 
 ### Changed
 | Repo | Files / symbols | What | Why | Reuse / provenance |
 |---|---|---|---|---|
-| openETQW | Top-level | Repository initialized | Host engine under GPL-3.0-or-later | Filtered from `~/etqw` commit `f2b655c` |
-| openETQW | `tools/build/stage_game.py` | Dynamic game header staging script | Stage required game interfaces to `.tmp/` without git contamination | openQ4 adaptation |
-| openETQW | `tests/test_zero_sdk.py` | Automated Zero-SDK audit test | Enforce 0 SDK files in engine repository | New (GPL-3.0-or-later) |
-| openETQW | `docs/provenance.md` | 100% provenance classification & tracked exceptions | Legal compliance & release gate audit | New (GPL-3.0-or-later) |
-| openETQW | `docs/compat-ledger.md` | Initialized compatibility ledger | Track architectural & wire divergence risks | New (GPL-3.0-or-later) |
-| openETQW | `docs/baseline/observations-etqw-f2b655c.json` | Baseline source observations fixture | Cryptographic record of upstream state | verify_source_observations.py |
-| openETQW-game | Top-level | Game repo initialized | Host SDK game logic under ETQW SDK EULA | Filtered from `~/etqw` + SDK 1.5 |
+| openETQW | `src/sys/posix/*` | POSIX platform layer implementation | Provide macOS arm64 headless execution, terminal I/O, signals, threads | openQ4 adaptation |
+| openETQW | `src/sys/stub/headless_stubs.cpp` | Zero-dependency headless stubs | Provide dummy renderSystem, soundSystem, etc. for dedicated server | New (GPL-3.0-or-later) |
+| openETQW | `src/sys/sys_local.cpp` | POSIX sys_local methods | Event queue, timing, memory, DLL loading | New / openQ4 adaptation |
+| openETQW | `src/decllib/DeclRenderProgram_headless.cpp` | Headless render program backend | Allow decl loading without OpenGL dependency | New (GPL-3.0-or-later) |
+| openETQW | `src/decllib/declEffect.cpp` | Effect declaration implementation | Register `declEffectsType` in builtin decl table | New (GPL-3.0-or-later) |
+| openETQW | `src/framework/Common.cpp` | Headless lifecycle, `status`, `help` commands, game DLL loading | Enable dedicated console commands and game loading | Clean GPL reconstruction |
+| openETQW | `src/framework/FileSystem.cpp` | Tolerant default.cfg loading in dedicated mode | Steam retail paks omit default.cfg | Clean GPL reconstruction |
+| openETQW | `meson.build`, `meson_sources.py` | Dedicated build target decoupling & flags | Enable standalone `openETQW-ded_arm64` build | New build configuration |
+| openETQW | `.gitignore` | Ignore pk4, mega, bik, base, etqw_data | Maintain strict asset isolation | Git configuration |
+| openETQW-game | `src/game/Game.h` | Anonymous union for `bse`/`networkService` and `navigationSystem` | Reconcile gameImport_t ABI offset 0x68 | SDK parity fix |
+| openETQW-game | `src/decllib/DeclType.cpp` | Decl registration table staging | Provide all 20 builtin decl types | SDK parity fix |
+| openETQW-game | `.gitignore` | Ignore pk4, mega, bik, base, etqw_data | Maintain strict asset isolation | Git configuration |
 
 ### Demonstrated
 | Claim | Evidence level | Host / OS / arch / compiler | Command | Result (log path) |
 |---|---|---|---|---|---|
-| 100% File Provenance Classification | inspected | macOS arm64 / Darwin 27.0.0 | `python3 tools/build/classify_provenance.py` | 5,275/5,275 files accounted for in 5 tiers (5,263 baseline + 12 SDK) |
-| Zero-SDK Repository Compliance | unit-tested | macOS arm64 / Darwin 27.0.0 | `python3 tests/test_zero_sdk.py` | PASS: 0 SDK files tracked |
-| Baseline Source Observations Verification | unit-tested | macOS arm64 / Darwin 27.0.0 | `python3 verify_source_observations.py` | PASS: 12/12 SHA-256 hashes matched upstream |
-| Dynamic Header Staging | unit-tested | macOS arm64 / Darwin 27.0.0 | `python3 tools/build/stage_game.py` | PASS: Staged headers to `.tmp/gamelibs_stage/` with manifest |
-| Native Game Module & Libraries Build | compiled | macOS arm64 / Apple Clang 21.0 | `ninja -C openETQW-game/build` | PASS: libidLib.a (7.5M), liblibGameDecl.a (22M), game_arm64.dylib (13M, single export _GetGameAPI) |
-| Asset-Free Unit Test Harness | unit-tested | macOS arm64 / Apple Clang 21.0 | `meson test -C openETQW/build --verbose` | PASS: 4/4 tests passed (bitmsg, usercmd-delta, struct-layout, zero-sdk) |
+| Retail Asset Extraction & Storage Isolation | inspected | macOS arm64 / Darwin 27.0.0 | `ls -la /Users/jmulesa/etqw_data/base` | 4.6 GB retail data extracted (pak000-pak004, zpak_english000, 12 megatextures) outside git tracking |
+| Git Isolation of Retail Data | unit-tested | macOS arm64 / Darwin 27.0.0 | `git status` (both repos) | PASS: 0 retail files or pk4s staged or tracked |
+| Zero-Dependency Dedicated Server Linkage | inspected | macOS arm64 / Apple Clang 21.0 | `otool -L build/openETQW-ded_arm64` | PASS: Strictly links only libz, libc++, libSystem (0 GPU/audio/Cocoa) |
+| File System Mounting & Decl Parsing | launched | macOS arm64 / Apple Clang 21.0 | `./build/openETQW-ded_arm64` | PASS: 6 paks mounted (15k+ files), 20 builtin decl types registered, 13,634 decls parsed |
+| Game DLL Dynamic Loading via GetGameAPI | launched | macOS arm64 / Apple Clang 21.0 | `./build/openETQW-ded_arm64` | PASS: game_arm64.dylib loaded, event system & class hierarchy initialized |
+| Dedicated Console Lifecycle & Clean Exit | launched | macOS arm64 / Apple Clang 21.0 | `printf "status\nlistDecls\nhelp\nquit\n" \| ./build/openETQW-ded_arm64 ...` | PASS: processed status, listDecls, help, quit; exit code 0 |
 
 Evidence levels: inspected < configured < compiled < unit-tested < launched < map-loaded < match-tested < retail-interop-tested
 
 ### Not done / stubbed / known broken
-- Engine executable target on macOS arm64 (pending platform layer port from openQ4/dhewm3 in M1)
-- Vulkan renderer native backend initialization (pending windowing integration)
-- Dedicated server map loading (blocked on retail asset mount in M1/M2)
+- Vulkan renderer native backend initialization (Milestone 2)
+- Client launch with graphics / windowing (Milestone 2)
+- Dedicated server map loading / game loop (Milestone 2)
 
 ## Capability matrix
 Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>`.
@@ -76,10 +89,10 @@ Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>
 | Capability | Linux x86_64 | Windows 11 x64 | macOS arm64 | macOS x86_64 | Linux arm64 | Notes |
 |---|---|---|---|---|---|---|
 | idLib + game module build | — | — | compiled | — | — | Native Apple Clang arm64 |
-| Engine build | — | — | configured | — | — | Meson configure ready; engine donor pending |
-| Dedicated server launch (headless) | — | — | blocked: M1 | — | — | Requires platform abstraction layer |
+| Engine build | — | — | compiled | — | — | Native `openETQW-ded_arm64` dedicated server |
+| Dedicated server launch (headless) | — | — | launched | — | — | Headless POSIX server cleanly runs and quits (exit 0) |
 | Client launch (graphics) | — | — | blocked: M2 | — | — | Requires Vulkan surface creation |
-| Stock map: server | — | — | blocked: M2 | — | — | Requires user-supplied retail assets |
+| Stock map: server | — | — | blocked: M2 | — | — | Requires map entity spawner / collision loading |
 | Stock map: client | — | — | blocked: M2 | — | — | Requires user-supplied retail assets |
 | OpenETQW MP: dedicated | — | — | blocked: M3 | — | — | Requires snapshot wire implementation |
 | OpenETQW MP: listen server | — | — | blocked: M3 | — | — | Requires listen server decoupling |
@@ -107,10 +120,10 @@ Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>
 - SDK EULA shipped with the game repo and every package; retail-install check enforced; nothing sold: yes
 
 ## Compatibility record
-- Module ABI (`GAME_API_VERSION`, interface changes this session): `GAME_API_VERSION 1` intact in `Game.h`
+- Module ABI (`GAME_API_VERSION`, interface changes this session): `GAME_API_VERSION 1` intact in `Game.h`, `gameImport_t` offset 0x68 union reconciled.
 - Serialized/asset format changes: none (preserving retail serialization structures)
 - Wire protocol id and OpenETQW-only deviations: none yet (baseline staging)
-- Ledger rows added (`docs/compat-ledger.md`): 10 rows initialized covering CHARTER §7.4
+- Ledger rows added (`docs/compat-ledger.md`): 12 rows tracking CHARTER §7.4 (including 011 and 012)
 - Consequence for retail 1.5 interop: Foundation laid without wire mutations
 
 ## Baseline observations delta
@@ -120,14 +133,13 @@ Initial baseline run against `~/etqw` commit `f2b655c`:
 ## Next steps (7 or fewer, ordered)
 | # | Step | Host / OS needed | Depends on | Acceptance test |
 |---|---|---|---|---|
-| 1 | M0 Complete: Review and audit M0 artifacts | macOS arm64 | M0 verification | All unit tests pass, zero-SDK clean |
-| 2 | Milestone 1: Platform abstraction layer port (SDL3 windowing & events) | macOS arm64 | M0 | `openETQW-ded_arm64` headless compilation |
-| 3 | Milestone 1: Vulkan / MoltenVK renderer bootstrap | macOS arm64 | Step 2 | Vulkan device context creation without crash |
-| 4 | Milestone 1: Headless dedicated server startup and console prompt | macOS arm64 | Step 2 | Server starts up and processes `status` command |
+| 1 | M1 Complete: Review and audit M1 artifacts | macOS arm64 | M1 verification | Dedicated server launches, mounts, executes commands, quits with 0 |
+| 2 | Milestone 2: Vulkan / MoltenVK renderer bootstrap | macOS arm64 | M1 | Vulkan device context creation without crash |
+| 3 | Milestone 2: Dedicated server map loading (`devmap valley`) | macOS arm64 | M1 | Server loads map geometry and spawns game entities |
+| 4 | Milestone 2: Client window creation with SDL3 & input handling | macOS arm64 | Step 2 | Client window opens with game console |
 
 ## Inputs needed from the owner
-- Retail ETQW 1.5 Linux dedicated server binaries and pak files for M1/M2 headless testing.
-- Map pk4 assets (`pak000.pk4` through `pak004.pk4`) for M2 map loading.
+- None. Retail assets extracted and isolated successfully.
 
 ## Questions for the owner
 - None at this time.

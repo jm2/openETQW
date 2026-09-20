@@ -15,9 +15,6 @@ extern "C" {
   #define ALCAPI __declspec(dllimport)
  #endif
 
- typedef struct ALCdevice_struct ALCdevice;
- typedef struct ALCcontext_struct ALCcontext;
-
  #define ALCAPIENTRY __cdecl
 #else
  #ifdef TARGET_OS_MAC
@@ -28,6 +25,9 @@ extern "C" {
  #define ALCAPI
  #define ALCAPIENTRY __cdecl
 #endif
+
+typedef struct ALCdevice_struct ALCdevice;
+typedef struct ALCcontext_struct ALCcontext;
 
 
 

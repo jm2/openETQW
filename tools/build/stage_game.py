@@ -45,9 +45,10 @@ STAGED_HEADER_GLOBS = (
     "src/decllib/*.h",
 )
 
-# Test harness source files staged for asset-free unit test verification
+# Test harness and engine reconstruction source files staged dynamically
 STAGED_TEST_SOURCES = (
     "src/idlib/BitMsg.cpp",
+    "src/decllib/DeclType.cpp",
 )
 
 
