@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Automated Zero-SDK Verification Test for openETQW engine repository.
 
 Verifies that ZERO SDK-licensed files are tracked or present in the openETQW repository.
@@ -154,8 +155,8 @@ def main() -> int:
         if raw_hash in sdk_hashes or canon_hash in sdk_hashes:
             violations.append(f"Tracked file matches SDK hash: {rel_path} (hash: {canon_hash})")
 
-        # Gate 3: License text check (exclude docs, test harness, and tools that analyze licenses)
-        if rel_path.startswith("docs/") or rel_path.startswith("tests/") or rel_path.startswith("tools/"):
+        # Gate 3: License text check (exclude docs, test harness self-marker, and license classifier tool)
+        if rel_path.startswith("docs/") or rel_path in ("tests/test_zero_sdk.py", "tools/build/classify_provenance.py"):
             continue
 
         try:

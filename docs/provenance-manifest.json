@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5263,
+  "totalFiles": 5275,
   "counts": {
-    "SDK": 841,
+    "SDK": 853,
     "Doom3_GPL": 311,
     "ThirdParty": 3430,
     "Reconstruction_retail_RE": 61,
@@ -10513,6 +10513,87 @@
       "bytes": 7150
     },
     {
+      "path": "src/game/botai/aas/AASCallback_AvoidLocation.cpp",
+      "tier": "SDK",
+      "license": "LicenseRef-ETQW-SDK",
+      "targetRepo": "openETQW-game",
+      "rawSha256": "614356ad149eba35181a900f2572f20e786c2119919d800a358ceaf6ecba4f02",
+      "canonicalSha256": "6116001c6dfec478c65ba249816c8b62488ec090fe8e7235299c1ce1c9dc79f0",
+      "bytes": 2802
+    },
+    {
+      "path": "src/game/botai/aas/AASCallback_AvoidLocation.h",
+      "tier": "SDK",
+      "license": "LicenseRef-ETQW-SDK",
+      "targetRepo": "openETQW-game",
+      "rawSha256": "88707b30710234c2d6313c61ef3d683fe2238f91d41b043c12e0e28dcbc90560",
+      "canonicalSha256": "101497bf60c4e3ba21261a252e4d2d1a3e8f9e3600fcf84a2dc33af28761b161",
+      "bytes": 1262
+    },
+    {
+      "path": "src/game/botai/aas/AASCallback_FindAreaOutOfRange.cpp",
+      "tier": "SDK",
+      "license": "LicenseRef-ETQW-SDK",
+      "targetRepo": "openETQW-game",
+      "rawSha256": "de8a7c9b3e45aee124fa15c11c460dbe98d9b202e0fd0a27da2893081c9e3d63",
+      "canonicalSha256": "cba52707b56939550070e2a3eb2e9a1ab79f0208d609308bf808010de8b3a811",
+      "bytes": 1096
+    },
+    {
+      "path": "src/game/botai/aas/AASCallback_FindAreaOutOfRange.h",
+      "tier": "SDK",
+      "license": "LicenseRef-ETQW-SDK",
+      "targetRepo": "openETQW-game",
+      "rawSha256": "4406037e76515c2a363683f1bbc85f7f41cbd7474748a3270b96d616bd42201c",
+      "canonicalSha256": "7a3c92394e40669ba5518aafbbda67db651aa3f7341f6cedd64da15df7dfda82",
+      "bytes": 748
+    },
+    {
+      "path": "src/game/botai/aas/AASCallback_FindCoverArea.cpp",
+      "tier": "SDK",
+      "license": "LicenseRef-ETQW-SDK",
+      "targetRepo": "openETQW-game",
+      "rawSha256": "1a6f864a00229fe8024e5a9a705dab6b19d2d78aa0cc171eafe4019e01603f6e",
+      "canonicalSha256": "d89d9d90d87b38042cafd7918982dff011103de6f90ecd646bb5cb5d6b2fbcb6",
+      "bytes": 1360
+    },
+    {
+      "path": "src/game/botai/aas/AASCallback_FindCoverArea.h",
+      "tier": "SDK",
+      "license": "LicenseRef-ETQW-SDK",
+      "targetRepo": "openETQW-game",
+      "rawSha256": "419ae4bbe86c923d6b668d0c03a7efa3cd6d03436167ef8f1632df572406b577",
+      "canonicalSha256": "179e82a375b69fca5129a737e2f43b9b25537b19899d1c6b94a20f8e6e52850e",
+      "bytes": 802
+    },
+    {
+      "path": "src/game/botai/aas/AASCallback_FindFlaggedArea.cpp",
+      "tier": "SDK",
+      "license": "LicenseRef-ETQW-SDK",
+      "targetRepo": "openETQW-game",
+      "rawSha256": "9fe7f82b1e5ac44deaad9783b2736154931219edb549cb0a245e3dafb4ada5ed",
+      "canonicalSha256": "67e79f4ad6a9b567b2db3ba6efa04f0af56fc53027a02ec9d5c606eea280fd6f",
+      "bytes": 819
+    },
+    {
+      "path": "src/game/botai/aas/AASCallback_FindFlaggedArea.h",
+      "tier": "SDK",
+      "license": "LicenseRef-ETQW-SDK",
+      "targetRepo": "openETQW-game",
+      "rawSha256": "53b645e4ce8e61b107d35594a6adb61f6db4d5c280a2ec91af591a6118b3c38e",
+      "canonicalSha256": "d9da14679b48da410a70b1b8618443450aa394e102c934d822d1bbeebf684a55",
+      "bytes": 752
+    },
+    {
+      "path": "src/game/botai/aas/AAS_debug.cpp",
+      "tier": "SDK",
+      "license": "LicenseRef-ETQW-SDK",
+      "targetRepo": "openETQW-game",
+      "rawSha256": "0073db004fd25196848871cd5ef5fa1735277261a465cf48ae60999c59468c8e",
+      "canonicalSha256": "9c904e61a0392a47e20b676d8a6082c38c47e4178d1d223188a6990957dafddf",
+      "bytes": 30067
+    },
+    {
       "path": "src/game/botai/aas/AAS_local.h",
       "tier": "SDK",
       "license": "LicenseRef-ETQW-SDK",
@@ -10520,6 +10601,24 @@
       "rawSha256": "93de59656ba372077c90a5ddda438fd306953f871475b77784666ccd630ed179",
       "canonicalSha256": "93de59656ba372077c90a5ddda438fd306953f871475b77784666ccd630ed179",
       "bytes": 3838
+    },
+    {
+      "path": "src/game/botai/aas/AAS_pathing.cpp",
+      "tier": "SDK",
+      "license": "LicenseRef-ETQW-SDK",
+      "targetRepo": "openETQW-game",
+      "rawSha256": "fc733a65e6794c9871d93c7fffab8a9734277bc1495e733347de774a49750e9f",
+      "canonicalSha256": "e8746c99aa32457950ae376eee94ef1325f5c416b8a014c07209b8795e0014c3",
+      "bytes": 21371
+    },
+    {
+      "path": "src/game/botai/aas/AAS_routing.cpp",
+      "tier": "SDK",
+      "license": "LicenseRef-ETQW-SDK",
+      "targetRepo": "openETQW-game",
+      "rawSha256": "9abe74f329d847b59c134ef91836949ad38b4b54109dbdb40cccf80d82c19c23",
+      "canonicalSha256": "d77d0c900faa505cb71ad585ce54d8deebce28d3626b796a25b8c42bd9f8d9b9",
+      "bytes": 35911
     },
     {
       "path": "src/game/botai/aas/ObstacleAvoidance.cpp",
@@ -16244,6 +16343,15 @@
       "rawSha256": "6a9afd8e445218e84db67dff0ca95952474953e8023d3535c2a6e262b2e07d62",
       "canonicalSha256": "6a9afd8e445218e84db67dff0ca95952474953e8023d3535c2a6e262b2e07d62",
       "bytes": 16655
+    },
+    {
+      "path": "src/libs/AASLib/AASFileManager.h",
+      "tier": "SDK",
+      "license": "LicenseRef-ETQW-SDK",
+      "targetRepo": "openETQW-game",
+      "rawSha256": "742961d5f28c7a9f47550ca615548efb1655b5f05fcb339bafb88b980673d2d1",
+      "canonicalSha256": "6dcd7212ed8a63101cfedfee32712f63dd2178ba3ff034099b01268c7771525f",
+      "bytes": 631
     },
     {
       "path": "src/libs/filelib/File.cpp",

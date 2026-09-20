@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Classify 100% of imported ETQW files into the five canonical provenance tiers."""
 
 from __future__ import annotations
@@ -61,6 +62,13 @@ def load_sdk_comparison_manifest(bundle_path: Path) -> dict[str, dict]:
                 recon_path = row["reconstruction_path"]
                 if recon_path:
                     sdk_files[recon_path] = row
+        if "sdk_manifest.json" in z.namelist():
+            with z.open("sdk_manifest.json") as f:
+                manifest = json.load(f)
+                for item in manifest.get("files", []):
+                    p = item.get("path")
+                    if p and p not in sdk_files:
+                        sdk_files[p] = item
     return sdk_files
 
 
@@ -103,6 +111,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Classify ETQW codebase provenance")
     parser.add_argument("source_root", type=Path, help="Path to ~/etqw or source root")
     parser.add_argument("bundle_path", type=Path, help="Path to etqw_sdk_comparison_bundle.zip")
+    parser.add_argument("--game-repo", type=Path, default=None, help="Path to openETQW-game repository for supplemental file census")
     parser.add_argument("--output-json", type=Path, default=Path("docs/provenance-manifest.json"))
     args = parser.parse_args()
 
@@ -129,6 +138,31 @@ def main() -> int:
                 "canonicalSha256": canon_hash,
                 "bytes": byte_len,
             })
+
+    seen_paths = {r["path"] for r in records}
+    if args.game_repo and (args.game_repo / "src").is_dir():
+        for dirpath, dirnames, filenames in os.walk(args.game_repo / "src"):
+            if ".git" in dirnames:
+                dirnames.remove(".git")
+            for filename in filenames:
+                file_path = Path(dirpath) / filename
+                rel_path = file_path.relative_to(args.game_repo).as_posix()
+                if rel_path in seen_paths:
+                    continue
+                tier, license_id, target_repo = classify_file(rel_path, file_path, sdk_files)
+                raw_hash, canon_hash, byte_len = compute_hashes(file_path)
+
+                counts[tier] += 1
+                records.append({
+                    "path": rel_path,
+                    "tier": tier,
+                    "license": license_id,
+                    "targetRepo": target_repo,
+                    "rawSha256": raw_hash,
+                    "canonicalSha256": canon_hash,
+                    "bytes": byte_len,
+                })
+                seen_paths.add(rel_path)
 
     output_data = {
         "schemaVersion": 1,

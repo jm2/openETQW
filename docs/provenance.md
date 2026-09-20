@@ -23,17 +23,35 @@ Under **Owner Decision D5**, OpenETQW establishes strict licensing and repositor
 
 ## 2. Five-Tier Provenance Classification
 
-All 5,263 files present in the upstream baseline at commit `f2b655c` have been classified into five canonical origin tiers. 100% coverage is verified against `docs/provenance-manifest.json`:
+All files imported across both repositories are classified into five canonical origin tiers. The upstream baseline at `f2b655c` comprises 5,263 files; an additional 12 supplemental AAS navigation files were imported from the ETQW 1.5 SDK into `openETQW-game` in commit `288052c` to enable ARM64 game module compilation. 100% coverage across all 5,275 source files is verified in `docs/provenance-manifest.json`:
 
-| Tier | Origin Description | License | File Count | Target Repository |
+| Tier | Origin Description | License | Baseline (`~/etqw`) | Supplemental (`openETQW-game`) | Reconciled Total | Target Repository |
+|---|---|---|---|---|---|---|
+| **Tier 1: SDK** | Original ETQW 1.5 SDK source files (matching extracted `ETQW-SDK-1.5.exe`). Includes 773 CRLF-normalized, 63 reconstructed/modified, 5 byte-identical baseline files, and 12 AAS navigation files. | `LicenseRef-ETQW-SDK` | 841 | 12 | **853** | `openETQW-game` |
+| **Tier 2: Doom 3 GPL** | Doom 3 GPL engine and tool source files carrying the id Software GPL-3.0 header and additional terms (`dmap`, `Radiant`, legacy GL renderer, idLib base). | `GPL-3.0-or-later` | 311 | 0 | **311** | `openETQW` |
+| **Tier 3: Third-Party** | Permissively licensed or copyleft third-party libraries vendored in upstream (`curl`, `imgui`, `recast`, `openal`, `zlib`, `ogg`, `libvorbis`, `speex`, `sdl2`). | Various (MIT, zlib, BSD, LGPL) | 3,430 | 0 | **3,430** | `openETQW` |
+| **Tier 4: Retail-RE** | Reconstruction engine implementations reverse-engineered from retail binaries, carrying decompiler or PDB markers (`AsyncClient`, `AsyncServer`, `Common`, `RenderSystemBackend`). | `GPL-3.0-or-later` | 61 | 0 | **61** | `openETQW` |
+| **Tier 5: Recon-Original** | New code created specifically for the ETQW modern reconstruction (Vulkan SPIR-V shaders, `compiledscript` DoomScript runtime, CMake presets, `readme.md`). | `GPL-3.0-or-later` (engine) / `MIT` (game) | 620 | 0 | **620** | Split (`openETQW`: 399 / `openETQW-game`: 221) |
+| **Total Source Census** | **Complete active source file inventory across both repositories** | | **5,263** | **12** | **5,275** | |
+
+### 2.1 Supplemental SDK Navigation Imports (`openETQW-game`)
+
+During Milestone 0 ARM64 compilation, 12 bot navigation (AAS) files from the ETQW 1.5 SDK were imported into `openETQW-game` in commit `288052c` to resolve missing symbols in `idAASLocal` (`RouteToGoalArea`, `WalkPathToGoal`) and `AASFileManager`. These files are 100% byte-identical to the official SDK 1.5 source and reside legally in `openETQW-game` under `LicenseRef-ETQW-SDK`:
+
+| Relative Path in `openETQW-game` | License | SHA-256 Digest | Bytes | Function / Technical Justification |
 |---|---|---|---|---|
-| **Tier 1: SDK** | Original ETQW 1.5 SDK source files (matching extracted `ETQW-SDK-1.5.exe`). Includes 773 CRLF-normalized, 63 reconstructed/modified, and 5 byte-identical files. | `LicenseRef-ETQW-SDK` | **841** | `openETQW-game` |
-| **Tier 2: Doom 3 GPL** | Doom 3 GPL engine and tool source files carrying the id Software GPL-3.0 header and additional terms (`dmap`, `Radiant`, legacy GL renderer, idLib base). | `GPL-3.0-or-later` | **311** | `openETQW` |
-| **Tier 3: Third-Party** | Permissively licensed or copyleft third-party libraries vendored in upstream (`curl`, `imgui`, `recast`, `openal`, `zlib`, `ogg`, `libvorbis`, `speex`, `sdl2`). | Various (MIT, zlib, BSD, LGPL) | **3,430** | `openETQW` |
-| **Tier 4: Retail-RE** | Reconstruction engine implementations reverse-engineered from retail binaries, carrying decompiler or PDB markers (`AsyncClient`, `AsyncServer`, `Common`, `RenderSystemBackend`). | `GPL-3.0-or-later` | **61** | `openETQW` |
-| **Tier 5: Recon-Original** | New code created specifically for the ETQW modern reconstruction (Vulkan SPIR-V shaders, `compiledscript` DoomScript runtime, CMake presets, `readme.md`). | `GPL-3.0-or-later` (engine) / `MIT` (game) | **620** | Split (`openETQW`: 399 / `openETQW-game`: 221) |
-| **New OpenETQW** | Meson build system, staging tools, living docs, and asset-free unit test harness created for Milestone 0. | `GPL-3.0-or-later` (engine) / `MIT` (game) | N/A | `openETQW` & `openETQW-game` |
-| **Total Baseline** | **Complete file census of `~/etqw` at commit `f2b655c`** | | **5,263** | |
+| `src/game/botai/aas/AASCallback_AvoidLocation.cpp` | `LicenseRef-ETQW-SDK` | `614356ad149eba35181a900f2572f20e786c2119919d800a358ceaf6ecba4f02` | 2,802 | Area avoidance callback for bot routing |
+| `src/game/botai/aas/AASCallback_AvoidLocation.h` | `LicenseRef-ETQW-SDK` | `88707b30710234c2d6313c61ef3d683fe2238f91d41b043c12e0e28dcbc90560` | 1,262 | Header declaration for avoid location callback |
+| `src/game/botai/aas/AASCallback_FindAreaOutOfRange.cpp` | `LicenseRef-ETQW-SDK` | `de8a7c9b3e45aee124fa15c11c460dbe98d9b202e0fd0a27da2893081c9e3d63` | 1,096 | Area search callback outside specified range |
+| `src/game/botai/aas/AASCallback_FindAreaOutOfRange.h` | `LicenseRef-ETQW-SDK` | `4406037e76515c2a363683f1bbc85f7f41cbd7474748a3270b96d616bd42201c` | 748 | Header declaration for range callback |
+| `src/game/botai/aas/AASCallback_FindCoverArea.cpp` | `LicenseRef-ETQW-SDK` | `1a6f864a00229fe8024e5a9a705dab6b19d2d78aa0cc171eafe4019e01603f6e` | 1,360 | Cover area search callback for combat tactics |
+| `src/game/botai/aas/AASCallback_FindCoverArea.h` | `LicenseRef-ETQW-SDK` | `419ae4bbe86c923d6b668d0c03a7efa3cd6d03436167ef8f1632df572406b577` | 802 | Header declaration for cover callback |
+| `src/game/botai/aas/AASCallback_FindFlaggedArea.cpp` | `LicenseRef-ETQW-SDK` | `9fe7f82b1e5ac44deaad9783b2736154931219edb549cb0a245e3dafb4ada5ed` | 819 | Flagged area evaluation callback |
+| `src/game/botai/aas/AASCallback_FindFlaggedArea.h` | `LicenseRef-ETQW-SDK` | `53b645e4ce8e61b107d35594a6adb61f6db4d5c280a2ec91af591a6118b3c38e` | 752 | Header declaration for flagged area callback |
+| `src/game/botai/aas/AAS_debug.cpp` | `LicenseRef-ETQW-SDK` | `0073db004fd25196848871cd5ef5fa1735277261a465cf48ae60999c59468c8e` | 30,067 | AAS routing visualization and debug logging |
+| `src/game/botai/aas/AAS_pathing.cpp` | `LicenseRef-ETQW-SDK` | `fc733a65e6794c9871d93c7fffab8a9734277bc1495e733347de774a49750e9f` | 21,371 | Obstacle avoidance path synthesis (`WalkPathToGoal`) |
+| `src/game/botai/aas/AAS_routing.cpp` | `LicenseRef-ETQW-SDK` | `9abe74f329d847b59c134ef91836949ad38b4b54109dbdb40cccf80d82c19c23` | 35,911 | Core AAS routing algorithm (`RouteToGoalArea`) |
+| `src/libs/AASLib/AASFileManager.h` | `LicenseRef-ETQW-SDK` | `742961d5f28c7a9f47550ca615548efb1655b5f05fcb339bafb88b980673d2d1` | 631 | AAS binary file management interface |
 
 ---
 
@@ -86,11 +104,11 @@ Per **CHARTER §11**, each staged header is a tracked exception that blocks the 
 
 The provenance classification and zero-SDK compliance can be independently re-verified at any time using the following commands:
 
-1. **Full Provenance Classification Audit**:
+1. **Full Provenance Classification Audit (Baseline + Supplemental SDK)**:
    ```bash
-   python3 tools/build/classify_provenance.py /Users/jmulesa/etqw openetqw_handoff_v3/reference/etqw_sdk_comparison_bundle.zip --output-json docs/provenance-manifest.json
+   python3 tools/build/classify_provenance.py /Users/jmulesa/etqw openetqw_handoff_v3/reference/etqw_sdk_comparison_bundle.zip --game-repo /Users/jmulesa/openETQW-game --output-json docs/provenance-manifest.json
    ```
-   *Expectation*: Outputs `Classified 5263 files: {'SDK': 841, 'Doom3_GPL': 311, 'ThirdParty': 3430, 'Reconstruction_retail_RE': 61, 'Reconstruction_original': 620}` with exit code 0.
+   *Expectation*: Outputs `Classified 5275 files: {'SDK': 853, 'Doom3_GPL': 311, 'ThirdParty': 3430, 'Reconstruction_retail_RE': 61, 'Reconstruction_original': 620}` with exit code 0.
 
 2. **Automated Zero-SDK Verification**:
    ```bash
