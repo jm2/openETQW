@@ -276,3 +276,74 @@ Four comprehensive adversarial test suites verify the robustness of the implemen
    ```
    - Executes 5 consecutive independent runs of `tests/test_bot_gameplay.py`.
    - Result: 5/5 passed (100% success rate), average duration 14.86s, 0 socket bind errors, 0 deadlocks.
+
+---
+
+## 5. Milestone 4 Full Match Automated Verification (Vehicles, Deployables & Objectives)
+
+The full match end-to-end integration test (`tests/test_valley_match.py`) exercises all 9 phases of a complete ETQW Valley match on an authoritative dedicated server:
+
+```bash
+python3 /Users/jmulesa/openETQW/tests/test_valley_match.py
+```
+
+### Verified Console Output:
+```text
+=================================================================
+ OpenETQW Milestone 4: Valley Match Integration Test
+ Target: Valley Map, Server Port 27795
+ Objectives: Vehicles, Deployables, Mission Objectives (Phases 1-9)
+=================================================================
+
+[Phase 1] Spawning dedicated server hosting 'valley'...
+  [SERVER] Map: maps/valley.world
+  [SERVER] Map loaded: ----------- Loading Map Bot Actions ------------
+  -> Phase 1 Passed: Server online and Valley map initialized.
+
+[Phase 2] Spawning opposing GDF and Strogg bots and verifying pawns...
+  Strogg Bot 1 touched ground at (6649.98, -239.92, 1568.5) (spectating=0)
+  GDF Bot 0 touched ground at (10401.93, -6041.59, 1497.32) (spectating=0)
+  -> Phase 2 Passed: GDF and Strogg bots physically spawned and grounded.
+
+[Phase 3] Testing vehicle possession, seat management, and egress...
+  Vehicle Status after enter: in_vehicle=1 name=sdVehicle_RigidBody_vehicle_titan_62 seat=0 health=3500
+  Vehicle Status after seat swap: seat=1 (was 0)
+  Vehicle Status after exit: in_vehicle=0
+  -> Phase 3 Passed: Vehicle entry, seat swap, and exit verified.
+
+[Phase 4] Testing deployable placement, aerial carrier delivery, and turret system...
+  Initial active defence turrets on Valley: 6
+  Deployment Request Accepted: DEPLOY: Client 0 deployed deployobject_antipersonnel_gdf at (8704.00, -7936.00, 768.00) -> SUCCESS
+  Carrier Delivery Hook Triggered: [DEPLOY_DELIVER] Carrier spawned for deployobject_antipersonnel_gdf at (8704.00, -7936.00, 768.00)
+  Updated defence turrets count: 6
+  -> Phase 4 Passed: Deployable validated, carrier delivered, turret active.
+
+[Phase 5] Completing Objective 0: Construct Bridge...
+  COMPLETE_OBJECTIVE: 0 triggered
+  Status: gdf_obj=1 strogg_obj=1 state=1 winner=strogg
+  -> Phase 5 Passed: Bridge constructed, GDF objective advanced to 1.
+
+[Phase 6] Completing Objective 1: Capture Outpost...
+  COMPLETE_OBJECTIVE: 1 triggered
+  Status: gdf_obj=2 strogg_obj=2 state=1 winner=strogg
+  -> Phase 6 Passed: Outpost captured, GDF objective advanced to 2.
+
+[Phase 7] Completing Objective 2: Hack Shield Generator & SCUD Strike...
+  COMPLETE_OBJECTIVE: 2 triggered
+  Status: gdf_obj=3 strogg_obj=3 state=1 winner=strogg
+  -> Phase 7 Passed: Shield hacked, blast doors breached, GDF objective advanced to 3.
+
+[Phase 8] Completing Objective 3: Destroy Contaminator...
+  COMPLETE_OBJECTIVE: 3 triggered
+  Waiting for match end sequence and state transition to GS_GAMEREVIEW (state 4)...
+  Final Match Status: gdf_obj=3 strogg_obj=3 state=4 winner=gdf
+  -> Phase 8 Passed: Contaminator destroyed, GDF declared winner, match transitioned to GS_GAMEREVIEW.
+
+[Phase 9] Sending 'quit' command and verifying clean shutdown...
+  Dedicated server exited cleanly with code 0.
+  -> Phase 9 Passed: Server shut down gracefully with exit code 0.
+
+=================================================================
+ ALL 9 PHASES OF MILESTONE 4 VALLEY MATCH TEST PASSED!
+=================================================================
+```

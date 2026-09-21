@@ -302,4 +302,11 @@ if build_tests
     workdir: meson.project_source_root(),
     timeout: 120,
   )
+  test(
+    'valley-match',
+    py,
+    args: [meson.project_source_root() / 'tests' / 'test_valley_match.py'],
+    workdir: meson.project_source_root(),
+    timeout: 180,
+  )
 endif
