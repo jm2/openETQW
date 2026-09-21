@@ -705,8 +705,18 @@ void idAsyncServer::SendGameInitToClient( int clientNum ) {
 	SendEnterGameToClient( clientNum );
 
 	// 4. Initialize client player entity in game module
+	idDict& userInfo = sessLocal.mapSpawnData.userInfo[ clientNum ];
+	if ( userInfo.GetString( "ui_name" )[ 0 ] == '\0' ) {
+		userInfo.Set( "ui_name", va( "Player %d", clientNum ) );
+	}
+	if ( userInfo.GetString( "ui_realname" )[ 0 ] == '\0' ) {
+		userInfo.Set( "ui_realname", userInfo.GetString( "ui_name" ) );
+	}
+	game->ValidateUserInfo( clientNum, userInfo );
+
 	game->ServerClientConnect( clientNum );
 	game->ServerClientBegin( clientNum, false );
+	game->UserInfoChanged( clientNum );
 
 	// 5. Send initial reliable game state burst
 	game->ServerWriteInitialReliableMessages( clientNum );
@@ -788,6 +798,7 @@ bool idAsyncServer::SendSnapshotToClient( int clientNum ) {
 }
 
 void idAsyncServer::ProcessUnreliableClientMessage( int clientNum, const idBitMsg& msg ) {
+	clients[ clientNum ].lastPacketTime = realTime;
 	const int type = msg.ReadByte();
 	if ( type == CLIENT_UNRELIABLE_MESSAGE_EMPTY ) {
 		bool mapLoad = msg.ReadBool();
@@ -815,6 +826,7 @@ void idAsyncServer::ProcessUnreliableClientMessage( int clientNum, const idBitMs
 		}
 
 		if ( clientGameFrame > gameFrame + MAX_USERCMD_BACKUP || clientGameFrame < gameFrame - MAX_USERCMD_BACKUP ) {
+			common->Printf( "WARNING: Server dropped client usercmds: clientGameFrame=%d, serverGameFrame=%d\n", clientGameFrame, gameFrame );
 			return;
 		}
 

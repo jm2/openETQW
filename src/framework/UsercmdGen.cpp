@@ -104,6 +104,7 @@ public:
 	virtual usercmd_t		GetDirectUsercmd( bool doGameCallback = true );
 	virtual void			HandleCommand( const sdKeyCommand* command, bool down );
 	virtual bool			ProcessEvent( const sdSysEvent& event );
+	void					SetButton( int button, bool down );
 
 private:
 	sdKeyCommand*			Translate( const idKey& key );
@@ -173,6 +174,60 @@ idCVar idUsercmdGenLocal::m_showMouseRate( "m_showMouseRate", "0", CVAR_SYSTEM |
 static idUsercmdGenLocal localUsercmdGen;
 idUsercmdGen* usercmdGen = &localUsercmdGen;
 
+void idUsercmdGenLocal::SetButton( int button, bool down ) {
+	if ( button < 0 || button >= UB_MAX_BUTTONS ) {
+		return;
+	}
+	buttonState[ button ] = down ? 1 : 0;
+}
+
+static int clientMoveForward = 0;
+static int clientMoveSide = 0;
+static int clientMoveUp = 0;
+static bool clientMoveActive = false;
+
+static void SetClientMove( int fwd, int side, int up ) {
+	clientMoveForward = fwd;
+	clientMoveSide = side;
+	clientMoveUp = up;
+	clientMoveActive = ( fwd != 0 || side != 0 || up != 0 );
+	common->Printf( "clientMove set: forward=%d, side=%d, up=%d (active=%d)\n", fwd, side, up, clientMoveActive ? 1 : 0 );
+}
+
+static void PrintClientMove() {
+	common->Printf( "clientMove: forward=%d, side=%d, up=%d (active=%d)\n", clientMoveForward, clientMoveSide, clientMoveUp, clientMoveActive ? 1 : 0 );
+}
+
+static void Usercmd_PlusForward_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_FORWARD, true ); }
+static void Usercmd_MinusForward_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_FORWARD, false ); }
+static void Usercmd_PlusBack_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_BACK, true ); }
+static void Usercmd_MinusBack_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_BACK, false ); }
+static void Usercmd_PlusMoveLeft_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_MOVELEFT, true ); }
+static void Usercmd_MinusMoveLeft_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_MOVELEFT, false ); }
+static void Usercmd_PlusMoveRight_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_MOVERIGHT, true ); }
+static void Usercmd_MinusMoveRight_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_MOVERIGHT, false ); }
+static void Usercmd_PlusJump_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_UP, true ); }
+static void Usercmd_MinusJump_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_UP, false ); }
+static void Usercmd_PlusCrouch_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_DOWN, true ); }
+static void Usercmd_MinusCrouch_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_DOWN, false ); }
+static void Usercmd_PlusAttack_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_ATTACK, true ); }
+static void Usercmd_MinusAttack_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_ATTACK, false ); }
+static void Usercmd_PlusSprint_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_SPRINT, true ); }
+static void Usercmd_MinusSprint_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_SPRINT, false ); }
+static void Usercmd_PlusSpeed_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_SPEED, true ); }
+static void Usercmd_MinusSpeed_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_SPEED, false ); }
+
+static void Usercmd_ClientMove_f( const idCmdArgs& args ) {
+	if ( args.Argc() < 2 ) {
+		PrintClientMove();
+		return;
+	}
+	int fwd = atoi( args.Argv( 1 ) );
+	int side = args.Argc() >= 3 ? atoi( args.Argv( 2 ) ) : 0;
+	int up = args.Argc() >= 4 ? atoi( args.Argv( 3 ) ) : 0;
+	SetClientMove( fwd, side, up );
+}
+
 idUsercmdGenLocal::idUsercmdGenLocal() :
 	flags( 0 ),
 	impulse( 0 ),
@@ -191,6 +246,26 @@ idUsercmdGenLocal::idUsercmdGenLocal() :
 void idUsercmdGenLocal::Init() {
 	initialized = true;
 	Clear();
+
+	cmdSystem->AddCommand( "+forward", Usercmd_PlusForward_f, CMD_FL_SYSTEM, "move forward" );
+	cmdSystem->AddCommand( "-forward", Usercmd_MinusForward_f, CMD_FL_SYSTEM, "stop move forward" );
+	cmdSystem->AddCommand( "+back", Usercmd_PlusBack_f, CMD_FL_SYSTEM, "move backward" );
+	cmdSystem->AddCommand( "-back", Usercmd_MinusBack_f, CMD_FL_SYSTEM, "stop move backward" );
+	cmdSystem->AddCommand( "+moveleft", Usercmd_PlusMoveLeft_f, CMD_FL_SYSTEM, "strafe left" );
+	cmdSystem->AddCommand( "-moveleft", Usercmd_MinusMoveLeft_f, CMD_FL_SYSTEM, "stop strafe left" );
+	cmdSystem->AddCommand( "+moveright", Usercmd_PlusMoveRight_f, CMD_FL_SYSTEM, "strafe right" );
+	cmdSystem->AddCommand( "-moveright", Usercmd_MinusMoveRight_f, CMD_FL_SYSTEM, "stop strafe right" );
+	cmdSystem->AddCommand( "+jump", Usercmd_PlusJump_f, CMD_FL_SYSTEM, "jump" );
+	cmdSystem->AddCommand( "-jump", Usercmd_MinusJump_f, CMD_FL_SYSTEM, "release jump" );
+	cmdSystem->AddCommand( "+crouch", Usercmd_PlusCrouch_f, CMD_FL_SYSTEM, "crouch" );
+	cmdSystem->AddCommand( "-crouch", Usercmd_MinusCrouch_f, CMD_FL_SYSTEM, "release crouch" );
+	cmdSystem->AddCommand( "+attack", Usercmd_PlusAttack_f, CMD_FL_SYSTEM, "attack" );
+	cmdSystem->AddCommand( "-attack", Usercmd_MinusAttack_f, CMD_FL_SYSTEM, "release attack" );
+	cmdSystem->AddCommand( "+sprint", Usercmd_PlusSprint_f, CMD_FL_SYSTEM, "sprint" );
+	cmdSystem->AddCommand( "-sprint", Usercmd_MinusSprint_f, CMD_FL_SYSTEM, "release sprint" );
+	cmdSystem->AddCommand( "+speed", Usercmd_PlusSpeed_f, CMD_FL_SYSTEM, "speed" );
+	cmdSystem->AddCommand( "-speed", Usercmd_MinusSpeed_f, CMD_FL_SYSTEM, "release speed" );
+	cmdSystem->AddCommand( "clientMove", Usercmd_ClientMove_f, CMD_FL_SYSTEM, "direct client movement: <fwd> <side> <up>" );
 }
 
 void idUsercmdGenLocal::InitForNewMap() {
@@ -204,6 +279,26 @@ void idUsercmdGenLocal::InitForNewMap() {
 }
 
 void idUsercmdGenLocal::Shutdown() {
+	cmdSystem->RemoveCommand( "+forward" );
+	cmdSystem->RemoveCommand( "-forward" );
+	cmdSystem->RemoveCommand( "+back" );
+	cmdSystem->RemoveCommand( "-back" );
+	cmdSystem->RemoveCommand( "+moveleft" );
+	cmdSystem->RemoveCommand( "-moveleft" );
+	cmdSystem->RemoveCommand( "+moveright" );
+	cmdSystem->RemoveCommand( "-moveright" );
+	cmdSystem->RemoveCommand( "+jump" );
+	cmdSystem->RemoveCommand( "-jump" );
+	cmdSystem->RemoveCommand( "+crouch" );
+	cmdSystem->RemoveCommand( "-crouch" );
+	cmdSystem->RemoveCommand( "+attack" );
+	cmdSystem->RemoveCommand( "-attack" );
+	cmdSystem->RemoveCommand( "+sprint" );
+	cmdSystem->RemoveCommand( "-sprint" );
+	cmdSystem->RemoveCommand( "+speed" );
+	cmdSystem->RemoveCommand( "-speed" );
+	cmdSystem->RemoveCommand( "clientMove" );
+
 	initialized = false;
 }
 
@@ -212,6 +307,10 @@ void idUsercmdGenLocal::Clear() {
 	mouseDx = 0;
 	mouseDy = 0;
 	scheduledImpulse = -1;
+	clientMoveForward = 0;
+	clientMoveSide = 0;
+	clientMoveUp = 0;
+	clientMoveActive = false;
 }
 
 void idUsercmdGenLocal::ClearAngles() {
@@ -261,8 +360,14 @@ void idUsercmdGenLocal::KeyMove() {
 	side += KEY_MOVESPEED * ButtonState( UB_MOVERIGHT );
 	side -= KEY_MOVESPEED * ButtonState( UB_MOVELEFT );
 
-	const int up = KEY_MOVESPEED * ( ButtonState( UB_UP ) - ButtonState( UB_DOWN ) );
-	const int forward = KEY_MOVESPEED * ( ButtonState( UB_FORWARD ) - ButtonState( UB_BACK ) );
+	int up = KEY_MOVESPEED * ( ButtonState( UB_UP ) - ButtonState( UB_DOWN ) );
+	int forward = KEY_MOVESPEED * ( ButtonState( UB_FORWARD ) - ButtonState( UB_BACK ) );
+
+	if ( clientMoveActive ) {
+		forward += clientMoveForward;
+		side += clientMoveSide;
+		up += clientMoveUp;
+	}
 
 	const char clampedForward = idMath::ClampChar( forward );
 	const char clampedSide = idMath::ClampChar( side );
