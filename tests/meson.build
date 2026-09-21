@@ -104,5 +104,12 @@ if build_engine
     workdir: meson.project_source_root(),
     timeout: 120,
   )
+  test(
+    'high-refresh-determinism',
+    py,
+    args: [meson.project_source_root() / 'tests' / 'test_high_refresh_determinism.py'],
+    workdir: meson.project_source_root(),
+    timeout: 180,
+  )
 endif
 
