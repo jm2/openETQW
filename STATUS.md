@@ -57,21 +57,27 @@ Milestone 4: Bot AI, AAS Navigation Mesh Loading, 30 Hz Simulation, Combat & Spa
 ### Changed
 | Repo | Files / symbols | What | Why | Reuse / provenance |
 |---|---|---|---|---|
+| openETQW | `meson.build` | Registered `valley-match` test target (`tests/test_valley_match.py`) | Integrate automated full match verification into Meson test suite | GPL-3.0-or-later build |
+| openETQW | `tests/test_valley_match.py` | Automated 9-phase integration test for vehicles, deployables, and Valley objectives | Milestone 4 acceptance gate | Engine test suite |
 | openETQW | `meson.build` | Registered `bot-gameplay` test target (`tests/test_bot_gameplay.py`) | Integrate automated bot verification into Meson test suite | GPL-3.0-or-later build |
 | openETQW | `tests/test_bot_gameplay.py` | Automated bot dedicated server spawning, AAS displacement, and combat test | Milestone 4 acceptance gate | Engine test suite |
 | openETQW | `tests/test_aas_stress.py` | AAS spatial queries, singularity evaluation, and memory safety test | Milestone 4 adversarial verification | Engine test suite |
 | openETQW | `tests/test_bot_combat_stress.py` | Opposing bot distance closing, aim tracking, and attack assertion test | Milestone 4 combat stress harness | Engine test suite |
 | openETQW | `tests/test_bot_repeatability.py` | 5-run deterministic repeatability test for bot gameplay | Milestone 4 repeatability verification | Engine test suite |
 | openETQW | `tests/test_bot_stress.py` | Multi-bot concurrency (4 and 8 bots) and invalid input stress harness | Milestone 4 scaling verification | Engine test suite |
-| openETQW | `docs/compat-ledger.md` | Added Rows 022, 023, 024 | Document AAS 32-to-64 unpacking, bot sleep guard, and metadata prefix | Documentation |
-| openETQW | `walkthrough.md` | Milestone 4 complete walkthrough, commands, and verified console logs | Living operational guide | Documentation |
+| openETQW | `docs/compat-ledger.md` | Added Rows 025 and 026 | Document EndGame warmup bypass and game control console commands | Documentation |
+| openETQW | `walkthrough.md` | Milestone 4 full match walkthrough, commands, and verified console logs | Living operational guide | Documentation |
 | openETQW | `STATUS.md` | Updated Milestone 4 status, capability matrix, claims, and changed files | Milestone 4 status report | Living documentation |
+| openETQW-game | `src/game/gamesys/SysCmds.cpp` | Implemented `completeObjective`, `objectiveStatus`, `deploy`, `vehicleStatus`, `enterVehicle`, `exitVehicle`, `swapVehicleSeat`, `deployStatus` | Console control and telemetry for match phases | Game debug console |
+| openETQW-game | `src/game/rules/GameRules_Objective.cpp` | Removed warmup restriction in `EndGame()` | Allow script objective completion to transition to `GS_GAMEREVIEW` | Game rules |
+| openETQW-game | `src/game/roles/ObjectiveManager.cpp` | Added NULL check in `Event_SendNetworkEvent` | Guard against uninitialized network event strings | Objective subsystem |
+| openETQW-game | `src/game/structures/DeployRequest.cpp` | Added `[DEPLOY_DELIVER]` logging hook in `CallForDropOff` | Telemetry for aerial carrier deployable delivery | Structures subsystem |
+| openETQW-game | `src/game/misc/DefenceTurret.cpp` | Added `[TURRET_TARGET]` and `[TURRET_ENGAGE]` logging hooks | Telemetry for automated turret target acquisition | Misc subsystem |
 | openETQW-game | `src/framework/FileSystem.h` | Prefix fallback matching (`maps/`) in `FindMetaData`, `FindMetaDataIndex` | Locate map metadata when invoked via `+spawnServer valley` | ETQW SDK framework |
 | openETQW-game | `src/game/Game_local.cpp` | Bound `AASFileManager = &aasFileManagerLocal;` in declaration and `GetGameAPI`; metadata fallback | Enable AAS manager and map script execution | Game module initialization |
 | openETQW-game | `src/game/botai/BotAI_Navigation.cpp` | AAS navigation and vehicle node integration | Bot pathfinding | ETQW SDK Bot AI |
 | openETQW-game | `src/game/botai/BotThreadData.cpp` | `InitAAS` fallback for `aas_playerb`/`aas_vehicleb`; guarded `bot_sleepWhenServerEmpty` | Prevent bot thread sleep when bots are on server | ETQW SDK Bot AI |
 | openETQW-game | `src/game/botai/aas/AAS.cpp` | AAS interface hooks | AAS routing | ETQW SDK Bot AI |
-| openETQW-game | `src/game/gamesys/SysCmds.cpp` | Added `addbot` command alias and auto-completion; enhanced `playerPos` diagnostics | Console control and telemetry | Game debug console |
 | openETQW-game | `src/game/rules/AdminSystem.cpp` | Added `newPlayer->SpawnFromSpawnSpot()` after bot class setup | Materialize active bot pawns and clear limbo | Game rules / admin |
 | openETQW-game | `src/game/botai/aas/AASFile_local.h` | Declared `idAASFileLocal` and `idAASFileManagerLocal` | AAS binary loader interface | MIT new game code |
 | openETQW-game | `src/game/botai/aas/AASFile_local.cpp` | Implemented `ETQWAASB 2.2` lump parsing, 32-to-64 unpacking, and BSP queries | Parse retail navigation meshes | MIT new game code |
@@ -79,8 +85,9 @@ Milestone 4: Bot AI, AAS Navigation Mesh Loading, 30 Hz Simulation, Combat & Spa
 ### Demonstrated
 | Claim | Evidence level | Host / OS / arch / compiler | Command | Result (log path) |
 |---|---|---|---|---|---|
-| Zero-SDK Repository Compliance (Gate 2b) | unit-tested | macOS arm64 / Darwin 27.0.0 | `python3 tests/test_zero_sdk.py` | PASS: 4,253 tracked files audited, 0 SDK violations detected |
-| Meson Automated Test Suite (7/7 passed) | unit-tested | macOS arm64 / Apple Clang 21.0 | `meson test -C build --verbose` | PASS: 7/7 tests passed (bitmsg, usercmd-delta, struct-layout, usercmd-history, zero-sdk, client-lifecycle, bot-gameplay) |
+| Zero-SDK Repository Compliance (Gate 2b) | unit-tested | macOS arm64 / Darwin 27.0.0 | `python3 tests/test_zero_sdk.py` | PASS: 4,259 tracked files audited, 0 SDK violations detected |
+| Meson Automated Test Suite (8/8 passed) | unit-tested | macOS arm64 / Apple Clang 21.0 | `meson test -C build --verbose` | PASS: 8/8 tests passed (bitmsg, usercmd-delta, struct-layout, usercmd-history, zero-sdk, client-lifecycle, bot-gameplay, valley-match) |
+| Milestone 4 Valley Full Match Objectives (Phases 1-9) | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_valley_match.py` | PASS: All 9 phases verified: map load, bot spawns, vehicle mounting/seat-swap/exit, deployable placement/carrier delivery, objectives 0-3 completion, GDF victory, GS_GAMEREVIEW state 4, clean quit |
 | Milestone 4 Bot Spawning & Materialization | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_bot_gameplay.py` | PASS: GDF & Strogg bots spawned, limbo cleared (`spectating 0`), parachutes deployed, active pawns verified |
 | Milestone 4 AAS Navigation & Graph Loading | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_bot_gameplay.py` | PASS: Loaded `maps/valley.aas_playerb` (9,348 areas), `maps/valley.aas_vehicleb` (6,391 areas), `maps/valley.nav` (164 nodes) |
 | Milestone 4 30 Hz Bot Navigation & Traversal | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_bot_gameplay.py` | PASS: `idBotThread` 30 Hz simulation, GDF disp 1533.20 u, Strogg disp 2265.76 u (>= 50.0 u threshold) |
