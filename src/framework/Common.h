@@ -76,6 +76,8 @@ extern idCVar		com_useBinaryDecls;
 extern idCVar		com_writeBinaryDecls;
 extern idCVar		com_updateLoadSize;
 extern idCVar		com_videoRam;
+extern idCVar		com_maxFPS;
+extern idCVar		com_unlock_maxFPS;
 
 extern int			time_gameFrame;			// game logic time
 extern int			time_gameDraw;			// game present time
