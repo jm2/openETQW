@@ -68,7 +68,10 @@ Milestone 4: Bot AI, AAS Navigation Mesh Loading, 30 Hz Simulation, Combat & Spa
 | openETQW | `docs/compat-ledger.md` | Added Rows 025 and 026 | Document EndGame warmup bypass and game control console commands | Documentation |
 | openETQW | `walkthrough.md` | Milestone 4 full match walkthrough, commands, and verified console logs | Living operational guide | Documentation |
 | openETQW | `STATUS.md` | Updated Milestone 4 status, capability matrix, claims, and changed files | Milestone 4 status report | Living documentation |
-| openETQW-game | `src/game/gamesys/SysCmds.cpp` | Implemented `completeObjective`, `objectiveStatus`, `deploy`, `vehicleStatus`, `enterVehicle`, `exitVehicle`, `swapVehicleSeat`, `deployStatus` | Console control and telemetry for match phases | Game debug console |
+| openETQW | `tests/test_vehicle_deployable_stress.py` | 10-stage adversarial stress test covering duplicate entry, cycling, egress, deployable checks, and capacity overflow | Milestone 4 adversarial stress test | Engine test suite |
+| openETQW-game | `src/game/vehicles/Transport.cpp` | Hardened `sdTransport::FindPositionForPlayer`: null check, bounds check, bot AI state update, removed `assert(false)` | Crash-proofing on vehicle capacity overflow | ETQW SDK vehicle subsystem |
+| openETQW-game | `src/game/vehicles/TransportExtras.cpp` | Added null checks in `FreePosition` and null/proxy/startpos guards in `SwapPosition` | Defensive seating safety | ETQW SDK vehicle subsystem |
+| openETQW-game | `src/game/gamesys/SysCmds.cpp` | Verified proxy entity in `enterVehicle` and checked `OnExit` return in `exitVehicle` | Accurate console telemetry | Game debug console |
 | openETQW-game | `src/game/rules/GameRules_Objective.cpp` | Removed warmup restriction in `EndGame()` | Allow script objective completion to transition to `GS_GAMEREVIEW` | Game rules |
 | openETQW-game | `src/game/roles/ObjectiveManager.cpp` | Added NULL check in `Event_SendNetworkEvent` | Guard against uninitialized network event strings | Objective subsystem |
 | openETQW-game | `src/game/structures/DeployRequest.cpp` | Added `[DEPLOY_DELIVER]` logging hook in `CallForDropOff` | Telemetry for aerial carrier deployable delivery | Structures subsystem |
@@ -87,6 +90,7 @@ Milestone 4: Bot AI, AAS Navigation Mesh Loading, 30 Hz Simulation, Combat & Spa
 |---|---|---|---|---|---|
 | Zero-SDK Repository Compliance (Gate 2b) | unit-tested | macOS arm64 / Darwin 27.0.0 | `python3 tests/test_zero_sdk.py` | PASS: 4,259 tracked files audited, 0 SDK violations detected |
 | Meson Automated Test Suite (8/8 passed) | unit-tested | macOS arm64 / Apple Clang 21.0 | `meson test -C build --verbose` | PASS: 8/8 tests passed (bitmsg, usercmd-delta, struct-layout, usercmd-history, zero-sdk, client-lifecycle, bot-gameplay, valley-match) |
+| Milestone 4 Vehicle Hardening & Adversarial Stress (Stages 1-10) | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_vehicle_deployable_stress.py` | PASS: 10/10 stages passed; Stage 10 capacity overflow verified crash-proof; verdict APPROVE, exit code 0 |
 | Milestone 4 Valley Full Match Objectives (Phases 1-9) | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_valley_match.py` | PASS: All 9 phases verified: map load, bot spawns, vehicle mounting/seat-swap/exit, deployable placement/carrier delivery, objectives 0-3 completion, GDF victory, GS_GAMEREVIEW state 4, clean quit |
 | Milestone 4 Bot Spawning & Materialization | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_bot_gameplay.py` | PASS: GDF & Strogg bots spawned, limbo cleared (`spectating 0`), parachutes deployed, active pawns verified |
 | Milestone 4 AAS Navigation & Graph Loading | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_bot_gameplay.py` | PASS: Loaded `maps/valley.aas_playerb` (9,348 areas), `maps/valley.aas_vehicleb` (6,391 areas), `maps/valley.nav` (164 nodes) |
