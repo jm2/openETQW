@@ -295,4 +295,11 @@ endif
 
 if build_tests
   subdir('tests')
+  test(
+    'bot-gameplay',
+    py,
+    args: [meson.project_source_root() / 'tests' / 'test_bot_gameplay.py'],
+    workdir: meson.project_source_root(),
+    timeout: 120,
+  )
 endif
