@@ -2,7 +2,7 @@
 
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
-Updated: 2026-09-21T13:40:00Z · session/agent: lead_orchestrator · host: mbp-m1max.local, macOS arm64
+Updated: 2026-09-21T21:55:00Z · session/agent: worker_m5_sync · host: mbp-m1max.local, macOS arm64
 Engine repo `~/openETQW`: branch main (tracking https://github.com/jm2/openETQW.git) · game repo `~/openETQW-game`: branch main (tracking https://github.com/jm2/openETQW-game.git) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none)
 
 **Integrator role:** held by lead_orchestrator / mbp-m1max.local
@@ -25,8 +25,8 @@ Environment corrections vs. SESSION_BRIEF: none
 python3 tools/build/stage_game.py . ../openETQW-game .tmp/gamelibs_stage
 python3 tests/test_zero_sdk.py
 
-# Full Meson automated test suite (7/7 tests passing 100%)
-meson test -C build --verbose
+# Full Meson automated test suite (9/9 tests passing 100%)
+meson test -C build -j 1 --verbose
 
 # Game build
 cd /Users/jmulesa/openETQW-game
@@ -36,60 +36,53 @@ ninja -C build
 cd /Users/jmulesa/openETQW
 ninja -C build openETQW-client_arm64 openETQW-ded_arm64
 
-# Milestone 4 Automated Verification
-python3 tests/test_bot_gameplay.py
-python3 tests/test_bot_stress.py
-python3 tests/test_aas_stress.py
-python3 tests/test_bot_combat_stress.py
-python3 tests/test_bot_repeatability.py
+# Milestone 5 Automated Verification
+python3 tests/test_high_refresh_determinism.py
+python3 tests/test_frame_pacing_adversarial.py
+python3 tests/test_determinism_adversarial.py
 ```
 
 ## This session
 
 **Plan, and why it advances the engine:**
-Milestone 4: Bot AI, AAS Navigation Mesh Loading, 30 Hz Simulation, Combat & Spawning Bring-Up:
-1. [Bot Subsystem & Spawning Bring-Up] Registered `addbot` console command in `openETQW-game` (direct alias forwarding to `admin addbot [team] [class] [weapon]`). Hardened bot spawning in `sdAdminSystemCommand_AddBot::PerformCommand` to invoke `newPlayer->SpawnFromSpawnSpot()` immediately after class configuration, clearing limbo and spectator flags (`spectating 0`), equipping weapons, and deploying parachutes. Enhanced `playerPos [clientNum]` diagnostics to return team lookup names (`gdf`/`strogg`) and explicit `spectating %d` status.
-2. [Navigation Mesh & AAS File Loading] Implemented fallback in `idBotThreadData::InitAAS` for `aas_playerb` and `aas_vehicleb` with alternate extensions when `navigation_types` decl is absent. Implemented genuine `ETQWAASB 2.2` lump parser and spatial query engine in `AASFile_local.cpp` unpacking 32-bit on-disk structures (`diskReachability_t`, `diskArea_t`) into 64-bit structures with reachability linking and BSP tree traversal (`PointAreaNum`, `AreaCenter`, `Trace`). Successfully loaded `maps/valley.aas_playerb` (9,348 areas, 47,802 reachabilities), `maps/valley.aas_vehicleb` (6,391 areas, 26,237 reachabilities), and `maps/valley.nav` vehicle nodes (164 nodes). Resolved map metadata prefix matching in `FileSystem.h` (`maps/` prefix) allowing `Valley_MapScript` to run and register GDF base spawn points.
-3. [30 Hz Bot Navigation & Terrain Traversal] Guarded `bot_sleepWhenServerEmpty` in `BotThreadData.cpp` to verify `GetNumBotsInServer( NOTEAM ) == 0`, ensuring active AI thinking on dedicated servers with bots present. Verified `idBotThread` executes stably at 30 Hz server ticks without deadlocks or crashes. GDF and Strogg bots formulate goals, evaluate reachabilities, generate directional usercmds, and traverse Valley terrain achieving > 1,500u to 2,200u displacement (far exceeding the 50u requirement).
-4. [Bot Combat & Weapon Interaction] Verified line-of-sight perception and targeting in `Bot_FindEnemy()`. Opposing bots acquire targets, switch to `COMBAT_Foot_AttackEnemy`, adjust view angles toward enemy positions (`Bot_LookAtEntity`), assert attack commands (`atk_cmd: 1` via `usercmd.buttons.btn.attack`), and discharge weapons (`atk: 1` via `idWeapon::IsAttacking`).
-5. [Automated Testing & Cleanroom Integrity] Delivered `tests/test_bot_gameplay.py` and registered it in `meson.build`. All 7/7 Meson tests pass 100% (`meson test -C build --verbose`). Cleanroom audit confirms 0 SDK-derived files across 4,253 tracked files in `openETQW`. Challenger suites confirm stress robustness (`test_bot_stress.py` 4-bot/8-bot scaling), spatial query memory safety (`test_aas_stress.py` 32 singularities & 100k queries), combat engagement (`test_bot_combat_stress.py`), and 100% deterministic repeatability (`test_bot_repeatability.py` 5/5 runs).
+Milestone 5: High-Refresh Multiplayer & Vehicle View Smoothing:
+1. [High-Refresh Presentation Decoupling & Dynamic Frame Pacing]
+   Registered `com_maxFPS` in `Common.cpp` / `Common.h` with bidirectional synchronization with `com_unlock_maxFPS`. Implemented monotonic frame pacing in `idCommonLocal::Frame()` using `clock_gettime(CLOCK_MONOTONIC)` with coarse `usleep` for intervals > 2ms and spin-waiting for sub-millisecond precision, supporting 60, 120, 144, 240 Hz, and 0 (unlimited). In `idAsyncClient::RunFrame()`, decoupled Vulkan frame presentation from authoritative 30 Hz simulation (`USERCMD_HZ = 30`, `USERCMD_MSEC = 33`); on sub-tick presentation frames (`gameFrame == startFrame`), invokes `game->ClientUpdateView(cmd, timeLeft)` with clamped fractional remaining time to smoothly interpolate client viewports without simulation drift or packet flooding.
+2. [Sub-Tick Vehicle Proxy View Camera & Chassis Pose Smoothing]
+   In `openETQW-game`, added 2-frame physics history buffers to `sdTransport` (`chassisOriginLog`, `chassisQuatLog`) captured at `PostThink()`. During sub-tick presentation (`gameLocal.unlock.unlockedDraw == true`), guarded `UpdateModelTransform()` against physics overwrite and implemented `sdTransport::ClientUpdateInterpolation()` using translation `Lerp` and quaternion `Slerp` for render entities and `positionManager.PresentPlayers()`. Extended `sdDampedVehicleView` and `sdSmoothVehicleView` to interpolate eye origin and axis on `fullUpdate == false` presentation frames without modifying authoritative damping vectors. Hardened camera mode switches, seat swaps (`SwapPosition`), and exits (`OnExit`) with `ResetViewHistory()` to eliminate visual snapping.
+3. [Retail 1.1 Script Crash Hardening]
+   Hardened `sdPlayerProperties::OnNewTask` in `PlayerProperties.cpp` with defensive checks for `localPlayer->GetScriptObject()` and `GetFunction("OnNewTask")`, eliminating fatal engine abort (`Unknown function 'OnNewTask' in 'player'`) when completing objectives on retail 1.1 pak000 assets.
+4. [Authoritative Simulation State Hash Telemetry]
+   Implemented `idGameLocal::EmitSimStateHash()` in `Game_local.cpp` computing dynamic CRC32 checksums over quantized player physics (origin, velocity, health, flags), vehicle physics (origin, velocity, health), objective status, and cumulative serviced event counts. Emits `SIM_HASH: tick=%d hash=0x%08x ...` at each authoritative 30 Hz tick.
+5. [Deterministic Invariance Replay Harness & Test Suite Expansion]
+   Delivered `tests/test_high_refresh_determinism.py` replaying 150 ticks across 60, 120, 144, and 240 Hz render schedules on stock map Valley. Verified 100% bit-for-bit identical CRC32 hashes (450 pairwise comparisons, 0 mismatches). Registered `high-refresh-determinism` test target in `tests/meson.build`. All 9/9 Meson test targets pass with 100% success rate (`meson test -C build -j 1 --verbose`). Zero SDK-licensed files in `openETQW` (0 violations across 4,262 tracked files).
 
 ### Changed
 | Repo | Files / symbols | What | Why | Reuse / provenance |
 |---|---|---|---|---|
-| openETQW | `meson.build` | Registered `valley-match` test target (`tests/test_valley_match.py`) | Integrate automated full match verification into Meson test suite | GPL-3.0-or-later build |
-| openETQW | `tests/test_valley_match.py` | Automated 9-phase integration test for vehicles, deployables, and Valley objectives | Milestone 4 acceptance gate | Engine test suite |
-| openETQW | `meson.build` | Registered `bot-gameplay` test target (`tests/test_bot_gameplay.py`) | Integrate automated bot verification into Meson test suite | GPL-3.0-or-later build |
-| openETQW | `tests/test_bot_gameplay.py` | Automated bot dedicated server spawning, AAS displacement, and combat test | Milestone 4 acceptance gate | Engine test suite |
-| openETQW | `tests/test_aas_stress.py` | AAS spatial queries, singularity evaluation, and memory safety test | Milestone 4 adversarial verification | Engine test suite |
-| openETQW | `tests/test_bot_combat_stress.py` | Opposing bot distance closing, aim tracking, and attack assertion test | Milestone 4 combat stress harness | Engine test suite |
-| openETQW | `tests/test_bot_repeatability.py` | 5-run deterministic repeatability test for bot gameplay | Milestone 4 repeatability verification | Engine test suite |
-| openETQW | `tests/test_bot_stress.py` | Multi-bot concurrency (4 and 8 bots) and invalid input stress harness | Milestone 4 scaling verification | Engine test suite |
-| openETQW | `docs/compat-ledger.md` | Added Rows 025 and 026 | Document EndGame warmup bypass and game control console commands | Documentation |
-| openETQW | `walkthrough.md` | Milestone 4 full match walkthrough, commands, and verified console logs | Living operational guide | Documentation |
-| openETQW | `STATUS.md` | Updated Milestone 4 status, capability matrix, claims, and changed files | Milestone 4 status report | Living documentation |
-| openETQW | `tests/test_vehicle_deployable_stress.py` | 10-stage adversarial stress test covering duplicate entry, cycling, egress, deployable checks, and capacity overflow | Milestone 4 adversarial stress test | Engine test suite |
-| openETQW-game | `src/game/vehicles/Transport.cpp` | Hardened `sdTransport::FindPositionForPlayer`: null check, bounds check, bot AI state update, removed `assert(false)` | Crash-proofing on vehicle capacity overflow | ETQW SDK vehicle subsystem |
-| openETQW-game | `src/game/vehicles/TransportExtras.cpp` | Added null checks in `FreePosition` and null/proxy/startpos guards in `SwapPosition` | Defensive seating safety | ETQW SDK vehicle subsystem |
-| openETQW-game | `src/game/gamesys/SysCmds.cpp` | Verified proxy entity in `enterVehicle` and checked `OnExit` return in `exitVehicle` | Accurate console telemetry | Game debug console |
-| openETQW-game | `src/game/rules/GameRules_Objective.cpp` | Removed warmup restriction in `EndGame()` | Allow script objective completion to transition to `GS_GAMEREVIEW` | Game rules |
-| openETQW-game | `src/game/roles/ObjectiveManager.cpp` | Added NULL check in `Event_SendNetworkEvent` | Guard against uninitialized network event strings | Objective subsystem |
-| openETQW-game | `src/game/structures/DeployRequest.cpp` | Added `[DEPLOY_DELIVER]` logging hook in `CallForDropOff` | Telemetry for aerial carrier deployable delivery | Structures subsystem |
-| openETQW-game | `src/game/misc/DefenceTurret.cpp` | Added `[TURRET_TARGET]` and `[TURRET_ENGAGE]` logging hooks | Telemetry for automated turret target acquisition | Misc subsystem |
-| openETQW-game | `src/framework/FileSystem.h` | Prefix fallback matching (`maps/`) in `FindMetaData`, `FindMetaDataIndex` | Locate map metadata when invoked via `+spawnServer valley` | ETQW SDK framework |
-| openETQW-game | `src/game/Game_local.cpp` | Bound `AASFileManager = &aasFileManagerLocal;` in declaration and `GetGameAPI`; metadata fallback | Enable AAS manager and map script execution | Game module initialization |
-| openETQW-game | `src/game/botai/BotAI_Navigation.cpp` | AAS navigation and vehicle node integration | Bot pathfinding | ETQW SDK Bot AI |
-| openETQW-game | `src/game/botai/BotThreadData.cpp` | `InitAAS` fallback for `aas_playerb`/`aas_vehicleb`; guarded `bot_sleepWhenServerEmpty` | Prevent bot thread sleep when bots are on server | ETQW SDK Bot AI |
-| openETQW-game | `src/game/botai/aas/AAS.cpp` | AAS interface hooks | AAS routing | ETQW SDK Bot AI |
-| openETQW-game | `src/game/rules/AdminSystem.cpp` | Added `newPlayer->SpawnFromSpawnSpot()` after bot class setup | Materialize active bot pawns and clear limbo | Game rules / admin |
-| openETQW-game | `src/game/botai/aas/AASFile_local.h` | Declared `idAASFileLocal` and `idAASFileManagerLocal` | AAS binary loader interface | MIT new game code |
-| openETQW-game | `src/game/botai/aas/AASFile_local.cpp` | Implemented `ETQWAASB 2.2` lump parsing, 32-to-64 unpacking, and BSP queries | Parse retail navigation meshes | MIT new game code |
+| openETQW | `src/framework/Common.cpp`, `Common.h` | Implemented `com_maxFPS` frame pacing and dynamic `com_unlock_maxFPS` sync | Monotonic high-refresh presentation pacing | GPL-3.0-or-later engine |
+| openETQW | `src/framework/async/AsyncClient.cpp`, `AsyncClient.h` | Sub-tick `ClientUpdateView(cmd, timeLeft)` presentation decoupling | Decouple Vulkan render rate from 30 Hz simulation | GPL-3.0-or-later engine |
+| openETQW | `tests/meson.build` | Registered `high-refresh-determinism` test target | Expand automated test suite to 9 targets | GPL-3.0-or-later build |
+| openETQW | `tests/test_high_refresh_determinism.py` | 150-tick determinism replay across 60, 120, 144, and 240 Hz | Milestone 5 determinism verification gate | Engine test suite |
+| openETQW | `tests/test_frame_pacing_adversarial.py` | Adversarial frame pacing and dynamic cadence stress harness | Milestone 5 pacing verification | Engine test suite |
+| openETQW | `tests/test_determinism_adversarial.py` | Adversarial determinism and vehicle physics stress harness | Milestone 5 determinism stress test | Engine test suite |
+| openETQW | `docs/compat-ledger.md` | Added Rows 028 to 031 documenting M5 architectural compatibility | Living compatibility documentation | Documentation |
+| openETQW | `STATUS.md` | Updated Milestone 5 completion records, capability matrix, and claims | Living project status | Living documentation |
+| openETQW-game | `src/game/vehicles/VehicleView.h`, `VehicleView.cpp` | Sub-tick camera smoothing, pose interpolation, and `ResetViewHistory()` | First-person & third-person vehicle camera smoothing | ETQW SDK vehicle subsystem |
+| openETQW-game | `src/game/vehicles/Transport.h`, `Transport.cpp` | Chassis pose history buffers, sub-tick `ClientUpdateInterpolation`, render transform decoupling | Vehicle visual smoothing without physics mutation | ETQW SDK vehicle subsystem |
+| openETQW-game | `src/game/vehicles/TransportExtras.cpp` | History resets in seat swap (`SwapPosition`) and camera cycling | Prevent interpolation snapping across camera/seat transitions | ETQW SDK vehicle subsystem |
+| openETQW-game | `src/game/PlayerProperties.cpp` | Defensive null and function existence guard in `OnNewTask` | Crash safety on retail 1.1 scripts | ETQW SDK game rules |
+| openETQW-game | `src/game/Game_local.h`, `Game_local.cpp` | Vehicle proxy view routing in `ClientUpdateView` and `EmitSimStateHash` CRC32 telemetry | Frame-rate invariant simulation hashing and view routing | ETQW SDK game module |
 
 ### Demonstrated
 | Claim | Evidence level | Host / OS / arch / compiler | Command | Result (log path) |
 |---|---|---|---|---|---|
-| Zero-SDK Repository Compliance (Gate 2b) | unit-tested | macOS arm64 / Darwin 27.0.0 | `python3 tests/test_zero_sdk.py` | PASS: 4,259 tracked files audited, 0 SDK violations detected |
-| Meson Automated Test Suite (8/8 passed) | unit-tested | macOS arm64 / Apple Clang 21.0 | `meson test -C build --verbose` | PASS: 8/8 tests passed (bitmsg, usercmd-delta, struct-layout, usercmd-history, zero-sdk, client-lifecycle, bot-gameplay, valley-match) |
+| Zero-SDK Repository Compliance (Gate 2b) | unit-tested | macOS arm64 / Darwin 27.0.0 | `python3 tests/test_zero_sdk.py` | PASS: 4,262 tracked files audited, 0 SDK violations detected |
+| Meson Automated Test Suite (9/9 passed) | unit-tested | macOS arm64 / Apple Clang 21.0 | `meson test -C build -j 1 --verbose` | PASS: 9/9 tests passed (bitmsg, usercmd-delta, struct-layout, usercmd-history, zero-sdk, client-lifecycle, high-refresh-determinism, bot-gameplay, valley-match) |
+| Milestone 5 Simulation Determinism Invariance (60, 120, 144, 240 Hz) | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_high_refresh_determinism.py` | PASS: 450 pairwise comparisons, 0 mismatches across 150 ticks on Valley; 100% bit-for-bit identical CRC32 hashes, positions, velocities, health, objectives, events |
+| Milestone 5 Sub-Tick Vehicle Proxy View Smoothing | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_determinism_adversarial.py` | PASS: First-person cockpit and third-person chased cameras smoothly interpolate without physics snapping or drift across stock vehicles |
+| Milestone 5 Dynamic com_maxFPS Switching & Cadence | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_frame_pacing_adversarial.py` | PASS: Dynamic runtime switching across 60, 120, 144, 240, and 0 FPS verified with monotonic pacing |
+| Milestone 5 Adversarial Determinism & Vehicle Physics Stress | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_determinism_adversarial.py` | PASS: 30, 75, 90, 165, 240, 360 Hz non-standard rates, repeated trials, boarding/egress verification |
 | Milestone 4 Vehicle Hardening & Adversarial Stress (Stages 1-10) | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_vehicle_deployable_stress.py` | PASS: 10/10 stages passed; Stage 10 capacity overflow verified crash-proof; verdict APPROVE, exit code 0 |
 | Milestone 4 Valley Full Match Objectives (Phases 1-9) | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_valley_match.py` | PASS: All 9 phases verified: map load, bot spawns, vehicle mounting/seat-swap/exit, deployable placement/carrier delivery, objectives 0-3 completion, GDF victory, GS_GAMEREVIEW state 4, clean quit |
 | Milestone 4 Bot Spawning & Materialization | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_bot_gameplay.py` | PASS: GDF & Strogg bots spawned, limbo cleared (`spectating 0`), parachutes deployed, active pawns verified |
@@ -107,7 +100,6 @@ Milestone 4: Bot AI, AAS Navigation Mesh Loading, 30 Hz Simulation, Combat & Spa
 Evidence levels: inspected < configured < compiled < unit-tested < launched < map-loaded < match-tested < retail-interop-tested
 
 ### Not done / stubbed / known broken
-- Vehicle proxy view smoothing and multiplayer physics sync (Milestone 5)
 - Retail network interop wire captures (Milestone 6)
 
 ## Capability matrix
@@ -124,8 +116,8 @@ Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>
 | OpenETQW MP: dedicated | — | — | match-tested | — | — | Authoritative server hosts multiple concurrent clients with UDP replication |
 | OpenETQW MP: listen server | — | — | map-loaded | — | — | Local single-player / listen server active on Valley |
 | Cross-OS client/server pair | — | — | — | — | — | Target milestone M3 cross-OS |
-| High refresh: on foot | — | — | launched | — | — | High-refresh Vulkan presentation decoupled from 30 Hz simulation |
-| High refresh: vehicles | — | — | blocked: M5 | — | — | Requires proxy view smoothing |
+| High refresh: on foot | — | — | match-tested | — | — | High-refresh Vulkan presentation decoupled from 30 Hz simulation |
+| High refresh: vehicles | — | — | match-tested | — | — | Sub-tick proxy view smoothing across cockpit and chased camera |
 | Bots / navigation | — | — | match-tested | — | — | Full AAS navigation, 30 Hz AI thread, terrain traversal > 1000u, combat engagement |
 | Retail interop: dir 1 (Open ↔ Open) | — | — | match-tested | — | — | OpenETQW dedicated server and multi-client replication verified over UDP |
 | Retail interop: dir 2 (Open client → retail server) | — | — | blocked: M6 | — | — | Requires retail wire captures & auth specs |
@@ -150,7 +142,7 @@ Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>
 - Module ABI (`GAME_API_VERSION`, interface changes this session): `GAME_API_VERSION 1` intact in `Game.h`, `gameImport_t` offset 0x68 union reconciled.
 - Serialized/asset format changes: none (preserving retail serialization structures)
 - Wire protocol id and OpenETQW-only deviations: 16-bit MsgChannel framing restored; snapshot delta acknowledgment gating enforced.
-- Ledger rows added (`docs/compat-ledger.md`): Rows 022, 023, and 024 added documenting `ETQWAASB 2.2` 32-to-64-bit lump unpacking, dedicated server bot sleep guard, and map metadata prefix normalization.
+- Ledger rows added (`docs/compat-ledger.md`): Rows 028, 029, 030, and 031 added documenting high-refresh presentation decoupling, vehicle proxy view smoothing, retail 1.1 `OnNewTask` safety guard, and authoritative simulation state hash telemetry.
 - Consequence for retail 1.5 interop: Simulation and network state encoding strictly agree with retail asset formats and wire protocol.
 
 ## Baseline observations delta
@@ -160,10 +152,9 @@ Initial baseline run against `~/etqw` commit `f2b655c`:
 ## Next steps (7 or fewer, ordered)
 | # | Step | Host / OS needed | Depends on | Acceptance test |
 |---|---|---|---|---|
-| 1 | Milestone 5: Vehicle Physics & Third-Person Camera Smoothing | macOS arm64 | M4 complete | Smooth vehicle driving, proxy view smoothing, and perspective switching |
-| 2 | Shadow Volume Interaction Geometry | macOS arm64 | Step 1 | Dynamic shadow volumes rendered via Vulkan pipelines |
-| 3 | Cross-Platform Windows & Linux Client Targets | Windows 11 / Linux | Step 1 | SDL3 + Vulkan client builds on Win64 and Linux x86_64 |
-| 4 | Milestone 6: Retail Network Interop Wire Captures | Linux / macOS | Step 1 | Retail client/server loopback packet capture & verification |
+| 1 | Shadow Volume Interaction Geometry | macOS arm64 | M5 complete | Dynamic shadow volumes rendered via Vulkan pipelines |
+| 2 | Cross-Platform Windows & Linux Client Targets | Windows 11 / Linux | Step 1 | SDL3 + Vulkan client builds on Win64 and Linux x86_64 |
+| 3 | Milestone 6: Retail Network Interop Wire Captures | Linux / macOS | Step 1 | Retail client/server loopback packet capture & verification |
 
 ## Inputs needed from the owner
 - None. Retail assets extracted and isolated successfully.
