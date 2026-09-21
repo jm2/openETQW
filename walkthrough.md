@@ -347,3 +347,133 @@ python3 /Users/jmulesa/openETQW/tests/test_valley_match.py
  ALL 9 PHASES OF MILESTONE 4 VALLEY MATCH TEST PASSED!
 =================================================================
 ```
+
+---
+
+## 6. Vehicle Hardening & Adversarial Stress Suite
+
+The dedicated adversarial stress test harness (`tests/test_vehicle_deployable_stress.py`) evaluates vehicle seat allocation, boundary conditions, rapid seat switching, safe egress clearance, deployable placement restrictions, and capacity overflow:
+
+```bash
+python3 /Users/jmulesa/openETQW/tests/test_vehicle_deployable_stress.py
+```
+
+### Verified Console Output:
+```text
+==========================================================================
+ Milestone 4 Adversarial Challenge: Vehicles & Deployables Stress Suite
+ Target: Valley Dedicated Server, Port 27820
+ Focus: Duplicate Entry, Rapid Cycling, Safe Egress, Invalid Rejections
+==========================================================================
+
+[Stage 1] Booting authoritative dedicated server on Valley...
+  [SERVER] Map loaded: ----------- Loading Map Bot Actions ------------
+  -> Stage 1 Passed: Server online and Valley map ready.
+
+[Stage 2] Spawning opposing GDF and Strogg bots...
+  Bot 0 (GDF Soldier) grounded at (11140.11, -6094.16, 1501.02)
+  Bot 1 (GDF Medic) grounded at (9135.71, -10664.4, 1408.5)
+  Bot 2 (Strogg Soldier) grounded at (6460.46, -1005.13, 1540.55)
+  -> Stage 2 Passed: All bots spawned, spectating cleared, grounded.
+
+[Stage 3] Stressing invalid client indices and malformed commands...
+  [OK] Rejected vehicleStatus client -1: VEHICLE_STATUS: invalid client -1
+  [OK] Rejected vehicleStatus client 999: VEHICLE_STATUS: invalid client 999
+  [OK] Rejected vehicleStatus client 15: VEHICLE_STATUS: invalid client 15
+  [OK] Rejected enterVehicle client -1: ENTER_VEHICLE: invalid client -1
+  [OK] Rejected enterVehicle client 999: ENTER_VEHICLE: invalid client 999
+  [OK] Rejected enterVehicle client 15: ENTER_VEHICLE: invalid client 15
+  [OK] enterVehicle missing args: usage: enterVehicle <clientNum> [vehicleName]
+  [OK] enterVehicle nonexistent name rejected: ENTER_VEHICLE: no vehicle found for client 0
+  [OK] Rejected swapVehicleSeat client -1: SWAP_SEAT: invalid client -1
+  [OK] Rejected swapVehicleSeat client 999: SWAP_SEAT: invalid client 999
+  [OK] Rejected swapVehicleSeat client 15: SWAP_SEAT: invalid client 15
+  [OK] swapVehicleSeat missing args: usage: swapVehicleSeat <clientNum>
+  [OK] swapVehicleSeat on foot rejected: SWAP_SEAT: client 0 is not in a vehicle
+  [OK] Rejected exitVehicle client -1: EXIT_VEHICLE: invalid client -1
+  [OK] Rejected exitVehicle client 999: EXIT_VEHICLE: invalid client 999
+  [OK] Rejected exitVehicle client 15: EXIT_VEHICLE: invalid client 15
+  [OK] exitVehicle missing args: usage: exitVehicle <clientNum>
+  [OK] exitVehicle on foot rejected: EXIT_VEHICLE: client 0 is not in a vehicle
+  [OK] Rejected deploy client -1: DEPLOY: invalid client -1
+  [OK] Rejected deploy client 999: DEPLOY: invalid client 999
+  [OK] Rejected deploy client 15: DEPLOY: invalid client 15
+  [OK] deploy missing args: usage: deploy <clientNum> <deployObjectName> <x> <y> <z> [yaw]
+  [OK] deploy unknown object rejected: DEPLOY: unknown deployObject 'fake_turret_def'
+  [OK] deployStatus active turrets count: 6
+  -> Stage 3 Passed: All invalid inputs gracefully handled with zero crashes.
+
+[Stage 4] Testing vehicle entry and duplicate entry handling...
+  Bot 0 entered vehicle: in_vehicle=1 name=sdVehicle_RigidBody_vehicle_titan_62 seat=0 health=3500
+  [Adversarial] Triggering duplicate enterVehicle on Client 0 while already inside...
+  After duplicate enterVehicle: in_vehicle=1 seat=1
+  After burst duplicate enterVehicle: in_vehicle=1 seat=0
+  -> Stage 4 Passed: Duplicate vehicle entry handled robustly without crash or state corruption.
+
+[Stage 5] Stressing rapid seat switching / cycling under load (15 swaps)...
+  Seats observed during 15 rapid seat swaps: [0, 1]
+  Client 0 alive, pos=(10800.87, -9567.94, 1410.62), spectating=0
+  -> Stage 5 Passed: Rapid seat switching completed smoothly with zero instability.
+
+[Stage 6] Testing multi-bot vehicle contention (Multi-Occupancy & Capacity Overflow)...
+  Client 1 (GDF Medic) mounts GDF vehicle alongside Client 0...
+  Client 0 vehicle status: in_vehicle=1 veh=sdVehicle_RigidBody_vehicle_titan_62 seat=0
+  Client 1 vehicle status: in_vehicle=1 veh=sdVehicle_RigidBody_vehicle_titan_62 seat=1
+  [OK] Confirmed multi-bot occupancy: C0 seat 0, C1 seat 1
+  Client 1 after seat swap: seat=1
+  -> Stage 6 Passed: Multi-bot vehicle contention handled safely.
+
+[Stage 7] Testing vehicle exit, safe non-colliding egress, and coordinates...
+  Vehicle origin before exit: (10819.98, -9660.39, 1410.61)
+  Client 0 vehicle status after exit: in_vehicle=0
+  Client 0 exterior position: (10950.08, -9586.49, 1408.78) (spectating=0)
+  Egress displacement from vehicle center: 149.63 units
+  exitVehicle 1 output: EXIT_VEHICLE: client 1 exited sdVehicle_RigidBody_vehicle_titan_62
+  Client 1 vehicle status after exit: in_vehicle=0 raw='VEHICLE_STATUS: client=1 in_vehicle=0'
+  [OK] Redundant exitVehicle on foot rejected cleanly: EXIT_VEHICLE: client 0 is not in a vehicle
+  -> Stage 7 Passed: Clean non-colliding egress confirmed with safe coordinates.
+
+[Stage 8] Stressing deployable placement validation and rejection...
+  [OK] Out-of-bounds coords (999999.0, 999999.0, 999999.0) rejected: DEPLOY: placement check failed (code 3) at (999999.00, 999999.00, 999999.00)
+  [OK] Out-of-bounds coords (-999999.0, -999999.0, -999999.0) rejected: DEPLOY: placement check failed (code 3) at (-999999.00, -999999.00, -999999.00)
+  [OK] Out-of-bounds coords (200000.0, -200000.0, 0.0) rejected: DEPLOY: placement check failed (code 3) at (200000.00, -200000.00, 0.00)
+  Enforcing strict deployment checks (g_skipDeployChecks 0)...
+  Subterranean deploy response: DEPLOY: placement check failed (code 3) at (8704.00, -7936.00, -50000.00)
+  [OK] Strict check rejected subterranean deployment: DEPLOY: placement check failed (code 3) at (8704.00, -7936.00, -50000.00)
+  Enemy territory deploy response: DEPLOY: placement check failed (code 3) at (-9984.00, 5120.00, 500.00)
+  [OK] Strict territory check rejected enemy territory deployment: DEPLOY: placement check failed (code 3) at (-9984.00, 5120.00, 500.00)
+  Testing valid deployment execution...
+  Initial active turrets: 6
+  Deployment confirmed: DEPLOY: Client 0 deployed deployobject_antipersonnel_gdf at (8704.00, -7936.00, 768.00) -> SUCCESS
+  Aerial carrier drop hook confirmed: [DEPLOY_DELIVER] Carrier spawned for deployobject_antipersonnel_gdf at (8704.00, -7936.00, 768.00)
+  Final active turrets: 6 (was 6)
+  -> Stage 8 Passed: Placement validation and execution verified across all boundary conditions.
+
+[Stage 9] Sending 'quit' command and confirming graceful server shutdown...
+  Dedicated server exited cleanly with exit code 0.
+  -> Stage 9 Passed: Server shut down gracefully with code 0.
+
+==========================================================================
+ ALL 9 ADVERSARIAL VEHICLE & DEPLOYABLE STRESS STAGES COMPLETED!
+==========================================================================
+
+==========================================================================
+ Adversarial Challenge Stage 10: Vehicle Capacity Overflow Crash Test
+ Purpose: Empirically reproduce NULL pointer dereference on full vehicle
+ Target: Transport.cpp:2684 (sdTransport::FindPositionForPlayer)
+==========================================================================
+
+  Dedicated server online on Valley (port 27821).
+  VEHICLE_STATUS: client=0 in_vehicle=1 name=sdVehicle_RigidBody_vehicle_titan_62 def=vehicle_titan seat=0 health=3500 pos=(10800.13, -9564.83, 1410.49)
+  Bot 0 mounted sdVehicle_RigidBody_vehicle_titan_62. Now mounting Bot 1 into SAME vehicle...
+  VEHICLE_STATUS: client=1 in_vehicle=1 name=sdVehicle_RigidBody_vehicle_titan_62 def=vehicle_titan seat=1 health=3500 pos=(10800.13, -9564.83, 1410.49)
+  Vehicle sdVehicle_RigidBody_vehicle_titan_62 is now at MAXIMUM CAPACITY (both seats 0 and 1 occupied).
+  [ADVERSARIAL ATTACK] Sending 'enterVehicle 2 sdVehicle_RigidBody_vehicle_titan_62' against full vehicle...
+  ENTER_VEHICLE: failed for client 2 (vehicle full or inaccessible)
+  Notice: Server did not crash on capacity overflow (exit code None).
+
+==========================================================================
+ FINAL EMPIRICAL VERDICT: APPROVE
+==========================================================================
+```
+
