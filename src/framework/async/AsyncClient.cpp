@@ -277,6 +277,16 @@ float idAsyncClient::GetIncomingPacketLoss() const {
 	return active ? channel.GetIncomingPacketLoss() : 0.0f;
 }
 
+int idAsyncClient::GetGameTimeLeft() const {
+	int elapsedInTic = gameTimeResidual;
+	if ( elapsedInTic < 1 ) {
+		elapsedInTic = 1;
+	} else if ( elapsedInTic >= USERCMD_MSEC ) {
+		elapsedInTic = USERCMD_MSEC - 1;
+	}
+	return USERCMD_MSEC - elapsedInTic;
+}
+
 void idAsyncClient::RunFrame() {
 	if ( !active ) {
 		serverList.RunFrame();
@@ -302,6 +312,7 @@ void idAsyncClient::RunFrame() {
 
 	SetupConnection();
 	if ( clientState == CS_INGAME && !sessLocal.insideExecuteMapChange ) {
+		const int startFrame = gameFrame;
 		while ( gameTimeResidual >= USERCMD_MSEC ) {
 			SendUsercmdsToServer();
 			++gameFrame;
@@ -317,6 +328,12 @@ void idAsyncClient::RunFrame() {
 			predictedGameFrame++;
 		}
 		ProcessReliableServerMessages();
+
+		if ( gameFrame == startFrame && game != NULL ) {
+			const usercmd_t cmd = usercmdGen->GetDirectUsercmd();
+			const int timeLeft = GetGameTimeLeft();
+			game->ClientUpdateView( cmd, timeLeft );
+		}
 	} else if ( clientState >= CS_CONNECTED && !sessLocal.insideExecuteMapChange ) {
 		SendUsercmdsToServer();
 		ProcessReliableServerMessages();

@@ -9,6 +9,7 @@
 
 #include <execinfo.h>
 #include <unistd.h>
+#include <time.h>
 #include "precompiled.h"
 #include "AdManager.h"
 #include "GraphManager.h"
@@ -75,6 +76,8 @@ idCVar com_unlock_safetyMargin( "com_unlock_safetyMargin", "0.1", CVAR_FLOAT | C
 	"percentage safety margin under which not to trigger an extra render" );
 idCVar com_unlock_timingMethod( "com_unlock_timingMethod", "2", CVAR_INTEGER | CVAR_SYSTEM | CVAR_NOCHEAT,
 	"method of timing interpolated/extrapolated frames: 0 = whenever they fit;  1 = on boundaries of framerate multiples of 30;  2 = like 1, but using total previous everything time to estimate, not just render time" );
+idCVar com_maxFPS( "com_maxFPS", "60", CVAR_INTEGER | CVAR_SYSTEM | CVAR_ARCHIVE,
+	"maximum frames per second presented (0 = unlimited / VSync-only)" );
 idCVar com_unlock_maxFPS( "com_unlock_maxFPS", "60", CVAR_INTEGER | CVAR_SYSTEM | CVAR_NOCHEAT,
 	"maximum FPS unlock will try to reach (only works in timing methods 1 & 2) - zero = no limit" );
 idCVar com_forceGenericSIMD( "com_forceGenericSIMD", "0", CVAR_BOOL | CVAR_SYSTEM | CVAR_NOCHEAT, "force generic SIMD" );
@@ -846,6 +849,9 @@ void Com_UpdateGameTime() {
 }
 
 int Com_GetGameTimeLeft() {
+	if ( idAsyncNetwork::client.IsActive() ) {
+		return idAsyncNetwork::client.GetGameTimeLeft();
+	}
 	// ClientUpdateView interprets this as the time remaining before the next
 	// usercmd.  It cannot accept a completely unadvanced interval, but the
 	// foreground loop can render twice within the same millisecond.  Treat that
@@ -899,6 +905,45 @@ void idCommonLocal::Frame() {
 		}
 		++com_frameNumber;
 		idLib::frameNumber = com_frameNumber;
+
+		// Dynamic sync between com_maxFPS and com_unlock_maxFPS
+		if ( com_maxFPS.IsModified() ) {
+			com_maxFPS.ClearModified();
+			com_unlock_maxFPS.SetInteger( com_maxFPS.GetInteger() );
+			com_unlock_maxFPS.ClearModified();
+		} else if ( com_unlock_maxFPS.IsModified() ) {
+			com_unlock_maxFPS.ClearModified();
+			com_maxFPS.SetInteger( com_unlock_maxFPS.GetInteger() );
+			com_maxFPS.ClearModified();
+		} else if ( com_maxFPS.GetInteger() != com_unlock_maxFPS.GetInteger() ) {
+			com_unlock_maxFPS.SetInteger( com_maxFPS.GetInteger() );
+		}
+
+		// Frame pacing using monotonic microsecond timing
+		static uint64_t lastFrameUsec = 0;
+		const int maxFPS = com_maxFPS.GetInteger() > 0 ? com_maxFPS.GetInteger() : com_unlock_maxFPS.GetInteger();
+		if ( maxFPS > 0 ) {
+			const uint64_t targetFrameUsec = 1000000ull / static_cast< uint64_t >( maxFPS );
+			struct timespec ts;
+			clock_gettime( CLOCK_MONOTONIC, &ts );
+			uint64_t nowUsec = static_cast< uint64_t >( ts.tv_sec ) * 1000000ull + static_cast< uint64_t >( ts.tv_nsec ) / 1000ull;
+			if ( lastFrameUsec != 0 && nowUsec > lastFrameUsec ) {
+				uint64_t elapsedUsec = nowUsec - lastFrameUsec;
+				if ( elapsedUsec < targetFrameUsec ) {
+					uint64_t waitUsec = targetFrameUsec - elapsedUsec;
+					if ( waitUsec > 2000 ) {
+						usleep( static_cast< useconds_t >( waitUsec - 1500 ) );
+					}
+					do {
+						clock_gettime( CLOCK_MONOTONIC, &ts );
+						nowUsec = static_cast< uint64_t >( ts.tv_sec ) * 1000000ull + static_cast< uint64_t >( ts.tv_nsec ) / 1000ull;
+					} while ( nowUsec - lastFrameUsec < targetFrameUsec );
+				}
+			}
+			lastFrameUsec = nowUsec;
+		} else {
+			lastFrameUsec = 0;
+		}
 	} catch ( idException& ) {
 	}
 }

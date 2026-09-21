@@ -103,6 +103,8 @@ public:
 	float				GetIncomingCompression( void ) const;
 	float				GetIncomingPacketLoss( void ) const;
 	int					GetPredictedFrames( void ) const { return lastFrameDelta; }
+	int					GetGameTimeResidual( void ) const { return gameTimeResidual; }
+	int					GetGameTimeLeft( void ) const;
 
 	void				RunFrame( void );
 	void				SendReliableGameMessage( const idBitMsg &msg );
