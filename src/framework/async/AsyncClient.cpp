@@ -37,6 +37,7 @@ idAsyncClient::idAsyncClient() :
 	snapshotSequence( 0 ),
 	snapshotGameFrame( 0 ),
 	snapshotGameTime( 0 ),
+	predictedGameFrame( 0 ),
 	gameInitId( GAME_INIT_ID_INVALID ),
 	gameFrame( 0 ),
 	gameTime( 0 ),
@@ -81,6 +82,7 @@ void idAsyncClient::Clear() {
 	snapshotSequence = 0;
 	snapshotGameFrame = 0;
 	snapshotGameTime = 0;
+	predictedGameFrame = 0;
 	gameInitId = GAME_INIT_ID_INVALID;
 	gameFrame = 0;
 	gameTime = 0;
@@ -167,6 +169,18 @@ void idAsyncClient::Reconnect() {
 
 void idAsyncClient::DisconnectFromServer() {
 	if ( active ) {
+		if ( clientState >= CS_CONNECTED ) {
+			byte buffer[ 16 ];
+			idBitMsg msg;
+			msg.InitWrite( buffer, sizeof( buffer ) );
+			msg.BeginWriting();
+			msg.WriteByte( CLIENT_RELIABLE_MESSAGE_DISCONNECT );
+			channel.SendReliableMessage( msg );
+
+			SendEmptyToServer( true );
+			SendEmptyToServer( true );
+			SendEmptyToServer( true );
+		}
 		channel.Shutdown();
 	}
 	Clear();
@@ -294,6 +308,14 @@ void idAsyncClient::RunFrame() {
 			gameTime += USERCMD_MSEC;
 			gameTimeResidual -= USERCMD_MSEC;
 		}
+		if ( predictedGameFrame < gameFrame - MAX_USERCMD_BACKUP + 1 ) {
+			predictedGameFrame = gameFrame - MAX_USERCMD_BACKUP + 1;
+		}
+		while ( predictedGameFrame < gameFrame ) {
+			DuplicateUsercmds( predictedGameFrame, predictedGameFrame * USERCMD_MSEC );
+			game->ClientPrediction( userCmds[ predictedGameFrame & ( MAX_USERCMD_BACKUP - 1 ) ], NULL );
+			predictedGameFrame++;
+		}
 		ProcessReliableServerMessages();
 	} else if ( clientState >= CS_CONNECTED && !sessLocal.insideExecuteMapChange ) {
 		SendUsercmdsToServer();
@@ -396,13 +418,14 @@ void idAsyncClient::SendPingResponseToServer( int time ) {
 }
 
 void idAsyncClient::SendUsercmdsToServer() {
-	if ( !channel.ReadyToSend( realTime ) ) {
-		return;
-	}
 	const int index = gameFrame & ( MAX_USERCMD_BACKUP - 1 );
 	userCmds[ index ][ clientNum ] = usercmdGen->GetDirectUsercmd();
 	userCmds[ index ][ clientNum ].gameFrame = gameFrame;
 	userCmds[ index ][ clientNum ].gameTime = gameTime;
+
+	if ( !channel.ReadyToSend( realTime ) ) {
+		return;
+	}
 
 	int requestedUsercmds = idMath::ClampInt( 1, MAX_USERCMD_RELAY, idAsyncNetwork::clientUsercmdBackup.GetInteger() );
 	int numUsercmds = gameFrame >= requestedUsercmds - 1 ? requestedUsercmds : gameFrame + 1;
@@ -438,6 +461,7 @@ void idAsyncClient::InitGame( int serverGameInitId, int serverGameFrame, int ser
 	gameTime = serverGameTime;
 	snapshotGameFrame = serverGameFrame;
 	snapshotGameTime = serverGameTime;
+	predictedGameFrame = serverGameFrame;
 	sessLocal.mapSpawnData.serverInfo = serverSI;
 	game->SetServerInfo( serverSI );
 
@@ -451,6 +475,7 @@ void idAsyncClient::InitGame( int serverGameInitId, int serverGameFrame, int ser
 }
 
 void idAsyncClient::ProcessUnreliableServerMessage( const idBitMsg& msg ) {
+	lastPacketTime = realTime;
 	const int type = msg.ReadByte();
 	if ( type == SERVER_UNRELIABLE_MESSAGE_PING ) {
 		SendPingResponseToServer( msg.ReadLong() );
@@ -498,12 +523,25 @@ void idAsyncClient::ProcessUnreliableServerMessage( const idBitMsg& msg ) {
 		gameMsg.InitRead( gameBuffer, gameBytes );
 		gameMsg.SetSize( gameBytes );
 
+		snapshotGameFrame = sGameFrame;
+		snapshotGameTime = sGameTime;
+
+		if ( gameFrame < snapshotGameFrame || gameTime < snapshotGameTime ) {
+			for ( int f = gameFrame; f <= snapshotGameFrame; ++f ) {
+				memset( &userCmds[ f & ( MAX_USERCMD_BACKUP - 1 ) ][ clientNum ], 0, sizeof( usercmd_t ) );
+				userCmds[ f & ( MAX_USERCMD_BACKUP - 1 ) ][ clientNum ].gameFrame = f;
+				userCmds[ f & ( MAX_USERCMD_BACKUP - 1 ) ][ clientNum ].gameTime = f * USERCMD_MSEC;
+			}
+			gameFrame = snapshotGameFrame;
+			gameTime = snapshotGameTime;
+			gameTimeResidual = 0;
+		}
+
 		if ( game->ClientReadSnapshot( sequence, sGameFrame, sGameTime, numDuplicatedUsercmds, aheadOfServer, gameMsg, ucmdMsg ) ) {
 			game->ClientApplySnapshot( sequence );
 			snapshotSequence = sequence;
-			snapshotGameFrame = sGameFrame;
-			snapshotGameTime = sGameTime;
 			lastSnapshotTime = realTime;
+			predictedGameFrame = snapshotGameFrame;
 			common->Printf( "Client received snapshot %d (frame %d)\n", sequence, sGameFrame );
 		}
 	}

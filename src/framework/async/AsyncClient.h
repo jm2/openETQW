@@ -148,6 +148,7 @@ private:
 	int					snapshotSequence;			// sequence number of the last received snapshot
 	int					snapshotGameFrame;			// game frame number of the last received snapshot
 	int					snapshotGameTime;			// game time of the last received snapshot
+	int					predictedGameFrame;			// game frame client has predicted up to
 
 	int					gameInitId;					// game initialization identification
 	int					gameFrame;					// local game frame
