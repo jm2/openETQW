@@ -17,6 +17,7 @@
 #include <string.h>
 #include <time.h>
 #include <pthread.h>
+#include <signal.h>
 
 #if defined( __APPLE__ )
 #include <mach-o/dyld.h>
@@ -389,7 +390,7 @@ void Sys_InitInput( void ) {
 }
 
 void Sys_ShutdownInput( void ) {
-	Posix_ShutdownConsole();
+	Posix_ShutdownConsoleInput();
 }
 
 void Sys_PumpEvents( void ) {
@@ -500,17 +501,31 @@ Console Input & Event Pump
 ================
 */
 static bool s_stdinEOF = false;
-static bool s_ttyConfigured = false;
+static volatile sig_atomic_t s_ttyConfigured = 0;
 static struct termios s_origTermios;
 
+/*
+==============
+Posix_ShutdownConsoleInput
+
+Puts the terminal back the way Posix_InitConsoleInput found it.  Only calls
+tcsetattr, which is async-signal-safe, so the fatal signal handler uses it too.
+==============
+*/
 void Posix_ShutdownConsoleInput( void ) {
 	if ( s_ttyConfigured ) {
 		tcsetattr( STDIN_FILENO, TCSANOW, &s_origTermios );
-		s_ttyConfigured = false;
+		s_ttyConfigured = 0;
 	}
 }
 
 void Posix_InitConsoleInput( void ) {
+	// Sys_InitInput (during InitGame) and Posix_LateInit both get here.  A
+	// second tcgetattr would save the already raw attributes as the original
+	// ones, and the terminal was left without echo/line editing after exit.
+	if ( s_ttyConfigured ) {
+		return;
+	}
 	if ( isatty( STDIN_FILENO ) ) {
 		if ( tcgetattr( STDIN_FILENO, &s_origTermios ) == 0 ) {
 			struct termios raw = s_origTermios;
@@ -518,8 +533,12 @@ void Posix_InitConsoleInput( void ) {
 			raw.c_cc[ VMIN ] = 0;
 			raw.c_cc[ VTIME ] = 0;
 			tcsetattr( STDIN_FILENO, TCSANOW, &raw );
-			s_ttyConfigured = true;
-			atexit( Posix_ShutdownConsoleInput );
+			s_ttyConfigured = 1;
+			static bool atExitRegistered = false;
+			if ( !atExitRegistered ) {
+				atExitRegistered = true;
+				atexit( Posix_ShutdownConsoleInput );
+			}
 		}
 	} else {
 		// Non-tty / piped stdin: set O_NONBLOCK

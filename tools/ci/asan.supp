@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# AddressSanitizer suppressions for the CI sanitizer job (.github/workflows/ci.yml,
+# job 'sanitizer'), passed as ASAN_OPTIONS=suppressions=<this file>.
+#
+# Intentionally empty: every ASan report fails CI. Add an entry only for a
+# diagnosed, third-party or known-benign report, one per line, each with a
+# comment naming the issue that tracks its removal. Syntax:
+#   interceptor_via_fun:<function>
+#   interceptor_via_lib:<library>
+#   odr_violation:<global name or glob>
+# See https://github.com/google/sanitizers/wiki/AddressSanitizer#suppressing-reports-in-external-libraries

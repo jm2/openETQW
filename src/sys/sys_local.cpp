@@ -119,16 +119,40 @@ static sdIMEHeadless headlessIME;
 } // namespace
 
 /*
+==============
+Sys_FreeQueuedEvents
+
+Frees the queued events, or with keepConsoleEvents only the input events.
+==============
+*/
+static void Sys_FreeQueuedEvents( idLinkList< sdSysEvent >& queue, idBlockAlloc< sdSysEvent, 128 >& allocator, bool keepConsoleEvents ) {
+	sdSysEvent *event = queue.Next();
+	while ( event != NULL ) {
+		sdSysEvent *next = event->GetNode().Next();
+		if ( !keepConsoleEvents || !event->IsConsoleEvent() ) {
+			event->GetNode().Remove();
+			event->FreeData();
+			allocator.Free( event );
+		}
+		event = next;
+	}
+}
+
+/*
 ==============================================================
 idSysLocal
 ==============================================================
 */
 idSysLocal::~idSysLocal( void ) {
-	ClearEvents();
+	sdScopedLock< true > queueLock( eventLock );
+	Sys_FreeQueuedEvents( eventQue, eventAllocator, false );
 }
 
 void idSysLocal::Init( void ) {
-	ClearEvents();
+	{
+		sdScopedLock< true > queueLock( eventLock );
+		Sys_FreeQueuedEvents( eventQue, eventAllocator, false );
+	}
 	Sys_InitNetworking();
 }
 
@@ -136,7 +160,10 @@ void idSysLocal::PostGameInit( void ) {
 }
 
 void idSysLocal::Shutdown( void ) {
-	ClearEvents();
+	{
+		sdScopedLock< true > queueLock( eventLock );
+		Sys_FreeQueuedEvents( eventQue, eventAllocator, false );
+	}
 	Sys_ShutdownNetworking();
 	Posix_ShutdownConsole();
 }
@@ -400,14 +427,20 @@ void idSysLocal::QueEvent( sysEventType_t type, int value, int value2, int ptrLe
 	event->GetNode().AddToEnd( eventQue );
 }
 
+/*
+==============
+idSysLocal::ClearEvents
+
+Session::ExecuteMapChange calls this to drop key, mouse and other input that
+went stale during a load.  SE_CONSOLE events are command lines (stdin on the
+dedicated server) and are never stale: the event pump reads one line ahead of
+the command it returns, so dropping them silently lost the command written
+right after a map-changing one ("nextMap\necho ..." lost the echo).
+==============
+*/
 void idSysLocal::ClearEvents( void ) {
 	sdScopedLock< true > queueLock( eventLock );
-	while ( !eventQue.IsListEmpty() ) {
-		sdSysEvent *event = eventQue.Next();
-		event->GetNode().Remove();
-		event->FreeData();
-		eventAllocator.Free( event );
-	}
+	Sys_FreeQueuedEvents( eventQue, eventAllocator, true );
 }
 
 void idSysLocal::FreeEvent( const sdSysEvent *event ) {

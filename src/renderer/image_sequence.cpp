@@ -30,8 +30,10 @@ void sdImageSequence::AddImage( idImage* image ) {
 void sdImageSequence::UpdateBindings() {
 	const int numImages = images.Num();
 	if ( numImages == 0 ) {
-		rbinds->imgSequenceCur->Set( globalImages->blackImage );
-		rbinds->imgSequenceNext->Set( globalImages->blackImage );
+		// The dedicated server links this unit but has no image manager.
+		idImage* blackImage = globalImages != NULL ? globalImages->blackImage : NULL;
+		rbinds->imgSequenceCur->Set( blackImage );
+		rbinds->imgSequenceNext->Set( blackImage );
 		return;
 	}
 

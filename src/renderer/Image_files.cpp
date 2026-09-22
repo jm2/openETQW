@@ -85,6 +85,55 @@ void LoadTGA( const char* name, byte** pic, int* width, int* height, unsigned* t
 	fileSystem->FreeFile( fileBuffer );
 }
 
+/*
+================
+R_WriteTGABuffer
+
+Encodes an uncompressed type 2 TGA into a Mem_Alloc'd buffer (the caller
+frees it with Mem_Free) and returns its length, or 0 for bad input.  This
+unit is linked into the dedicated server as well, which has no image manager,
+so idFileSystem::WriteTGA can still write the game's deploy-mask and
+demo-analysis images there.
+================
+*/
+int R_WriteTGABuffer( byte*& outBuffer, const byte* data, int width, int height, int depth, bool swapBGR, bool flipVertical ) {
+	outBuffer = NULL;
+	if ( data == NULL || width <= 0 || height <= 0 || ( depth != 3 && depth != 4 ) ) {
+		return 0;
+	}
+
+	const int length = 18 + width * height * depth;
+	byte* output = static_cast< byte* >( Mem_Alloc( length ) );
+	memset( output, 0, 18 );
+	output[ 2 ] = 2;
+	output[ 12 ] = width & 0xff;
+	output[ 13 ] = ( width >> 8 ) & 0xff;
+	output[ 14 ] = height & 0xff;
+	output[ 15 ] = ( height >> 8 ) & 0xff;
+	output[ 16 ] = depth * 8;
+	output[ 17 ] = static_cast< byte >( 0x20 | ( depth == 4 ? 8 : 0 ) );
+
+	byte* destination = output + 18;
+	for ( int y = 0; y < height; y++ ) {
+		const int sourceY = flipVertical ? height - 1 - y : y;
+		const byte* source = data + sourceY * width * depth;
+		for ( int x = 0; x < width; x++, source += depth, destination += depth ) {
+			if ( swapBGR ) {
+				destination[ 0 ] = source[ 2 ];
+				destination[ 1 ] = source[ 1 ];
+				destination[ 2 ] = source[ 0 ];
+			} else {
+				memcpy( destination, source, 3 );
+			}
+			if ( depth == 4 ) {
+				destination[ 3 ] = source[ 3 ];
+			}
+		}
+	}
+	outBuffer = output;
+	return length;
+}
+
 void R_LoadImage( const char* name, byte** pic, int* width, int* height,
 	unsigned* timestamp, bool ) {
 	if ( pic != NULL ) {

@@ -17,6 +17,24 @@
 static const int SERVER_EMPTY_RESEND_MSEC = 500;
 static const int SERVER_PING_RESEND_MSEC = 500;
 
+/*
+==================
+Server_NormalizeMapRequest
+
+si_map as typed ("quarry", "maps/quarry", "maps/quarry.entities") reduced to
+one comparable form.  A campaign name passes through unchanged.
+==================
+*/
+static idStr Server_NormalizeMapRequest( const char* request ) {
+	idStr name = request != NULL ? request : "";
+	name.BackSlashesToSlashes();
+	name.StripFileExtension();
+	if ( name.Icmpn( "maps/", 5 ) == 0 ) {
+		name = name.Right( name.Length() - 5 );
+	}
+	return name;
+}
+
 idAsyncServer::idAsyncServer() :
 	active( false ),
 	realTime( 0 ),
@@ -126,6 +144,14 @@ void idAsyncServer::Kill() {
 	}
 	active = false;
 	localClientNum = -1;
+	loadedMapRequest.Clear();
+}
+
+bool idAsyncServer::IsMapRequestLoaded( const char* mapRequest ) const {
+	if ( !active || !sessLocal.MapSpawned() || loadedMapRequest.IsEmpty() ) {
+		return false;
+	}
+	return Server_NormalizeMapRequest( mapRequest ).Icmp( loadedMapRequest ) == 0;
 }
 
 void idAsyncServer::ExecuteMapChange() {
@@ -133,8 +159,8 @@ void idAsyncServer::ExecuteMapChange() {
 		return;
 	}
 
-	const char* requestedMap = cvarSystem->GetCVarString( "si_map" );
-	if ( requestedMap == NULL || requestedMap[ 0 ] == '\0' || game == NULL ) {
+	const idStr requestedMap = cvarSystem->GetCVarString( "si_map" );
+	if ( requestedMap.IsEmpty() || game == NULL ) {
 		return;
 	}
 
@@ -143,7 +169,7 @@ void idAsyncServer::ExecuteMapChange() {
 	// client's user group through gameLocal.rules.
 	idStr reason;
 	idStr mapName;
-	const userMapChangeResult_e result = game->OnUserStartMap( requestedMap, reason, mapName );
+	const userMapChangeResult_e result = game->OnUserStartMap( requestedMap.c_str(), reason, mapName );
 	if ( result == UMCR_ERROR ) {
 		common->Printf( "User Map Start Denied '%s'\n", reason.c_str() );
 		return;
@@ -171,10 +197,16 @@ void idAsyncServer::ExecuteMapChange() {
 		game->SetClientNum( localClientNum, true );
 	}
 
+	loadedMapRequest.Clear();
 	sessLocal.ExecuteMapChange( mapName.c_str(), 0, true, true, true );
-	if ( localClientNum >= 0 && sessLocal.MapSpawned() ) {
+	if ( !sessLocal.MapSpawned() ) {
+		return;
+	}
+	loadedMapRequest = Server_NormalizeMapRequest( requestedMap.c_str() );
+	if ( localClientNum >= 0 ) {
 		BeginLocalClient();
 	}
+	BeginBotClients();
 }
 
 int idAsyncServer::GetPort() const {
@@ -344,9 +376,16 @@ void idAsyncServer::RunFrame() {
 	}
 
 	const int delta = UpdateTime( 100 );
-	gameTimeResidual += delta;
 	ProcessConnectionLessMessages();
 	CheckClientTimeouts();
+
+	// The requested map was denied or failed to load: the server stays up so
+	// an admin can start another map, but there is no game to tick.
+	if ( !sessLocal.MapSpawned() ) {
+		gameTimeResidual = 0;
+		return;
+	}
+	gameTimeResidual += delta;
 
 	while ( gameTimeResidual >= USERCMD_MSEC ) {
 		DuplicateUsercmds( gameFrame, gameTime );
@@ -477,6 +516,29 @@ void idAsyncServer::PrintLocalServerInfo() {
 	common->Printf( "server %s: %d clients\n", Sys_NetAdrToString( serverPort.GetAdr() ), GetNumClients() );
 }
 
+void idAsyncServer::PrintClientSlots() const {
+	if ( !active ) {
+		common->Printf( "server is not running\n" );
+		return;
+	}
+	static const char* stateNames[] = { "free", "zombie", "purewait", "connected", "ingame" };
+	common->Printf( "map: %s\n", loadedMapRequest.IsEmpty() ? "<none>" : loadedMapRequest.c_str() );
+	int used = 0;
+	for ( int i = 0; i < MAX_ASYNC_CLIENTS; ++i ) {
+		const serverClient_t& client = clients[ i ];
+		if ( client.clientState == SCS_FREE ) {
+			continue;
+		}
+		const int state = client.clientState;
+		common->Printf( "slot %2d: %-9s %s '%s'\n", i,
+			state >= 0 && state < static_cast< int >( sizeof( stateNames ) / sizeof( stateNames[ 0 ] ) ) ? stateNames[ state ] : "?",
+			client.isBot ? "bot  " : "human",
+			sessLocal.mapSpawnData.userInfo[ i ].GetString( "ui_name" ) );
+		++used;
+	}
+	common->Printf( "%d client slot%s in use\n", used, used == 1 ? "" : "s" );
+}
+
 void idAsyncServer::PrintOOB( const netadr_t to, int opcode, const char* string ) {
 	byte buffer[ MAX_MESSAGE_SIZE ];
 	idBitMsg msg;
@@ -558,6 +620,36 @@ void idAsyncServer::BeginLocalClient() {
 		game->ServerClientConnect( localClientNum );
 		game->ServerClientBegin( localClientNum, false );
 		game->UserInfoChanged( localClientNum );
+	}
+}
+
+/*
+==================
+idAsyncServer::BeginBotClients
+
+Bot clients stay connected across a map change, as they do in retail, but the
+game's MapShutdown removed their player entities with the rest of the map.
+Re-run the game side of AllocateClientSlotForBot for each one so the bot
+spawns on the new map in the same client slot.  Without this every map change
+leaked the bot slots (SCS_INGAME here, no player in the game) and addbot kept
+taking fresh slots until none were left.
+==================
+*/
+void idAsyncServer::BeginBotClients() {
+	for ( int i = 0; i < MAX_ASYNC_CLIENTS; ++i ) {
+		serverClient_t& client = clients[ i ];
+		if ( !client.isBot || client.clientState != SCS_INGAME ) {
+			continue;
+		}
+		client.gameFrame = 0;
+		client.gameTime = 0;
+		client.lastInputTime = realTime;
+
+		idDict& userInfo = sessLocal.mapSpawnData.userInfo[ i ];
+		game->ValidateUserInfo( i, userInfo );
+		game->ServerClientConnect( i );
+		game->ServerClientBegin( i, true );
+		game->UserInfoChanged( i );
 	}
 }
 

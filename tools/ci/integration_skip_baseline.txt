@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Known integration tests that do NOT yet skip cleanly (exit 77, no traceback,
+# no engine launch) when retail data is absent. tools/ci/check_integration_skips.py
+# reports these as warnings instead of failing CI; every other integration test
+# must skip cleanly. Fix the test, then delete its line (CI prints a notice when
+# an entry has been fixed). Regenerate with:
+#   python3 tools/ci/check_integration_skips.py --write-baseline
+#
+# Format: tests/<file>.py  # what was observed
+
+tests/test_adversarial_same_map_rapid_cycling.py  # unset: exit 1 instead of 77; launched the engine without retail data; missing-dir: exit 1 instead of 77; launched the engine without retail data
+tests/test_bot_combat_stress.py  # unset: exit 1 instead of 77; Python traceback; launched the engine without retail data; missing-dir: exit 1 instead of 77; Python traceback; launched the engine without retail data
+tests/test_bot_stress.py  # unset: exit 1 instead of 77; Python traceback; launched the engine without retail data; missing-dir: exit 1 instead of 77; Python traceback; launched the engine without retail data
+tests/test_determinism_adversarial.py  # unset: exit 1 instead of 77; Python traceback; launched the engine without retail data; missing-dir: exit 1 instead of 77; Python traceback; launched the engine without retail data
+tests/test_frame_pacing_adversarial.py  # unset: exit 1 instead of 77; Python traceback; launched the engine without retail data; missing-dir: exit 1 instead of 77; Python traceback; launched the engine without retail data
+tests/test_loopback_session.py  # unset: exit 1 instead of 77; Python traceback; missing-dir: exit 1 instead of 77; Python traceback
+tests/test_m2_adversarial_suite.py  # unset: exit 1 instead of 77; launched the engine without retail data; missing-dir: exit 1 instead of 77; launched the engine without retail data
+tests/test_map_cycling_stress.py  # unset: exit 0 instead of 77; launched the engine without retail data; missing-dir: exit 0 instead of 77; launched the engine without retail data
+tests/test_multi_map_lifecycle_stress.py  # unset: exit 1 instead of 77; launched the engine without retail data; missing-dir: exit 1 instead of 77; launched the engine without retail data
+tests/test_multiclient_gameplay.py  # unset: exit 1 instead of 77; Python traceback; missing-dir: exit 1 instead of 77; Python traceback
+tests/test_pawn_movement.py  # unset: exit 1 instead of 77; Python traceback; missing-dir: exit 1 instead of 77; Python traceback
+tests/test_pawn_physics_empirical.py  # unset: exit 1 instead of 77; Python traceback; missing-dir: exit 1 instead of 77; Python traceback
+tests/test_pawn_spawn.py  # unset: exit 1 instead of 77; Python traceback; missing-dir: exit 1 instead of 77; Python traceback
+tests/test_pawn_stress.py  # unset: exit 1 instead of 77; Python traceback; launched the engine without retail data; missing-dir: exit 1 instead of 77; Python traceback; launched the engine without retail data
+tests/test_shadow_stress_adversarial.py  # unset: exit 1 instead of 77; Python traceback; launched the engine without retail data; missing-dir: exit 1 instead of 77; Python traceback; launched the engine without retail data
+tests/test_shutdown_concurrency_stress.py  # unset: timed out (did not skip promptly); Python traceback; launched the engine without retail data; missing-dir: timed out (did not skip promptly); Python traceback; launched the engine without retail data
+tests/test_valley_objective_adversarial.py  # unset: exit 1 instead of 77; Python traceback; launched the engine without retail data; missing-dir: exit 1 instead of 77; Python traceback; launched the engine without retail data
+tests/test_vehicle_deployable_stress.py  # unset: exit 1 instead of 77; missing-dir: exit 1 instead of 77
