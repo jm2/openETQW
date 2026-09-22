@@ -1,0 +1,236 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# OpenETQW Continuous Integration Matrix Pipeline
+# Validates Tier-1 Platforms: Linux x86_64, Windows 11 x64, macOS Apple Silicon arm64
+
+name: CI Matrix
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint-workflow:
+    name: Lint Workflow (actionlint)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout openETQW
+        uses: actions/checkout@v4
+
+      - name: Run actionlint via reviewdog
+        uses: reviewdog/action-actionlint@v1
+        with:
+          actionlint_flags: "-color"
+          reporter: local
+          fail_level: error
+
+  build-and-test:
+    name: Build & Test (${{ matrix.name }})
+    needs: [lint-workflow]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+        include:
+          - os: ubuntu-latest
+            name: Linux x86_64 (GCC/Clang)
+            compiler: clang
+            pkg_config_path: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+            binary_arch: x64
+          - os: windows-latest
+            name: Windows 11 x64 (MSVC)
+            compiler: msvc
+            pkg_config_path: ""
+            binary_arch: x64
+          - os: macos-latest
+            name: macOS Apple Silicon (Apple Clang)
+            compiler: apple-clang
+            pkg_config_path: /opt/homebrew/lib/pkgconfig:/opt/homebrew/share/pkgconfig
+            binary_arch: arm64
+
+    env:
+      PKG_CONFIG_PATH: ${{ matrix.pkg_config_path }}
+      OPENETQW_GAME_REPO: ${{ github.workspace }}/openETQW-game
+
+    steps:
+      # Step 1: Side-by-side checkout
+      - name: Checkout openETQW
+        uses: actions/checkout@v4
+        with:
+          path: openETQW
+          fetch-depth: 1
+
+      - name: Checkout openETQW-game
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/openETQW-game
+          path: openETQW-game
+          fetch-depth: 1
+
+      # Step 2: Setup platform dependencies
+      - name: Install APT Dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build \
+            python3-pip \
+            python3-setuptools \
+            python3-wheel \
+            zlib1g-dev \
+            libvulkan-dev \
+            glslang-tools \
+            spirv-tools \
+            pkg-config \
+            libasound2-dev \
+            libx11-dev \
+            libwayland-dev
+          python3 -m pip install --upgrade --break-system-packages "meson>=1.6.0" ninja || \
+          python3 -m pip install --upgrade "meson>=1.6.0" ninja
+
+      - name: Setup SDL3 (Linux)
+        if: runner.os == 'Linux'
+        uses: libsdl-org/setup-sdl@v1
+        id: sdl-linux
+        with:
+          version: 3.2.0
+          install-linux-dependencies: true
+
+      - name: Configure Linux Environment Variables
+        if: runner.os == 'Linux'
+        run: |
+          SDL_PREFIX="${{ steps.sdl-linux.outputs.prefix }}"
+          {
+            echo "PKG_CONFIG_PATH=$SDL_PREFIX/lib/pkgconfig:$SDL_PREFIX/lib64/pkgconfig:$PKG_CONFIG_PATH"
+            echo "LD_LIBRARY_PATH=$SDL_PREFIX/lib:$SDL_PREFIX/lib64:$LD_LIBRARY_PATH"
+            echo "CMAKE_PREFIX_PATH=$SDL_PREFIX:$CMAKE_PREFIX_PATH"
+          } >> "$GITHUB_ENV"
+
+      - name: Setup Windows MSVC Environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Setup Windows Python Build Tools
+        if: runner.os == 'Windows'
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade "meson>=1.6.0" ninja pkgconf
+
+      - name: Setup Windows Vulkan SDK
+        if: runner.os == 'Windows'
+        uses: humbletim/setup-vulkan-sdk@v1.2.0
+        with:
+          vulkan-query-version: 1.3.283.0
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
+          vulkan-use-cache: true
+
+      - name: Setup SDL3 (Windows)
+        if: runner.os == 'Windows'
+        uses: libsdl-org/setup-sdl@v1
+        id: sdl-win
+        with:
+          version: 3.2.0
+
+      - name: Install zlib via vcpkg (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          vcpkg install zlib:x64-windows
+
+      - name: Configure Windows Environment Variables
+        if: runner.os == 'Windows'
+        run: |
+          SDL_PREFIX="${{ steps.sdl-win.outputs.prefix }}"
+          VCPKG_PREFIX="$VCPKG_INSTALLATION_ROOT/installed/x64-windows"
+
+          {
+            echo "SDL3_DIR=$SDL_PREFIX"
+            echo "CMAKE_PREFIX_PATH=$SDL_PREFIX;$VCPKG_PREFIX;$CMAKE_PREFIX_PATH"
+            echo "PKG_CONFIG_PATH=$SDL_PREFIX/lib/pkgconfig;$SDL_PREFIX/lib/x64/pkgconfig;$SDL_PREFIX/share/pkgconfig;$VCPKG_PREFIX/lib/pkgconfig;$PKG_CONFIG_PATH"
+          } >> "$GITHUB_ENV"
+
+          {
+            echo "$SDL_PREFIX/bin"
+            echo "$SDL_PREFIX/lib/x64"
+            echo "$VCPKG_PREFIX/bin"
+          } >> "$GITHUB_PATH"
+
+      - name: Setup macOS Dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew install meson ninja sdl3 vulkan-headers molten-vk glslang
+
+      - name: Configure macOS Environment Variables
+        if: runner.os == 'macOS'
+        run: |
+          BREW_PREFIX="$(brew --prefix)"
+          {
+            echo "PKG_CONFIG_PATH=$BREW_PREFIX/lib/pkgconfig:$BREW_PREFIX/share/pkgconfig:$BREW_PREFIX/opt/molten-vk/lib/pkgconfig:$BREW_PREFIX/opt/vulkan-headers/share/pkgconfig:$BREW_PREFIX/opt/sdl3/lib/pkgconfig:$PKG_CONFIG_PATH"
+            echo "DYLD_FALLBACK_LIBRARY_PATH=$BREW_PREFIX/lib:$DYLD_FALLBACK_LIBRARY_PATH"
+            echo "VK_ICD_FILENAMES=$BREW_PREFIX/share/vulkan/icd.d/MoltenVK_icd.json"
+          } >> "$GITHUB_ENV"
+
+      # Step 3: Blocking cleanroom audit gate
+      - name: Zero-SDK Cleanroom Audit Gate
+        working-directory: openETQW
+        run: python3 tests/test_zero_sdk.py
+
+      # Step 4: Dynamic header staging
+      - name: Stage Game Headers
+        working-directory: openETQW
+        run: python3 tools/build/stage_game.py . ../openETQW-game .tmp/gamelibs_stage
+
+      # Step 5: Configure & compile openETQW-game
+      - name: Configure openETQW-game
+        working-directory: openETQW-game
+        run: meson setup build --buildtype=release
+
+      - name: Compile openETQW-game
+        working-directory: openETQW-game
+        run: meson compile -C build
+
+      # Step 6: Configure & compile openETQW
+      - name: Configure openETQW
+        working-directory: openETQW
+        env:
+          OPENETQW_GAME_REPO: ${{ github.workspace }}/openETQW-game
+        run: >
+          meson setup build
+          --buildtype=release
+          -Dbuild_engine=true
+          -Dbuild_dedicated=true
+          -Dbuild_tests=true
+
+      - name: Compile openETQW
+        working-directory: openETQW
+        env:
+          OPENETQW_GAME_REPO: ${{ github.workspace }}/openETQW-game
+        run: meson compile -C build
+
+      # Step 7: Asset-free unit test suite
+      - name: Execute Asset-Free Unit Tests
+        working-directory: openETQW
+        env:
+          ETQW_DATA_PATH: /nonexistent
+        run: meson test -C build --suite unit --verbose

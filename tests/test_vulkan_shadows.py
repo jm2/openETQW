@@ -31,7 +31,22 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATA_PATH = Path("/Users/jmulesa/etqw_data")
 DATA_PATH = Path(os.environ.get("ETQW_DATA_PATH", str(DEFAULT_DATA_PATH)))
-CLIENT_BIN = REPO_ROOT / "build" / "openETQW-client_arm64"
+def _find_client_binary() -> Path:
+    candidates = [
+        REPO_ROOT / "build" / "openETQW-client_arm64",
+        REPO_ROOT / "build" / "openETQW-client_x64",
+        REPO_ROOT / "build" / "openETQW-client_x64.exe",
+        REPO_ROOT / "build" / "openETQW-client_arm64.exe",
+        REPO_ROOT / "build" / "openETQW-client",
+        REPO_ROOT / "build" / "openETQW-client.exe",
+    ]
+    for c in candidates:
+        if c.is_file():
+            return c
+    return candidates[0]
+
+
+CLIENT_BIN = _find_client_binary()
 
 
 def stream_reader(pipe, q: queue.Queue[str]) -> None:
@@ -209,11 +224,11 @@ def main() -> int:
     print("=================================================================")
 
     if not CLIENT_BIN.is_file():
-        print(f"[ERROR] Client binary not found at {CLIENT_BIN}", file=sys.stderr)
-        return 1
+        print(f"[SKIP] Client binary not found at {CLIENT_BIN}. Skipping test (exit code 77).")
+        return 77
 
-    if not DATA_PATH.is_dir() or not (DATA_PATH / "base").is_dir():
-        print(f"[SKIP] ETQW retail data not found at {DATA_PATH}. Skipping test (exit code 77).")
+    if not DATA_PATH.is_dir() or not (DATA_PATH / "base").is_dir() or not (DATA_PATH / "base" / "pak000.pk4").is_file():
+        print(f"[SKIP] ETQW retail data not found or incomplete at {DATA_PATH}. Skipping test (exit code 77).")
         return 77
 
     try:

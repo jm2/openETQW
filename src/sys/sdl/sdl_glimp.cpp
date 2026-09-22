@@ -39,13 +39,15 @@ public:
 	}
 
 	virtual void InitContext( const glimpParms_t& parms ) override {
-		if ( !SDL_InitSubSystem( SDL_INIT_VIDEO ) ) {
-			common->FatalError( "SDL3: failed to initialize video subsystem: %s", SDL_GetError() );
-		}
-
+#if defined( __APPLE__ )
 		SDL_SetHint( SDL_HINT_VIDEO_DRIVER, "cocoa" );
 		SDL_SetHint( SDL_HINT_RENDER_DRIVER, "metal,gpu,software" );
 		SDL_SetHint( SDL_HINT_VIDEO_METAL_AUTO_RESIZE_DRAWABLE, "1" );
+#endif
+
+		if ( !SDL_InitSubSystem( SDL_INIT_VIDEO ) ) {
+			common->FatalError( "SDL3: failed to initialize video subsystem: %s", SDL_GetError() );
+		}
 
 		SDL_WindowFlags flags = SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
 		if ( parms.fullScreen ) {

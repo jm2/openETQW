@@ -113,7 +113,35 @@ static_assert( offsetof( gameExport_t, version ) == 0, "gameExport_t::version of
 static_assert( offsetof( gameExport_t, game ) == sizeof( void * ), "gameExport_t::game offset" );
 static_assert( offsetof( gameExport_t, gameEdit ) == 2 * sizeof( void * ), "gameExport_t::gameEdit offset" );
 
+static_assert( sizeof( gameImport_t ) == ( sizeof( void * ) == 8 ? 192 : 96 ),
+    "gameImport_t size must be exactly 192 bytes on 64-bit (int version + 4B pad + 23 interface pointers)" );
+static_assert( offsetof( gameImport_t, version ) == 0, "gameImport_t::version offset" );
+static_assert( offsetof( gameImport_t, sys ) == sizeof( void * ), "gameImport_t::sys offset" );
+static_assert( offsetof( gameImport_t, common ) == 2 * sizeof( void * ), "gameImport_t::common offset" );
+static_assert( offsetof( gameImport_t, cmdSystem ) == 3 * sizeof( void * ), "gameImport_t::cmdSystem offset" );
+static_assert( offsetof( gameImport_t, cvarSystem ) == 4 * sizeof( void * ), "gameImport_t::cvarSystem offset" );
+static_assert( offsetof( gameImport_t, fileSystem ) == 5 * sizeof( void * ), "gameImport_t::fileSystem offset" );
+static_assert( offsetof( gameImport_t, networkSystem ) == 6 * sizeof( void * ), "gameImport_t::networkSystem offset" );
+static_assert( offsetof( gameImport_t, renderSystem ) == 7 * sizeof( void * ), "gameImport_t::renderSystem offset" );
+static_assert( offsetof( gameImport_t, deviceContext ) == 8 * sizeof( void * ), "gameImport_t::deviceContext offset" );
+static_assert( offsetof( gameImport_t, soundSystem ) == 9 * sizeof( void * ), "gameImport_t::soundSystem offset" );
+static_assert( offsetof( gameImport_t, renderModelManager ) == 10 * sizeof( void * ), "gameImport_t::renderModelManager offset" );
+static_assert( offsetof( gameImport_t, declManager ) == 11 * sizeof( void * ), "gameImport_t::declManager offset" );
+static_assert( offsetof( gameImport_t, collisionModelManager ) == 12 * sizeof( void * ), "gameImport_t::collisionModelManager offset" );
+static_assert( offsetof( gameImport_t, AASFileManager ) == 13 * sizeof( void * ), "gameImport_t::AASFileManager offset (0x68 union)" );
+static_assert( offsetof( gameImport_t, navigationSystem ) == 13 * sizeof( void * ), "gameImport_t::navigationSystem offset (0x68 union)" );
+static_assert( offsetof( gameImport_t, bse ) == 14 * sizeof( void * ), "gameImport_t::bse offset" );
+static_assert( offsetof( gameImport_t, networkService ) == 15 * sizeof( void * ), "gameImport_t::networkService offset" );
+static_assert( offsetof( gameImport_t, adManager ) == 16 * sizeof( void * ), "gameImport_t::adManager offset" );
+static_assert( offsetof( gameImport_t, keyInputManager ) == 17 * sizeof( void * ), "gameImport_t::keyInputManager offset" );
+static_assert( offsetof( gameImport_t, notificationSystem ) == 18 * sizeof( void * ), "gameImport_t::notificationSystem offset" );
+static_assert( offsetof( gameImport_t, globalKeys ) == 19 * sizeof( void * ), "gameImport_t::globalKeys offset" );
+static_assert( offsetof( gameImport_t, globalValues ) == 20 * sizeof( void * ), "gameImport_t::globalValues offset" );
+static_assert( offsetof( gameImport_t, stringAllocator ) == 21 * sizeof( void * ), "gameImport_t::stringAllocator offset" );
+static_assert( offsetof( gameImport_t, wideStringAllocator ) == 22 * sizeof( void * ), "gameImport_t::wideStringAllocator offset" );
+static_assert( offsetof( gameImport_t, graphManager ) == 23 * sizeof( void * ), "gameImport_t::graphManager offset" );
+
 int main() {
-    printf( "StructLayoutTest: ALL STATIC ASSERTIONS PASSED (idDrawVert 32B, usercmd_t 28B, netadr_t 12B)\n" );
+    printf( "StructLayoutTest: ALL STATIC ASSERTIONS PASSED (idDrawVert 32B, usercmd_t 28B, netadr_t 12B, gameExport_t 24B, gameImport_t 192B)\n" );
     return 0;
 }

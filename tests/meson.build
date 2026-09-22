@@ -13,10 +13,22 @@ test_include_dirs = [
 idlib_dep = cpp.find_library('idLib', dirs: [game_repo_root / 'build'], required: false)
 test_deps = []
 test_link_args = []
+
+if host_system == 'linux'
+  test_deps += [cpp.find_library('m', required: false)]
+elif host_system == 'windows'
+  test_deps += [
+    cpp.find_library('ws2_32', required: true),
+    cpp.find_library('winmm', required: true),
+  ]
+endif
+
 if idlib_dep.found()
   test_deps += [idlib_dep]
 elif fs_mod.is_file(game_repo_root / 'build' / 'libidLib.a')
   test_link_args += [game_repo_root / 'build' / 'libidLib.a']
+elif fs_mod.is_file(game_repo_root / 'build' / 'idLib.lib')
+  test_link_args += [game_repo_root / 'build' / 'idLib.lib']
 endif
 
 # 1. BitMsg unit test
@@ -34,7 +46,7 @@ bitmsg_test = executable(
   link_args: test_link_args,
   install: false,
 )
-test('bitmsg', bitmsg_test, timeout: 30)
+test('bitmsg', bitmsg_test, suite: 'unit', timeout: 30)
 
 # 2. UserCmd delta serialization & sequence test
 usercmd_test_src = files(
@@ -51,7 +63,7 @@ usercmd_test = executable(
   link_args: test_link_args,
   install: false,
 )
-test('usercmd-delta', usercmd_test, timeout: 30)
+test('usercmd-delta', usercmd_test, suite: 'unit', timeout: 30)
 
 # 3. Struct layout and static assertions test
 struct_layout_test = executable(
@@ -68,7 +80,7 @@ struct_layout_test = executable(
   link_args: test_link_args,
   install: false,
 )
-test('struct-layout', struct_layout_test, timeout: 30)
+test('struct-layout', struct_layout_test, suite: 'unit', timeout: 30)
 
 # 4. UserCmd history, ring buffer & transport lifecycle test
 usercmd_history_test_src = files(
@@ -85,13 +97,14 @@ usercmd_history_test = executable(
   link_args: test_link_args,
   install: false,
 )
-test('usercmd-history', usercmd_history_test, timeout: 30)
+test('usercmd-history', usercmd_history_test, suite: 'unit', timeout: 30)
 
 # 5. Zero-SDK compliance test
 test(
   'zero-sdk',
   py,
   args: [meson.project_source_root() / 'tests' / 'test_zero_sdk.py'],
+  suite: 'unit',
   timeout: 30,
 )
 
@@ -102,6 +115,7 @@ if build_engine
     py,
     args: [meson.project_source_root() / 'tests' / 'test_client_lifecycle.py'],
     workdir: meson.project_source_root(),
+    suite: 'integration',
     timeout: 120,
   )
   test(
@@ -109,6 +123,7 @@ if build_engine
     py,
     args: [meson.project_source_root() / 'tests' / 'test_high_refresh_determinism.py'],
     workdir: meson.project_source_root(),
+    suite: 'integration',
     timeout: 180,
   )
   test(
@@ -116,7 +131,7 @@ if build_engine
     py,
     args: [meson.project_source_root() / 'tests' / 'test_vulkan_shadows.py'],
     workdir: meson.project_source_root(),
-    suite: 'client',
+    suite: ['client', 'integration'],
     timeout: 120,
   )
 endif

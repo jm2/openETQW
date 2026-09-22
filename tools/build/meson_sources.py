@@ -203,6 +203,10 @@ PLATFORM_POSIX_SOURCES = (
     "src/sys/sys_local.cpp",
 )
 
+POSIX_CLIENT_SOURCES = (
+    "src/sys/osx/macosx_sdl3_main.cpp",
+)
+
 DARWIN_COMMON_SOURCES = (
     "src/sys/osx/macosx_compat.mm",
     "src/sys/osx/macosx_misc.mm",
@@ -210,7 +214,10 @@ DARWIN_COMMON_SOURCES = (
 
 DARWIN_CLIENT_SOURCES = (
     "src/sys/osx/macosx_sdl3.cpp",
-    "src/sys/osx/macosx_sdl3_main.cpp",
+)
+
+PLATFORM_WIN32_SOURCES = (
+    "src/sys/win32/SystemBootstrap.cpp",
 )
 
 SDL3_PLATFORM_SOURCES = (
@@ -218,13 +225,6 @@ SDL3_PLATFORM_SOURCES = (
     "src/sys/sdl/sdl_events.cpp",
     "src/sys/sdl/sdl_sound.cpp",
 )
-
-LINUX_DEDICATED_PLATFORM_SOURCES = (
-    "src/sys/linux/dedicated.cpp",
-    "src/sys/linux/main.cpp",
-    "src/sys/linux/stack.cpp",
-)
-
 
 DEDICATED_STUB_SOURCES = (
     "src/sys/stub/headless_stubs.cpp",
@@ -264,12 +264,14 @@ def main(argv: list[str]) -> int:
     # Platform selection
     if args.host_system in ("darwin", "linux"):
         sources.extend(PLATFORM_POSIX_SOURCES)
+        if args.target_kind == "client":
+            sources.extend(POSIX_CLIENT_SOURCES)
         if args.host_system == "darwin":
             sources.extend(DARWIN_COMMON_SOURCES)
             if args.target_kind == "client":
                 sources.extend(DARWIN_CLIENT_SOURCES)
-        elif args.host_system == "linux" and args.target_kind == "dedicated":
-            sources.extend(LINUX_DEDICATED_PLATFORM_SOURCES)
+    elif args.host_system == "windows":
+        sources.extend(PLATFORM_WIN32_SOURCES)
 
     # Deduplicate and print
     seen = set()

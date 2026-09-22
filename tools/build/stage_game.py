@@ -5,12 +5,15 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 MANIFEST_NAME = "openetqw_gamelibs_stage_manifest.json"
@@ -79,9 +82,18 @@ def file_sha256(path: Path) -> str:
 
 def is_relative_to(path: Path, parent: Path) -> bool:
     try:
-        path.relative_to(parent)
+        path.resolve().relative_to(parent.resolve())
         return True
     except ValueError:
+        if os.name == "nt":
+            try:
+                # Windows paths are case-insensitive
+                Path(path.resolve().as_posix().lower()).relative_to(
+                    Path(parent.resolve().as_posix().lower())
+                )
+                return True
+            except ValueError:
+                return False
         return False
 
 
@@ -93,6 +105,67 @@ def validate_stage_root(project_root: Path, game_root: Path, stage_root: Path) -
         raise RuntimeError(f"Stage root must reside strictly under .tmp: {stage_root}")
     if is_relative_to(project_root, stage_root) or is_relative_to(game_root, stage_root):
         raise RuntimeError(f"Refusing to stage over source repositories: {stage_root}")
+
+
+def make_writable(path: str | Path) -> None:
+    """Ensure a file or directory path has write permissions."""
+    try:
+        p = Path(path)
+        if p.is_dir():
+            os.chmod(p, stat.S_IWRITE | stat.S_IWUSR | stat.S_IREAD | stat.S_IRUSR | stat.S_IEXEC | stat.S_IXUSR)
+        else:
+            os.chmod(p, stat.S_IWRITE | stat.S_IWUSR | stat.S_IREAD | stat.S_IRUSR)
+    except OSError:
+        pass
+
+
+def safe_rmtree(target: Path, max_retries: int = 3, retry_delay: float = 0.05) -> None:
+    """Recursively remove a directory tree, handling Windows read-only attributes and file locks."""
+    if not target.exists() and not target.is_symlink():
+        return
+
+    if target.is_symlink() or target.is_file():
+        make_writable(target)
+        target.unlink(missing_ok=True)
+        return
+
+    def _rmtree_onerror(func, path, exc_info):
+        parent = os.path.dirname(path)
+        if parent:
+            make_writable(parent)
+        make_writable(path)
+        try:
+            func(path)
+        except OSError:
+            pass
+
+    def _rmtree_onexc(func, path, exc):
+        parent = os.path.dirname(path)
+        if parent:
+            make_writable(parent)
+        make_writable(path)
+        try:
+            func(path)
+        except OSError:
+            pass
+
+    has_onexc = hasattr(shutil, "rmtree") and "onexc" in inspect.signature(shutil.rmtree).parameters
+
+    for attempt in range(max_retries):
+        try:
+            if has_onexc:
+                shutil.rmtree(target, onexc=_rmtree_onexc)
+            else:
+                shutil.rmtree(target, onerror=_rmtree_onerror)
+            if not target.exists():
+                return
+        except OSError:
+            pass
+        if attempt < max_retries - 1:
+            time.sleep(retry_delay)
+
+    if target.exists():
+        raise RuntimeError(f"Failed to cleanly remove directory tree: {target}")
 
 
 def stage_files(game_root: Path, stage_root: Path) -> list[Path]:
@@ -115,6 +188,7 @@ def stage_files(game_root: Path, stage_root: Path) -> list[Path]:
         dest_path = stage_root / rel
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src_path, dest_path)
+        make_writable(dest_path)
         staged_paths.append(dest_path)
 
     return staged_paths
@@ -171,8 +245,7 @@ def main(argv: list[str]) -> int:
 
     try:
         validate_stage_root(project_root, game_root, stage_root)
-        if stage_root.exists():
-            shutil.rmtree(stage_root)
+        safe_rmtree(stage_root)
         stage_root.mkdir(parents=True, exist_ok=True)
         staged = stage_files(game_root, stage_root)
         write_and_verify_manifest(project_root, game_root, stage_root, staged)

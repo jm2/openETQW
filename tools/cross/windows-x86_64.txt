@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# OpenETQW - Meson Cross Compilation Definition for Windows x86_64
+#
+# Default Toolchain: MinGW-w64 (x86_64-w64-mingw32-gcc / g++)
+# To switch to LLVM clang-cl or MSVC cl, comment the default binaries and uncomment the target section below.
+
+[binaries]
+c = 'x86_64-w64-mingw32-gcc'
+cpp = 'x86_64-w64-mingw32-g++'
+ar = 'x86_64-w64-mingw32-ar'
+strip = 'x86_64-w64-mingw32-strip'
+windres = 'x86_64-w64-mingw32-windres'
+pkg-config = 'x86_64-w64-mingw32-pkg-config'
+
+# Alternative: LLVM clang-cl toolchain (MSVC CLI emulation)
+# c = 'clang-cl'
+# cpp = 'clang-cl'
+# ar = 'llvm-lib'
+# strip = 'llvm-strip'
+# windres = 'llvm-rc'
+
+# Alternative: Microsoft Visual C++ cl toolchain
+# c = 'cl'
+# cpp = 'cl'
+# ar = 'lib'
+# windres = 'rc'
+
+[host_machine]
+system = 'windows'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'
+
+[properties]
+needs_exe_wrapper = true

@@ -70,9 +70,27 @@ common_engine_defs = [
 
 if host_system == 'darwin'
   common_engine_defs += ['-DMACOS_X']
+elif host_system == 'windows'
+  common_engine_defs += [
+    '-DWIN32',
+    '-D_WINDOWS',
+    '-DNOMINMAX',
+    '-DWIN32_LEAN_AND_MEAN',
+    '-D_CRT_SECURE_NO_WARNINGS',
+    '-D_CRT_NONSTDC_NO_WARNINGS',
+  ]
 endif
 
-if cpp.get_argument_syntax() != 'msvc'
+if cpp.get_argument_syntax() == 'msvc'
+  add_project_arguments(
+    '/EHsc',
+    '/permissive-',
+    '/Zc:__cplusplus',
+    '/utf-8',
+    '/bigobj',
+    language: ['c', 'cpp'],
+  )
+else
   add_project_arguments(
     '-fno-strict-aliasing',
     '-Wno-unused-parameter',
@@ -209,13 +227,38 @@ zlib_dep = dependency('zlib', required: true)
 idlib_dep = cpp.find_library('idLib', dirs: [game_repo_root / 'build'], required: false)
 
 engine_common_deps = [threads_dep, zlib_dep]
+
+if host_system == 'linux'
+  dl_dep = cpp.find_library('dl', required: false)
+  rt_dep = cpp.find_library('rt', required: false)
+  m_dep = cpp.find_library('m', required: false)
+  engine_common_deps += [dl_dep, rt_dep, m_dep]
+elif host_system == 'windows'
+  ws2_32_dep = cpp.find_library('ws2_32', required: true)
+  winmm_dep = cpp.find_library('winmm', required: true)
+  dbghelp_dep = cpp.find_library('dbghelp', required: true)
+  version_dep = cpp.find_library('version', required: true)
+  ole32_dep = cpp.find_library('ole32', required: true)
+  shell32_dep = cpp.find_library('shell32', required: true)
+  engine_common_deps += [
+    ws2_32_dep,
+    winmm_dep,
+    dbghelp_dep,
+    version_dep,
+    ole32_dep,
+    shell32_dep,
+  ]
+endif
+
 engine_common_link_args = []
 if idlib_dep.found()
   engine_common_deps += [idlib_dep]
 elif fs_mod.is_file(game_repo_root / 'build' / 'libidLib.a')
   engine_common_link_args += [game_repo_root / 'build' / 'libidLib.a']
+elif fs_mod.is_file(game_repo_root / 'build' / 'idLib.lib')
+  engine_common_link_args += [game_repo_root / 'build' / 'idLib.lib']
 else
-  error('libidLib.a not found in ' + game_repo_root / 'build' + '. Build openETQW-game first.')
+  error('Neither libidLib.a nor idLib.lib found in ' + game_repo_root / 'build' + '. Build openETQW-game first.')
 endif
 
 if build_engine
@@ -254,6 +297,8 @@ if build_engine
     objcpp_args: client_cpp_args,
     dependencies: client_deps,
     link_args: client_link_args,
+    export_dynamic: true,
+    win_subsystem: host_system == 'windows' ? 'windows' : 'console',
     install: true,
   )
 endif
@@ -289,6 +334,8 @@ if build_dedicated
     objcpp_args: ded_cpp_args,
     dependencies: ded_deps,
     link_args: ded_link_args,
+    export_dynamic: true,
+    win_subsystem: 'console',
     install: true,
   )
 endif
@@ -300,6 +347,7 @@ if build_tests
     py,
     args: [meson.project_source_root() / 'tests' / 'test_bot_gameplay.py'],
     workdir: meson.project_source_root(),
+    suite: 'integration',
     timeout: 120,
   )
   test(
@@ -307,6 +355,7 @@ if build_tests
     py,
     args: [meson.project_source_root() / 'tests' / 'test_valley_match.py'],
     workdir: meson.project_source_root(),
+    suite: 'integration',
     timeout: 180,
   )
 endif

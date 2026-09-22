@@ -1,8 +1,10 @@
 # OpenETQW status
 
+[![CI Matrix](https://github.com/jm2/openETQW/actions/workflows/ci.yml/badge.svg)](https://github.com/jm2/openETQW/actions/workflows/ci.yml)
+
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
-Updated: 2026-09-22T01:50:00Z · session/agent: worker_m3 · host: mbp-m1max.local, macOS arm64
+Updated: 2026-09-22T06:15:00Z · session/agent: worker_m4 · host: mbp-m1max.local, macOS arm64
 Engine repo `~/openETQW`: branch main (tracking https://github.com/jm2/openETQW.git) · game repo `~/openETQW-game`: branch main (tracking https://github.com/jm2/openETQW-game.git) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none)
 
 **Integrator role:** held by lead_orchestrator / mbp-m1max.local
@@ -20,19 +22,23 @@ Environment corrections vs. SESSION_BRIEF: none
   - Python 3.14.7
   - Git 2.55.0
 - Setup / compile / test commands, exactly as run:
+
+### macOS Apple Silicon (Host Native)
 ```sh
-# Staging and Zero-SDK verification
+# Dynamic header staging & Cleanroom Zero-SDK Audit Gate
 python3 tools/build/stage_game.py . ../openETQW-game .tmp/gamelibs_stage
 python3 tests/test_zero_sdk.py
 
-# Full Meson automated test suite (10/10 tests passing 100%)
+# Asset-free unit test suite (5/5 passing in <1s)
+meson test -C build --suite unit --verbose
+
+# Public runner simulation (verifies clean exit code 77 on missing assets)
+ETQW_DATA_PATH=/nonexistent meson test -C build --verbose
+
+# Full local test suite with retail assets (10/10 passing 100%)
 meson test -C build -j 1 --verbose
 
-# Vulkan Dynamic Stencil Shadows & Lighting Verification
-python3 tests/test_vulkan_shadows.py
-python3 tests/test_shadow_stress_adversarial.py
-
-# Game build
+# Game module build
 cd /Users/jmulesa/openETQW-game
 ninja -C build
 
@@ -41,37 +47,101 @@ cd /Users/jmulesa/openETQW
 ninja -C build openETQW-client_arm64 openETQW-ded_arm64
 ```
 
+### Linux x86_64 (GCC 13+ / Clang 17+)
+```sh
+# Dynamic header staging and cleanroom gate
+python3 tools/build/stage_game.py . ../openETQW-game .tmp/gamelibs_stage
+python3 tests/test_zero_sdk.py
+
+# Game module configuration & compilation
+cd ../openETQW-game
+meson setup build --buildtype=release
+meson compile -C build
+
+# Engine configuration & compilation (Client + Headless Dedicated)
+cd ../openETQW
+meson setup build --buildtype=release -Dbuild_engine=true -Dbuild_dedicated=true -Dbuild_tests=true
+meson compile -C build
+
+# Cross-compilation from host via Meson cross file
+meson setup build-linux-cross --cross-file tools/cross/linux-x86_64.txt --buildtype=release
+meson compile -C build-linux-cross
+
+# Asset-free unit test suite
+meson test -C build --suite unit --verbose
+```
+
+### Windows 11 x64 (MSVC 2022 v143)
+```cmd
+:: Launch 64-bit Visual Studio Developer Command Prompt
+call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
+
+:: Dynamic header staging and cleanroom gate
+python tools\build\stage_game.py . ..\openETQW-game .tmp\gamelibs_stage
+python tests\test_zero_sdk.py
+
+:: Game module configuration & compilation (generates idLib.lib and game_x64.dll via Game.def)
+cd ..\openETQW-game
+meson setup build --buildtype=release
+meson compile -C build
+
+:: Engine configuration & compilation (Client win_subsystem: windows, Dedicated win_subsystem: console)
+cd ..\openETQW
+meson setup build --buildtype=release -Dbuild_engine=true -Dbuild_dedicated=true -Dbuild_tests=true
+meson compile -C build
+
+:: Cross-compilation via MinGW / LLVM cross file
+meson setup build-win64-cross --cross-file tools/cross/windows-x86_64.txt --buildtype=release
+meson compile -C build-win64-cross
+
+:: Asset-free unit test suite
+meson test -C build --suite unit --verbose
+```
+
 ## This session
 
 **Plan, and why it advances the engine:**
-Vulkan Dynamic Stencil Shadow Volumes & Lighting Interactions:
-1. [Vulkan Combined Depth-Stencil Format & Dynamic Rendering Barriers]
-   Upgraded Vulkan depth buffer from `VK_FORMAT_D32_SFLOAT` to `VK_FORMAT_D32_SFLOAT_S8_UINT` (with runtime format query fallback to `VK_FORMAT_D24_UNORM_S8_UINT`) across image creation, image views, dynamic rendering `pStencilAttachment` descriptors, and barrier subresource ranges (`DEPTH_BIT | STENCIL_BIT`). Implemented `IssueDepthStencilBarrier` to synchronize shadow volume stencil writing with subsequent lighting interaction stencil test passes.
-2. [Two-Sided Depth-Stencil Shadow Volume Pipelines]
-   Created native Vulkan two-sided stencil shadow pipelines in `src/renderer/VulkanBackend.cpp` (`CreateShadowPipelines`): `worldShadowPassPipeline` (Depth-Pass: front increment/wrap, back decrement/wrap) and `worldShadowFailPipeline` (Carmack's Reverse: front depth-fail decrement/wrap, back depth-fail increment/wrap) with `cullMode = NONE`, `colorWriteMask = 0`, `depthTest = TRUE`, `depthWrite = FALSE`, and `depthCompareOp = LESS_OR_EQUAL`.
-3. [Front-End Light & Shadow Geometry Decoupling]
-   Decoupled `R_UseVulkanBackend()` from OpenGL stencil fallback (`!R_RayTracingUsingStencilFallback()`), allowing Vulkan rasterization to execute natively with `r_shadows 1`. Unblocked front-end surface interaction and shadow generation in `src/renderer/tr_light.cpp` (`R_AddLightSurfaces`, `R_RemoveUnecessaryViewLights`), enabling dynamic linkage of `light->globalShadows`, `light->localShadows`, `light->localInteractions`, and `light->globalInteractions`.
-4. [Shadow Silhouette Extraction, Capping & Geometry Streaming]
-   Extended `ShadowIndexCount` in `src/renderer/draw_shadow.cpp` to evaluate `viewLight_s` orientation, camera occlusion (`viewInsideLight`), and capping bitmasks (`shadowCapPlaneBits`). Implemented `DrawVulkanShadowSurface` in `src/renderer/VulkanBackend.cpp` streaming 16-byte homogeneous vertices (`shadowCache_t`) and 16-bit indices through `VertexCache`, binding dynamic scissors in Vulkan top-left coordinates, and applying dynamic depth bias.
-5. [Dynamic Lighting Interaction Pipeline & Stencil Masking]
-   Created `worldInteractionPipeline` in `src/renderer/VulkanBackend.cpp` with additive color blending (`VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ONE`), depth test `LESS_OR_EQUAL` (depth write disabled), and stencil test `VK_COMPARE_OP_EQUAL` reference `0` (read-only mask). In `sdVulkanBackend::DrawView`, implemented light traversal iterating `view->viewLights`, executing per-light stencil clear (`vkCmdClearAttachments`) inside light scissor rects, rendering shadow volume passes, synchronizing via pipeline barriers, and submitting additive light interactions.
-6. [Automated Verification Test Suite & Upstream Integration]
-   Delivered `tests/test_vulkan_shadows.py` verifying shadow pipeline creation, active shadow volume draws (`shadow draws > 0`), dynamic light interactions (`light interactions > 0`), and MoltenVK frame presentation (>= 50 frames) on Valley with clean exit code 0. Registered `vulkan-shadows` in `tests/meson.build` with suite `client`. All 10/10 Meson test targets pass with 100% success rate (`meson test -C build -j 1 --verbose`). Zero SDK-licensed files in `openETQW` (0 violations across 4,265 tracked files).
+Cross-Platform Build & Continuous Integration Matrix Milestone (Linux x86_64, Windows 11 x64, macOS arm64):
+1. [Cross-Platform Meson Configuration & System Libraries]
+   Reconciled build definitions across `openETQW/meson.build` and `openETQW-game/meson.build` for `host_machine.system()`. Linux links POSIX threads, dynamic loader (`dl`), real-time clock (`rt`), and math (`m`). Windows MSVC configures `/EHsc`, `/permissive-`, `/Zc:__cplusplus`, `/utf-8`, and `/bigobj` (preventing section overflow in large translation units), linking `ws2_32`, `winmm`, `dbghelp`, `version`, `ole32`, and `shell32`.
+2. [Cross-Platform Static Library Resolution & Dynamic Header Staging]
+   Updated engine library resolution to find `idLib` across platforms: probes `cpp.find_library('idLib')`, falling back cleanly to `libidLib.a` (POSIX) or `idLib.lib` (MSVC). Hardened `tools/build/stage_game.py` with case-insensitive Windows path traversal checks and retry-based directory cleanup (`safe_rmtree`) handling read-only file locks. Authored Meson cross-compilation files `tools/cross/linux-x86_64.txt` and `tools/cross/windows-x86_64.txt`.
+3. [Platform Abstraction Hardening & Console Subsystem Isolation]
+   Hardened `src/sys/win32/SystemBootstrap.cpp` for 64-bit MSVC: implemented thread table managing 64-bit handles, auto-reset event signaling, and critical sections. Guarded `WinMain` under `#ifndef ID_DEDICATED` and implemented dedicated server `main()` console entry point with `SetConsoleCtrlHandler` under `#ifdef ID_DEDICATED`. Reconciled `tools/build/meson_sources.py` manifests across all 6 targets. Exported `GetGameAPI` on Windows via `/DEF:src/game/Game.def` and `GAME_API_EXPORT`. Replaced x86 inline assembly in `Atomic.h` with standard GCC/Clang builtins.
+4. [Asset-Free Unit Test Decoupling & Public CI Runner Resilience]
+   Partitioned Meson test targets into `--suite unit` (pure asset-free: `bitmsg`, `usercmd-delta`, `struct-layout`, `usercmd-history`, `zero-sdk`) and `integration`. Extended `tests/StructLayoutTest.cpp` with static assertions verifying `gameImport_t` (192 bytes, offset 0x68 union) and `gameExport_t` (24 bytes). Decoupled integration tests (`test_bot_gameplay.py`, `test_valley_match.py`, `test_vulkan_shadows.py`, `test_client_lifecycle.py`) to skip with exit code 77 when retail data is absent.
+5. [GitHub Actions CI Matrix Pipeline]
+   Authored production-grade `.github/workflows/ci.yml` matrix covering Ubuntu Linux x86_64, Windows 11 x64 MSVC, and macOS Apple Silicon. Includes workflow linting (`actionlint`), side-by-side checkout, Zero-SDK cleanroom audit gate, dynamic staging, full module & engine builds, and asset-free unit test suite execution. 100% asset-free: zero retail assets required.
 
 ### Changed
 | Repo | Files / symbols | What | Why | Reuse / provenance |
 |---|---|---|---|---|
-| openETQW | `src/renderer/VulkanBackend.cpp`, `VulkanBackend.h` | Depth-stencil format upgrade, two-sided shadow pipelines, interaction pipeline, `DrawVulkanShadowSurface`, `DrawVulkanLightInteraction`, light traversal loop | Native Vulkan dynamic stencil shadow volumes and lighting interactions | GPL-3.0-or-later engine |
-| openETQW | `src/renderer/draw_shadow.cpp` | Global linkage and `viewLight_s` overload for `ShadowIndexCount` | Silhouette capping and external/internal pipeline selection | GPL-3.0-or-later engine |
-| openETQW | `src/renderer/tr_light.cpp` | Unblocked `R_AddLightSurfaces` and `R_RemoveUnecessaryViewLights` for Vulkan | Front-end light-surface interaction and shadow chain linkage | GPL-3.0-or-later engine |
-| openETQW | `tests/meson.build` | Registered `vulkan-shadows` test target with suite `client` | Expand automated test suite to 10 targets | GPL-3.0-or-later build |
-| openETQW | `tests/test_vulkan_shadows.py` | Automated lifecycle test verifying Vulkan shadow pipelines, shadow draws, light interactions, and presentation | Automated verification gate for shadows | Engine test suite |
-| openETQW | `docs/compat-ledger.md` | Added Row 032 documenting Vulkan dynamic stencil shadows & lighting architecture | Living compatibility documentation | Documentation |
-| openETQW | `STATUS.md` | Updated Vulkan shadow volume milestones, test execution metrics, and demonstrated claims | Living project status | Living documentation |
+| openETQW | `meson.build` | Added Linux system deps (`dl`, `rt`, `m`), Windows MSVC flags (`/bigobj`), Windows SDK libs, `idLib.lib` static fallback, `win_subsystem` isolation | Cross-platform build support across Tier-1 OSes | GPL-3.0-or-later build |
+| openETQW | `tools/build/meson_sources.py` | Validated manifests across 6 targets, added shared POSIX client entry, included Win32 `SystemBootstrap.cpp` | Accurate platform source generation | GPL-3.0-or-later tooling |
+| openETQW | `tools/build/stage_game.py` | Added Windows case-insensitive path check, `safe_rmtree`, and `make_writable` | Resilient cross-platform header staging | GPL-3.0-or-later tooling |
+| openETQW | `tools/cross/linux-x86_64.txt`, `windows-x86_64.txt` | Authored Meson cross-compilation definitions | Multi-OS cross-compilation support | GPL-3.0-or-later tooling |
+| openETQW | `src/sys/win32/SystemBootstrap.cpp`, `win_local.h` | Implemented 64-bit threading table, event signaling, critical sections, dedicated console `main()` entry | Win32 platform layer & console isolation | GPL-3.0-or-later engine |
+| openETQW | `src/sys/sdl/sdl_glimp.cpp` | Guarded Cocoa video driver hint with `#if defined(__APPLE__)` | Cross-platform SDL3 video driver initialization | GPL-3.0-or-later engine |
+| openETQW | `.github/workflows/ci.yml` | Created GitHub Actions CI matrix for Linux, Windows, and macOS | Continuous integration and cleanroom gating | GPL-3.0-or-later CI |
+| openETQW | `tests/meson.build` | Partitioned tests into `unit` and `integration` suites; added Windows/Linux test deps | Asset-free CI gating | GPL-3.0-or-later build |
+| openETQW | `tests/StructLayoutTest.cpp` | Added static assertions for `gameImport_t` (192B) and `gameExport_t` (24B) | 64-bit ABI alignment verification | GPL-3.0-or-later tests |
+| openETQW | `tests/test_*.py` | Updated integration tests to exit code 77 when retail data is absent | Decouple public CI runners from retail assets | GPL-3.0-or-later tests |
+| openETQW-game | `meson.build` | Added MSVC flags (`/bigobj`), Windows DLL definition file `/DEF:src/game/Game.def` | Windows MSVC compilation and dynamic export | ETQW SDK / MIT |
+| openETQW-game | `src/game/Game.h`, `Game_local.cpp` | Defined `GAME_API_EXPORT` macro across MSVC and GCC/Clang | Reliable `GetGameAPI` dynamic symbol export | ETQW SDK / MIT |
+| openETQW-game | `src/idlib/threading/Atomic.h` | Replaced x86 inline assembly with standard GCC/Clang builtins and Win32 interlocked | Portability across 64-bit compilers | ETQW SDK / MIT |
+| openETQW | `docs/compat-ledger.md` | Added Rows 033, 034, 035 documenting build, Windows isolation, and CI architecture | Living compatibility documentation | Documentation |
+| openETQW | `STATUS.md` | Updated multi-OS build commands, CI badge, capability matrix, and demonstrated claims | Living project status | Living documentation |
 
 ### Demonstrated
 | Claim | Evidence level | Host / OS / arch / compiler | Command | Result (log path) |
 |---|---|---|---|---|---|
+| GitHub Actions CI Matrix Pipeline (.github/workflows/ci.yml) | configured | Multi-OS (Ubuntu Linux x86_64, Windows 11 x64, macOS arm64) | `actionlint .github/workflows/ci.yml` | PASS: 2 jobs (actionlint lint-workflow, build-and-test matrix x3), Zero-SDK gate, dynamic staging, full build, asset-free unit test suite |
+| Cross-Platform Meson Build Configuration (Linux & Windows) | configured | Linux x86_64 (GCC/Clang) / Windows 11 x64 (MSVC) | `meson setup build-linux --cross-file tools/cross/linux-x86_64.txt` | PASS: Cross definitions validated, platform source manifests 100% resolved (0 missing, 0 duplicates) |
+| Meson Source Manifest Stress Verification (6 targets) | unit-tested | macOS arm64 / Python 3.14 | `python3 tests/test_meson_sources_stress.py` | PASS: 24/24 parameter combinations, 6 valid targets (darwin/linux/windows client/dedicated), 0 missing files, 0 duplicate sources, valid entry points |
+| Win32 Platform Layer 64-bit Threading & Synchronization | unit-tested | macOS arm64 / Python 3.14 | `python3 tests/test_win32_platform_stress.py` | PASS: 64-bit thread handle safety, critical sections, event signaling, staged header includes, Win32 symbol linkage 100% complete |
+| Asset-Free Unit Test Suite Decoupling (--suite unit) | unit-tested | macOS arm64 / Apple Clang 21.0 | `meson test -C build --suite unit --verbose` | PASS: 5/5 asset-free tests OK (bitmsg, usercmd-delta, struct-layout, usercmd-history, zero-sdk) in 0.48s with 0 retail data dependencies |
+| Retail Asset Decoupling on Public Runners (exit code 77) | unit-tested | macOS arm64 / Apple Clang 21.0 | `ETQW_DATA_PATH=/nonexistent meson test -C build --verbose` | PASS: 5 unit tests passed, 5 integration tests skipped cleanly with Meson status code 77 (0 failures) |
+| 64-bit Cross-Platform Structure Layout & ABI Invariants | unit-tested | macOS arm64 / Apple Clang 21.0 | `/Users/jmulesa/openETQW/build/tests/openetqw-struct-layout-test` | PASS: static_assert verified idDrawVert 32B, usercmd_t 28B, netadr_t 12B, gameExport_t 24B, gameImport_t 192B (offset 0x68 union) |
 | Zero-SDK Repository Compliance (Gate 2b) | unit-tested | macOS arm64 / Darwin 27.0.0 | `python3 tests/test_zero_sdk.py` | PASS: 4,265 tracked files audited, 0 SDK violations detected |
 | Meson Automated Test Suite (10/10 passed) | unit-tested | macOS arm64 / Apple Clang 21.0 | `meson test -C build -j 1 --verbose` | PASS: 10/10 tests passed (bitmsg, usercmd-delta, struct-layout, usercmd-history, zero-sdk, client-lifecycle, high-refresh-determinism, vulkan-shadows, bot-gameplay, valley-match) |
 | Vulkan Dynamic Stencil Shadow Volumes & Two-Sided Pass | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_vulkan_shadows.py` | PASS: `worldShadowPassPipeline` & `worldShadowFailPipeline` created, 14,400+ shadow draws, 849 Vulkan frames presented on Valley, clean exit 0 |
@@ -101,10 +171,11 @@ Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>
 
 | Capability | Linux x86_64 | Windows 11 x64 | macOS arm64 | macOS x86_64 | Linux arm64 | Notes |
 |---|---|---|---|---|---|---|
-| idLib + game module build | — | — | compiled | — | — | Native Apple Clang arm64 |
-| Engine build | — | — | compiled | — | — | Native `openETQW-client_arm64` and `openETQW-ded_arm64` |
-| Dedicated server launch (headless) | — | — | launched | — | — | Headless POSIX server cleanly runs and quits (exit 0) |
-| Client launch (graphics) | — | — | match-tested | — | — | Native Cocoa window via SDL3 & MoltenVK swapchain |
+| idLib + game module build | configured | configured | compiled | — | — | Linux (threads, m, builtins), Windows (MSVC /bigobj, /DEF, Interlocked), macOS (Clang) |
+| Engine build | configured | configured | compiled | — | — | Linux (dl, rt, m, SDL3), Windows (Win32 libs, subsystem windows/console), macOS (Metal/MoltenVK) |
+| Dedicated server launch (headless) | configured | configured | launched | — | — | POSIX main on Linux/macOS; console subsystem main() with SetConsoleCtrlHandler on Win32 |
+| Client launch (graphics) | configured | configured | match-tested | — | — | SDL3 + Vulkan backend across Linux, Windows, macOS |
+| Asset-free unit test suite | configured | configured | unit-tested | — | — | 5/5 asset-free tests pass (--suite unit); integration tests exit 77 when assets absent |
 | Stock map: server | — | — | map-loaded | — | — | Valley loads, 991 entities spawn, simulation runs at 30 Hz |
 | Stock map: client | — | — | match-tested | — | — | Client loads Valley map, streams MegaTexture, renders world geometry & dynamic stencil shadows |
 | OpenETQW MP: dedicated | — | — | match-tested | — | — | Authoritative server hosts multiple concurrent clients with UDP replication |
@@ -134,10 +205,10 @@ Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>
 - SDK EULA shipped with the game repo and every package; retail-install check enforced; nothing sold: yes
 
 ## Compatibility record
-- Module ABI (`GAME_API_VERSION`, interface changes this session): `GAME_API_VERSION 1` intact in `Game.h`, `gameImport_t` offset 0x68 union reconciled.
+- Module ABI (`GAME_API_VERSION`, interface changes this session): `GAME_API_VERSION 1` intact in `Game.h`. `gameImport_t` (192 bytes on 64-bit, offset 0x68 union) and `gameExport_t` (24 bytes) validated via `StructLayoutTest.cpp`. `GAME_API_EXPORT` defined for dynamic export across MSVC (`__declspec(dllexport)`) and GCC/Clang (`__attribute__((visibility("default")))`).
 - Serialized/asset format changes: none (preserving retail serialization structures)
 - Wire protocol id and OpenETQW-only deviations: 16-bit MsgChannel framing restored; snapshot delta acknowledgment gating enforced.
-- Ledger rows added (`docs/compat-ledger.md`): Row 032 added documenting Vulkan dynamic stencil shadow volumes, two-sided stencil testing (depth-pass & Carmack's Reverse depth-fail), pipeline barriers, and additive lighting interactions masked by stencil == 0.
+- Ledger rows added (`docs/compat-ledger.md`): Rows 033, 034, and 035 added documenting cross-platform Meson static library resolution and staging, Windows MSVC flags and console dedicated subsystem isolation, and GitHub Actions continuous integration matrix with asset-free unit test decoupling.
 - Consequence for retail 1.5 interop: Simulation and network state encoding strictly agree with retail asset formats and wire protocol.
 
 ## Baseline observations delta
@@ -147,8 +218,8 @@ Initial baseline run against `~/etqw` commit `f2b655c`:
 ## Next steps (7 or fewer, ordered)
 | # | Step | Host / OS needed | Depends on | Acceptance test |
 |---|---|---|---|---|
-| 1 | Cross-Platform Windows & Linux Client Targets | Windows 11 / Linux | Shadows complete | SDL3 + Vulkan client builds on Win64 and Linux x86_64 |
-| 2 | Milestone 6: Retail Network Interop Wire Captures | Linux / macOS | Step 1 | Retail client/server loopback packet capture & verification |
+| 1 | Upstream Git Synchronization | Local workstation | CI matrix complete | Clean working trees, commit tags, and git push to upstream remotes |
+| 2 | Milestone 6: Retail Network Interop Wire Captures | Linux / macOS / Windows | Step 1 | Retail client/server loopback packet capture & verification |
 
 ## Inputs needed from the owner
 - None. Retail assets extracted and isolated successfully.
