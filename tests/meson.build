@@ -163,4 +163,18 @@ if build_dedicated
     timeout: 1800,
     is_parallel: false,
   )
+  test(
+    'inprocess-map-change',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_inprocess_map_change.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--log', meson.project_build_root() / 'meson-logs' / 'inprocess-map-change.log',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration', 'stock-maps'],
+    protocol: 'exitcode',
+    timeout: 900,
+    is_parallel: false,
+  )
 endif
