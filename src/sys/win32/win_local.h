@@ -34,7 +34,7 @@ If you have questions concerning this license or the applicable additional terms
 #define DIRECTINPUT_VERSION 0x0800
 #endif
 #include <dinput.h>
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #include "../../renderer/wglext.h"		// windows OpenGL extensions
 
 // WGL_ARB_extensions_string

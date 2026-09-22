@@ -42,9 +42,25 @@ def cleanup_procs():
 atexit.register(cleanup_procs)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-BINARY_PATH = REPO_ROOT / "build" / "openETQW-ded_arm64"
-DATA_PATH = Path("/Users/jmulesa/etqw_data")
+DEFAULT_DATA_PATH = Path("/Users/jmulesa/etqw_data")
+DATA_PATH = Path(os.environ.get("ETQW_DATA_PATH", str(DEFAULT_DATA_PATH)))
 SERVER_PORT = 27795
+
+def _find_dedicated_binary() -> Path:
+    candidates = [
+        REPO_ROOT / "build" / "openETQW-ded_arm64",
+        REPO_ROOT / "build" / "openETQW-ded_x64",
+        REPO_ROOT / "build" / "openETQW-ded_x64.exe",
+        REPO_ROOT / "build" / "openETQW-ded_arm64.exe",
+        REPO_ROOT / "build" / "openETQW-ded",
+        REPO_ROOT / "build" / "openETQW-ded.exe",
+    ]
+    for c in candidates:
+        if c.is_file():
+            return c
+    return candidates[0]
+
+BINARY_PATH = _find_dedicated_binary()
 
 SERVER_ARGS = [
     str(BINARY_PATH),
@@ -209,9 +225,11 @@ def run_valley_match_test():
     print("=================================================================\n")
 
     if not BINARY_PATH.is_file():
-        raise FileNotFoundError(f"Engine binary not found: {BINARY_PATH}")
-    if not DATA_PATH.is_dir():
-        raise FileNotFoundError(f"ETQW base data path not found: {DATA_PATH}")
+        print(f"[SKIP] Dedicated engine binary not found at {BINARY_PATH}. Skipping test (exit code 77).")
+        return 77
+    if not DATA_PATH.is_dir() or not (DATA_PATH / "base").is_dir() or not (DATA_PATH / "base" / "pak000.pk4").is_file():
+        print(f"[SKIP] ETQW retail data not found or incomplete at {DATA_PATH}. Skipping valley match test (exit code 77).")
+        return 77
 
     output_queue = queue.Queue()
 
@@ -467,11 +485,12 @@ def run_valley_match_test():
     print("=================================================================")
     print(" ALL 9 PHASES OF MILESTONE 4 VALLEY MATCH TEST PASSED!")
     print("=================================================================")
+    return 0
 
 
 if __name__ == "__main__":
     try:
-        run_valley_match_test()
+        sys.exit(run_valley_match_test())
     except Exception as e:
         print(f"\n[FATAL TEST FAILURE]: {e}", file=sys.stderr)
         sys.exit(1)

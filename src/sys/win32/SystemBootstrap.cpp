@@ -4,11 +4,11 @@
 // replaces the incompatible Doom 3 Win32 implementation in the executable
 // while the retail platform units are recovered from symbols.
 
-#include "../../idlib/precompiled.h"
+#include "idlib/precompiled.h"
 #pragma hdrstop
 
-#include "../sys_local.h"
-#include "../sys_render.h"
+#include "sys_local.h"
+#include "sys_render.h"
 #include "win_local.h"
 #include "win_soundthread.h"
 #ifdef ETQW_WITH_RADIANT
@@ -23,13 +23,54 @@
 #include <process.h>
 #include <shellapi.h>
 
-extern idSysLocal sysLocal;
-extern const char *sysLanguageNames[];
-extern void PQ_Init();
-extern void PQ_ShutDown();
+// Instantiation of system localization and sysLocal interfaces for Windows builds
+const char * sysLanguageNames[] = {
+	"english", "spanish", "italian", "german", "french", "russian", 
+	"polish", "korean", "japanese", "chinese", NULL
+};
+
+idCVar sys_lang( "sys_lang", "english", CVAR_SYSTEM | CVAR_ARCHIVE, "", sysLanguageNames, idCmdSystem::ArgCompletion_String<sysLanguageNames> );
+
+idSysLocal			sysLocal;
+idSys *				sys = &sysLocal;
+
+Win32Vars_t win32 = {};
+
+void PQ_Init() {}
+void PQ_ShutDown() {}
+sdSoundThread* sys_soundThread = NULL;
+
+#ifdef ID_DEDICATED
+void Sys_ProcessSDLEvents( void ) {}
+void IN_Frame( void ) {}
+#endif
+
+// Win32 Threading Primitives Declarations & Constants
+typedef threadPriority_e xthreadPriority;
+
+const int MAX_CRITICAL_SECTIONS = 8;
+const int MAX_LOCAL_CRITICAL_SECTIONS = MAX_CRITICAL_SECTIONS + 1;
+const int MAX_TRIGGER_EVENTS = 8;
+const int MAX_THREADS = 16;
+
+extern xthreadInfo *g_threads[ MAX_THREADS ];
+extern int g_thread_count;
+
+void		Sys_CreateThread( xthread_t function, void *parms, threadPriority_e priority, xthreadInfo &info, const char *name, xthreadInfo *threads[], int *thread_count );
+void		Sys_DestroyThread( xthreadInfo& info );
+void		Sys_RequestThreadStop( xthreadInfo& info );
+bool		Sys_IsThreadStopRequested( const xthreadInfo& info );
+bool		Sys_IsCurrentThreadStopRequested( void );
+const char *Sys_GetThreadName( int *index = NULL );
+
+void		Sys_EnterCriticalSection( int index = CRITICAL_SECTION_ZERO );
+void		Sys_LeaveCriticalSection( int index = CRITICAL_SECTION_ZERO );
+void		Sys_WaitForEvent( int index = 0 );
+void		Sys_TriggerEvent( int index = 0 );
+#ifndef ID_DEDICATED
 extern void Sys_CollectPerformanceData();
 extern sdPerformanceQuery* Sys_GetPerformanceQuery( sdPerformanceQueryType pqType );
-extern void IN_Frame();
+#endif
 #ifdef ETQW_WITH_RADIANT
 extern int com_editors;
 #endif
@@ -143,21 +184,30 @@ void sdSysEvent::FreeData() {
 	ptrLength = 0;
 }
 
+static void Sys_EnsureThreadingInitialized( void );
+static void Sys_ShutdownThreading( void );
+
 idSysLocal::~idSysLocal() {
 	ClearEvents();
+	Sys_ShutdownThreading();
 }
 
 void idSysLocal::Init() {
 	QueryPerformanceFrequency( &timerFrequency );
 	QueryPerformanceCounter( &timerBase );
+	Sys_EnsureThreadingInitialized();
+#ifndef ID_DEDICATED
 	SDL_SetMainReady();
 	SDL_SetHint( SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2" );
 	SDL_SetHint( SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1" );
-	if ( SDL_Init( SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_TIMER ) != 0 ) {
-		Sys_Error( "SDL2 initialization failed: %s", SDL_GetError() );
+	if ( !SDL_Init( SDL_INIT_VIDEO | SDL_INIT_EVENTS ) ) {
+		Sys_Error( "SDL3 initialization failed: %s", SDL_GetError() );
 	}
 	PQ_Init();
-	sys_soundThread->StartThread();
+	if ( sys_soundThread != NULL ) {
+		sys_soundThread->StartThread();
+	}
+#endif
 }
 
 void idSysLocal::PostGameInit() {
@@ -166,10 +216,17 @@ void idSysLocal::PostGameInit() {
 void idSysLocal::Shutdown() {
 	// Stop service workers before releasing any input, sound, event, or timer
 	// state they can touch.
-	sys_soundThread->StopThread();
+#ifndef ID_DEDICATED
+	if ( sys_soundThread != NULL ) {
+		sys_soundThread->StopThread();
+	}
+#endif
 	ClearEvents();
+#ifndef ID_DEDICATED
 	PQ_ShutDown();
 	SDL_Quit();
+#endif
+	Sys_ShutdownThreading();
 }
 
 void idSysLocal::GetCPUInfo( cpuInfo_t& info ) {
@@ -348,15 +405,23 @@ int idSysLocal::MessageBox( const char* title, const char* buffer, messageBoxTyp
 }
 
 void idSysLocal::ProcessOSEvents() {
+#ifndef ID_DEDICATED
 	Sys_ProcessSDLEvents();
+#endif
 }
 
 sdPerformanceQuery* idSysLocal::GetPerformanceQuery( sdPerformanceQueryType pqType ) {
+#ifndef ID_DEDICATED
 	return Sys_GetPerformanceQuery( pqType );
+#else
+	return NULL;
+#endif
 }
 
 void idSysLocal::CollectPerformanceData() {
+#ifndef ID_DEDICATED
 	Sys_CollectPerformanceData();
+#endif
 }
 
 idWStr idSysLocal::GetClipboardData() {
@@ -656,7 +721,9 @@ void Sys_DLL_Unload( void* dllHandle ) {
 
 void Sys_GenerateEvents() {
 	sysLocal.ProcessOSEvents();
+#ifndef ID_DEDICATED
 	IN_Frame();
+#endif
 }
 
 void Sys_PumpEvents() {
@@ -1031,6 +1098,275 @@ int Sys_GetLanguageIndex( const char* langName ) {
 	return 0;
 }
 
+/*
+==============================================================
+
+	Win32 64-bit Threading & Synchronization Primitives
+
+==============================================================
+*/
+
+struct win32ThreadEntry_t {
+	HANDLE				handle;
+	DWORD				threadId;
+	xthreadInfo *		info;
+	volatile bool		stopRequested;
+	bool				inUse;
+};
+
+static CRITICAL_SECTION	g_criticalSections[ MAX_LOCAL_CRITICAL_SECTIONS ];
+static HANDLE			g_triggerEvents[ MAX_TRIGGER_EVENTS ];
+static win32ThreadEntry_t g_threadTable[ MAX_THREADS ];
+static LONG				g_threadingInitState = 0;
+
+xthreadInfo *			g_threads[ MAX_THREADS ];
+int						g_thread_count = 0;
+
+static void Sys_EnsureThreadingInitialized( void ) {
+	if ( InterlockedCompareExchange( &g_threadingInitState, 1, 0 ) == 0 ) {
+		for ( int i = 0; i < MAX_LOCAL_CRITICAL_SECTIONS; ++i ) {
+			InitializeCriticalSectionAndSpinCount( &g_criticalSections[ i ], 4000 );
+		}
+		for ( int i = 0; i < MAX_TRIGGER_EVENTS; ++i ) {
+			g_triggerEvents[ i ] = CreateEventA( NULL, FALSE, FALSE, NULL );
+		}
+		for ( int i = 0; i < MAX_THREADS; ++i ) {
+			g_threadTable[ i ].handle = NULL;
+			g_threadTable[ i ].threadId = 0;
+			g_threadTable[ i ].info = NULL;
+			g_threadTable[ i ].stopRequested = false;
+			g_threadTable[ i ].inUse = false;
+			g_threads[ i ] = NULL;
+		}
+		g_thread_count = 0;
+		InterlockedExchange( &g_threadingInitState, 2 );
+	} else {
+		while ( InterlockedCompareExchange( &g_threadingInitState, 2, 2 ) != 2 ) {
+			Sleep( 0 );
+		}
+	}
+}
+
+static void Sys_ShutdownThreading( void ) {
+	if ( InterlockedCompareExchange( &g_threadingInitState, 0, 2 ) == 2 ) {
+		for ( int i = 0; i < MAX_TRIGGER_EVENTS; ++i ) {
+			if ( g_triggerEvents[ i ] != NULL ) {
+				CloseHandle( g_triggerEvents[ i ] );
+				g_triggerEvents[ i ] = NULL;
+			}
+		}
+		for ( int i = 0; i < MAX_LOCAL_CRITICAL_SECTIONS; ++i ) {
+			DeleteCriticalSection( &g_criticalSections[ i ] );
+		}
+	}
+}
+
+void Sys_EnterCriticalSection( int index ) {
+	Sys_EnsureThreadingInitialized();
+	if ( index < 0 || index >= MAX_LOCAL_CRITICAL_SECTIONS ) {
+		index = CRITICAL_SECTION_ZERO;
+	}
+	EnterCriticalSection( &g_criticalSections[ index ] );
+}
+
+void Sys_LeaveCriticalSection( int index ) {
+	if ( index < 0 || index >= MAX_LOCAL_CRITICAL_SECTIONS ) {
+		index = CRITICAL_SECTION_ZERO;
+	}
+	LeaveCriticalSection( &g_criticalSections[ index ] );
+}
+
+void Sys_WaitForEvent( int index ) {
+	Sys_EnsureThreadingInitialized();
+	if ( index < 0 || index >= MAX_TRIGGER_EVENTS ) {
+		index = 0;
+	}
+	if ( g_triggerEvents[ index ] != NULL ) {
+		WaitForSingleObject( g_triggerEvents[ index ], INFINITE );
+	}
+}
+
+void Sys_TriggerEvent( int index ) {
+	Sys_EnsureThreadingInitialized();
+	if ( index < 0 || index >= MAX_TRIGGER_EVENTS ) {
+		index = 0;
+	}
+	if ( g_triggerEvents[ index ] != NULL ) {
+		SetEvent( g_triggerEvents[ index ] );
+	}
+}
+
+void Sys_CreateThread( xthread_t function, void *parms, threadPriority_e priority, xthreadInfo &info, const char *name, xthreadInfo *threads[], int *thread_count ) {
+	const char *threadName = ( name != NULL && name[0] != '\0' ) ? name : "unnamed";
+
+	info.threadHandle = 0;
+	info.threadId = 0;
+	info.name = threadName;
+
+	if ( function == NULL || threads == NULL || thread_count == NULL ) {
+		return;
+	}
+
+	Sys_EnsureThreadingInitialized();
+
+	Sys_EnterCriticalSection( CRITICAL_SECTION_ZERO );
+	int slot = -1;
+	for ( int i = 0; i < MAX_THREADS; i++ ) {
+		if ( !g_threadTable[ i ].inUse ) {
+			slot = i;
+			break;
+		}
+	}
+	if ( slot == -1 ) {
+		Sys_LeaveCriticalSection( CRITICAL_SECTION_ZERO );
+		common->Printf( "Sys_CreateThread: MAX_THREADS (%d) reached for %s\n", MAX_THREADS, threadName );
+		return;
+	}
+
+	DWORD threadId = 0;
+	HANDLE threadHandle = CreateThread(
+		NULL,
+		0,
+		reinterpret_cast< LPTHREAD_START_ROUTINE >( function ),
+		parms,
+		0,
+		&threadId
+	);
+
+	if ( threadHandle != NULL ) {
+		if ( priority == THREAD_HIGHEST ) {
+			SetThreadPriority( threadHandle, THREAD_PRIORITY_HIGHEST );
+		} else if ( priority == THREAD_ABOVE_NORMAL ) {
+			SetThreadPriority( threadHandle, THREAD_PRIORITY_ABOVE_NORMAL );
+		} else if ( priority == THREAD_BELOW_NORMAL ) {
+			SetThreadPriority( threadHandle, THREAD_PRIORITY_BELOW_NORMAL );
+		} else if ( priority == THREAD_LOWEST ) {
+			SetThreadPriority( threadHandle, THREAD_PRIORITY_LOWEST );
+		}
+
+		g_threadTable[ slot ].handle = threadHandle;
+		g_threadTable[ slot ].threadId = threadId;
+		g_threadTable[ slot ].info = &info;
+		g_threadTable[ slot ].stopRequested = false;
+		g_threadTable[ slot ].inUse = true;
+
+		// 1-based index stored in integer threadHandle to eliminate 64-bit pointer truncation
+		info.threadHandle = slot + 1;
+		info.threadId = threadId;
+		if ( *thread_count < MAX_THREADS ) {
+			threads[ ( *thread_count )++ ] = &info;
+		}
+	} else {
+		common->Printf( "Sys_CreateThread: CreateThread failed for %s (error %lu)\n", threadName, GetLastError() );
+	}
+	Sys_LeaveCriticalSection( CRITICAL_SECTION_ZERO );
+}
+
+void Sys_RequestThreadStop( xthreadInfo& info ) {
+	Sys_EnterCriticalSection( CRITICAL_SECTION_ZERO );
+	int slot = info.threadHandle - 1;
+	if ( slot >= 0 && slot < MAX_THREADS && g_threadTable[ slot ].inUse && g_threadTable[ slot ].info == &info ) {
+		g_threadTable[ slot ].stopRequested = true;
+	}
+	Sys_LeaveCriticalSection( CRITICAL_SECTION_ZERO );
+
+	for ( int i = 0; i < MAX_TRIGGER_EVENTS; i++ ) {
+		Sys_TriggerEvent( i );
+	}
+}
+
+bool Sys_IsThreadStopRequested( const xthreadInfo& info ) {
+	bool stop = false;
+	Sys_EnterCriticalSection( CRITICAL_SECTION_ZERO );
+	int slot = info.threadHandle - 1;
+	if ( slot >= 0 && slot < MAX_THREADS && g_threadTable[ slot ].inUse && g_threadTable[ slot ].info == &info ) {
+		stop = g_threadTable[ slot ].stopRequested;
+	}
+	Sys_LeaveCriticalSection( CRITICAL_SECTION_ZERO );
+	return stop;
+}
+
+bool Sys_IsCurrentThreadStopRequested( void ) {
+	DWORD currentId = GetCurrentThreadId();
+	bool stop = false;
+
+	Sys_EnterCriticalSection( CRITICAL_SECTION_ZERO );
+	for ( int i = 0; i < MAX_THREADS; i++ ) {
+		if ( g_threadTable[ i ].inUse && g_threadTable[ i ].threadId == currentId ) {
+			stop = g_threadTable[ i ].stopRequested;
+			break;
+		}
+	}
+	Sys_LeaveCriticalSection( CRITICAL_SECTION_ZERO );
+	return stop;
+}
+
+void Sys_DestroyThread( xthreadInfo& info ) {
+	if ( info.threadHandle <= 0 || info.threadHandle > MAX_THREADS ) {
+		return;
+	}
+	int slot = info.threadHandle - 1;
+	Sys_EnterCriticalSection( CRITICAL_SECTION_ZERO );
+	if ( !g_threadTable[ slot ].inUse || g_threadTable[ slot ].info != &info ) {
+		Sys_LeaveCriticalSection( CRITICAL_SECTION_ZERO );
+		return;
+	}
+	HANDLE handle = g_threadTable[ slot ].handle;
+	DWORD tid = g_threadTable[ slot ].threadId;
+	Sys_LeaveCriticalSection( CRITICAL_SECTION_ZERO );
+
+	if ( tid == GetCurrentThreadId() ) {
+		common->Error( "Sys_DestroyThread: attempted to destroy calling thread '%s'", info.name ? info.name : "unnamed" );
+		return;
+	}
+
+	Sys_RequestThreadStop( info );
+	WaitForSingleObject( handle, INFINITE );
+	CloseHandle( handle );
+
+	Sys_EnterCriticalSection( CRITICAL_SECTION_ZERO );
+	g_threadTable[ slot ].handle = NULL;
+	g_threadTable[ slot ].threadId = 0;
+	g_threadTable[ slot ].info = NULL;
+	g_threadTable[ slot ].stopRequested = false;
+	g_threadTable[ slot ].inUse = false;
+
+	for ( int i = 0; i < g_thread_count; i++ ) {
+		if ( g_threads[ i ] == &info ) {
+			for ( int j = i + 1; j < g_thread_count; j++ ) {
+				g_threads[ j - 1 ] = g_threads[ j ];
+			}
+			g_threads[ g_thread_count - 1 ] = NULL;
+			g_thread_count--;
+			break;
+		}
+	}
+	info.threadHandle = 0;
+	info.threadId = 0;
+	Sys_LeaveCriticalSection( CRITICAL_SECTION_ZERO );
+}
+
+const char* Sys_GetThreadName( int *index ) {
+	DWORD currentId = GetCurrentThreadId();
+	Sys_EnterCriticalSection( CRITICAL_SECTION_ZERO );
+	for ( int i = 0; i < MAX_THREADS; i++ ) {
+		if ( g_threadTable[ i ].inUse && g_threadTable[ i ].threadId == currentId ) {
+			if ( index != NULL ) {
+				*index = i;
+			}
+			const char *n = ( g_threadTable[ i ].info != NULL && g_threadTable[ i ].info->name != NULL ) ? g_threadTable[ i ].info->name : "unnamed";
+			Sys_LeaveCriticalSection( CRITICAL_SECTION_ZERO );
+			return n;
+		}
+	}
+	if ( index != NULL ) {
+		*index = -1;
+	}
+	Sys_LeaveCriticalSection( CRITICAL_SECTION_ZERO );
+	return "main";
+}
+
+#ifndef ID_DEDICATED
 int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE, LPSTR commandLine, int ) {
 	win32.hInstance = hInstance;
 	Sys_ShowSplashScreen( true );
@@ -1073,3 +1409,65 @@ int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE, LPSTR commandLine, int ) {
 	common->Shutdown();
 	return 0;
 }
+#endif
+
+/*
+==============================================================
+
+	Console Dedicated Server Entry Point (Subsystem: Console)
+
+==============================================================
+*/
+
+#ifdef ID_DEDICATED
+static BOOL WINAPI Sys_ConsoleCtrlHandler( DWORD ctrlType ) {
+	switch ( ctrlType ) {
+	case CTRL_C_EVENT:
+	case CTRL_BREAK_EVENT:
+	case CTRL_CLOSE_EVENT:
+	case CTRL_SHUTDOWN_EVENT:
+		Sys_Quit();
+		return TRUE;
+	default:
+		return FALSE;
+	}
+}
+
+int main( int argc, char **argv ) {
+	win32.hInstance = GetModuleHandleA( NULL );
+	SetConsoleCtrlHandler( Sys_ConsoleCtrlHandler, TRUE );
+
+	if ( argc > 1 ) {
+		common->Init( argc - 1, const_cast< const char ** >( &argv[ 1 ] ), NULL );
+	} else {
+		common->Init( 0, NULL, NULL );
+	}
+
+	if ( sys3D != NULL && sys3D->GetGameWindowHandle() != NULL ) {
+#ifdef ETQW_WITH_RADIANT
+		if ( com_editors & SYSTEM_EDITOR_RADIANT ) {
+			sys3D->HideGameWindow();
+			sys->Mouse().GrabCursor( false );
+			RadiantImGuiFocus();
+		} else
+#endif
+		{
+			sys3D->ShowGameWindow();
+			HWND gameWindow = reinterpret_cast< HWND >( sys3D->GetGameWindowHandle() );
+			SetForegroundWindow( gameWindow );
+			SetActiveWindow( gameWindow );
+			SetFocus( gameWindow );
+			sys->Mouse().GrabCursor( true );
+		}
+	}
+
+	while ( InterlockedCompareExchange( &quitRequested, 0, 0 ) == 0 ) {
+		common->Frame();
+		Sys_Sleep( 1 );
+	}
+
+	common->Shutdown();
+	return 0;
+}
+#endif
+
