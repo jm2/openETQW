@@ -11,11 +11,15 @@
 #pragma hdrstop
 
 #include "Image.h"
+#include "ImageParse.h"
 #include "RenderSystem.h"
 #include "VulkanBackend.h"
 #include "megatexture/MegaTexture.h"
 
 extern glconfig_t glConfig;
+
+// Image_files.cpp
+int R_WriteTGABuffer( byte*& outBuffer, const byte* data, int width, int height, int depth, bool swapBGR, bool flipVertical );
 
 namespace {
 	bool imageManagerInitialized = false;
@@ -574,31 +578,6 @@ idStr NormalizeImageName( const char* name ) {
 	return normalized;
 }
 
-bool ParseImageProgramText( idParser& src, idStr& imageProgram ) {
-	idToken token;
-	if ( !src.ReadToken( &token ) ) {
-		return false;
-	}
-
-	imageProgram = token;
-	if ( !src.PeekTokenString( "(" ) ) {
-		return true;
-	}
-
-	int depth = 0;
-	while ( src.ReadToken( &token ) ) {
-		imageProgram += token;
-		if ( token == "(" ) {
-			++depth;
-		} else if ( token == ")" ) {
-			if ( --depth == 0 ) {
-				return true;
-			}
-		}
-	}
-	return false;
-}
-
 }
 
 idImage* idImageManager::ImageFromFile( const char* name, imageParams_t params ) {
@@ -735,83 +714,8 @@ idMegaTexture* idImageManager::MegaTextureFromFile( const char* fileName ) {
 }
 idImage* idImageManager::ParseImage( idParser& src, const imageParams_t& defaultParms ) {
 	imageParams_t parms = defaultParms;
-	idToken token;
-	while ( src.ReadTokenOnLine( &token ) ) {
-		if ( token.Icmp( "bumpMap" ) == 0 ) {
-			parms.td = TD_BUMP;
-		} else if ( token.Icmp( "diffuseMap" ) == 0 ) {
-			parms.td = TD_DIFFUSE;
-		} else if ( token.Icmp( "specularMap" ) == 0 ) {
-			parms.td = TD_SPECULAR;
-		} else if ( token.Icmp( "cubeMap" ) == 0 ) {
-			parms.cubeMap = CF_NATIVE;
-		} else if ( token.Icmp( "cameraCubeMap" ) == 0 ) {
-			parms.cubeMap = CF_CAMERA;
-		} else if ( token.Icmp( "halfSphereMap" ) == 0 ) {
-			parms.cubeMap = CF_HALFSPHERE;
-		} else if ( token.Icmp( "nearest" ) == 0 ) {
-			parms.tf = TF_NEAREST;
-		} else if ( token.Icmp( "linear" ) == 0 ) {
-			parms.tf = TF_LINEAR;
-		} else if ( token.Icmp( "linearNearest" ) == 0 ) {
-			parms.tf = TF_LINEARNEAREST;
-		} else if ( token.Icmp( "waternormal" ) == 0 ) {
-			parms.mipState.colorType = mipmapState_t::MT_WATER;
-		} else if ( token.Icmp( "colormipmaps" ) == 0 ) {
-			parms.mipState.colorType = mipmapState_t::MT_COLORLEVELS;
-			if ( !src.Parse2DMatrix( 2, 4, parms.mipState.color ) ) {
-				return NULL;
-			}
-		} else if ( token.Icmp( "mirror" ) == 0 ) {
-			parms.trp = TR_MIRROR;
-		} else if ( token.Icmp( "mirror_x" ) == 0 ) {
-			parms.trp = TR_MIRROR_X;
-		} else if ( token.Icmp( "mirror_y" ) == 0 ) {
-			parms.trp = TR_MIRROR_Y;
-		} else if ( token.Icmp( "clamp" ) == 0 ) {
-			parms.trp = TR_CLAMP;
-		} else if ( token.Icmp( "clamp_x" ) == 0 ) {
-			// Retail ETQW names the one-axis modes for the direction that is
-			// allowed to repeat, not the GL coordinate that is clamped.  The
-			// skybox side panorama depends on clamp_x repeating S while clamping T.
-			parms.trp = TR_CLAMP_Y;
-		} else if ( token.Icmp( "clamp_y" ) == 0 ) {
-			parms.trp = TR_CLAMP_X;
-		} else if ( token.Icmp( "noclamp" ) == 0 ) {
-			parms.trp = TR_REPEAT;
-		} else if ( token.Icmp( "zeroclamp" ) == 0 ) {
-			parms.trp = TR_CLAMP_TO_ZERO;
-		} else if ( token.Icmp( "alphazeroclamp" ) == 0 ) {
-			parms.trp = TR_CLAMP_TO_ZERO_ALPHA;
-		} else if ( token.Icmp( "forceHighQuality" ) == 0 ) {
-			parms.td = TD_HIGH_QUALITY;
-		} else if ( token.Icmp( "uncompressed" ) == 0 || token.Icmp( "highquality" ) == 0 ) {
-			if ( !image_ignoreHighQuality.GetBool() ) {
-				parms.td = TD_HIGH_QUALITY;
-			}
-		} else if ( token.Icmp( "nopicmip" ) == 0 ) {
-			parms.allowPicmip = false;
-		} else if ( token.Icmp( "picmip" ) == 0 ) {
-			parms.allowPicmip = true;
-			parms.picmipofs = src.ParseInt();
-		} else if ( token.Icmp( "picmipmin" ) == 0 ) {
-			parms.picMipMin = src.ParseInt();
-		} else if ( token.Icmp( "anisotropy" ) == 0 ) {
-			parms.anisotropy = src.ParseFloat();
-		} else if ( token.Icmp( "minLod" ) == 0 ) {
-			parms.minLod = src.ParseFloat();
-		} else if ( token.Icmp( "maxLod" ) == 0 ) {
-			parms.maxLod = src.ParseFloat();
-		} else if ( token.Icmp( "partialLoad" ) == 0 ) {
-			parms.partialLoad = true;
-		} else {
-			src.UnreadToken( token );
-			break;
-		}
-	}
-
 	idStr imageProgram;
-	if ( !ParseImageProgramText( src, imageProgram ) ) {
+	if ( !R_ParseImageReference( src, parms, image_ignoreHighQuality.GetBool(), imageProgram ) ) {
 		return NULL;
 	}
 	return globalImages != NULL ? globalImages->ImageFromFile( imageProgram, parms ) : NULL;
@@ -864,41 +768,7 @@ void idImageManager::WriteTGA( const char* fileName, const byte* data, int width
 }
 
 int idImageManager::WriteTGABuffer( byte*& outBuffer, const byte* data, int width, int height, int depth, bool swapBGR, bool flipVertical ) {
-	outBuffer = NULL;
-	if ( data == NULL || width <= 0 || height <= 0 || ( depth != 3 && depth != 4 ) ) {
-		return 0;
-	}
-
-	const int length = 18 + width * height * depth;
-	byte* output = static_cast< byte* >( Mem_Alloc( length ) );
-	memset( output, 0, 18 );
-	output[ 2 ] = 2;
-	output[ 12 ] = width & 0xff;
-	output[ 13 ] = ( width >> 8 ) & 0xff;
-	output[ 14 ] = height & 0xff;
-	output[ 15 ] = ( height >> 8 ) & 0xff;
-	output[ 16 ] = depth * 8;
-	output[ 17 ] = static_cast< byte >( 0x20 | ( depth == 4 ? 8 : 0 ) );
-
-	byte* destination = output + 18;
-	for ( int y = 0; y < height; y++ ) {
-		const int sourceY = flipVertical ? height - 1 - y : y;
-		const byte* source = data + sourceY * width * depth;
-		for ( int x = 0; x < width; x++, source += depth, destination += depth ) {
-			if ( swapBGR ) {
-				destination[ 0 ] = source[ 2 ];
-				destination[ 1 ] = source[ 1 ];
-				destination[ 2 ] = source[ 0 ];
-			} else {
-				memcpy( destination, source, 3 );
-			}
-			if ( depth == 4 ) {
-				destination[ 3 ] = source[ 3 ];
-			}
-		}
-	}
-	outBuffer = output;
-	return length;
+	return R_WriteTGABuffer( outBuffer, data, width, height, depth, swapBGR, flipVertical );
 }
 
 void idImageManager::WriteBMP( const char*, const byte*, int, int, int ) {}

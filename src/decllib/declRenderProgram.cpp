@@ -266,6 +266,18 @@ bool sdDeclRenderProgram::ResolveReferences( parseData_t& parseData ) {
 			);
 			return false;
 		}
+		if ( !SD_HasRenderShaderBackend() ) {
+			// Dedicated server: no decl owns a program or shader, so there is
+			// nothing to attach.  A reference only supplies shader code, and the
+			// decl must still parse so its flags (interaction, state) match the
+			// client's: material parsing uses IsInteraction() to derive coverage
+			// and CONTENTS_OPAQUE, and a defaulted program loses those flags.
+			if ( reference == this ) {
+				common->Warning( "sdDeclRenderProgram::ResolveReferences : Circular dependency for reference in '%s'", GetName() );
+				return false;
+			}
+			continue;
+		}
 		if ( reference == this || reference->program == NULL ) {
 			common->Warning( "sdDeclRenderProgram::ResolveReferences : Circular dependency for reference in '%s'", GetName() );
 			return false;

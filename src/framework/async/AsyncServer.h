@@ -139,6 +139,8 @@ public:
 	void				Spawn( void );
 	void				Kill( void );
 	void				ExecuteMapChange( void );
+						// true if the running map was started from this si_map value
+	bool				IsMapRequestLoaded( const char *mapRequest ) const;
 
 	int					GetPort( void ) const;
 	netadr_t			GetBoundAdr( void ) const;
@@ -185,6 +187,7 @@ public:
 	void				GetAsyncStatsAvgMsg( idStr &msg );
 
 	void				PrintLocalServerInfo( void );
+	void				PrintClientSlots( void ) const;
 
 private:
 	bool				active;						// true if server is active
@@ -212,6 +215,8 @@ private:
 
 	bool				serverReloadingEngine;		// flip-flop to not loop over when net_serverReloadEngine is on
 
+	idStr				loadedMapRequest;			// normalized si_map of the running map, empty if none
+
 	bool				noRconOutput;				// for default rcon response when command is silent
 
 	int					lastAuthTime;				// global for auth server timeout
@@ -231,6 +236,7 @@ private:
 	void				InitClient( int clientNum, int clientId, int clientRate );
 	void				InitLocalClient( int clientNum );
 	void				BeginLocalClient( void );
+	void				BeginBotClients( void );
 	void				LocalClientInput( void );
 	void				CheckClientTimeouts( void );
 	void				SendPrintBroadcast( const char *string );

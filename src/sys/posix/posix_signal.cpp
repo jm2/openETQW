@@ -74,6 +74,9 @@ static void Posix_SignalHandler( int signum ) {
 	int frames = backtrace( callstack, 64 );
 	backtrace_symbols_fd( callstack, frames, STDERR_FILENO );
 
+	// Leave an interactive terminal usable (echo and line editing back on).
+	Posix_ShutdownConsoleInput();
+
 	_exit( 128 + signum );
 }
 

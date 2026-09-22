@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Deterministic Repeatability Verification for Bot AI Gameplay (Milestone 4).
+"""Repeatability check for Bot AI Gameplay (Milestone 4).
 
 Runs tests/test_bot_gameplay.py across multiple consecutive executions and verifies:
 1. 100% pass rate (exit code 0 for all runs).
-2. Deterministic pawn spawning & ground touchdown on Valley.
+2. Pawn spawning & ground touchdown on Valley on every run.
 3. Bot displacement >= 50 units on every single run.
-4. Consistent combat engagement detection (atk_cmd=1 / atk=1).
+4. Combat engagement detection (atk_cmd=1 / atk=1) on every run.
 5. Clean process termination without hanging or socket bind collisions.
+
+Runs are not compared with each other (bot behaviour is not deterministic);
+each run must pass on its own. If the child test skips (exit 77: no retail
+data / no binary) this script skips too (exit 77) instead of failing.
 """
 
 import subprocess
@@ -40,12 +44,16 @@ def main():
         elapsed = time.time() - t0
 
         output = p.stdout
+        if p.returncode == 77:
+            print(f"  Result:        SKIPPED (exit code 77)\n{output}")
+            print("[SKIP] test_bot_gameplay.py skipped (missing retail data or binary); skipping repeatability (exit 77).")
+            return 77
         passed = (p.returncode == 0)
 
         # Parse key metrics from test output
         gdf_disp = "N/A"
         strogg_disp = "N/A"
-        combat_found = ("COMBAT DETECTED" in output) or ("atk_cmd: 1" in output)
+        combat_found = "COMBAT DETECTED" in output
 
         for line in output.splitlines():
             if "GDF Bot AAS navigation displacement:" in line:

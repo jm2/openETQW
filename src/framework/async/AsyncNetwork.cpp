@@ -327,9 +327,15 @@ void idAsyncNetwork::SpawnServer_f( const idCmdArgs &args ) {
 			soundSystem->ShutdownHW();
 			break;
 	}
-	// use serverMapRestart if we already have a running server
 	if ( server.IsActive() ) {
-		cmdSystem->BufferCommandText( CMD_EXEC_NOW, "serverMapRestart" );
+		if ( server.IsMapRequestLoaded( cvarSystem->GetCVarString( "si_map" ) ) ) {
+			// same map: use serverMapRestart on the running server
+			cmdSystem->BufferCommandText( CMD_EXEC_NOW, "serverMapRestart" );
+		} else {
+			// A different map (admin changemap, g_nextMap, a campaign): the game's
+			// map restart only restarts the loaded map, so change maps for real.
+			server.ExecuteMapChange();
+		}
 	} else {
 		server.Spawn();
 	}

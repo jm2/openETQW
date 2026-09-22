@@ -29,6 +29,8 @@ If you have questions concerning this license or the applicable additional terms
 #include "../idlib/precompiled.h"
 #pragma hdrstop
 
+#include "GameModuleCallbacks.h"
+
 /*
 ===============================================================================
 
@@ -86,6 +88,9 @@ public:
 	void					SetWait( int numFrames ) { wait = numFrames; }
 	commandDef_t *			GetCommands( void ) const { return commands; }
 
+	void					CaptureModuleCommands( void );
+	int						RemoveModuleCommands( void );
+
 private:
 	static const int		MAX_CMD_BUFFER = 0x10000;
 
@@ -107,6 +112,10 @@ private:
 
 	// a command stored to be executed after a reloadEngine and all associated commands have been processed
 	idCmdArgs				postReload;
+
+	// commands registered before the game module was loaded (GameModuleCallbacks.h)
+	idList<const commandDef_t*>	moduleCapturedCommands;
+	bool					moduleCommandsCaptured;
 
 private:	
 	aliasDef_t *			FindAlias( const char *alias ) const;
@@ -438,6 +447,59 @@ void idCmdSystemLocal::RemoveCommand( const char *cmdName ) {
 
 /*
 ============
+idCmdSystemLocal::CaptureModuleCommands
+============
+*/
+void idCmdSystemLocal::CaptureModuleCommands( void ) {
+	moduleCapturedCommands.Clear();
+	for ( const commandDef_t *cmd = commands; cmd != NULL; cmd = cmd->next ) {
+		moduleCapturedCommands.Append( cmd );
+	}
+	moduleCommandsCaptured = true;
+}
+
+/*
+============
+idCmdSystemLocal::RemoveModuleCommands
+
+Removes every command added since CaptureModuleCommands: the ones a game
+module registered and did not remove again (its Shutdown removes only the
+CMD_FL_GAME ones).  Their handlers and completions are in the module.
+============
+*/
+int idCmdSystemLocal::RemoveModuleCommands( void ) {
+	if ( !moduleCommandsCaptured ) {
+		return 0;
+	}
+	int removed = 0;
+	commandDef_t *cmd, **last;
+	for ( last = &commands, cmd = *last; cmd; cmd = *last ) {
+		if ( moduleCapturedCommands.FindIndex( cmd ) == -1 ) {
+			common->DPrintf( "removing command '%s' left by the game module\n", cmd->name );
+			*last = cmd->next;
+			Mem_Free( cmd->name );
+			Mem_Free( cmd->description );
+			delete cmd;
+			removed++;
+			continue;
+		}
+		last = &cmd->next;
+	}
+	moduleCapturedCommands.Clear();
+	moduleCommandsCaptured = false;
+	return removed;
+}
+
+void Cmd_CaptureModuleCommands( void ) {
+	cmdSystemLocal.CaptureModuleCommands();
+}
+
+int Cmd_RemoveModuleCommands( void ) {
+	return cmdSystemLocal.RemoveModuleCommands();
+}
+
+/*
+============
 idCmdSystemLocal::RemoveFlaggedCommands
 ============
 */
@@ -687,8 +749,23 @@ void idCmdSystemLocal::ExecuteCommandText( const char *text ) {
 	}
 
 	entryCount++;
-	AppendCommandText( text );
-	ExecuteCommandBuffer( false );
+	try {
+		AppendCommandText( text );
+		ExecuteCommandBuffer( false );
+	} catch ( ... ) {
+		// A command called common->Error (a map that fails to load, for
+		// example).  Leave the nested buffer as if the text had finished, and
+		// drop the rest of the aborted text, or entryCount would stay raised
+		// and every later CMD_EXEC_NOW would run the leftovers out of order in
+		// buffer 1 while buffer 0 was never executed again.
+		entryCount--;
+		if ( entryCount == 0 ) {
+			textLengths[1] = 0;
+			textLength = &textLengths[0];
+			textBuf = textBuffers[0];
+		}
+		throw;
+	}
 	entryCount--;
 
 	if ( entryCount == 0 ) {
@@ -834,8 +911,15 @@ void idCmdSystemLocal::ExecuteCommandBuffer( bool allowWait ) {
 		text[i] = 0;
 
 		if ( !idStr::Cmp( text, "_execTokenized" ) ) {
-			args = tokenizedCmds[ 0 ];
-			tokenizedCmds.RemoveIndex( 0 );
+			// BufferCommandArgs queues this marker together with the args, but
+			// it can also be typed on the console or sent over rcon.
+			if ( tokenizedCmds.Num() == 0 ) {
+				common->Warning( "idCmdSystemLocal::ExecuteCommandBuffer: '_execTokenized' without a tokenized command" );
+				args.Clear();
+			} else {
+				args = tokenizedCmds[ 0 ];
+				tokenizedCmds.RemoveIndex( 0 );
+			}
 		} else {
 			args.TokenizeString( text, false );
 		}

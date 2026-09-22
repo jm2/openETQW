@@ -136,3 +136,31 @@ if build_engine
   )
 endif
 
+
+# 7. All-stock-maps verification (stock-maps phase): one fresh dedicated server
+#    per stock map; load, entities, map scripts, AAS/nav, bot traversal and
+#    bot think rate. Retail data comes only from ETQW_DATA_PATH, which meson
+#    passes through from the calling environment (unset or incomplete => the
+#    script exits 77 = SKIP). The binary is the one this build dir produces.
+if build_dedicated
+  all_stock_maps_ded = meson.project_build_root() / engine_ded_binary_name
+  if host_system == 'windows'
+    all_stock_maps_ded += '.exe'
+  endif
+  test(
+    'all-stock-maps',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_all_stock_maps.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--jobs', '1',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'all-stock-maps',
+      '--json', meson.project_build_root() / 'meson-logs' / 'all-stock-maps.json',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration', 'stock-maps'],
+    protocol: 'exitcode',
+    timeout: 1800,
+    is_parallel: false,
+  )
+endif

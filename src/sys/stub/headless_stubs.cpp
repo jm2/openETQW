@@ -15,6 +15,7 @@
 #include "../../renderer/renderbindings.h"
 #include "../../renderer/megatexture/megatexture.h"
 #include "../../renderer/Image.h"
+#include "../../renderer/ImageParse.h"
 #include <BSEInterface.h>
 
 extern glconfig_t glConfig;
@@ -205,7 +206,11 @@ class idRenderSystemHeadless : public idRenderSystem {
 public:
 	virtual ~idRenderSystemHeadless() {}
 
-	virtual void Init( void ) {}
+	// The client resolves the built-in render bindings and programs in
+	// idRenderSystemLocal::Init.  Material parsing compares stage bindings
+	// against them (implicit interaction/depth stages, perforated materials),
+	// so the dedicated server must resolve them too or those materials default.
+	virtual void Init( void ) { rbinds->Init(); }
 	virtual void Shutdown( void ) {}
 	virtual void ShutdownOpenGL( void ) {}
 	virtual bool IsOpenGLRunning( void ) const { return false; }
@@ -528,29 +533,57 @@ static sdRenderBindingManager headlessRenderBindingManager;
 
 /*
 ==============================================================
-idImageManager
+idImage / idImageManager
+
+The dedicated server never uploads or samples a texture, but material and
+renderBinding decls must parse exactly as they do on the client.  Retail
+material stages hold an image pointer for every texture reference, and a NULL
+ParseImage result defaults the whole material: its contents become plain
+CONTENTS_SOLID (no water, no CONTENTS_OPAQUE), its surface flags (nonsolid,
+ladder, slick, noimpact, ...) are cleared and its surfaceType/surfaceTypeMap
+are dropped.  The collision model takes polygon contents from the materials,
+so collision on the server differed from the client and from what the AAS was
+compiled against (e.g. most world polygons lost CONTENTS_OPAQUE).
+
+ParseImage therefore consumes the reference with the same parser as the
+client (R_ParseImageReference) and, like the client, returns NULL only for a
+malformed reference.  Every well-formed reference gets one shared placeholder
+image; its GPU operations below do nothing and it reports itself unloaded
+(sourceWidth/uploadWidth 0), which is also what a client image looks like
+before it is loaded.
 ==============================================================
 */
+void idImage::Bind() {}
+void idImage::BindFragment() {}
+void idImage::BindFragment( const int ) {}
+void idImage::Purge() {}
+bool idImage::IsLoaded() const { return false; }
+void idImage::SetMipmapLevel( byte*, int, int, int, mipmapState_t& ) {}
+void idImage::GenerateImage( const byte*, int, int, textureFilter_t, bool, textureRepeat_t, textureDepth_t, mipmapState_t ) {}
+void idImage::GenerateImageEx( const byte*, int, int, textureFilter_t, bool, textureRepeat_t, textureDepth_t, int, int ) {}
+void idImage::Generate3DImage( const byte*, int, int, int, textureFilter_t, bool, textureRepeat_t, textureDepth_t ) {}
+void idImage::GenerateCubeImage( const byte*[ 6 ], int, textureFilter_t, bool, textureDepth_t ) {}
+void idImage::GenerateMipmaps() {}
+void idImage::MakeDefault() {}
+void idImage::Reload( bool, bool ) {}
+
+static idImage* R_HeadlessPlaceholderImage() {
+	// Never freed: materials keep pointing at it until process exit.
+	static idImage* placeholder = NULL;
+	if ( placeholder == NULL ) {
+		placeholder = new idImage;
+		placeholder->imgName = "_headlessPlaceholder";
+	}
+	return placeholder;
+}
+
 idImage* idImageManager::ParseImage( idParser& src, const imageParams_t& defaultParms ) {
-	idToken token;
-	if ( !src.ReadToken( &token ) ) {
+	imageParams_t parms = defaultParms;
+	idStr imageProgram;
+	if ( !R_ParseImageReference( src, parms, false, imageProgram ) ) {
 		return NULL;
 	}
-	idStr imageProgram = token;
-	if ( src.PeekTokenString( "(" ) ) {
-		int depth = 0;
-		while ( src.ReadToken( &token ) ) {
-			imageProgram += token;
-			if ( token == "(" ) {
-				++depth;
-			} else if ( token == ")" ) {
-				if ( --depth == 0 ) {
-					break;
-				}
-			}
-		}
-	}
-	return NULL;
+	return R_HeadlessPlaceholderImage();
 }
 
 // Exported Globals
