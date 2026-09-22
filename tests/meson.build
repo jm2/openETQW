@@ -111,5 +111,13 @@ if build_engine
     workdir: meson.project_source_root(),
     timeout: 180,
   )
+  test(
+    'vulkan-shadows',
+    py,
+    args: [meson.project_source_root() / 'tests' / 'test_vulkan_shadows.py'],
+    workdir: meson.project_source_root(),
+    suite: 'client',
+    timeout: 120,
+  )
 endif
 

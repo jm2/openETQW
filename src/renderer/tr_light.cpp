@@ -1635,6 +1635,7 @@ void R_RemoveUnecessaryViewLights( void ) {
 #include "VertexCache.h"
 #include "../decllib/declTypeHolder.h"
 #include "../libs/qglLib/qgl.h"
+#include "draw_raytracing.h"
 
 extern idCVar r_megaDrawMethod;
 extern idCVar r_skipWaterFogLights;
@@ -2339,10 +2340,10 @@ void R_AddModelSurfaces() {
 void R_AddLightSurfaces() {
 	viewDef_s* view = RB_GetViewDef();
 	if ( view == NULL ) return;
-	// The Vulkan raster path shades ambient draw surfaces directly and ray
-	// tracing consumes view-light metadata, not the legacy per-light interaction
-	// chains.  Building and triangle-clipping those chains was pure CPU work.
-	if ( R_UseVulkanBackend() ) return;
+	// The Vulkan ray tracing path consumes view-light metadata directly rather
+	// than legacy per-light interaction chains. When Vulkan raster shadows and
+	// interactions are enabled (!R_RayTracingIsInitialized()), build the chains.
+	if ( R_UseVulkanBackend() && R_RayTracingIsInitialized() ) return;
 	for ( viewLight_s* light = view->viewLights; light != NULL; light = light->next ) {
 		if ( light->culled || light->material == NULL || IsSkippedWaterFog( light->material ) ) continue;
 		for ( int surfaceIndex = 0; surfaceIndex < sortedDrawSurfaces.Num(); ++surfaceIndex ) {
@@ -2407,7 +2408,7 @@ void R_RemoveUnecessaryViewLights() {
 	if ( view == NULL ) return;
 	// Keep all culled/derived light records for Vulkan ray-tracing light upload.
 	// With no legacy interaction chains they would otherwise all look empty.
-	if ( R_UseVulkanBackend() ) return;
+	if ( R_UseVulkanBackend() && R_RayTracingIsInitialized() ) return;
 	viewLight_s** link = &view->viewLights;
 	while ( *link != NULL ) {
 		viewLight_s* light = *link;

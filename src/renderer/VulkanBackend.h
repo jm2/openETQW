@@ -104,4 +104,15 @@ extern sdVulkanBackend vulkanBackend;
 
 bool R_UseVulkanBackend();
 
+struct drawSurf_s;
+struct viewLight_s;
+
+int ShadowIndexCount( const drawSurf_s* surface, const viewLight_s* light, bool& external );
+int ShadowIndexCount( const drawSurf_s* surface, bool& external );
+
+void DrawVulkanShadowSurface( sdVulkanBackendState& state, const drawSurf_s* surface,
+	const viewLight_s* light, const viewDef_s* view );
+void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* surface,
+	const viewLight_s* light, const viewDef_s* view, bool unshadowed = false );
+
 #endif /* !__RENDERER_VULKANBACKEND_H__ */

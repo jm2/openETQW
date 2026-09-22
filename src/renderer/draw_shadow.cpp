@@ -46,26 +46,40 @@ namespace {
 		return cache->virtMem != NULL ? static_cast< const byte* >( cache->virtMem ) + cache->offset : NULL;
 	}
 
-	int ShadowIndexCount( const drawSurf_s* surface, bool& external ) {
-		const srfTriangles_t* triangles = surface->geo;
+}
+
+int ShadowIndexCount( const drawSurf_s* surface, const viewLight_s* light, bool& external ) {
+	if ( surface == NULL || surface->geo == NULL ) {
 		external = false;
-		const int externalMode = r_useExternalShadows.GetInteger();
-		if ( externalMode == 0 ) return triangles->numIndexes;
-		if ( externalMode == 2 ) return triangles->numShadowIndexesNoCaps;
-		if ( ( surface->dsFlags & 1 ) == 0 ) {
-			external = true;
-			return triangles->numShadowIndexesNoCaps;
-		}
-		const viewLight_s* light = RB_GetActiveViewLight();
-		if ( light != NULL && !light->viewInsideLight && ( triangles->shadowCapPlaneBits & 0x40 ) == 0 ) {
-			external = true;
-			if ( ( light->viewSeesShadowPlaneBits & triangles->shadowCapPlaneBits ) != 0 ) {
-				return triangles->numShadowIndexesNoFrontCaps;
-			}
-			return triangles->numShadowIndexesNoCaps;
-		}
-		return triangles->numIndexes;
+		return 0;
 	}
+	const srfTriangles_t* triangles = surface->geo;
+	external = false;
+	const int externalMode = r_useExternalShadows.GetInteger();
+	if ( externalMode == 0 ) return triangles->numIndexes;
+	if ( externalMode == 2 ) return triangles->numShadowIndexesNoCaps;
+	if ( ( surface->dsFlags & 1 ) == 0 ) {
+		external = true;
+		return triangles->numShadowIndexesNoCaps;
+	}
+	if ( light == NULL ) {
+		light = RB_GetActiveViewLight();
+	}
+	if ( light != NULL && !light->viewInsideLight && ( triangles->shadowCapPlaneBits & 0x40 ) == 0 ) {
+		external = true;
+		if ( ( light->viewSeesShadowPlaneBits & triangles->shadowCapPlaneBits ) != 0 ) {
+			return triangles->numShadowIndexesNoFrontCaps;
+		}
+		return triangles->numShadowIndexesNoCaps;
+	}
+	return triangles->numIndexes;
+}
+
+int ShadowIndexCount( const drawSurf_s* surface, bool& external ) {
+	return ShadowIndexCount( surface, NULL, external );
+}
+
+namespace {
 
 	void SetStencilOps( bool mirror, bool external ) {
 		const GLenum front = mirror ? GL_BACK : GL_FRONT;
