@@ -4,19 +4,18 @@
 
 Hosted runners never have retail Enemy Territory: Quake Wars data, so this
 smoke drives build/openETQW-ded_<arch> against a synthetic base directory that
-this script generates itself (a tiny pk4 holding a text marker and, for the
-'stub-decls' variant, one two-line decl file). No retail content is read,
-copied or required.
+this script generates itself. No retail content is read, copied or required:
+the only files the server can see are the ones written here, and the run
+fails if the engine's file-system search path reaches anywhere else.
 
 Each variant runs one server with private fs_basepath / fs_savepath / HOME
 directories and a staged copy of the executable (plus the game module, which
 the engine's FindDLL looks up next to the executable first, then in the
-search path), drives the console over stdin, and asserts a ladder of startup
-phases:
+search path), drives the console over stdin, and asserts a ladder of phases:
 
   engine_banner      version banner printed
   filesystem         "file system initialized."
-  synthetic_pak      our generated pk4 was mounted
+  synthetic_pak      our generated pk4 was mounted (n/a for 'empty')
   decls              decl manager initialized
   session            session initialized
   game_dll_path      "Loading game DLL: '<the staged module>'"
@@ -30,23 +29,35 @@ phases:
   quit_shutdown      'quit' ran the game shutdown
   clean_exit         the process exited with status 0
 
-What is achievable today without engine/game changes (measured on macOS
-arm64 against openETQW HEAD + the pinned openETQW-game):
+Variants and what each reaches today, without engine or game source changes
+(measured on macOS arm64 and, under Rosetta, x86_64, debug and
+debugoptimized, openETQW 2fdb8aa + openETQW-game 5689e0a):
 
-  stub-decls  every phase above. The single generated decl is
-              'ammoDef stroyent {}': sdPlayerProperties::Init calls
-              idWeapon::GetAmmoType("stroyent"), which raises a game error
-              when no such decl exists.
-  bare        every phase except game_initialized: without any decls
-              game->Init stops at that GetAmmoType error, the engine catches
-              it (idCommonLocal::LoadGameDLL) and still reaches the console
-              and a clean quit. That gap is reported as a known gap; the day
-              it closes the smoke prints a notice so the variant can be
-              tightened.
+  stub-decls  generated pk4 holding a marker file and ONE generated decl,
+              'ammoDef stroyent {}': every phase. sdPlayerProperties::Init
+              calls idWeapon::GetAmmoType("stroyent"), which raises a game
+              error when no such decl exists; with it, game->Init completes.
+  bare        generated pk4 holding only a marker file: every phase except
+              game_initialized (known gap, see STROYENT_GAP).
+  empty       no pk4 at all, an empty base directory: same as 'bare'.
+
+In 'bare' and 'empty' the engine catches the game->Init error in
+idCommonLocal::LoadGameDLL and still reaches the console, answers commands
+and quits cleanly. A known gap is not asserted; the day it closes the smoke
+prints a notice so the variant can be tightened. Beyond this ladder nothing
+can be asserted without retail data: loading any map needs .entities, .cm,
+.aas and a campaign decl from the retail paks.
+
+With --drive args (the Windows default, where the console may not read
+stdin) the commands are passed as +echo/+status/+spawnServer/+quit. The
+engine runs them inside idCommonLocal::Init, before its "ETQW initialized"
+banner, so console_ready is not applicable in that mode and quit_shutdown is
+anchored on the +echo having run.
 
 The run fails on a crash or signal, a hang (no progress before a timeout),
 a non-zero exit, a fatal marker (FATAL ERROR, Sys_Error, sanitizer reports,
-assertion failures, ...) or any 'ERROR:' line that is not an expected one.
+assertion failures, ...), any 'ERROR:' line that is not an expected one, or
+a search-path entry outside the variant's private directories.
 
 Artifacts per variant (under --output-root/<variant>/): server.log,
 report.json and the synthetic base/save directories; a combined summary.json
@@ -171,14 +182,26 @@ WINDOWS_NTSTATUS = {
 class Variant:
     name: str
     description: str
-    stub_decls: bool
+    pak: str  # "stub-decls" (marker + one decl), "marker" (marker only) or "none" (no pk4)
     module_location: str  # "exe-dir" or "basepath"
     known_gaps: dict[str, str] = field(default_factory=dict)
     allowed_errors: tuple[str, ...] = ()
 
-    @property
-    def required(self) -> tuple[str, ...]:
-        return tuple(phase for phase in ALL_PHASES if phase not in self.known_gaps)
+    def not_applicable(self, drive: str, skip_missing_map: bool = False) -> tuple[str, ...]:
+        phases = []
+        if self.pak == "none":
+            phases.append("synthetic_pak")
+        if drive == "args":
+            # +commands, +quit included, run inside idCommonLocal::Init before
+            # the "ETQW initialized" banner, so that banner never appears.
+            phases.append("console_ready")
+        if skip_missing_map:
+            phases.append("missing_map_survived")
+        return tuple(phases)
+
+    def required(self, drive: str, skip_missing_map: bool = False) -> tuple[str, ...]:
+        skipped = set(self.known_gaps) | set(self.not_applicable(drive, skip_missing_map))
+        return tuple(phase for phase in ALL_PHASES if phase not in skipped)
 
 
 STROYENT_GAP = (
@@ -187,22 +210,31 @@ STROYENT_GAP = (
     "idWeapon::GetAmmoType -> gameLocal.Error); the engine catches it in idCommonLocal::LoadGameDLL "
     "and continues without an initialized game"
 )
+STROYENT_ERROR = r"idWeapon::GetAmmoType Invalid Ammo Type stroyent"
 
 VARIANTS: dict[str, Variant] = {
     "stub-decls": Variant(
         name="stub-decls",
         description="generated pk4 with one stub decl (ammoDef stroyent {}); game module next to the executable",
-        stub_decls=True,
+        pak="stub-decls",
         module_location="exe-dir",
         allowed_errors=(re.escape(MISSING_MAP),),
     ),
     "bare": Variant(
         name="bare",
         description="generated pk4 without any decls; game module found through fs_basepath/base",
-        stub_decls=False,
+        pak="marker",
         module_location="basepath",
         known_gaps={"game_initialized": STROYENT_GAP},
-        allowed_errors=(r"idWeapon::GetAmmoType Invalid Ammo Type stroyent", re.escape(MISSING_MAP)),
+        allowed_errors=(STROYENT_ERROR, re.escape(MISSING_MAP)),
+    ),
+    "empty": Variant(
+        name="empty",
+        description="no pk4 at all (empty base directory); game module next to the executable",
+        pak="none",
+        module_location="exe-dir",
+        known_gaps={"game_initialized": STROYENT_GAP},
+        allowed_errors=(STROYENT_ERROR, re.escape(MISSING_MAP)),
     ),
 }
 
@@ -299,15 +331,49 @@ def same_path(a: str, b: Path) -> bool:
     return left == right
 
 
-def make_synthetic_base(base_root: Path, stub_decls: bool) -> Path:
+def make_synthetic_base(base_root: Path, pak_kind: str) -> Optional[Path]:
     game_dir = base_root / "base"
     game_dir.mkdir(parents=True, exist_ok=False)
+    if pak_kind == "none":
+        return None
     pak = game_dir / SMOKE_PAK
     with zipfile.ZipFile(pak, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(PAK_MARKER_NAME, PAK_MARKER_TEXT)
-        if stub_decls:
+        if pak_kind == "stub-decls":
             archive.writestr(STUB_DECL_NAME, STUB_DECL_TEXT)
     return pak
+
+
+SEARCH_PATH_HEADER = "Current search path:"
+SEARCH_PATH_END = re.compile(r"^(game DLL:|Addon pk4s:|file system initialized)")
+SEARCH_PATH_SUFFIX = re.compile(r"\s+\(\d+ files\b.*\)$")
+
+
+def foreign_search_paths(lines: list[tuple[float, str]], allowed_root: Path) -> list[str]:
+    """Search-path entries the engine printed that lie outside allowed_root.
+
+    The engine prints its search path after every file-system (re)start. Any
+    entry outside the variant's private directories means the server could
+    read files this smoke did not generate (for example retail data found
+    through a default path), which would make the run unrepresentative."""
+    root = os.path.normcase(os.path.realpath(str(allowed_root)))
+    foreign: list[str] = []
+    inside = False
+    for _, text in lines:
+        stripped = text.strip()
+        if stripped == SEARCH_PATH_HEADER:
+            inside = True
+            continue
+        if not inside:
+            continue
+        if not stripped or SEARCH_PATH_END.match(stripped):
+            inside = False
+            continue
+        entry = SEARCH_PATH_SUFFIX.sub("", stripped)
+        resolved = os.path.normcase(os.path.realpath(entry))
+        if resolved != root and not resolved.startswith(root + os.sep):
+            foreign.append(entry)
+    return foreign
 
 
 def gha_escape(value: str) -> str:
@@ -341,19 +407,24 @@ class Server:
             extra["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         else:
             extra["start_new_session"] = True
-        self.proc = subprocess.Popen(
-            command,
-            cwd=str(cwd),
-            env=env,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            bufsize=1,
-            **extra,
-        )
+        try:
+            self.proc = subprocess.Popen(
+                command,
+                cwd=str(cwd),
+                env=env,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+                **extra,
+            )
+        except OSError as exc:
+            self._log.write(f"# could not start: {exc}\n")
+            self._log.close()
+            raise
         self._reader = threading.Thread(target=self._read, name="smoke-reader", daemon=True)
         self._reader.start()
 
@@ -456,7 +527,7 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
     home = run_dir / "home"
     for directory in (install_dir, save_root, home):
         directory.mkdir(parents=True)
-    pak = make_synthetic_base(base_root, variant.stub_decls)
+    pak = make_synthetic_base(base_root, variant.pak)
 
     staged_exe = install_dir / executable.name
     shutil.copy2(executable, staged_exe)
@@ -477,12 +548,10 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
         "+set", "net_port", str(port),
     ]
     if args.drive == "args":
-        command += [
-            "+echo", f"{SYNC_TOKEN}1",
-            "+status", "+echo", f"{SYNC_TOKEN}2",
-            "+spawnServer", MISSING_MAP, "+echo", f"{SYNC_TOKEN}3",
-            "+quit",
-        ]
+        command += ["+echo", f"{SYNC_TOKEN}1", "+status", "+echo", f"{SYNC_TOKEN}2"]
+        if not args.skip_missing_map:
+            command += ["+spawnServer", MISSING_MAP, "+echo", f"{SYNC_TOKEN}3"]
+        command += ["+quit"]
 
     env = os.environ.copy()
     env["HOME"] = str(home)
@@ -496,7 +565,39 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
     env.pop("ETQW_DATA_PATH", None)
 
     log_path = run_dir / "server.log"
-    server = Server(command, run_dir, env, log_path)
+    try:
+        server = Server(command, run_dir, env, log_path)
+    except OSError as exc:
+        # Not startable at all (wrong architecture, missing loader, ...).
+        return {
+            "variant": variant.name,
+            "description": variant.description,
+            "status": "fail",
+            "furthestPhase": "",
+            "phases": {phase: None for phase in ALL_PHASES},
+            "requiredMissing": list(variant.required(args.drive, args.skip_missing_map)),
+            "notApplicable": list(variant.not_applicable(args.drive, args.skip_missing_map)),
+            "knownGaps": dict(variant.known_gaps),
+            "knownGapsClosed": [],
+            "exitCode": None,
+            "exitStatus": f"did not start: {exc}",
+            "hangAt": "",
+            "fatalMarkers": [],
+            "unexpectedErrors": [],
+            "expectedErrors": [],
+            "foreignSearchPaths": [],
+            "warningLines": 0,
+            "gameDllPaths": [],
+            "notes": [f"could not start {staged_exe}: {exc}"],
+            "elapsedSeconds": 0.0,
+            "port": port,
+            "drive": args.drive,
+            "executable": {"path": str(executable), "sha256": sha256(executable)},
+            "gameModule": {"path": str(module), "sha256": sha256(module), "stagedAt": variant.module_location},
+            "syntheticPak": str(pak) if pak else None,
+            "log": str(log_path),
+            "command": command,
+        }
     reached: dict[str, float] = {}
     notes: list[str] = []
     timed_out_at = ""
@@ -517,14 +618,14 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
             if first is None:
                 timed_out_at = timed_out_at or ("" if not server.alive() else "stdin echo")
             else:
-                reached["stdin_roundtrip"] = server.lines[first][0]
+                reached["stdin_roundtrip"] = server.snapshot()[first][0]
                 start = server.mark()
                 server.send("status")
                 second = sync(2, args.command_timeout)
                 if second is not None:
                     window = [text for _, text in server.snapshot()[start:second]]
                     if any("Dedicated Server Status" in text or text.startswith("ETQW Dedicated") for text in window):
-                        reached["status"] = server.lines[second][0]
+                        reached["status"] = server.snapshot()[second][0]
                     else:
                         notes.append("'status' printed nothing recognisable")
                 elif server.alive():
@@ -533,7 +634,7 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
                     server.send(f"spawnServer {MISSING_MAP}")
                     third = sync(3, args.command_timeout)
                     if third is not None and server.alive():
-                        reached["missing_map_survived"] = server.lines[third][0]
+                        reached["missing_map_survived"] = server.snapshot()[third][0]
                     elif server.alive():
                         timed_out_at = "spawnServer of a missing map"
                 elif args.skip_missing_map:
@@ -575,7 +676,10 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
             dll_paths.append(match.group("path"))
             if "game_dll_path" not in reached and same_path(match.group("path"), staged_module):
                 reached["game_dll_path"] = stamp
-        if SHUTDOWN_LINE.match(stripped) and "quit_shutdown" not in reached and "console_ready" in reached:
+        # Only a shutdown after the console answered counts as the one 'quit'
+        # caused (a failed init also shuts the game down).
+        answered = "console_ready" in reached or (args.drive == "args" and "stdin_roundtrip" in reached)
+        if SHUTDOWN_LINE.match(stripped) and "quit_shutdown" not in reached and answered:
             reached["quit_shutdown"] = stamp
     if dll_paths and "game_dll_path" not in reached:
         notes.append(f"engine loaded a different game module: {dll_paths[0]} (expected {staged_module})")
@@ -598,13 +702,21 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
         if stripped.startswith("ERROR:"):
             (expected_errors if any(p.search(stripped) for p in allowed) else unexpected_errors).append(stripped)
 
-    missing = [phase for phase in variant.required if phase not in reached]
+    foreign = foreign_search_paths(lines, run_dir)
+    missing = [phase for phase in variant.required(args.drive, args.skip_missing_map) if phase not in reached]
     gaps_closed = [phase for phase in variant.known_gaps if phase in reached]
     furthest = ""
     for phase in ALL_PHASES:
         if phase in reached:
             furthest = phase
-    passed = not missing and not fatal and not unexpected_errors and not timed_out_at and exit_code == 0
+    passed = (
+        not missing
+        and not fatal
+        and not unexpected_errors
+        and not foreign
+        and not timed_out_at
+        and exit_code == 0
+    )
 
     if not args.keep_binaries:
         for path in (staged_exe, staged_module):
@@ -620,6 +732,7 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
         "furthestPhase": furthest,
         "phases": {phase: (round(reached[phase], 3) if phase in reached else None) for phase in ALL_PHASES},
         "requiredMissing": missing,
+        "notApplicable": list(variant.not_applicable(args.drive, args.skip_missing_map)),
         "knownGaps": {phase: text for phase, text in variant.known_gaps.items() if phase not in reached},
         "knownGapsClosed": gaps_closed,
         "exitCode": exit_code,
@@ -628,6 +741,7 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
         "fatalMarkers": fatal[:20],
         "unexpectedErrors": unexpected_errors[:20],
         "expectedErrors": expected_errors[:20],
+        "foreignSearchPaths": foreign,
         "warningLines": warnings,
         "gameDllPaths": dll_paths,
         "notes": notes,
@@ -636,7 +750,7 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
         "drive": args.drive,
         "executable": {"path": str(executable), "sha256": sha256(executable)},
         "gameModule": {"path": str(module), "sha256": sha256(module), "stagedAt": variant.module_location},
-        "syntheticPak": str(pak),
+        "syntheticPak": str(pak) if pak else None,
         "log": str(log_path),
         "command": command,
     }
@@ -655,6 +769,8 @@ def print_report(result: dict) -> None:
         stamp = result["phases"][phase]
         if stamp is not None:
             state = f"ok   {stamp:8.3f}s"
+        elif phase in result["notApplicable"]:
+            state = "n/a"
         elif phase in result["knownGaps"]:
             state = "gap  (known)"
         else:
@@ -665,6 +781,7 @@ def print_report(result: dict) -> None:
     for key, label in (
         ("fatalMarkers", "fatal markers"),
         ("unexpectedErrors", "unexpected ERROR lines"),
+        ("foreignSearchPaths", "search-path entries outside the private directories"),
         ("notes", "notes"),
     ):
         if result[key]:

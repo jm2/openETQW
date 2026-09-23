@@ -69,7 +69,9 @@ FETCH_TIMEOUT_SECONDS = 600
 
 # Substrings (lower-cased) of git's stderr. GitHub answers 401 for both private
 # and nonexistent repositories when no credentials are sent, so "auth" covers
-# both "private" and "not found".
+# both "private" and "not found". Only the https answers are listed: an "auth"
+# result makes the job skip, so a generic phrase such as "permission denied"
+# (which a local file-system error also prints) must never land here.
 AUTH_PATTERNS = (
     "could not read username",
     "could not read password",
@@ -84,8 +86,6 @@ AUTH_PATTERNS = (
     "http 401",
     "http 403",
     "http 404",
-    "permission denied",
-    "access denied",
     "write access to repository not granted",
 )
 BADREF_PATTERNS = (
@@ -600,7 +600,7 @@ def main(argv: list[str]) -> int:
         message = f"companion repo not accessible - skipped until repos are public ({exc})"
         gha_command("notice", message, title="Companion repo not accessible")
         write_summary(
-            "### SKIPPED: companion repo not accessible\n"
+            "### companion repo not accessible - skipped until repos are public\n"
             f"`{args.repo}` could not be fetched anonymously (it is private, or requires authentication) "
             f"and `{args.token_env}` is not set, so every step of this job that needs the companion "
             "checkout was skipped. This is expected while the repositories are private; it starts "

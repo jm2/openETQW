@@ -12,9 +12,12 @@
                  outside a function, broken %-format / str.format calls,
                  'is' against a literal, ...): fail the job;
      advisory  - hygiene (unused imports/variables, f-strings without
-                 placeholders, redefinitions): GitHub warning annotations only.
-   pyflakes must be importable (pip install pyflakes); pass
-   --allow-missing-pyflakes to only warn when it is not.
+                 placeholders, redefinitions): printed in a collapsed log
+                 group plus one summary notice; --strict makes them blocking.
+   pyflakes must be importable (CI pins it: python -m pip install
+   pyflakes==4.0.0); pass --allow-missing-pyflakes to only warn when it is
+   not. A blocking message class that the installed pyflakes no longer
+   defines is reported, so a pyflakes rename cannot silently demote it.
 
 Exit status: 0 clean (advisory findings allowed), 1 syntax error or blocking
 pyflakes finding, 2 usage/environment error.
@@ -79,6 +82,18 @@ def in_actions() -> bool:
     return os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
 
 
+def group(title: str) -> None:
+    if in_actions():
+        print(f"::group::{title}", flush=True)
+    else:
+        print(f"--- {title}")
+
+
+def endgroup() -> None:
+    if in_actions():
+        print("::endgroup::", flush=True)
+
+
 def annotate(level: str, path: str, line: int, col: int, message: str) -> None:
     text = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
     if in_actions():
@@ -133,16 +148,19 @@ def check_syntax(root: Path, files: list[str]) -> tuple[int, int]:
     return compiled, errors
 
 
-def run_pyflakes(root: Path, files: list[str], allow_missing: bool) -> tuple[int, int, int]:
+def run_pyflakes(root: Path, files: list[str], allow_missing: bool, strict: bool) -> tuple[int, int, int]:
     try:
+        import pyflakes
         from pyflakes import api as flakes_api
+        from pyflakes import messages as flakes_messages
         from pyflakes import reporter as flakes_reporter
     except ImportError:
         message = "pyflakes is not installed (python -m pip install pyflakes)"
         if allow_missing:
             print(f"check_python: WARNING: {message}; skipping lint")
             return 0, 0, 0
-        raise SystemExit(f"check_python: {message}")
+        print(f"check_python: {message}", file=sys.stderr)
+        raise SystemExit(2)
 
     class Collector(flakes_reporter.Reporter):
         def __init__(self) -> None:
@@ -159,6 +177,19 @@ def run_pyflakes(root: Path, files: list[str], allow_missing: bool) -> tuple[int
         def unexpectedError(self, filename, msg) -> None:
             self.syntax.append((filename, 1, 1, msg))
 
+    unknown = sorted(name for name in BLOCKING_MESSAGES if not hasattr(flakes_messages, name))
+    core = {"UndefinedName", "UndefinedLocal", "UndefinedExport", "ReturnOutsideFunction"}
+    if core & set(unknown):
+        print(
+            f"check_python: pyflakes {pyflakes.__version__} lacks core message classes {sorted(core & set(unknown))}; "
+            "update BLOCKING_MESSAGES in tools/ci/check_python.py",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    if unknown:
+        print(f"check_python: note: pyflakes {pyflakes.__version__} does not define {', '.join(unknown)}")
+    print(f"check_python: pyflakes {pyflakes.__version__}")
+
     collector = Collector()
     for rel in files:
         path = root / rel
@@ -166,7 +197,8 @@ def run_pyflakes(root: Path, files: list[str], allow_missing: bool) -> tuple[int
             continue
         flakes_api.check(path.read_text(encoding="utf-8", errors="replace"), rel, collector)
 
-    blocking = advisory = 0
+    blocking = 0
+    advisory: list[str] = []
     for filename, line, col, msg in collector.syntax:
         blocking += 1
         annotate("error", filename, line, col, f"pyflakes: {msg}")
@@ -176,10 +208,25 @@ def run_pyflakes(root: Path, files: list[str], allow_missing: bool) -> tuple[int
         if kind in BLOCKING_MESSAGES:
             blocking += 1
             annotate("error", message.filename, message.lineno, message.col + 1, text)
+        elif strict:
+            advisory.append(text)
+            annotate("error", message.filename, message.lineno, message.col + 1, text)
         else:
-            advisory += 1
-            annotate("warning", message.filename, message.lineno, message.col + 1, text)
-    return len(files), blocking, advisory
+            advisory.append(f"{message.filename}:{message.lineno}:{message.col + 1}: {text}")
+    if advisory and not strict:
+        group(f"pyflakes advisory findings ({len(advisory)}; not blocking)")
+        for line in advisory:
+            print(line)
+        endgroup()
+        annotate(
+            "notice",
+            "tools/ci/check_python.py",
+            1,
+            1,
+            f"{len(advisory)} advisory pyflakes finding(s) (unused imports/variables, placeholder-less "
+            "f-strings); see the 'pyflakes advisory findings' log group",
+        )
+    return len(files), blocking, len(advisory)
 
 
 def main(argv: list[str]) -> int:
@@ -202,7 +249,7 @@ def main(argv: list[str]) -> int:
 
     prefixes = tuple(prefix.rstrip("/") + "/" for prefix in args.lint_roots)
     lint_files = [rel for rel in files if rel.startswith(prefixes)]
-    linted, blocking, advisory = run_pyflakes(root, lint_files, args.allow_missing_pyflakes)
+    linted, blocking, advisory = run_pyflakes(root, lint_files, args.allow_missing_pyflakes, args.strict)
     print(f"check_python: pyflakes on {linted} file(s): {blocking} blocking, {advisory} advisory finding(s)")
 
     summary = os.environ.get("GITHUB_STEP_SUMMARY", "").strip()

@@ -27,10 +27,13 @@ Known violators can be listed in a baseline file (default
 tools/ci/integration_skip_baseline.txt): they are reported as warnings instead
 of failing the run, so the check can gate new regressions while existing tests
 are fixed. A baseline entry that now passes is reported as a notice (or an
-error with --strict-baseline) so the baseline only ever shrinks.
+error with --strict-baseline) so the baseline only ever shrinks. The baseline
+is only for standalone scripts: a test registered with Meson in an
+integration suite must always skip cleanly, and listing one in the baseline
+is itself an error.
 
 Hard-coded absolute paths (/Users/..., /home/..., C:\\...) in the tests are
-reported as warnings with file:line.
+reported as one warning per file (retail data must come from ETQW_DATA_PATH).
 
 Exit status: 0 no unexpected violations, 1 violations, 2 usage error.
 """
@@ -72,6 +75,11 @@ TRACEBACK = "Traceback (most recent call last)"
 class Discovered:
     path: str
     reasons: list[str] = field(default_factory=list)
+
+    @property
+    def meson(self) -> bool:
+        """Registered with Meson in an integration suite (never baselinable)."""
+        return any(reason.startswith("meson ") for reason in self.reasons)
 
 
 @dataclass
@@ -348,7 +356,7 @@ def write_summary(lines: list[str]) -> None:
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--root", type=Path, default=ROOT, help="engine repository root")
-    parser.add_argument("--timeout", type=float, default=30.0, help="seconds per test run (default 30)")
+    parser.add_argument("--timeout", type=float, default=20.0, help="seconds per test run (default 20)")
     parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE, help="known-violations file")
     parser.add_argument("--no-baseline", action="store_true", help="ignore the baseline; every violation fails")
     parser.add_argument("--strict-baseline", action="store_true", help="fail when a baseline entry now passes")
@@ -382,11 +390,17 @@ def main(argv: list[str]) -> int:
         tests = [test for test in tests if test.path in wanted]
     print(f"check_integration_skips: {len(tests)} integration test(s) under {root}")
     for test in tests:
-        print(f"  {test.path:52s} {'; '.join(test.reasons)}")
+        kind = "meson " if test.meson else "script"
+        print(f"  [{kind}] {test.path:52s} {'; '.join(test.reasons)}")
     for rel, hits in hardcoded.items():
-        for hit in hits:
-            number, _, text = hit.partition(": ")
-            gha("warning", f"hard-coded absolute path (retail data must come from ETQW_DATA_PATH): {text}", rel, int(number))
+        first_line, _, first_text = hits[0].partition(": ")
+        more = f" (+{len(hits) - 1} more line(s))" if len(hits) > 1 else ""
+        gha(
+            "warning",
+            f"hard-coded absolute path; retail data must come from ETQW_DATA_PATH: {first_text}{more}",
+            rel,
+            int(first_line),
+        )
     if args.list:
         return 0
 
@@ -414,15 +428,18 @@ def main(argv: list[str]) -> int:
     by_test: dict[str, list[Outcome]] = {}
     for outcome in outcomes:
         by_test.setdefault(outcome.test, []).append(outcome)
+    meson_tests = {test.path for test in tests if test.meson}
     unexpected, known, fixed = [], [], []
     for test, results in by_test.items():
         bad = [result for result in results if not result.ok]
         if bad:
             detail = "; ".join(f"{result.scenario}: {result.reason()}" for result in bad)
-            (known if test in baseline else unexpected).append((test, detail))
+            baselinable = test in baseline and test not in meson_tests
+            (known if baselinable else unexpected).append((test, detail))
         elif test in baseline:
             fixed.append(test)
     stale = [] if args.only else sorted(set(baseline) - set(by_test))
+    baselined_meson = sorted(set(baseline) & meson_tests)
 
     for test, detail in known:
         gha("warning", f"known integration-skip violation (baseline): {detail}", test)
@@ -436,11 +453,22 @@ def main(argv: list[str]) -> int:
         )
     for test in stale:
         gha("notice", f"baseline entry {test} matches no discovered integration test; remove it")
+    for test in baselined_meson:
+        gha(
+            "error",
+            "is registered with Meson in an integration suite and must always skip cleanly; "
+            "remove it from tools/ci/integration_skip_baseline.txt",
+            test,
+        )
 
     if args.write_baseline:
         entries = {} if args.no_baseline else dict(load_baseline(args.baseline))
         for test, detail in unexpected + known:
+            if test in meson_tests:
+                continue  # never baselinable; must be fixed instead
             entries[test] = detail
+        for test in baselined_meson:
+            entries.pop(test, None)
         if args.prune_fixed:
             for test in fixed:
                 entries.pop(test, None)
@@ -453,6 +481,7 @@ def main(argv: list[str]) -> int:
         "timeoutSeconds": args.timeout,
         "tests": [{"path": test.path, "reasons": test.reasons} for test in tests],
         "outcomes": [outcome.__dict__ | {"ok": outcome.ok, "reason": outcome.reason(verbose=True)} for outcome in outcomes],
+        "mesonRegistered": sorted(meson_tests),
         "unexpectedViolations": [test for test, _ in unexpected],
         "baselineViolations": [test for test, _ in known],
         "baselineFixed": fixed,
@@ -460,11 +489,14 @@ def main(argv: list[str]) -> int:
     }
     (output_dir / "report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
-    passed = sum(1 for results in by_test.values() if all(result.ok for result in results))
+    clean = {test for test, results in by_test.items() if all(result.ok for result in results)}
+    meson_run = meson_tests & set(by_test)
     summary = [
         "### Integration tests skip without retail data (exit 77)",
         "",
-        f"- {passed}/{len(by_test)} discovered integration tests skip cleanly in both scenarios",
+        f"- Meson-registered integration tests: {len(clean & meson_run)}/{len(meson_run)} skip cleanly "
+        "(required, no baseline)",
+        f"- standalone retail-data scripts: {len(clean - meson_run)}/{len(set(by_test) - meson_run)} skip cleanly",
         f"- unexpected violations: {len(unexpected)}" + (" (" + ", ".join(t for t, _ in unexpected) + ")" if unexpected else ""),
         f"- baseline (known) violations: {len(known)}",
         f"- baseline entries now fixed: {len(fixed)}" + (" (" + ", ".join(fixed) + ")" if fixed else ""),
@@ -473,7 +505,7 @@ def main(argv: list[str]) -> int:
     write_summary(summary)
     print("\n".join(summary[2:]))
     print(f"check_integration_skips: report {output_dir / 'report.json'}")
-    failed = bool(unexpected) or (args.strict_baseline and bool(fixed))
+    failed = bool(unexpected) or bool(baselined_meson) or (args.strict_baseline and bool(fixed))
     return 1 if failed else 0
 
 
