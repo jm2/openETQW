@@ -6,6 +6,29 @@ Written by Claude Code at a quota-forced safe stop. It replaces the earlier Gemi
 - Both repositories are **private** (checked with `gh api`).
 - Local-only session notes (gitignored): `/Users/jmulesa/openETQW/.agents/claude_session_2026-09-22/`. They include the transcript-history briefing, code-reader dossier (`code_results.json`), openQ4 triage, follow-up list, probe tool, and harness JSON reports.
 
+## Latest: pre-merge review (2026-09-23)
+Three adversarial review rounds over the WIP branches, run as multi-agent workflows (local notes: `.agents/claude_session_2026-09-22/FOLLOWUPS.md`). Every confirmed finding is fixed except two: the APPLYSNAPSHOT redesign (follow-up) and ledger 047 (owner decision).
+
+**Round 1 (whole diff vs main), 11 confirmed:**
+- **High:** a server map change (`spawnServer`, admin changemap, campaign) left every remote human frozen on the old map until they timed out. Fixed, with the new test `remote-client-map-change`.
+- **Medium:** a same-map `spawnServer` after an `si_rules` change kept the old rules.
+- **Lows:**
+  - AAS validation int overflow and the 0/1-node bounds search;
+  - event budget headroom;
+  - campaign test binary;
+  - CI companion policy and pin;
+  - protocol test positive half;
+  - ledger 045–047 (047 `validClasses` needs an owner decision).
+
+**Rounds 2–3 (on the fixes), reworked network delivery (ledger 045, protocol 0x4F45.2):**
+- **Reliability:** the game init is reliable. The client waits for its first snapshot before running the game, and the server enters it after its first usercmd of the new game. Client messages carry the game init id.
+- **Snapshots and local client:** snapshots are resent after 250 ms, with reliable messages held back while one is unacked. The listen-server local client gets no channel traffic, and repeater double-sends are gone.
+- **Loss tests:** POSIX `net_forceDrop` makes loss testable. Verified up to 30% loss each way. New meson test `remote-client-map-change-loss`.
+- **Game:** AAS cluster, portal and area routing-index validation, including cross-references. All constraints hold for the 24 retail files. An earlier version of the check rejected all 24; it was caught before it was pushed.
+- **FTZ/DAZ:** tried and reverted (ledger 048). The script VM keeps integers in float slots, and a client then ran server-only map script.
+
+**Evidence:** full meson with retail data 16/16. Multiclient 3/3 and loopback OK, before and after the final round.
+
 ## Latest: M4 CI parity (2026-09-23)
 - **Engine CI** (`ci.yml`): lint and script smoke are green. All 7 build legs plus the sanitizer leg skip cleanly while `openETQW-game` is private, so hosted CI has never built the engine.
 - **Game CI** (`commit-validation.yml`, round 3 at `3b6e1b9`): the module builds and `GetGameAPI` resolves on macOS arm64/x64, Linux x64 GCC/Clang and Windows x64 MSVC. The Linux x64 and macOS ASan+UBSan legs load and unload the module cleanly. The Linux ARM64 cross build failed on `raise`/`SIGTRAP` in `Lib.cpp` (fixed in `2e4b1ce`).
