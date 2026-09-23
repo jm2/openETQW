@@ -178,7 +178,7 @@ Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>
 | Bots / navigation | — | — | match-tested | — | — | All 11 stock maps + Valley: AAS loads (counts = retail), bots traverse, 96–100% AAS containment; AI thinks at 15 Hz by default, 30 Hz with bot_threadMinFrameDelay 0 |
 | Dynamic stencil shadows | — | — | match-tested | — | — | Vulkan two-sided stencil shadow volumes & dynamic lighting interactions |
 | OpenETQW ↔ OpenETQW network play | — | — | match-tested | — | — | Dedicated server and multi-client replication over UDP (protocol 0x4F45.2) |
-| Retail 1.5 peer refused at connect (clean break, D7) | — | — | launched | — | — | `tests/test_protocol_clean_break.py`: majors 1, 2, 10–14 and 22 are refused with 'Server uses protocol 20293.1' |
+| Retail 1.5 peer refused at connect (clean break, D7) | — | — | launched | — | — | `tests/test_protocol_clean_break.py`: majors 1, 2, 10–14 and 22 are refused with 'Server uses protocol 20293.2' |
 
 ### Build and dependency scripts verified
 | Script | Arch | Fedora | Debian | macOS | Windows 11 |
