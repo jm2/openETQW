@@ -611,6 +611,8 @@ void idAsyncServer::ClearClient( int clientNum ) {
 	client.clientRate = 0;
 	client.clientPing = 0;
 	client.gameInitSequence = 0;
+	client.gameInitSentId = GAME_INIT_ID_INVALID;
+	client.pendingReliable.Init( 0 );
 	client.gameFrame = 0;
 	client.gameTime = 0;
 	client.lastConnectTime = 0;
@@ -714,6 +716,9 @@ void idAsyncServer::ReinitRemoteClients() {
 		if ( i == localClientNum || client.isBot || client.clientState < SCS_CONNECTED ) {
 			continue;
 		}
+		if ( !FlushPendingReliable( i ) ) {
+			continue;	// dropped
+		}
 		client.clientState = SCS_CONNECTED;
 		client.isMapLoading = false;
 		client.gameFrame = 0;
@@ -723,6 +728,7 @@ void idAsyncServer::ReinitRemoteClients() {
 		client.acknowledgeSnapshotSequence = client.snapshotSequence;
 		client.lastSnapshotTime = 0;
 		client.lastSnapshotSize = 0;
+		client.gameInitSentId = GAME_INIT_ID_INVALID;
 	}
 }
 
@@ -868,13 +874,14 @@ bool idAsyncServer::SendPingToClient( int clientNum ) {
 ==================
 idAsyncServer::SendGameInitToClient
 
-The game init is a reliable message (protocol minor 2), queued ahead of the
-new game's reliable state: the channel retransmits it until it is
-acknowledged, and the client loads the map when it handles it, before the
-state that follows.  As an unreliable message it could be lost, or overtaken
-by that state, which the client then applied to the old map.  The state goes
-out now rather than when the client has loaded: the game's client-side map
-scripts need the networked entities before the client's first frame.
+The game init is a reliable message (protocol minor 2): the channel
+retransmits it until it is acknowledged, and it is ordered after everything
+queued for the client's old game.  The client loads the map when it handles
+it.  The client stays SCS_CONNECTED, so none of the game's broadcasts pile up
+in its channel while it loads (it acknowledges nothing then), until its first
+usercmd of this game says it has loaded: BeginRemoteClient then spawns its
+player and sends the game's state, and the first snapshot follows.  The
+client does not run the game (CS_CONNECTED) before that snapshot.
 ==================
 */
 void idAsyncServer::SendGameInitToClient( int clientNum ) {
@@ -885,7 +892,6 @@ void idAsyncServer::SendGameInitToClient( int clientNum ) {
 
 	common->Printf( "Sending game init to client %d\n", clientNum );
 
-	// 1. The game init
 	byte buffer[ MAX_MESSAGE_SIZE ];
 	idBitMsg msg;
 	msg.InitWrite( buffer, sizeof( buffer ) );
@@ -899,15 +905,38 @@ void idAsyncServer::SendGameInitToClient( int clientNum ) {
 	if ( client.clientState < SCS_CONNECTED ) {
 		return;	// dropped (reliable overflow)
 	}
+	client.gameInitSentId = gameInitId;
+	client.isMapLoading = true;
 
-	// 2. Transmit synced cvars
+	// carry it now; later empties retransmit it until it is acknowledged
+	SendEmptyToClient( clientNum, true );
+}
+
+/*
+==================
+idAsyncServer::BeginRemoteClient
+
+The client has loaded the map of the current game init: enter it into the
+game.  Any step can drop the client (reliable overflow); stop there.
+==================
+*/
+void idAsyncServer::BeginRemoteClient( int clientNum ) {
+	serverClient_t& client = clients[ clientNum ];
+
+	// 1. Transmit synced cvars
 	SendSyncedCvarsToClient( clientNum, sessLocal.mapSpawnData.syncedCVars );
+	if ( client.clientState < SCS_CONNECTED ) {
+		return;
+	}
 
-	// 3. Transmit reliable enter game notification (sets SCS_INGAME, so the
+	// 2. Transmit reliable enter game notification (sets SCS_INGAME, so the
 	// game's reliable messages below reach this client)
 	SendEnterGameToClient( clientNum );
+	if ( client.clientState < SCS_CONNECTED ) {
+		return;
+	}
 
-	// 4. Initialize client player entity in game module
+	// 3. Initialize client player entity in game module
 	idDict& userInfo = sessLocal.mapSpawnData.userInfo[ clientNum ];
 	if ( userInfo.GetString( "ui_name" )[ 0 ] == '\0' ) {
 		userInfo.Set( "ui_name", va( "Player %d", clientNum ) );
@@ -920,17 +949,45 @@ void idAsyncServer::SendGameInitToClient( int clientNum ) {
 	game->ServerClientConnect( clientNum );
 	game->ServerClientBegin( clientNum, false );
 	game->UserInfoChanged( clientNum );
+	if ( client.clientState < SCS_CONNECTED ) {
+		return;
+	}
 
-	// 5. Send initial reliable game state burst
+	// 4. Send initial reliable game state burst
 	game->ServerWriteInitialReliableMessages( clientNum );
+	if ( client.clientState < SCS_CONNECTED ) {
+		return;
+	}
 
-	// 6. Transition server client state to SCS_INGAME, wait for client map load
-	// (its first usercmd of this game clears isMapLoading)
+	// 5. In the game; the first snapshot goes out with the next SendSnapshotToClient
 	client.clientState = SCS_INGAME;
-	client.isMapLoading = true;
+	client.isMapLoading = false;
+	client.lastInputTime = realTime;
+}
 
-	// carry the reliable messages now; later empties retransmit them
-	SendEmptyToClient( clientNum, true );
+/*
+==================
+idAsyncServer::FlushPendingReliable
+
+Moves the reliable messages held while a snapshot was unacknowledged into the
+channel, in order.  Returns false when that dropped the client.
+==================
+*/
+bool idAsyncServer::FlushPendingReliable( int clientNum ) {
+	serverClient_t& client = clients[ clientNum ];
+	byte data[ MAX_MESSAGE_SIZE ];
+	int size = 0;
+	while ( client.pendingReliable.Get( data, size ) ) {
+		idBitMsg msg;
+		msg.InitWrite( data, sizeof( data ) );
+		msg.SetSize( size );
+		if ( !client.channel.SendReliableMessage( msg ) ) {
+			client.pendingReliable.Init( 0 );
+			DropClient( clientNum, "reliable message overflow" );
+			return false;
+		}
+	}
+	return true;
 }
 
 bool idAsyncServer::SendSnapshotToClient( int clientNum ) {
@@ -939,8 +996,13 @@ bool idAsyncServer::SendSnapshotToClient( int clientNum ) {
 	}
 	serverClient_t& client = clients[ clientNum ];
 	if ( client.clientState == SCS_CONNECTED ) {
-		SendGameInitToClient( clientNum );
-		return true;
+		// one game init per game; the client enters the game when it has loaded
+		// the map (ProcessUnreliableClientMessage -> BeginRemoteClient)
+		if ( client.gameInitSentId != gameInitId ) {
+			SendGameInitToClient( clientNum );
+			return true;
+		}
+		return false;
 	}
 	if ( client.clientState != SCS_INGAME || client.isMapLoading ) {
 		return false;
@@ -972,6 +1034,11 @@ bool idAsyncServer::SendSnapshotToClient( int clientNum ) {
 		return true;
 	}
 
+	// reliable messages held while the previous snapshot was outstanding go
+	// ahead of this one, which reflects them
+	if ( !FlushPendingReliable( clientNum ) ) {
+		return false;
+	}
 	const int sequence = client.snapshotSequence + 1;
 
 	byte gameBuffer[ MAX_MESSAGE_SIZE ];
@@ -1032,6 +1099,13 @@ void idAsyncServer::ProcessUnreliableClientMessage( int clientNum, const idBitMs
 		if ( msg.ReadLong() != gameInitId ) {
 			return;
 		}
+		if ( clients[ clientNum ].clientState == SCS_CONNECTED ) {
+			// usercmds of the current game: the client has loaded the map of its game init
+			if ( type == CLIENT_UNRELIABLE_MESSAGE_USERCMD && clients[ clientNum ].gameInitSentId == gameInitId ) {
+				BeginRemoteClient( clientNum );
+			}
+			return;
+		}
 	}
 	if ( type == CLIENT_UNRELIABLE_MESSAGE_EMPTY ) {
 		bool mapLoad = msg.ReadBool();
@@ -1056,6 +1130,9 @@ void idAsyncServer::ProcessUnreliableClientMessage( int clientNum, const idBitMs
 		if ( ackSnapshotSeq > clients[ clientNum ].acknowledgeSnapshotSequence ) {
 			clients[ clientNum ].acknowledgeSnapshotSequence = ackSnapshotSeq;
 			game->ServerApplySnapshot( clientNum, ackSnapshotSeq );
+			if ( ackSnapshotSeq >= clients[ clientNum ].snapshotSequence && !FlushPendingReliable( clientNum ) ) {
+				return;	// dropped
+			}
 		}
 
 		if ( clientGameFrame > gameFrame + MAX_USERCMD_BACKUP || clientGameFrame < gameFrame - MAX_USERCMD_BACKUP ) {
@@ -1388,7 +1465,22 @@ void idAsyncServer::SendReliableMessage( int clientNum, const idBitMsg& msg ) {
 	if ( clients[ clientNum ].isBot ) {
 		return;
 	}
-	if ( !clients[ clientNum ].channel.SendReliableMessage( msg ) ) {
+	serverClient_t& client = clients[ clientNum ];
+	// While a snapshot is unacknowledged, hold new messages back: a resend of
+	// that stored snapshot carries the channel's reliable queue as it is then,
+	// and the client applies those messages before the snapshot, so a message
+	// queued after it was written (an entity delete, say) would be applied
+	// ahead of state that predates it.
+	if ( client.snapshotSequence > 0 && client.acknowledgeSnapshotSequence < client.snapshotSequence ) {
+		if ( !client.pendingReliable.Add( msg.GetData(), msg.GetSize() ) ) {
+			DropClient( clientNum, "reliable message overflow" );
+		}
+		return;
+	}
+	if ( !FlushPendingReliable( clientNum ) ) {
+		return;
+	}
+	if ( !client.channel.SendReliableMessage( msg ) ) {
 		DropClient( clientNum, "reliable message overflow" );
 	}
 }
@@ -1408,7 +1500,7 @@ int idAsyncServer::UpdateTime( int clamp ) {
 }
 
 void idAsyncServer::SendEnterGameToClient( int clientNum ) {
-	if ( clientNum >= 0 && clientNum < MAX_ASYNC_CLIENTS ) {
+	if ( clientNum >= 0 && clientNum < MAX_ASYNC_CLIENTS && clients[ clientNum ].clientState >= SCS_CONNECTED ) {
 		clients[ clientNum ].clientState = SCS_INGAME;
 		byte buffer[ 16 ];
 		idBitMsg msg;
