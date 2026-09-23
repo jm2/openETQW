@@ -105,10 +105,13 @@ def main(argv):
                 if not ok:
                     failures.append(f"major {major}: expected refusal '{expected}', got {cmd} {text!r}")
             cmd, text = handshake(sock, addr, 2000, (OPENETQW_MAJOR << 16) + OPENETQW_MINOR)
-            ok = not (cmd == "print" and "Server uses protocol" in text)
-            print(f"[{'OK' if ok else 'FAIL'}] connect with the OpenETQW protocol -> {cmd} {text!r} (passes the protocol check)")
+            # only connectResponse proves the connect got through; a print (bad
+            # challenge, server full, ...) would mean it was refused before or after
+            # the protocol check
+            ok = cmd == "connectResponse"
+            print(f"[{'OK' if ok else 'FAIL'}] connect with the OpenETQW protocol -> {cmd} {text!r} (accepted)")
             if not ok:
-                failures.append(f"OpenETQW protocol refused: {text!r}")
+                failures.append(f"OpenETQW protocol connect not accepted: {cmd} {text!r}")
         rc = srv.quit()
         if rc != 0:
             failures.append(f"quit exit code {rc}")
@@ -118,7 +121,7 @@ def main(argv):
     if failures:
         print("\nFAILURES:\n  - " + "\n  - ".join(failures))
         return 1
-    print("\nPASS: retail protocol majors are refused; the OpenETQW protocol passes the protocol check")
+    print("\nPASS: retail protocol majors are refused; the OpenETQW protocol connect is accepted")
     return 0
 
 
