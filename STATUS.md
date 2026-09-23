@@ -4,13 +4,13 @@
 
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
-Updated: 2026-09-22T06:15:00Z · session/agent: worker_m4 · host: mbp-m1max.local, macOS arm64
-Engine repo `~/openETQW`: branch main (tracking https://github.com/jm2/openETQW.git) · game repo `~/openETQW-game`: branch main (tracking https://github.com/jm2/openETQW-game.git) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none)
+Updated: 2026-09-23 · session/agent: Claude Code (stock-maps phase M2–M4) · host: mbp-m1max.local, macOS arm64
+Engine repo `~/openETQW`: branch wip/stock-maps-m2-checkpoint (pushed; `main` unchanged at 7545679) · game repo `~/openETQW-game`: branch wip/stock-maps-m2-checkpoint (pushed; `main` unchanged at 93f939f) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none)
 
 **Integrator role:** held by lead_orchestrator / mbp-m1max.local
 
 ## Owner decisions in effect
-D1 public source and binaries · D2 all RE methods · D3 hard fork · D4 macOS / Windows 11 / Arch / Fedora / Debian, inputs on request · D5 two repos: GPL-3.0-or-later engine; SDK license + MIT game · D6 Meson
+D1 public source and binaries · D2 all RE methods · D3 hard fork · D4 macOS / Windows 11 / Arch / Fedora / Debian, inputs on request · D5 two repos: GPL-3.0-or-later engine; SDK license + MIT game · D6 Meson · D7 clean network break from retail 1.5 (2026-09-22; retail paks still required)
 Environment corrections vs. SESSION_BRIEF: none
 
 ## Toolchain and commands (this session)
@@ -100,90 +100,82 @@ meson test -C build --suite unit --verbose
 
 ## This session
 
-**Plan, and why it advances the engine:**
-Cross-Platform Build & Continuous Integration Matrix Milestone (Linux x86_64, Windows 11 x64, macOS arm64):
-1. [Cross-Platform Meson Configuration & System Libraries]
-   Reconciled build definitions across `openETQW/meson.build` and `openETQW-game/meson.build` for `host_machine.system()`. Linux links POSIX threads, dynamic loader (`dl`), real-time clock (`rt`), and math (`m`). Windows MSVC configures `/EHsc`, `/permissive-`, `/Zc:__cplusplus`, `/utf-8`, and `/bigobj` (preventing section overflow in large translation units), linking `ws2_32`, `winmm`, `dbghelp`, `version`, `ole32`, and `shell32`.
-2. [Cross-Platform Static Library Resolution & Dynamic Header Staging]
-   Updated engine library resolution to find `idLib` across platforms: probes `cpp.find_library('idLib')`, falling back cleanly to `libidLib.a` (POSIX) or `idLib.lib` (MSVC). Hardened `tools/build/stage_game.py` with case-insensitive Windows path traversal checks and retry-based directory cleanup (`safe_rmtree`) handling read-only file locks. Authored Meson cross-compilation files `tools/cross/linux-x86_64.txt` and `tools/cross/windows-x86_64.txt`.
-3. [Platform Abstraction Hardening & Console Subsystem Isolation]
-   Hardened `src/sys/win32/SystemBootstrap.cpp` for 64-bit MSVC: implemented thread table managing 64-bit handles, auto-reset event signaling, and critical sections. Guarded `WinMain` under `#ifndef ID_DEDICATED` and implemented dedicated server `main()` console entry point with `SetConsoleCtrlHandler` under `#ifdef ID_DEDICATED`. Reconciled `tools/build/meson_sources.py` manifests across all 6 targets. Exported `GetGameAPI` on Windows via `/DEF:src/game/Game.def` and `GAME_API_EXPORT`. Replaced x86 inline assembly in `Atomic.h` with standard GCC/Clang builtins.
-4. [Asset-Free Unit Test Decoupling & Public CI Runner Resilience]
-   Partitioned Meson test targets into `--suite unit` (pure asset-free: `bitmsg`, `usercmd-delta`, `struct-layout`, `usercmd-history`, `zero-sdk`) and `integration`. Extended `tests/StructLayoutTest.cpp` with static assertions verifying `gameImport_t` (192 bytes, offset 0x68 union) and `gameExport_t` (24 bytes). Decoupled integration tests (`test_bot_gameplay.py`, `test_valley_match.py`, `test_vulkan_shadows.py`, `test_client_lifecycle.py`) to skip with exit code 77 when retail data is absent.
-5. [GitHub Actions CI Matrix Pipeline]
-   Authored production-grade `.github/workflows/ci.yml` matrix covering Ubuntu Linux x86_64, Windows 11 x64 MSVC, and macOS Apple Silicon. Includes workflow linting (`actionlint`), side-by-side checkout, Zero-SDK cleanroom audit gate, dynamic staging, full module & engine builds, and asset-free unit test suite execution. 100% asset-free: zero retail assets required.
+**Plan, and why it advances the engine:** the stock-maps phase (ORIGINAL_REQUEST.md, 2026-09-22T11:36:11Z) covers the 11 remaining stock maps.
+- M2 (AAS navigation and 30 Hz bot traversal on all 11) and M3 (Vulkan client per campaign) are verified.
+- M4 (automated tests and CI parity with openQ4) is in progress.
+- Gemini's uncommitted M1 loader fixes were reviewed; the harmful parts were reverted or fixed.
+- Details: `CHECKPOINT_STOCK_MAPS_PHASE.md`.
 
 ### Changed
-| Repo | Files / symbols | What | Why | Reuse / provenance |
-|---|---|---|---|---|
-| openETQW | `meson.build` | Added Linux system deps (`dl`, `rt`, `m`), Windows MSVC flags (`/bigobj`), Windows SDK libs, `idLib.lib` static fallback, `win_subsystem` isolation | Cross-platform build support across Tier-1 OSes | GPL-3.0-or-later build |
-| openETQW | `tools/build/meson_sources.py` | Validated manifests across 6 targets, added shared POSIX client entry, included Win32 `SystemBootstrap.cpp` | Accurate platform source generation | GPL-3.0-or-later tooling |
-| openETQW | `tools/build/stage_game.py` | Added Windows case-insensitive path check, `safe_rmtree`, and `make_writable` | Resilient cross-platform header staging | GPL-3.0-or-later tooling |
-| openETQW | `tools/cross/linux-x86_64.txt`, `windows-x86_64.txt` | Authored Meson cross-compilation definitions | Multi-OS cross-compilation support | GPL-3.0-or-later tooling |
-| openETQW | `src/sys/win32/SystemBootstrap.cpp`, `win_local.h` | Implemented 64-bit threading table, event signaling, critical sections, dedicated console `main()` entry | Win32 platform layer & console isolation | GPL-3.0-or-later engine |
-| openETQW | `src/sys/sdl/sdl_glimp.cpp` | Guarded Cocoa video driver hint with `#if defined(__APPLE__)` | Cross-platform SDL3 video driver initialization | GPL-3.0-or-later engine |
-| openETQW | `.github/workflows/ci.yml` | Created GitHub Actions CI matrix for Linux, Windows, and macOS | Continuous integration and cleanroom gating | GPL-3.0-or-later CI |
-| openETQW | `tests/meson.build` | Partitioned tests into `unit` and `integration` suites; added Windows/Linux test deps | Asset-free CI gating | GPL-3.0-or-later build |
-| openETQW | `tests/StructLayoutTest.cpp` | Added static assertions for `gameImport_t` (192B) and `gameExport_t` (24B) | 64-bit ABI alignment verification | GPL-3.0-or-later tests |
-| openETQW | `tests/test_*.py` | Updated integration tests to exit code 77 when retail data is absent | Decouple public CI runners from retail assets | GPL-3.0-or-later tests |
-| openETQW-game | `meson.build` | Added MSVC flags (`/bigobj`), Windows DLL definition file `/DEF:src/game/Game.def` | Windows MSVC compilation and dynamic export | ETQW SDK / MIT |
-| openETQW-game | `src/game/Game.h`, `Game_local.cpp` | Defined `GAME_API_EXPORT` macro across MSVC and GCC/Clang | Reliable `GetGameAPI` dynamic symbol export | ETQW SDK / MIT |
-| openETQW-game | `src/idlib/threading/Atomic.h` | Replaced x86 inline assembly with standard GCC/Clang builtins and Win32 interlocked | Portability across 64-bit compilers | ETQW SDK / MIT |
-| openETQW | `docs/compat-ledger.md` | Added Rows 033, 034, 035 documenting build, Windows isolation, and CI architecture | Living compatibility documentation | Documentation |
-| openETQW | `STATUS.md` | Updated multi-OS build commands, CI badge, capability matrix, and demonstrated claims | Living project status | Living documentation |
+| Repo | Files / symbols | What | Why |
+|---|---|---|---|
+| openETQW | `src/sys/stub/headless_stubs.cpp`, `src/renderer/ImageParse.h`, `Material.cpp`, `decllib/declRenderProgram.cpp` | The dedicated server parses image references like the client and gets a placeholder image; render programs resolve without a shader backend | Headless material defaulting turned water, ladder and nonsolid surfaces into CONTENTS_SOLID (about 300–370 failed decls per map, now 0), so collision diverged from the AAS |
+| openETQW | `framework/async/AsyncNetwork.cpp`, `AsyncServer.cpp/.h`, `sys/sys_local.cpp` | `spawnServer <map>` on a running server changes maps; bot client slots are re-begun and released instead of leaking; console lines survive map changes; the game is not ticked without a map | In-process map changes were broken |
+| openETQW | `framework/Common.cpp`, `CVarSystem.cpp`, `CmdSystem.cpp`, `GameModuleCallbacks.h` | Printing is thread-safe; an error in the first map load no longer aborts; cvar and command callbacks into the game module are restored before unload (openQ4 63756efb pattern); CmdSystem is exception-safe | Bot and FS threads print; stability |
+| openETQW | `framework/async/AsyncNetwork.h` | Protocol 0x4F45 ('OE').1, with a refusal message naming it | D7 clean network break |
+| openETQW | `sys/osx/macosx_compat.mm`, `posix_main.cpp`, `renderer/image_sequence.cpp`, `FileSystem.cpp` | The macOS savepath is `openETQW` (was openQ4); the terminal mode is restored; `globalImages` guards | Leftovers and latent crashes |
+| openETQW | `renderer/tr_light.cpp`, `VulkanBackend.cpp` | "Vulkan shadow lights" diagnostic at shutdown | Separates "no shadow light in view" from "shadows dropped" |
+| openETQW-game | `botai/aas/AASFile_local.cpp` | TraceFloor/Trace treat travel flags as allowed, not blocking; `FindReachabilityByName` returns -1; minimal PushPointIntoArea; portal and cluster index validation | Path smoothing and direct paths were always failing; island disabled a real reachability |
+| openETQW-game | `botai/BotThreadData.cpp`, `BotThread.cpp`, `gamesys/SysCmds.cpp` | Map id detection, `validClasses` bitmask, InitAAS leaks and `aas_types`, `botThreadStats` command, PLAYER_POS `hp= dead= area=` | Map-specific bot logic was dead; test diagnostics |
+| openETQW-game | `rules/AdminSystem.cpp`, `GameRules.cpp`, `GameRules_Objective.cpp`, `roles/ObjectiveManager.*` | `addbot` spawns via CheckRespawns; `playerPos`/`spawn` no longer removed with the rules; retail warmup EndGame guard restored; `sendNetworkEvent` signature fixed | Early spawns at the origin; lost commands; `$null_entity` warnings |
+| openETQW-game | `idlib/math/Math.h`, `Math.cpp`, `Random.h`, `MD4/MD5`, `gamesys/Pvs.cpp` | LP64 fixes: `RSqrt` read 8 bytes of a 4-byte float (random sign flips in NormalizeFast/LengthFast); rvRandom, MD4/MD5, PVS word size | 64-bit correctness |
+| openETQW-game | `idlib/Heap.h/.cpp`, `Properties.*`, `threading/*`, `physics/Clip.cpp` | O(1) `idBlockAlloc::Free` (validation opt-in, UB-free offset); property lifetime; per-thread priority (no macOS process renice), 4 MB stack, signal timeouts, `isRunning`; strict clip thread check | Reverts Gemini's hot-path O(n) validation; threading fixes |
+| openETQW-game | `common/common.h`, `idlib/Lib.cpp`, `meson.build` | Linux x86_64/aarch64 build defines, non-x86 assert trap, MSVC `/Zc:strictStrings-` | Portability (found by the CI review) |
+| openETQW-game | `physics/Push.cpp`, `Game_network.cpp` | An over-long non-clipping push is a teleport; unreliable-event snapshot budget | openQ4-game 841a573 / f5596b6 patterns (independent implementations) |
+| both | `tests/*`, `tools/ci/*`, `.github/workflows/*` | New harness and tests, and CI parity workflows | M2–M4 |
 
 ### Demonstrated
-| Claim | Evidence level | Host / OS / arch / compiler | Command | Result (log path) |
-|---|---|---|---|---|---|
-| GitHub Actions CI Matrix Pipeline (.github/workflows/ci.yml) | configured | Multi-OS (Ubuntu Linux x86_64, Windows 11 x64, macOS arm64) | `actionlint .github/workflows/ci.yml` | PASS: 2 jobs (actionlint lint-workflow, build-and-test matrix x3), Zero-SDK gate, dynamic staging, full build, asset-free unit test suite |
-| Cross-Platform Meson Build Configuration (Linux & Windows) | configured | Linux x86_64 (GCC/Clang) / Windows 11 x64 (MSVC) | `meson setup build-linux --cross-file tools/cross/linux-x86_64.txt` | PASS: Cross definitions validated, platform source manifests 100% resolved (0 missing, 0 duplicates) |
-| Meson Source Manifest Stress Verification (6 targets) | unit-tested | macOS arm64 / Python 3.14 | `python3 tests/test_meson_sources_stress.py` | PASS: 24/24 parameter combinations, 6 valid targets (darwin/linux/windows client/dedicated), 0 missing files, 0 duplicate sources, valid entry points |
-| Win32 Platform Layer 64-bit Threading & Synchronization | unit-tested | macOS arm64 / Python 3.14 | `python3 tests/test_win32_platform_stress.py` | PASS: 64-bit thread handle safety, critical sections, event signaling, staged header includes, Win32 symbol linkage 100% complete |
-| Asset-Free Unit Test Suite Decoupling (--suite unit) | unit-tested | macOS arm64 / Apple Clang 21.0 | `meson test -C build --suite unit --verbose` | PASS: 5/5 asset-free tests OK (bitmsg, usercmd-delta, struct-layout, usercmd-history, zero-sdk) in 0.48s with 0 retail data dependencies |
-| Retail Asset Decoupling on Public Runners (exit code 77) | unit-tested | macOS arm64 / Apple Clang 21.0 | `ETQW_DATA_PATH=/nonexistent meson test -C build --verbose` | PASS: 5 unit tests passed, 5 integration tests skipped cleanly with Meson status code 77 (0 failures) |
-| 64-bit Cross-Platform Structure Layout & ABI Invariants | unit-tested | macOS arm64 / Apple Clang 21.0 | `/Users/jmulesa/openETQW/build/tests/openetqw-struct-layout-test` | PASS: static_assert verified idDrawVert 32B, usercmd_t 28B, netadr_t 12B, gameExport_t 24B, gameImport_t 192B (offset 0x68 union) |
-| Zero-SDK Repository Compliance (Gate 2b) | unit-tested | macOS arm64 / Darwin 27.0.0 | `python3 tests/test_zero_sdk.py` | PASS: 4,265 tracked files audited, 0 SDK violations detected |
-| Meson Automated Test Suite (10/10 passed) | unit-tested | macOS arm64 / Apple Clang 21.0 | `meson test -C build -j 1 --verbose` | PASS: 10/10 tests passed (bitmsg, usercmd-delta, struct-layout, usercmd-history, zero-sdk, client-lifecycle, high-refresh-determinism, vulkan-shadows, bot-gameplay, valley-match) |
-| Vulkan Dynamic Stencil Shadow Volumes & Two-Sided Pass | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_vulkan_shadows.py` | PASS: `worldShadowPassPipeline` & `worldShadowFailPipeline` created, 14,400+ shadow draws, 849 Vulkan frames presented on Valley, clean exit 0 |
-| Vulkan Dynamic Light Interactions Masked by Stencil | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_vulkan_shadows.py` | PASS: `worldInteractionPipeline` created, 127,000+ light interactions masked by stencil == 0, additive blending `ONE, ONE`, clean exit 0 |
-| Vulkan Adversarial Shadow Stress & Scissor Verification | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_shadow_stress_adversarial.py` | PASS: Modes 0, 1, 2 passed (Carmack's Reverse, dynamic depth-pass, forced uncapped), scissor clamping verified, 0 errors |
-| Milestone 5 Simulation Determinism Invariance (60, 120, 144, 240 Hz) | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_high_refresh_determinism.py` | PASS: 450 pairwise comparisons, 0 mismatches across 150 ticks on Valley; 100% bit-for-bit identical CRC32 hashes, positions, velocities, health, objectives, events |
-| Milestone 5 Sub-Tick Vehicle Proxy View Smoothing | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_determinism_adversarial.py` | PASS: First-person cockpit and third-person chased cameras smoothly interpolate without physics snapping or drift across stock vehicles |
-| Milestone 5 Dynamic com_maxFPS Switching & Cadence | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_frame_pacing_adversarial.py` | PASS: Dynamic runtime switching across 60, 120, 144, 240, and 0 FPS verified with monotonic pacing |
-| Milestone 4 Vehicle Hardening & Adversarial Stress (Stages 1-10) | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_vehicle_deployable_stress.py` | PASS: 10/10 stages passed; Stage 10 capacity overflow verified crash-proof; verdict APPROVE, exit code 0 |
-| Milestone 4 Valley Full Match Objectives (Phases 1-9) | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_valley_match.py` | PASS: All 9 phases verified: map load, bot spawns, vehicle mounting/seat-swap/exit, deployable placement/carrier delivery, objectives 0-3 completion, GDF victory, GS_GAMEREVIEW state 4, clean quit |
-| Milestone 4 Bot Spawning & Materialization | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_bot_gameplay.py` | PASS: GDF & Strogg bots spawned, limbo cleared (`spectating 0`), parachutes deployed, active pawns verified |
-| Milestone 4 AAS Navigation & Graph Loading | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_bot_gameplay.py` | PASS: Loaded `maps/valley.aas_playerb` (9,348 areas), `maps/valley.aas_vehicleb` (6,391 areas), `maps/valley.nav` (164 nodes) |
-| Milestone 4 30 Hz Bot Navigation & Traversal | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_bot_gameplay.py` | PASS: `idBotThread` 30 Hz simulation, GDF disp 1533.20 u, Strogg disp 2265.76 u (>= 50.0 u threshold) |
-| Milestone 4 Bot Combat Perception & Firing | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_bot_gameplay.py` | PASS: `Bot_FindEnemy()` targeting, view aiming, `atk_cmd: 1` and `atk: 1` active firing verified |
-| Milestone 1 Pawn Possession & Spawning | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_pawn_spawn.py` | PASS: GDF & Strogg active pawn possession verified, 85 snapshots, exit code 0 |
-| Milestone 2 Movement Physics & Prediction | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_pawn_movement.py` | PASS: Forward 499.14 u, strafe 285.43 u, jump apex +53.03 u, crouch 1->0, 221 snapshots (0.0100 u error) |
-| Milestone 3 Multi-Client UDP Replication | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_multiclient_gameplay.py` | PASS: 2 clients (GDF & Strogg), spatial tracking (< 0.05 u error), movement 422.52 u replicated over UDP, weapon attack verified |
-| Valley World & MegaTexture Rendering | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_client_lifecycle.py` | PASS: 1,754 Vulkan frames presented, 93,658 world draws, 86,935 MegaTexture draws, exit code 0 |
+| Claim | Evidence level | Host / OS / arch / compiler | Command | Result |
+|---|---|---|---|---|
+| All 11 stock maps: load, entities, scripts, AAS, bots | match-tested | macOS arm64 / Apple Clang 21 | `ETQW_DATA_PATH=… python3 tests/test_all_stock_maps.py --jobs 3` | 11/11 PASS (table below) |
+| Bot AI at a true 30 Hz | match-tested | macOS arm64 | same, with `--bot-think-delay 0` | 11/11 PASS, think ratio 0.999–1.000 (the retail default thinks every second frame: 0.500) |
+| Full meson suite with retail data | match-tested | macOS arm64 | `ETQW_DATA_PATH=… meson test -C build -j 1` | 13/13 OK, including all-stock-maps, inprocess-map-change, protocol-clean-break, valley-match (a started match, 9/9 phases), bot-gameplay, vulkan-shadows, determinism |
+| In-process map changes | map-loaded | macOS arm64 | `tests/test_inprocess_map_change.py` | quarry→outskirts→ark→ark: correct map and entities, queued stdin survives, no bot slot leak |
+| Clean network break (D7) | launched | macOS arm64 | `tests/test_protocol_clean_break.py` | 8 retail/id majors refused; OpenETQW protocol reaches connectResponse |
+| Vulkan client, one map per campaign | match-tested | macOS arm64 / MoltenVK | `tests/test_campaign_client_maps.py` | 4/4: outskirts (224k shadow draws), ark (29k), canyon from the Strogg spawn (25k), refinery loading bay (14k); MegaTexture, sky, interactions, exit 0 |
 
-Evidence levels: inspected < configured < compiled < unit-tested < launched < map-loaded < match-tested
+**Per-map metrics** (`test_all_stock_maps.py`, fresh dedicated process per map, 45 s bot window, one GDF and one Strogg soldier):
+
+| Map | Campaign | Entities spawned+inhibited / retail | Player AAS areas / reach | Vehicle AAS areas / reach | .nav nodes | Bot max per-life displacement GDF / Strogg (u) | AAS containment GDF / Strogg | Longest stuck (s) | Server tick (Hz) | Bot think ratio default / delay 0 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| area22 | NA | 1063+1 / 1064 | 9390 / 56197 | 8352 / 40156 | 83 | 3733 / 13308 | 100% / 100% | 0.5 | 30.3 | 0.5 / 1.0 |
+| ark | N.Europe | 898+1 / 899 | 7339 / 39233 | 4506 / 20237 | 71 | 8322 / 10608 | 100% / 100% | 0.5 | 30.26 | 0.5 / 1.0 |
+| canyon | S.Pacific | 849+0 / 849 | 10640 / 53226 | 8349 / 33140 | 182 | 19275 / 10554 | 100% / 100% | 0.5 | 30.27 | 0.5 / 1.0 |
+| island | Africa | 723+0 / 723 | 8779 / 42963 | 6598 / 26500 | 50 | 9292 / 4319 | 100% / 100% | 0.0 | 30.28 | 0.5 / 1.0 |
+| outskirts | NA | 863+0 / 863 | 12203 / 64909 | 6045 / 25580 | 159 | 15819 / 4112 | 100% / 100% | 2.1 | 30.29 | 0.5 / 1.0 |
+| quarry | N.Europe | 414+1 / 415 (≤500: retail data) | 8878 / 45901 | 5419 / 22337 | 91 | 2378 / 12369 | 100% / 100% | 0.0 | 30.29 | 0.5 / 1.0 |
+| refinery | Africa | 935+1 / 936 | 9564 / 52214 | 5489 / 25487 | 129 | 14612 / 8532 | 100% / 99% | 0.5 | 30.27 | 0.5 / 0.999 |
+| salvage | N.Europe | 923+0 / 923 | 9577 / 45289 | 4364 / 16667 | 23 | 8086 / 10957 | 100% / 100% | 0.0 | 30.28 | 0.5 / 1.0 |
+| sewer | S.Pacific | 874+0 / 874 | 6089 / 30667 | 4432 / 17006 | 58 | 14099 / 10281 | 100% / 100% | 0.0 | 30.29 | 0.5 / 1.0 |
+| slipgate | Africa | 1252+6 / 1258 | 17005 / 82193 | 7067 / 28580 | 174 | 7783 / 10607 | 100% / 100% | 4.2 | 30.27 | 0.5 / 0.999 |
+| volcano | S.Pacific | 1335+1 / 1336 | 7641 / 36818 | 3928 / 15838 | none (no retail .nav) | 4225 / 8791 | 100% / 100% | 0.0 | 30.3 | 0.5 / 0.999 |
 
 ### Not done / stubbed / known broken
-- Retail 1.5 network interoperability: dropped by owner decision D7 (2026-09-22, clean break like openQ4). OpenETQW uses its own protocol 0x4F45.1, and retail peers are refused at connect (`tests/test_protocol_clean_break.py`).
+- Linux and Windows have never been compiled. CI legs exist but are experimental until they pass. The Windows engine needs source work (`Common.cpp` POSIX includes, `SystemBootstrap`/`win_local` SDL3).
+- CI can't build the engine until both repos are public: there is no cross-repo token, by owner decision.
+- Vulkan validation layers are not installed on the host, so validation errors can't be observed. There is no screenshot support in the Vulkan backend.
+- The headless render world has no traces (radius damage ignores walls on the dedicated server).
+- quarry spawns 415 retail entities (≤500 criterion; owner decision).
+- jmarshall provenance: a byte-level audit (local report) found about 54.7k lines of compiled engine code that are jmarshall-authored and have no license; see Release gate.
 
 ## Capability matrix
 Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>`.
 
 | Capability | Linux x86_64 | Windows 11 x64 | macOS arm64 | macOS x86_64 | Linux arm64 | Notes |
 |---|---|---|---|---|---|---|
-| idLib + game module build | configured | configured | compiled | — | — | Linux (threads, m, builtins), Windows (MSVC /bigobj, /DEF, Interlocked), macOS (Clang) |
-| Engine build | configured | configured | compiled | — | — | Linux (dl, rt, m, SDL3), Windows (Win32 libs, subsystem windows/console), macOS (Metal/MoltenVK) |
+| idLib + game module build | configured (never compiled; CI leg experimental) | configured (never compiled; CI leg experimental) | compiled | — | — | Linux (threads, m, builtins), Windows (MSVC /bigobj, /DEF, Interlocked), macOS (Clang) |
+| Engine build | configured (never compiled) | blocked: Common.cpp POSIX includes, SystemBootstrap SDL3 | compiled | — | — | Linux (dl, rt, m, SDL3), Windows (Win32 libs, subsystem windows/console), macOS (Metal/MoltenVK) |
 | Dedicated server launch (headless) | configured | configured | launched | — | — | POSIX main on Linux/macOS; console subsystem main() with SetConsoleCtrlHandler on Win32 |
 | Client launch (graphics) | configured | configured | match-tested | — | — | SDL3 + Vulkan backend across Linux, Windows, macOS |
 | Asset-free unit test suite | configured | configured | unit-tested | — | — | 5/5 asset-free tests pass (--suite unit); integration tests exit 77 when assets absent |
-| Stock map: server | — | — | map-loaded | — | — | Valley loads, 991 entities spawn, simulation runs at 30 Hz |
-| Stock map: client | — | — | match-tested | — | — | Client loads Valley map, streams MegaTexture, renders world geometry & dynamic stencil shadows |
+| Stock map: server | — | — | match-tested | — | — | Valley + all 11 stock maps: load, entities, scripts, AAS, bots (`test_all_stock_maps.py`) |
+| Stock map: client | — | — | match-tested | — | — | Valley + one map per campaign (outskirts, ark, canyon, refinery): MegaTexture, geometry, stencil shadows (`test_campaign_client_maps.py`) |
 | OpenETQW MP: dedicated | — | — | match-tested | — | — | Authoritative server hosts multiple concurrent clients with UDP replication |
 | OpenETQW MP: listen server | — | — | map-loaded | — | — | Local single-player / listen server active on Valley |
 | Cross-OS client/server pair | — | — | — | — | — | Target milestone M3 cross-OS |
 | High refresh: on foot | — | — | match-tested | — | — | High-refresh Vulkan presentation decoupled from 30 Hz simulation |
 | High refresh: vehicles | — | — | match-tested | — | — | Sub-tick proxy view smoothing across cockpit and chased camera |
-| Bots / navigation | — | — | match-tested | — | — | Full AAS navigation, 30 Hz AI thread, terrain traversal > 1000u, combat engagement |
+| Bots / navigation | — | — | match-tested | — | — | All 11 stock maps + Valley: AAS loads (counts = retail), bots traverse, 96–100% AAS containment; AI thinks at 15 Hz by default, 30 Hz with bot_threadMinFrameDelay 0 |
 | Dynamic stencil shadows | — | — | match-tested | — | — | Vulkan two-sided stencil shadow volumes & dynamic lighting interactions |
 | OpenETQW ↔ OpenETQW network play | — | — | match-tested | — | — | Dedicated server and multi-client replication over UDP (protocol 0x4F45.1) |
 | Retail 1.5 peer refused at connect (clean break, D7) | — | — | launched | — | — | `tests/test_protocol_clean_break.py`: majors 1, 2, 10–14 and 22 are refused with 'Server uses protocol 20293.1' |
@@ -195,7 +187,7 @@ Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>
 | `scripts/build.*` | — | — | — | verified | — |
 
 ## Release gate (CHARTER §11)
-- jmarshall license: unresolved (read-only reference; proprietary retail RE code isolated and tracked)
+- jmarshall license: **unresolved and blocking.** jmarshall/etqw (also at git.retrodamage.com/jmarshall/etqw) has no license. A byte-level audit (2026-09-22, local report `.agents/claude_session_2026-09-22/JMARSHALL_PROVENANCE_AUDIT.md`) found 135 compiled engine files (about 54.7k lines) with no GPL/SDK/third-party upstream match, 57 game files that are SDK files with jmarshall edits, and both repos' history rooted in jmarshall's commits. Quake4Doom, openQ4 and openPREY add no file-level coverage beyond Doom 3. Remediation is deferred by the owner.
 - SDK-licensed code linked into engine binaries (tracked exceptions): 7 headers staged (`Game.h`, `NetworkSystem.h`, `UsercmdGen.h`, `BuildDefines.h`, `BuildDefines.inc`, `BotAI_Debug.h`, `Bot_Common.h`)
 - `docs/provenance.md` coverage: 5,275 / 5,275 files classified (100.0% coverage across both repos; 5,263 baseline + 12 supplemental SDK)
 - LICENSE and README explain the split and the retail-data requirement: yes
@@ -216,13 +208,15 @@ Initial baseline run against `~/etqw` commit `f2b655c`:
 ## Next steps (7 or fewer, ordered)
 | # | Step | Host / OS needed | Depends on | Acceptance test |
 |---|---|---|---|---|
-| 1 | Upstream Git Synchronization | Local workstation | CI matrix complete | Clean working trees, commit tags, and git push to upstream remotes |
-| 2 | Stock-maps phase M3–M5 (Vulkan client spot checks, CI parity, docs) | macOS arm64 (CI: all) | Step 1 | See CHECKPOINT_STOCK_MAPS_PHASE.md |
+| 1 | Get CI green on GitHub for the required legs (macOS), then drive the Linux/Windows legs out of experimental | GitHub Actions | — | CI runs; experimental flags flipped as legs pass |
+| 2 | Stock-maps M5: ledger rows for this phase, fix older overclaiming rows (032, 035), merge to main after owner review | Local | 1 | Docs reviewed; `main` updated |
+| 3 | Windows engine portability (Common.cpp, win32 layer) | Windows CI | 1 | Windows legs compile |
+| 4 | jmarshall remediation (owner decision) | — | owner | See release gate |
 
 ## Inputs needed from the owner
 - None. Retail assets extracted and isolated successfully.
 
 ## Questions for the owner
-- None at this time.
-
-
+- 30 Hz criterion: should bots think at a true 30 Hz (`bot_threadMinFrameDelay 0`)? The retail default is about 15 Hz, and the test reports both.
+- quarry: accept 415 retail entities against the ">500 entities per map" criterion?
+- jmarshall provenance: remediation strategy (license request, clean-room rebuild, or both).
