@@ -163,8 +163,8 @@ Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>
 
 | Capability | Linux x86_64 | Windows 11 x64 | macOS arm64 | macOS x86_64 | Linux arm64 | Notes |
 |---|---|---|---|---|---|---|
-| idLib + game module build | configured (never compiled; CI leg experimental) | configured (never compiled; CI leg experimental) | compiled | — | — | Linux (threads, m, builtins), Windows (MSVC /bigobj, /DEF, Interlocked), macOS (Clang) |
-| Engine build | configured (never compiled) | blocked: Common.cpp POSIX includes, SystemBootstrap SDL3 | compiled | — | — | Linux (dl, rt, m, SDL3), Windows (Win32 libs, subsystem windows/console), macOS (Metal/MoltenVK) |
+| idLib + game module build | compiled, module loaded (game CI: GCC, Clang, ASan+UBSan) | compiled, module loaded (game CI: MSVC) | compiled | compiled, module loaded (game CI) | compiled (game CI: GCC cross from x64; not loaded) | Exports only `GetGameAPI` on every platform (Linux version script, macOS exported-symbols list, Windows .def); Linux full RELRO |
+| Engine build | configured (never compiled; hosted CI can't fetch the private game repo) | blocked: win32 SystemBootstrap/win_local SDL3, POSIX-only `sys_local.cpp` | compiled | — | — | Linux (dl, rt, m, SDL3), Windows (Win32 libs, subsystem windows/console), macOS (Metal/MoltenVK) |
 | Dedicated server launch (headless) | configured | configured | launched | — | — | POSIX main on Linux/macOS; console subsystem main() with SetConsoleCtrlHandler on Win32 |
 | Client launch (graphics) | configured | configured | match-tested | — | — | SDL3 + Vulkan backend across Linux, Windows, macOS |
 | Asset-free unit test suite | configured | configured | unit-tested | — | — | 5/5 asset-free tests pass (--suite unit); integration tests exit 77 when assets absent |
@@ -208,7 +208,7 @@ Initial baseline run against `~/etqw` commit `f2b655c`:
 ## Next steps (7 or fewer, ordered)
 | # | Step | Host / OS needed | Depends on | Acceptance test |
 |---|---|---|---|---|
-| 1 | Get CI green on GitHub for the required legs (macOS), then drive the Linux/Windows legs out of experimental | GitHub Actions | — | CI runs; experimental flags flipped as legs pass |
+| 1 | Game CI: done (every build and sanitizer leg is required and green). Engine CI: build legs start running when the repos are public | GitHub Actions | repos public | Engine matrix builds; experimental flags flipped as legs pass |
 | 2 | Stock-maps M5: owner review of the WIP branches (ledger rows 036–044 written, 032/035 corrected), then merge to main | Local | 1 | Docs reviewed; `main` updated |
 | 3 | Windows engine portability (win32 layer, `sys_local.cpp`) | Windows CI (repos public) | 1 | Windows legs compile |
 | 4 | jmarshall remediation (owner decision) | — | owner | See release gate |
