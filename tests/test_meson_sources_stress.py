@@ -20,6 +20,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+STAGE_PREFIX = ".tmp/gamelibs_stage/"
+
 
 def get_repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
@@ -147,6 +149,11 @@ def test_target_manifests(repo_root: Path) -> dict:
         missing_files = []
         for f in files:
             p = repo_root / f
+            # Game-repo sources staged into .tmp/gamelibs_stage by tools/build/stage_game.py
+            # only exist once the companion repository has been staged (not on a CI runner
+            # without access to it); their presence is checked by the build itself.
+            if f.startswith(STAGE_PREFIX) and not (repo_root / STAGE_PREFIX).is_dir():
+                continue
             if not p.exists():
                 missing_files.append(f)
 
@@ -252,6 +259,8 @@ def test_entry_points(repo_root: Path, target_manifests: dict) -> dict:
 
         for rel_file in files:
             full_path = repo_root / rel_file
+            if not full_path.is_file():
+                continue  # unstaged game-repo source (see above); reported as missing if it should exist
             content = full_path.read_text(encoding="utf-8", errors="replace")
 
             if "OpenETQW_Main" in content:
@@ -424,8 +433,8 @@ def main() -> int:
     print(f"  Win32 Dedicated Entry point   : {'PASS' if all_valid_entries else 'ATTENTION: Requires main() for console subsystem'}")
     print("=================================================================")
 
-    # Write full JSON output for challenger report consumption
-    out_json = repo_root / ".agents" / "challenger_m1_1" / "stress_results.json"
+    # Optional full JSON report: set STRESS_RESULTS_JSON to a file path
+    out_path = os.environ.get("STRESS_RESULTS_JSON")
     full_output = {
         "parameter_matrix": param_res,
         "manifests": {k: {x: y for x, y in v.items() if x != "files"} for k, v in manifest_res.items()},
@@ -433,8 +442,11 @@ def main() -> int:
         "entry_points": entry_res,
         "windows_dependencies": win_res,
     }
-    out_json.write_text(json.dumps(full_output, indent=2), encoding="utf-8")
-    print(f"Stress results written to {out_json}")
+    if out_path:
+        out_json = Path(out_path)
+        out_json.parent.mkdir(parents=True, exist_ok=True)
+        out_json.write_text(json.dumps(full_output, indent=2), encoding="utf-8")
+        print(f"Stress results written to {out_json}")
 
     return 0 if not param_res["failures"] and all_files_exist and all_zero_duplicates and conflict_res["conflict_count"] == 0 else 1
 
