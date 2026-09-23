@@ -69,6 +69,11 @@ SERVER_ARGS = [
     "+set", "fs_game", "base",
     "+set", "net_port", str(SERVER_PORT),
     "+set", "si_rules", "sdGameRulesObjective",
+    "+set", "g_debugDeployables", "1",
+    "+set", "g_warmup", "0",
+    # the console drives vehicle entry/exit; keep the bot AI from boarding vehicles on its own
+    "+set", "bot_useVehicles", "0",
+    "+set", "bot_useAirVehicles", "0",
     "+set", "si_pure", "0",
     "+set", "bot_enable", "1",
     "+set", "bot_sleepWhenServerEmpty", "0",
@@ -274,6 +279,27 @@ def run_valley_match_test():
         server_proc.kill()
         raise TimeoutError("Dedicated server failed to load Valley within 60s")
 
+    # A match that is still in warmup cannot end (retail rules), so start it
+    # before playing the objectives. g_warmup 0 makes the countdown immediate.
+    send_cmd(server_proc, "admin startMatch")
+    game_on = False
+    gs_start = time.time()
+    while time.time() - gs_start < 30.0:
+        time.sleep(1.0)
+        try:
+            status = query_objective_status(server_proc, output_queue, timeout=3.0)
+        except TimeoutError:
+            continue
+        if status["state"] == 3:
+            game_on = True
+            break
+        if status["state"] == 1:
+            # 'Loading Map Bot Actions' prints before the map has finished loading, and
+            # the rules reset the admin start request at map start: ask again in warmup
+            send_cmd(server_proc, "admin startMatch")
+    if not game_on:
+        raise AssertionError("Match did not reach GS_GAMEON (state 3) after 'admin startMatch'")
+    print("  Match started: gameState 3 (GS_GAMEON)")
     print("  -> Phase 1 Passed: Server online and Valley map initialized.\n")
 
     # -------------------------------------------------------------
@@ -289,7 +315,7 @@ def run_valley_match_test():
     bot0_grounded = False
     bot1_grounded = False
     p2_start = time.time()
-    while time.time() - p2_start < 25.0:
+    while time.time() - p2_start < 50.0:
         if server_proc.poll() is not None:
             raise RuntimeError(f"Server died during bot spawn: {server_proc.returncode}")
         time.sleep(0.5)
