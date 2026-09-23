@@ -127,6 +127,20 @@ if build_engine
     timeout: 180,
   )
   test(
+    'campaign-client-maps',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_campaign_client_maps.py',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'campaign-client-maps',
+      '--json', meson.project_build_root() / 'meson-logs' / 'campaign-client-maps.json',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration', 'stock-maps'],
+    protocol: 'exitcode',
+    timeout: 900,
+    is_parallel: false,
+  )
+  test(
     'vulkan-shadows',
     py,
     args: [meson.project_source_root() / 'tests' / 'test_vulkan_shadows.py'],
