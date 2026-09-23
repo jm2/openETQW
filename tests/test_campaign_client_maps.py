@@ -54,9 +54,11 @@ BAD_MARKERS = ("Vulkan validation error", "VK_ERROR_", "DEVICE_LOST", "FATAL ERR
 
 def find_client(explicit):
     if explicit:
-        return Path(explicit)
-    for name in ("openETQW-client_arm64", "openETQW-client_x64", "openETQW-client_x64.exe", "openETQW-client_arm64.exe"):
-        p = REPO_ROOT / "build" / name
+        p = Path(explicit).expanduser()
+        if p.is_file():
+            return p
+        raise h.SkipTest(f"client binary not found: {p}")
+    for p in h.binary_candidates("client"):
         if p.is_file():
             return p
     raise h.SkipTest("client binary not found under build/")
