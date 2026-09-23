@@ -424,7 +424,7 @@ jobs:
           - id: linux-x64-clang-asan-ubsan
             name: Linux x64 Clang ASan+UBSan
             experimental: true
-            blocker: "the Linux engine build has never compiled; UBSan also reports a null member access in idBlockAlloc::Free (openETQW-game src/idlib/Heap.h) during idCVarSystemLocal::Register at startup (seen on macOS arm64)"
+            blocker: "the Linux engine build has never compiled (the idBlockAlloc::Free UBSan report is fixed in the pinned companion)"
     env:
       OPENETQW_GAME_REPO: ${{ github.workspace }}/openETQW-game
       CC: clang
