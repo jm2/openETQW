@@ -311,6 +311,9 @@ void idAsyncClient::RunFrame() {
 	}
 
 	SetupConnection();
+	if ( clientState >= CS_CONNECTED && !sessLocal.insideExecuteMapChange && ( cvarSystem->GetModifiedFlags() & CVAR_USERINFO ) != 0 ) {
+		SendUserInfoToServer();	// a ui_* cvar changed
+	}
 	if ( clientState == CS_INGAME && !sessLocal.insideExecuteMapChange ) {
 		const int startFrame = gameFrame;
 		while ( gameTimeResidual >= USERCMD_MSEC ) {
@@ -404,7 +407,39 @@ void idAsyncClient::DuplicateUsercmds( int frame, int time ) {
 	}
 }
 
+/*
+==================
+idAsyncClient::SendUserInfoToServer
+
+The ui_* user info cvars, in full (the server validates them and sends every
+player's info back through SERVER_RELIABLE_MESSAGE_CLIENTINFO).  Sent at
+connect and whenever one of them changes.
+==================
+*/
 void idAsyncClient::SendUserInfoToServer() {
+	if ( !active || clientState < CS_CONNECTED ) {
+		return;
+	}
+	const idDict* cvars = cvarSystem->MoveCVarsToDict( CVAR_USERINFO );
+	idDict info;
+	for ( int i = 0; cvars != NULL && i < cvars->GetNumKeyVals() && info.GetNumKeyVals() < 32; ++i ) {
+		const idKeyValue* kv = cvars->GetKeyVal( i );
+		if ( idStr::Icmpn( kv->GetKey().c_str(), "ui_", 3 ) != 0 ) {
+			continue;
+		}
+		idStr value = kv->GetValue();
+		value.CapLength( 64 );
+		info.Set( kv->GetKey(), value );
+	}
+	byte buffer[ MAX_MESSAGE_SIZE ];
+	idBitMsg msg;
+	msg.InitWrite( buffer, sizeof( buffer ) );
+	msg.BeginWriting();
+	msg.WriteByte( CLIENT_RELIABLE_MESSAGE_CLIENTINFO );
+	msg.WriteDeltaDict( info, NULL );
+	if ( channel.SendReliableMessage( msg ) ) {
+		cvarSystem->ClearModifiedFlags( CVAR_USERINFO );	// otherwise retried next frame
+	}
 }
 
 void idAsyncClient::SendEmptyToServer( bool force, bool mapLoad ) {
@@ -422,6 +457,9 @@ void idAsyncClient::SendEmptyToServer( bool force, bool mapLoad ) {
 	msg.WriteLong( gameInitId );	// the server ignores the load state of another game
 	msg.WriteBool( mapLoad );
 	channel.SendMessage( clientPort, realTime, msg );
+	while ( channel.UnsentFragmentsLeft() ) {	// a large reliable backlog fragments even a small message
+		channel.SendNextFragment( clientPort, realTime );
+	}
 	lastEmptyTime = realTime;
 }
 
@@ -433,6 +471,9 @@ void idAsyncClient::SendPingResponseToServer( int time ) {
 	msg.WriteByte( CLIENT_UNRELIABLE_MESSAGE_PINGRESPONSE );
 	msg.WriteLong( time );
 	channel.SendMessage( clientPort, realTime, msg );
+	while ( channel.UnsentFragmentsLeft() ) {
+		channel.SendNextFragment( clientPort, realTime );
+	}
 }
 
 void idAsyncClient::SendUsercmdsToServer() {
@@ -481,6 +522,10 @@ void idAsyncClient::InitGame( int serverGameInitId, int serverGameFrame, int ser
 	snapshotGameFrame = serverGameFrame;
 	snapshotGameTime = serverGameTime;
 	predictedGameFrame = serverGameFrame;
+	// every player's user info for this game follows the game init (SERVER_RELIABLE_MESSAGE_CLIENTINFO)
+	for ( int i = 0; i < MAX_ASYNC_CLIENTS; ++i ) {
+		sessLocal.mapSpawnData.userInfo[ i ].Clear();
+	}
 	sessLocal.mapSpawnData.serverInfo = serverSI;
 	game->SetServerInfo( serverSI );
 
@@ -589,6 +634,19 @@ void idAsyncClient::ProcessReliableServerMessages() {
 				InitGame( sGameInitId, sGameFrame, sGameTime, sServerInfo );
 				break;
 			}
+			case SERVER_RELIABLE_MESSAGE_CLIENTINFO: {
+				// The server's validated info for one player.  Not written back into
+				// our ui_name cvar: that is archived, and would keep a server's '_'.
+				const int infoNum = msg.ReadByte();
+				idDict info;
+				game->ReadUserInfo( msg, info );
+				if ( infoNum >= 0 && infoNum < MAX_ASYNC_CLIENTS ) {
+					sessLocal.mapSpawnData.userInfo[ infoNum ] = info;
+					common->Printf( "Client user info %d: '%s'\n", infoNum, info.GetString( "ui_realname" ) );
+					game->UserInfoChanged( infoNum );
+				}
+				break;
+			}
 			case SERVER_RELIABLE_MESSAGE_GAME:
 				game->ClientProcessReliableMessage( msg );
 				break;
@@ -617,8 +675,8 @@ void idAsyncClient::ProcessChallengeResponseMessage( const netadr_t from, const 
 }
 
 void idAsyncClient::ProcessConnectResponseMessage( const netadr_t from, const idBitMsg& msg ) {
-	if ( !Sys_CompareNetAdrBase( from, serverAddress ) ) {
-		return;
+	if ( !Sys_CompareNetAdrBase( from, serverAddress ) || clientState != CS_CONNECTING ) {
+		return;	// a repeated response must not reset the channel (Doom 3)
 	}
 	serverId = msg.ReadLong();
 	clientNum = msg.ReadLong();
@@ -626,6 +684,7 @@ void idAsyncClient::ProcessConnectResponseMessage( const netadr_t from, const id
 	clientState = CS_CONNECTED;
 	lastPacketTime = realTime;
 	common->Printf( "Client connected to server (slot %d, serverId %d)\n", clientNum, serverId );
+	SendUserInfoToServer();
 }
 
 void idAsyncClient::ProcessDisconnectMessage( const netadr_t from, const idBitMsg& msg ) {

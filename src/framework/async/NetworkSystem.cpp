@@ -379,11 +379,9 @@ bool idNetworkSystem::CanPlayDemo( const char* fileName ) {
 }
 
 const idDict& idNetworkSystem::GetUserInfo( int clientNum ) {
-	if ( idAsyncNetwork::server.IsActive() ) {
-		return idAsyncNetwork::server.GetUserInfo( clientNum );
-	}
-	static idDict emptyUserInfo;
-	return emptyUserInfo;
+	// server, network client (the server's CLIENTINFO) and local devmap alike keep
+	// every player's info in sessLocal.mapSpawnData.userInfo
+	return idAsyncNetwork::server.GetUserInfo( clientNum );
 }
 
 bool idNetworkSystem::IsRankedServer() {

@@ -39,9 +39,11 @@ Splash Damage major listed next to ASYNC_PROTOCOL_MAJOR in Licensee.h (1 Doom 3,
 minor 1: first OpenETQW protocol (16-bit channel framing, acked snapshot baselines)
 minor 2: the game init is a reliable message (SERVER_RELIABLE_MESSAGE_GAMEINIT);
          client empty and usercmd messages carry the client's game init id
+minor 3: user info: CLIENT_RELIABLE_MESSAGE_CLIENTINFO (the client's ui_* cvars) and
+         SERVER_RELIABLE_MESSAGE_CLIENTINFO (client number + the game's user info codec)
 */
 const int OPENETQW_PROTOCOL_MAJOR	= 0x4F45;	// 'OE'
-const int ASYNC_PROTOCOL_MINOR		= 2;
+const int ASYNC_PROTOCOL_MINOR		= 3;
 const int ASYNC_PROTOCOL_VERSION	= ( OPENETQW_PROTOCOL_MAJOR << 16 ) + ASYNC_PROTOCOL_MINOR;
 #define MAJOR_VERSION(v) ( v >> 16 )
 
