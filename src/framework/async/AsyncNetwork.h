@@ -30,15 +30,17 @@ If you have questions concerning this license or the applicable additional terms
 #define __ASYNCNETWORK_H__
 
 /*
-DOOM III gold:	33
-1.1 beta patch:	34
-1.1 patch:		35
-1.2 XP:			36-39
-1.3 patch:		40
-1.3.1:			41
+OpenETQW speaks its own network protocol: a clean break from retail ET:QW 1.5, as openQ4
+did for Quake 4 (CHARTER D7). The major is OpenETQW's own and differs from every id /
+Splash Damage major listed next to ASYNC_PROTOCOL_MAJOR in Licensee.h (1 Doom 3, 2 Quake 4,
+10-14 ET:QW builds, 22 Quake 4 Xbox 360), so a retail peer is refused at connect with
+"Server uses protocol <major>.<minor>". Bump the minor on every incompatible wire change.
+
+minor 1: first OpenETQW protocol (16-bit channel framing, acked snapshot baselines)
 */
-const int ASYNC_PROTOCOL_MINOR		= 41;
-const int ASYNC_PROTOCOL_VERSION	= ( ASYNC_PROTOCOL_MAJOR << 16 ) + ASYNC_PROTOCOL_MINOR;
+const int OPENETQW_PROTOCOL_MAJOR	= 0x4F45;	// 'OE'
+const int ASYNC_PROTOCOL_MINOR		= 1;
+const int ASYNC_PROTOCOL_VERSION	= ( OPENETQW_PROTOCOL_MAJOR << 16 ) + ASYNC_PROTOCOL_MINOR;
 #define MAJOR_VERSION(v) ( v >> 16 )
 
 // ETQW publishes this limit through NetworkSystem.h.

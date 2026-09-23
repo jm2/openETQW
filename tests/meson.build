@@ -164,6 +164,19 @@ if build_dedicated
     is_parallel: false,
   )
   test(
+    'protocol-clean-break',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_protocol_clean_break.py',
+      '--ded-binary', all_stock_maps_ded,
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration'],
+    protocol: 'exitcode',
+    timeout: 300,
+    is_parallel: false,
+  )
+  test(
     'inprocess-map-change',
     py,
     args: [

@@ -1051,7 +1051,7 @@ void idAsyncServer::ProcessConnectMessage( const netadr_t from, const idBitMsg& 
 	}
 
 	if ( protocol != ASYNC_PROTOCOL_VERSION ) {
-		PrintOOB( from, SERVER_PRINT_BADPROTOCOL, va( "Server uses protocol %d.%d", ASYNC_PROTOCOL_MAJOR, ASYNC_PROTOCOL_MINOR ) );
+		PrintOOB( from, SERVER_PRINT_BADPROTOCOL, va( "Server uses protocol %d.%d", OPENETQW_PROTOCOL_MAJOR, ASYNC_PROTOCOL_MINOR ) );
 		return;
 	}
 
