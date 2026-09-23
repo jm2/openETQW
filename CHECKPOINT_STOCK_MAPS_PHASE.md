@@ -6,6 +6,24 @@ Written by Claude Code at a quota-forced safe stop. It replaces the earlier Gemi
 - Both repositories are **private** (checked with `gh api`).
 - Local-only session notes (gitignored): `/Users/jmulesa/openETQW/.agents/claude_session_2026-09-22/`. They include the transcript-history briefing, code-reader dossier (`code_results.json`), openQ4 triage, follow-up list, probe tool, and harness JSON reports.
 
+## Latest (M2 closed, M3 done; D7 clean network break)
+- **The full `meson test -C build -j 1` with retail data passes 13/13**: the unit tests; client-lifecycle, high-refresh-determinism and vulkan-shadows; all-stock-maps (561 s, serial); protocol-clean-break and inprocess-map-change; bot-gameplay and valley-match. The Valley match now plays a started match (the retail warmup EndGame guard is restored).
+- **Game follow-ups:**
+  - Push teleport (openQ4-game 841a573 idea).
+  - Unreliable-event snapshot budget (f5596b6, second half).
+  - AAS validation of portals and clusters (entry 0 of those lists is a dummy).
+- **D7 (owner, 2026-09-22):**
+  - Clean network break from retail 1.5, mirroring openQ4. Protocol 0x4F45.1; retail majors 1, 2, 10–14 and 22 are refused at connect (`tests/test_protocol_clean_break.py`).
+  - The charter, README, session brief and templates in the gitignored `openetqw_handoff_v3/` are updated, as are STATUS.md and ledger row 036. Retail paks are still required.
+- **M3: `tests/test_campaign_client_maps.py` 4/4.** Frames, world, MegaTexture, sky and interaction draws, stencil shadows, exit 0, no Vulkan errors:
+  - outskirts (NA, GDF) 224k shadow draws;
+  - ark (NE, GDF) 29k;
+  - canyon (SP, Strogg spawn) 25k;
+  - refinery (Africa, loading bay via setviewpos) 14k.
+  - The GDF spawn views of canyon, refinery, slipgate and island contain no shadow-casting light (new diagnostic line "Vulkan shadow lights").
+  - Vulkan validation layers are not installed, so validation errors could not be observed. There is no screenshot support in the Vulkan backend; visual confirmation is the owner's.
+- **Next: M4, CI parity** (drafts in `tools/ci/` of both repos and `.github/workflows/` of the game repo; the cross-repo token is deferred until the repos are public). Then M5 docs.
+
 ## Update, later on 2026-09-22 (current state; supersedes "State at stop" below where they differ)
 - **The engine WIP was reviewed and verified:**
   - Headless materials now parse as they do on the client (failed decls went from about 300–370 per map to 0).
