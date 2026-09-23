@@ -5096,6 +5096,9 @@ bool sdVulkanBackend::Init( void* nativeWindow, int width, int height ) {
 	return true;
 }
 
+extern unsigned int r_shadowLightViews;
+extern unsigned int r_shadowLightViewsWithCasters;
+
 void sdVulkanBackend::Shutdown() {
 	if ( state == NULL ) {
 		return;
@@ -5103,6 +5106,8 @@ void sdVulkanBackend::Shutdown() {
 	common->Printf( "Vulkan frames presented: %u, world draws: %u, GUI draws: %u, shadow draws: %u, light interactions: %u\n",
 		state->framesPresented, state->worldDrawCalls, state->guiDrawCalls,
 		state->worldShadowDrawCalls, state->worldInteractionDrawCalls );
+	common->Printf( "Vulkan shadow lights: %u shadow-casting light views, %u with shadow casters\n",
+		r_shadowLightViews, r_shadowLightViewsWithCasters );
 	common->Printf( "Vulkan world coverage: %u attempts, %u recorded views, %u surfaces, %u cache-ready, "
 		"%u material-ready, %u resource-ready\n", state->worldViewAttempts, state->worldViews,
 		state->worldSurfaceCandidates, state->worldCacheReady,
