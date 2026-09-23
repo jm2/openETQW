@@ -145,13 +145,26 @@ void idAsyncServer::Kill() {
 	active = false;
 	localClientNum = -1;
 	loadedMapRequest.Clear();
+	loadedRules.Clear();
 }
 
+/*
+==================
+idAsyncServer::IsMapRequestLoaded
+
+True when mapRequest names the running map and si_rules still names the rules
+it was started with, so spawnServer can use the cheaper serverMapRestart.  The
+game's map restart keeps the current rules object; a rules change (an admin
+stopwatch/objective changemap to the current map) must go through
+ExecuteMapChange, where OnUserStartMap makes the new rules.
+==================
+*/
 bool idAsyncServer::IsMapRequestLoaded( const char* mapRequest ) const {
 	if ( !active || !sessLocal.MapSpawned() || loadedMapRequest.IsEmpty() ) {
 		return false;
 	}
-	return Server_NormalizeMapRequest( mapRequest ).Icmp( loadedMapRequest ) == 0;
+	return Server_NormalizeMapRequest( mapRequest ).Icmp( loadedMapRequest ) == 0 &&
+		idStr::Icmp( cvarSystem->GetCVarString( "si_rules" ), loadedRules ) == 0;
 }
 
 void idAsyncServer::ExecuteMapChange() {
@@ -197,16 +210,29 @@ void idAsyncServer::ExecuteMapChange() {
 		game->SetClientNum( localClientNum, true );
 	}
 
+	ReinitRemoteClients();
+
 	loadedMapRequest.Clear();
+	loadedRules.Clear();
 	sessLocal.ExecuteMapChange( mapName.c_str(), 0, true, true, true );
 	if ( !sessLocal.MapSpawned() ) {
 		return;
 	}
 	loadedMapRequest = Server_NormalizeMapRequest( requestedMap.c_str() );
+	loadedRules = cvarSystem->GetCVarString( "si_rules" );	// after OnUserStartMap, which may force the rules
 	if ( localClientNum >= 0 ) {
 		BeginLocalClient();
 	}
 	BeginBotClients();
+
+	// the load can take longer than net_serverClientTimeout
+	const int now = Sys_Milliseconds();
+	for ( int i = 0; i < MAX_ASYNC_CLIENTS; ++i ) {
+		if ( i != localClientNum && !clients[ i ].isBot && clients[ i ].clientState == SCS_CONNECTED ) {
+			clients[ i ].lastPacketTime = now;
+			clients[ i ].lastInputTime = now;
+		}
+	}
 }
 
 int idAsyncServer::GetPort() const {
@@ -432,13 +458,15 @@ void idAsyncServer::SendReliableGameMessage( int clientNum, const idBitMsg& msg 
 	out.WriteByte( SERVER_RELIABLE_MESSAGE_GAME );
 	out.WriteData( msg.GetData(), msg.GetSize() );
 
+	// only clients in the game (Doom 3 rule): a client waiting for its game init
+	// gets the full state from ServerWriteInitialReliableMessages instead
 	if ( clientNum == -1 ) {
 		for ( int i = 0; i < MAX_ASYNC_CLIENTS; ++i ) {
-			if ( clients[ i ].clientState >= SCS_CONNECTED ) {
+			if ( clients[ i ].clientState == SCS_INGAME ) {
 				SendReliableMessage( i, out );
 			}
 		}
-	} else if ( clientNum >= 0 && clientNum < MAX_ASYNC_CLIENTS && clients[ clientNum ].clientState >= SCS_CONNECTED ) {
+	} else if ( clientNum >= 0 && clientNum < MAX_ASYNC_CLIENTS && clients[ clientNum ].clientState == SCS_INGAME ) {
 		SendReliableMessage( clientNum, out );
 	}
 }
@@ -451,7 +479,7 @@ void idAsyncServer::SendReliableGameMessageExcluding( int clientNum, const idBit
 	out.WriteByte( SERVER_RELIABLE_MESSAGE_GAME );
 	out.WriteData( msg.GetData(), msg.GetSize() );
 	for ( int i = 0; i < MAX_ASYNC_CLIENTS; ++i ) {
-		if ( i != clientNum && clients[ i ].clientState >= SCS_CONNECTED ) {
+		if ( i != clientNum && clients[ i ].clientState == SCS_INGAME ) {
 			SendReliableMessage( i, out );
 		}
 	}
@@ -653,6 +681,41 @@ void idAsyncServer::BeginBotClients() {
 	}
 }
 
+/*
+==================
+idAsyncServer::ReinitRemoteClients
+
+Called before the server loads a new map.  Remote clients stay connected, but
+their player entities go with the old map and their frames and snapshots
+belong to the old game.  Put each one back in SCS_CONNECTED, as Doom 3's
+ExecuteMapChange re-initialises every connected client before the load:
+SendReliableGameMessage skips it, so none of the game's reliable messages from
+the map shutdown and the new map's spawn reach a client that still has the
+old map loaded, and the first SendSnapshotToClient after the load sends it the
+game init (the client loads the map; the game spawns its player and writes
+the initial reliable state).  The channel is kept (InitClient would shut it
+down), and the snapshot sequence keeps counting up: the client drops a
+snapshot whose sequence is not above the last one it applied, and the game
+frees its per-client snapshot state in MapShutdown.
+==================
+*/
+void idAsyncServer::ReinitRemoteClients() {
+	for ( int i = 0; i < MAX_ASYNC_CLIENTS; ++i ) {
+		serverClient_t& client = clients[ i ];
+		if ( i == localClientNum || client.isBot || client.clientState < SCS_CONNECTED ) {
+			continue;
+		}
+		client.clientState = SCS_CONNECTED;
+		client.isMapLoading = false;
+		client.gameFrame = 0;
+		client.gameTime = 0;
+		client.clientAheadTime = 0;
+		client.numDuplicatedUsercmds = 0;
+		client.acknowledgeSnapshotSequence = client.snapshotSequence;
+		client.lastSnapshotTime = 0;
+	}
+}
+
 void idAsyncServer::LocalClientInput() {
 	if ( localClientNum < 0 || localClientNum >= MAX_ASYNC_CLIENTS ) {
 		return;
@@ -733,6 +796,24 @@ void idAsyncServer::SendSyncedCvarsToClient( int clientNum, const idDict& cvars 
 void idAsyncServer::SendApplySnapshotToClient( int clientNum, int sequence ) {
 }
 
+/*
+==================
+idAsyncServer::SendMessageToClient
+
+Sends an unreliable message and every fragment it needs.  The channel packs
+the queued reliable messages into each unreliable send, so after a map load
+even a small message (the game init) can exceed FRAGMENT_SIZE; fragments left
+unsent make the channel refuse every later message and SendSnapshotToClient
+wait forever, so the client never saw the game init.
+==================
+*/
+void idAsyncServer::SendMessageToClient( serverClient_t& client, const idBitMsg& msg ) {
+	client.channel.SendMessage( serverPort, realTime, msg );
+	while ( client.channel.UnsentFragmentsLeft() ) {
+		client.channel.SendNextFragment( serverPort, realTime );
+	}
+}
+
 bool idAsyncServer::SendEmptyToClient( int clientNum, bool force ) {
 	if ( clientNum < 0 || clientNum >= MAX_ASYNC_CLIENTS || clients[ clientNum ].clientState < SCS_CONNECTED ) {
 		return false;
@@ -746,7 +827,7 @@ bool idAsyncServer::SendEmptyToClient( int clientNum, bool force ) {
 	msg.InitWrite( buffer, sizeof( buffer ) );
 	msg.BeginWriting();
 	msg.WriteByte( SERVER_UNRELIABLE_MESSAGE_EMPTY );
-	client.channel.SendMessage( serverPort, realTime, msg );
+	SendMessageToClient( client, msg );
 	client.lastEmptyTime = realTime;
 	return true;
 }
@@ -765,7 +846,7 @@ bool idAsyncServer::SendPingToClient( int clientNum ) {
 	msg.BeginWriting();
 	msg.WriteByte( SERVER_UNRELIABLE_MESSAGE_PING );
 	msg.WriteLong( realTime );
-	client.channel.SendMessage( serverPort, realTime, msg );
+	SendMessageToClient( client, msg );
 	client.lastPingTime = realTime;
 	return true;
 }
@@ -788,7 +869,7 @@ void idAsyncServer::SendGameInitToClient( int clientNum ) {
 	msg.WriteLong( gameFrame );
 	msg.WriteLong( gameTime );
 	msg.WriteDeltaDict( sessLocal.mapSpawnData.serverInfo, NULL );
-	client.channel.SendMessage( serverPort, realTime, msg );
+	SendMessageToClient( client, msg );
 
 	// 2. Transmit synced cvars
 	SendSyncedCvarsToClient( clientNum, sessLocal.mapSpawnData.syncedCVars );
@@ -880,10 +961,7 @@ bool idAsyncServer::SendSnapshotToClient( int clientNum ) {
 	snapshotMsg.WriteShort( gameMsg.GetSize() );
 	snapshotMsg.WriteData( gameMsg.GetData(), gameMsg.GetSize() );
 
-	client.channel.SendMessage( serverPort, realTime, snapshotMsg );
-	while ( client.channel.UnsentFragmentsLeft() ) {
-		client.channel.SendNextFragment( serverPort, realTime );
-	}
+	SendMessageToClient( client, snapshotMsg );
 
 	client.lastSnapshotTime = realTime;
 	return true;

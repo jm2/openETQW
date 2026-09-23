@@ -216,6 +216,7 @@ private:
 	bool				serverReloadingEngine;		// flip-flop to not loop over when net_serverReloadEngine is on
 
 	idStr				loadedMapRequest;			// normalized si_map of the running map, empty if none
+	idStr				loadedRules;				// si_rules the running map was started with
 
 	bool				noRconOutput;				// for default rcon response when command is silent
 
@@ -237,6 +238,8 @@ private:
 	void				InitLocalClient( int clientNum );
 	void				BeginLocalClient( void );
 	void				BeginBotClients( void );
+	void				ReinitRemoteClients( void );
+	void				SendMessageToClient( serverClient_t &client, const idBitMsg &msg );
 	void				LocalClientInput( void );
 	void				CheckClientTimeouts( void );
 	void				SendPrintBroadcast( const char *string );

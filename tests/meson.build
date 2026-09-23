@@ -110,6 +110,10 @@ test(
 
 # 6. Client lifecycle & graphics verification test
 if build_engine
+  campaign_client = meson.project_build_root() / engine_client_binary_name
+  if host_system == 'windows'
+    campaign_client += '.exe'
+  endif
   test(
     'client-lifecycle',
     py,
@@ -131,6 +135,7 @@ if build_engine
     py,
     args: [
       meson.project_source_root() / 'tests' / 'test_campaign_client_maps.py',
+      '--client-binary', campaign_client,
       '--log-dir', meson.project_build_root() / 'meson-logs' / 'campaign-client-maps',
       '--json', meson.project_build_root() / 'meson-logs' / 'campaign-client-maps.json',
     ],
@@ -202,6 +207,20 @@ if build_dedicated
     suite: ['integration', 'stock-maps'],
     protocol: 'exitcode',
     timeout: 900,
+    is_parallel: false,
+  )
+  test(
+    'remote-client-map-change',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_remote_client_map_change.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'remote-client-map-change',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration', 'stock-maps'],
+    protocol: 'exitcode',
+    timeout: 600,
     is_parallel: false,
   )
 endif

@@ -16,7 +16,9 @@ Checks, on a single server process (no restart between maps):
    released, and that 2 new bots then take those same slots and get a real
    team spawn on every map.
 4. 'spawnServer <same map>' restarts it (serverMapRestart path).
-5. 'quit' exits 0.
+5. 'spawnServer <same map>' after an si_rules change is a full map load, so
+   the game makes the new rules (the map restart keeps the old rules object).
+6. 'quit' exits 0.
 
 Exit 77 when ETQW_DATA_PATH is unset/invalid or the binary is missing.
 """
@@ -155,6 +157,18 @@ def main(argv):
             print(f"[{m}] status slots in use after re-adding: {used}")
             if used != [2]:
                 failures.append(f"{m}: expected 2 client slots in use, status says {used}")
+
+        last = sequence[-1]
+        start = srv.mark()
+        srv.send("set si_rules sdGameRulesStopWatch")
+        srv.send(f"spawnServer {last}")
+        loaded = srv.wait_for_text(f"Map: maps/{last}.world", 120.0, start)
+        print(f"[{last}] si_rules change + same-map spawnServer -> full load {'seen' if loaded else 'NOT seen'}")
+        if not loaded:
+            failures.append(f"{last}: spawnServer after an si_rules change restarted the map instead of loading it")
+        elif not srv.wait_for_text("entities spawned", 120.0, loaded[0]):
+            failures.append(f"{last}: the reload after the si_rules change never finished")
+        srv.sync()
 
         rc = srv.quit()
         print(f"quit exit code: {rc}")
