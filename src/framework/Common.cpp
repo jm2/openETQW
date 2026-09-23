@@ -7,9 +7,11 @@
 #include "../idlib/precompiled.h"
 #pragma hdrstop
 
-#include <execinfo.h>
+#if !defined( _WIN32 )
+#include <execinfo.h>	// backtrace() in FatalError
 #include <unistd.h>
-#include <time.h>
+#endif
+#include <chrono>
 #include <mutex>
 #include <thread>
 #include "precompiled.h"
@@ -597,9 +599,11 @@ void idCommonLocal::FatalError( const char* fmt, ... ) {
 		va_end( args );
 	}
 	Printf( "********************\nFATAL ERROR: %s\n********************\n", errorMessage );
+#if !defined( _WIN32 )
 	void *callstack[ 64 ];
 	int frames = backtrace( callstack, 64 );
 	backtrace_symbols_fd( callstack, frames, STDERR_FILENO );
+#endif
 	Sys_SetFatalError( errorMessage );
 	Shutdown();
 	Sys_Error( "%s", errorMessage );
@@ -1001,19 +1005,20 @@ void idCommonLocal::Frame() {
 		const int maxFPS = com_maxFPS.GetInteger() > 0 ? com_maxFPS.GetInteger() : com_unlock_maxFPS.GetInteger();
 		if ( maxFPS > 0 ) {
 			const uint64_t targetFrameUsec = 1000000ull / static_cast< uint64_t >( maxFPS );
-			struct timespec ts;
-			clock_gettime( CLOCK_MONOTONIC, &ts );
-			uint64_t nowUsec = static_cast< uint64_t >( ts.tv_sec ) * 1000000ull + static_cast< uint64_t >( ts.tv_nsec ) / 1000ull;
+			const auto monotonicUsec = []() {
+				return static_cast< uint64_t >( std::chrono::duration_cast< std::chrono::microseconds >(
+					std::chrono::steady_clock::now().time_since_epoch() ).count() );
+			};
+			uint64_t nowUsec = monotonicUsec();
 			if ( lastFrameUsec != 0 && nowUsec > lastFrameUsec ) {
 				uint64_t elapsedUsec = nowUsec - lastFrameUsec;
 				if ( elapsedUsec < targetFrameUsec ) {
 					uint64_t waitUsec = targetFrameUsec - elapsedUsec;
 					if ( waitUsec > 2000 ) {
-						usleep( static_cast< useconds_t >( waitUsec - 1500 ) );
+						std::this_thread::sleep_for( std::chrono::microseconds( waitUsec - 1500 ) );
 					}
 					do {
-						clock_gettime( CLOCK_MONOTONIC, &ts );
-						nowUsec = static_cast< uint64_t >( ts.tv_sec ) * 1000000ull + static_cast< uint64_t >( ts.tv_nsec ) / 1000ull;
+						nowUsec = monotonicUsec();
 					} while ( nowUsec - lastFrameUsec < targetFrameUsec );
 				}
 			}
