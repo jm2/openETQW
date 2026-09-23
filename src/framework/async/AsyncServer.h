@@ -109,6 +109,7 @@ typedef struct serverClient_s {
 	int					clientPing;
 
 	int					gameInitSequence;
+	int					gameInitSentId;		// gameInitId of the game init sent to this client, GAME_INIT_ID_INVALID if none
 	int					gameFrame;
 	int					gameTime;
 
@@ -128,6 +129,8 @@ typedef struct serverClient_s {
 	// the last snapshot message, resent while it is unacknowledged
 	int					lastSnapshotSize;
 	byte				lastSnapshot[ MAX_MESSAGE_SIZE ];
+	// reliable messages queued while that snapshot is unacknowledged (see SendReliableMessage)
+	idMsgQueue			pendingReliable;
 
 	char				guid[12];  // Even Balance - M. Quinn
 
@@ -243,6 +246,8 @@ private:
 	void				BeginLocalClient( void );
 	void				BeginBotClients( void );
 	void				ReinitRemoteClients( void );
+	void				BeginRemoteClient( int clientNum );
+	bool				FlushPendingReliable( int clientNum );
 	int					SendMessageToClient( serverClient_t &client, const idBitMsg &msg );
 	void				LocalClientInput( void );
 	void				CheckClientTimeouts( void );

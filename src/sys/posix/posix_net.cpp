@@ -155,7 +155,8 @@ void idPort::SendPacket( const netadr_t to, const void *data, int size ) {
 		return;
 	}
 
-	if ( net_forceDrop.GetInteger() > 0 && rand() < net_forceDrop.GetInteger() * ( RAND_MAX / 100 ) ) {
+	const int dropPercent = idMath::ClampInt( 0, 100, net_forceDrop.GetInteger() );
+	if ( dropPercent > 0 && rand() < dropPercent * ( RAND_MAX / 100 ) ) {
 		packetsWritten++;	// counted as sent, as a lost packet would be
 		bytesWritten += size;
 		return;

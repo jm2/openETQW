@@ -30,6 +30,7 @@ READY = "------------- ETQW initialized -------------"
 SNAPSHOT_RE = re.compile(r"Client received snapshot (\d+) \(frame (\d+)\)")
 SLOTS_RE = re.compile(r"^(\d+) client slots? in use")
 GAME_INIT_RE = re.compile(r"Sending game init to client (\d+)")
+DROPPED_RE = re.compile(r"Server dropped client usercmds: clientGameFrame=(\d+)")
 
 
 class RemoteClient(h.DedicatedServer):
@@ -123,14 +124,25 @@ def main(argv):
         print(f"[{second}] server status slots in use: {used}")
         if used != [1]:
             failures.append(f"server status says {used} client slots in use (expected [1])")
-        # The client's packets queued during the server's load are read in one burst
-        # before the game init goes out (old frame numbers, dropped with a warning,
-        # more the longer the load); after the game init the client's frames must
-        # line up with the new game, so a steady stream there is the bug.
-        dropped = [l.text for l in srv.snapshot(reinit[0] if reinit else srv_mark) if "dropped client usercmds" in l.text]
-        print(f"[{second}] 'dropped client usercmds' warnings after the game init: {len(dropped)}")
-        if len(dropped) > 10:
-            failures.append(f"{len(dropped)} 'Server dropped client usercmds' warnings after the game init")
+        # Until its first snapshot of the new game the client sends usercmds with the
+        # game init's frame (it is not in the game yet), which the server may drop
+        # as too old; once the client has that snapshot its frames must line up with
+        # the server's, so a warning for a frame at or after it is the bug.
+        first_frame = None
+        if loaded:
+            for ln in cl.snapshot(loaded[0]):
+                m = SNAPSHOT_RE.search(ln.text)
+                if m:
+                    first_frame = int(m.group(2))
+                    break
+        dropped = []
+        for ln in srv.snapshot(reinit[0] if reinit else srv_mark):
+            m = DROPPED_RE.search(ln.text)
+            if m and first_frame is not None and int(m.group(1)) >= first_frame:
+                dropped.append(ln.text)
+        print(f"[{second}] 'dropped client usercmds' warnings for frames after the first snapshot: {len(dropped)}")
+        if dropped:
+            failures.append(f"{len(dropped)} 'Server dropped client usercmds' warnings after the client entered the new game")
 
         crc = cl.quit()
         src = srv.quit()
