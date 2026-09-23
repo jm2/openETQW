@@ -23,7 +23,7 @@ import etqw_harness as h  # noqa: E402
 
 READY = "------------- ETQW initialized -------------"
 OPENETQW_MAJOR = 0x4F45
-OPENETQW_MINOR = 3
+OPENETQW_MINOR = 4
 # id / Splash Damage majors from Licensee.h: 1 Doom 3, 2 Quake 4, 10-14 ET:QW builds, 22 Quake 4 Xbox 360
 RETAIL_MAJORS = (10, 11, 12, 13, 14, 1, 2, 22)
 

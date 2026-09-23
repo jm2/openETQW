@@ -598,8 +598,9 @@ void idAsyncClient::ProcessUnreliableServerMessage( const idBitMsg& msg ) {
 			gameTimeResidual = 0;
 		}
 
+		// read only: the snapshot becomes the delta base when the server says so
+		// (SERVER_RELIABLE_MESSAGE_APPLYSNAPSHOT); snapshotSequence is the ack
 		if ( game->ClientReadSnapshot( sequence, sGameFrame, sGameTime, numDuplicatedUsercmds, aheadOfServer, gameMsg, ucmdMsg ) ) {
-			game->ClientApplySnapshot( sequence );
 			snapshotSequence = sequence;
 			lastSnapshotTime = realTime;
 			predictedGameFrame = snapshotGameFrame;
@@ -644,6 +645,15 @@ void idAsyncClient::ProcessReliableServerMessages() {
 					sessLocal.mapSpawnData.userInfo[ infoNum ] = info;
 					common->Printf( "Client user info %d: '%s'\n", infoNum, info.GetString( "ui_realname" ) );
 					game->UserInfoChanged( infoNum );
+				}
+				break;
+			}
+			case SERVER_RELIABLE_MESSAGE_APPLYSNAPSHOT: {
+				// the server made this snapshot its base for us; it is one we read (the
+				// ack), and applying it frees the older ones
+				const int sequence = msg.ReadLong();
+				if ( !game->ClientApplySnapshot( sequence ) ) {
+					common->Error( "idAsyncClient: couldn't apply snapshot %d", sequence );
 				}
 				break;
 			}

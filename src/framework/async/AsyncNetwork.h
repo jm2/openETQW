@@ -41,9 +41,11 @@ minor 2: the game init is a reliable message (SERVER_RELIABLE_MESSAGE_GAMEINIT);
          client empty and usercmd messages carry the client's game init id
 minor 3: user info: CLIENT_RELIABLE_MESSAGE_CLIENTINFO (the client's ui_* cvars) and
          SERVER_RELIABLE_MESSAGE_CLIENTINFO (client number + the game's user info codec)
+minor 4: streamed snapshots; the client makes a snapshot its delta base only on
+         SERVER_RELIABLE_MESSAGE_APPLYSNAPSHOT (sequence), sent when the server applied it
 */
 const int OPENETQW_PROTOCOL_MAJOR	= 0x4F45;	// 'OE'
-const int ASYNC_PROTOCOL_MINOR		= 3;
+const int ASYNC_PROTOCOL_MINOR		= 4;
 const int ASYNC_PROTOCOL_VERSION	= ( OPENETQW_PROTOCOL_MAJOR << 16 ) + ASYNC_PROTOCOL_MINOR;
 #define MAJOR_VERSION(v) ( v >> 16 )
 

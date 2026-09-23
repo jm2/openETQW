@@ -468,8 +468,28 @@ def run_multiclient_test():
     return 0
 
 
+def apply_network_conditions(argv):
+    """--latency/--jitter/--drop: simulated network conditions for all three
+    processes (net_forceLatency/net_forceJitter/net_forceDrop); --base-check
+    makes the server send its snapshot base checksum (net_debugSnapshotBase)."""
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--latency", type=int, default=0)
+    ap.add_argument("--jitter", type=int, default=0)
+    ap.add_argument("--drop", type=int, default=0)
+    ap.add_argument("--base-check", action="store_true")
+    args = ap.parse_args(argv)
+    net = ["+set", "net_forceLatency", str(args.latency), "+set", "net_forceJitter", str(args.jitter),
+           "+set", "net_forceDrop", str(args.drop)]
+    for proc_args in (SERVER_ARGS, CLIENT1_ARGS, CLIENT2_ARGS):
+        proc_args[-2:-2] = net  # before the final +spawnServer/+connect
+    if args.base_check:
+        SERVER_ARGS[-2:-2] = ["+set", "net_debugSnapshotBase", "1"]
+
+
 if __name__ == "__main__":
     h.skip_unless_available(DATA_PATH, BINARY_PATH)
+    apply_network_conditions(sys.argv[1:])
     try:
         sys.exit(run_multiclient_test())
     except Exception as e:
