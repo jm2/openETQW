@@ -37,9 +37,11 @@ Splash Damage major listed next to ASYNC_PROTOCOL_MAJOR in Licensee.h (1 Doom 3,
 "Server uses protocol <major>.<minor>". Bump the minor on every incompatible wire change.
 
 minor 1: first OpenETQW protocol (16-bit channel framing, acked snapshot baselines)
+minor 2: the game init is a reliable message (SERVER_RELIABLE_MESSAGE_GAMEINIT);
+         client empty and usercmd messages carry the client's game init id
 */
 const int OPENETQW_PROTOCOL_MAJOR	= 0x4F45;	// 'OE'
-const int ASYNC_PROTOCOL_MINOR		= 1;
+const int ASYNC_PROTOCOL_MINOR		= 2;
 const int ASYNC_PROTOCOL_VERSION	= ( OPENETQW_PROTOCOL_MAJOR << 16 ) + ASYNC_PROTOCOL_MINOR;
 #define MAJOR_VERSION(v) ( v >> 16 )
 
@@ -81,7 +83,7 @@ const int GAME_INIT_ID_MAP_LOAD		= -2;
 enum {
 	SERVER_UNRELIABLE_MESSAGE_EMPTY = 0,
 	SERVER_UNRELIABLE_MESSAGE_PING,
-	SERVER_UNRELIABLE_MESSAGE_GAMEINIT,
+	SERVER_UNRELIABLE_MESSAGE_GAMEINIT,	// unused since minor 2 (SERVER_RELIABLE_MESSAGE_GAMEINIT)
 	SERVER_UNRELIABLE_MESSAGE_SNAPSHOT
 };
 
@@ -95,7 +97,8 @@ enum {
 	SERVER_RELIABLE_MESSAGE_DISCONNECT,
 	SERVER_RELIABLE_MESSAGE_APPLYSNAPSHOT,
 	SERVER_RELIABLE_MESSAGE_GAME,
-	SERVER_RELIABLE_MESSAGE_ENTERGAME
+	SERVER_RELIABLE_MESSAGE_ENTERGAME,
+	SERVER_RELIABLE_MESSAGE_GAMEINIT	// gameInitId, gameFrame, gameTime, serverInfo
 };
 
 // unreliable client -> server messages

@@ -22,7 +22,7 @@ Written by Claude Code at a quota-forced safe stop. It replaces the earlier Gemi
   - Unreliable-event snapshot budget (f5596b6, second half).
   - AAS validation of portals and clusters (entry 0 of those lists is a dummy).
 - **D7 (owner, 2026-09-22):**
-  - Clean network break from retail 1.5, mirroring openQ4. Protocol 0x4F45.1; retail majors 1, 2, 10–14 and 22 are refused at connect (`tests/test_protocol_clean_break.py`).
+  - Clean network break from retail 1.5, mirroring openQ4. Protocol 0x4F45.1 (0x4F45.2 since the pre-merge review fixes); retail majors 1, 2, 10–14 and 22 are refused at connect (`tests/test_protocol_clean_break.py`).
   - The charter, README, session brief and templates in the gitignored `openetqw_handoff_v3/` are updated, as are STATUS.md and ledger row 036. Retail paks are still required.
 - **M3: `tests/test_campaign_client_maps.py` 4/4.** Frames, world, MegaTexture, sky and interaction draws, stencil shadows, exit 0, no Vulkan errors:
   - outskirts (NA, GDF) 224k shadow draws;

@@ -53,9 +53,10 @@ idNetworkSystem::RepeaterSendReliableMessage
 ==================
 */
 void idNetworkSystem::RepeaterSendReliableMessage( int clientNum, const idBitMsg& msg, bool ignoreRelays ) {
-	if ( idAsyncNetwork::server.IsActive() ) {
-		idAsyncNetwork::server.SendReliableGameMessage( clientNum, msg );
-	}
+	// OpenETQW has no repeater clients.  The game sends a message for all
+	// clients here and through ServerSendReliableMessage, so forwarding it to
+	// the game clients delivered every broadcast twice (chat lines, MAP_RESTART,
+	// rules EVENT_CREATE, entity deletes) and doubled the reliable backlog.
 }
 #endif // SD_SUPPORT_REPEATER
 

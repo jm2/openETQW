@@ -223,4 +223,23 @@ if build_dedicated
     timeout: 600,
     is_parallel: false,
   )
+  # the same with 20% packet loss each way (net_forceDrop): snapshot resends and
+  # the reliable game init
+  test(
+    'remote-client-map-change-loss',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_remote_client_map_change.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--drop', '20',
+      '--min-snapshots', '20',
+      '--port', '29970',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'remote-client-map-change-loss',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration', 'stock-maps'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
 endif
