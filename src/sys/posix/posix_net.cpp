@@ -18,6 +18,32 @@
 idCVar net_ip( "net_ip", "localhost", CVAR_SYSTEM, "local IP address" );
 idCVar net_port( "net_port", "0", CVAR_SYSTEM | CVAR_INTEGER, "local IP port number" );
 idCVar net_forceDrop( "net_forceDrop", "0", CVAR_SYSTEM | CVAR_INTEGER, "percentage packet loss" );	// as win_net.cpp: outgoing packets
+idCVar net_forceLatency( "net_forceLatency", "0", CVAR_SYSTEM | CVAR_INTEGER, "milliseconds latency added to received packets" );
+idCVar net_forceJitter( "net_forceJitter", "0", CVAR_SYSTEM | CVAR_INTEGER, "up to this many more milliseconds of random latency per received packet (reorders packets)" );
+
+// Received packets held back by net_forceLatency / net_forceJitter (network testing).
+// Keyed by socket, so idPort (shared with the game module) is unchanged.
+struct delayedPacket_t {
+	int				socket;
+	int				releaseTime;
+	netadr_t		from;
+	idList< byte >	data;
+};
+static idList< delayedPacket_t* > delayedPackets;
+
+static bool Net_ReadSocket( int netSocket, netadr_t &from, void *data, int &size, int maxSize ) {
+	struct sockaddr_in from_addr;
+	socklen_t fromlen = sizeof( from_addr );
+	int ret = recvfrom( netSocket, static_cast< char* >( data ), maxSize, 0, reinterpret_cast< struct sockaddr* >( &from_addr ), &fromlen );
+	if ( ret <= 0 ) {
+		return false;
+	}
+	from.type = NA_IP;
+	from.port = ntohs( from_addr.sin_port );
+	memcpy( from.ip, &from_addr.sin_addr.s_addr, 4 );
+	size = ret;
+	return true;
+}
 
 typedef struct {
 	uint32_t ip;
@@ -98,19 +124,50 @@ bool idPort::GetPacket( netadr_t &from, void *data, int &size, int maxSize ) {
 		return false;
 	}
 
-	struct sockaddr_in from_addr;
-	socklen_t fromlen = sizeof( from_addr );
-	int ret = recvfrom( netSocket, static_cast< char* >( data ), maxSize, 0, reinterpret_cast< struct sockaddr* >( &from_addr ), &fromlen );
-	if ( ret <= 0 ) {
-		return false;
+	const int latency = Max( 0, net_forceLatency.GetInteger() );
+	const int jitter = Max( 0, net_forceJitter.GetInteger() );
+	if ( latency == 0 && jitter == 0 && delayedPackets.Num() == 0 ) {
+		if ( !Net_ReadSocket( netSocket, from, data, size, maxSize ) ) {
+			return false;
+		}
+		packetsRead++;
+		bytesRead += size;
+		return true;
 	}
 
-	from.type = NA_IP;
-	from.port = ntohs( from_addr.sin_port );
-	memcpy( from.ip, &from_addr.sin_addr.s_addr, 4 );
-	size = ret;
+	// queue everything that has arrived, each with its own release time
+	const int now = Sys_Milliseconds();
+	netadr_t packetFrom;
+	int packetSize = 0;
+	while ( Net_ReadSocket( netSocket, packetFrom, data, packetSize, maxSize ) ) {
+		delayedPacket_t* packet = new delayedPacket_t;
+		packet->socket = netSocket;
+		packet->releaseTime = now + latency + ( jitter > 0 ? rand() % ( jitter + 1 ) : 0 );
+		packet->from = packetFrom;
+		packet->data.SetNum( packetSize );
+		memcpy( &packet->data[ 0 ], data, packetSize );
+		delayedPackets.Append( packet );
+	}
+
+	// hand out the due packet of this socket that is released first
+	int best = -1;
+	for ( int i = 0; i < delayedPackets.Num(); i++ ) {
+		const delayedPacket_t* packet = delayedPackets[ i ];
+		if ( packet->socket == netSocket && packet->releaseTime <= now && ( best < 0 || packet->releaseTime < delayedPackets[ best ]->releaseTime ) ) {
+			best = i;
+		}
+	}
+	if ( best < 0 ) {
+		return false;
+	}
+	delayedPacket_t* packet = delayedPackets[ best ];
+	delayedPackets.RemoveIndex( best );
+	from = packet->from;
+	size = Min( packet->data.Num(), maxSize );
+	memcpy( data, &packet->data[ 0 ], size );
+	delete packet;
 	packetsRead++;
-	bytesRead += ret;
+	bytesRead += size;
 	return true;
 }
 

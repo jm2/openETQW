@@ -39,7 +39,6 @@ static void Server_TruncateColored( idStr& s, int maxLen ) {
 	}
 	s.CapLength( len );
 }
-static const int SERVER_SNAPSHOT_RESEND_MSEC = 250;	// resend an unacknowledged snapshot after this long
 static const int SERVER_PING_RESEND_MSEC = 500;
 
 /*
@@ -643,7 +642,6 @@ void idAsyncServer::ClearClient( int clientNum ) {
 	client.clientPing = 0;
 	client.gameInitSequence = 0;
 	client.gameInitSentId = GAME_INIT_ID_INVALID;
-	client.pendingReliable.Init( 0 );
 	client.gameFrame = 0;
 	client.gameTime = 0;
 	client.lastConnectTime = 0;
@@ -657,7 +655,6 @@ void idAsyncServer::ClearClient( int clientNum ) {
 	client.numDuplicatedUsercmds = 0;
 	client.isBot = false;
 	client.isMapLoading = false;
-	client.lastSnapshotSize = 0;
 	client.guid[ 0 ] = '\0';
 	client.channel.Shutdown();
 }
@@ -801,9 +798,6 @@ void idAsyncServer::ReinitRemoteClients() {
 		if ( i == localClientNum || client.isBot || client.clientState < SCS_CONNECTED ) {
 			continue;
 		}
-		if ( !FlushPendingReliable( i ) ) {
-			continue;	// dropped
-		}
 		client.clientState = SCS_CONNECTED;
 		client.isMapLoading = false;
 		client.gameFrame = 0;
@@ -812,7 +806,6 @@ void idAsyncServer::ReinitRemoteClients() {
 		client.numDuplicatedUsercmds = 0;
 		client.acknowledgeSnapshotSequence = client.snapshotSequence;
 		client.lastSnapshotTime = 0;
-		client.lastSnapshotSize = 0;
 		client.gameInitSentId = GAME_INIT_ID_INVALID;
 	}
 }
@@ -907,7 +900,24 @@ void idAsyncServer::SendSyncedCvarsToClient( int clientNum, const idDict& cvars 
 	SendReliableMessage( clientNum, msg );
 }
 
+/*
+==================
+idAsyncServer::SendApplySnapshotToClient
+
+Tells the client to make snapshot 'sequence' its delta base, as the server
+just did (game->ServerApplySnapshot).  Reliable and queued before every
+snapshot written after that apply, so the client applies exactly the
+snapshots the server applied, in the same order, between the same reads.
+==================
+*/
 void idAsyncServer::SendApplySnapshotToClient( int clientNum, int sequence ) {
+	byte buffer[ 16 ];
+	idBitMsg msg;
+	msg.InitWrite( buffer, sizeof( buffer ) );
+	msg.BeginWriting();
+	msg.WriteByte( SERVER_RELIABLE_MESSAGE_APPLYSNAPSHOT );
+	msg.WriteLong( sequence );
+	SendReliableMessage( clientNum, msg );
 }
 
 /*
@@ -1070,31 +1080,6 @@ void idAsyncServer::BeginRemoteClient( int clientNum ) {
 	client.lastInputTime = realTime;
 }
 
-/*
-==================
-idAsyncServer::FlushPendingReliable
-
-Moves the reliable messages held while a snapshot was unacknowledged into the
-channel, in order.  Returns false when that dropped the client.
-==================
-*/
-bool idAsyncServer::FlushPendingReliable( int clientNum ) {
-	serverClient_t& client = clients[ clientNum ];
-	byte data[ MAX_MESSAGE_SIZE ];
-	int size = 0;
-	while ( client.pendingReliable.Get( data, size ) ) {
-		idBitMsg msg;
-		msg.InitWrite( data, sizeof( data ) );
-		msg.SetSize( size );
-		if ( !client.channel.SendReliableMessage( msg ) ) {
-			client.pendingReliable.Init( 0 );
-			DropClient( clientNum, "reliable message overflow" );
-			return false;
-		}
-	}
-	return true;
-}
-
 bool idAsyncServer::SendSnapshotToClient( int clientNum ) {
 	if ( clientNum < 0 || clientNum >= MAX_ASYNC_CLIENTS || clients[ clientNum ].clientState < SCS_CONNECTED ) {
 		return false;
@@ -1119,31 +1104,10 @@ bool idAsyncServer::SendSnapshotToClient( int clientNum ) {
 		return false;
 	}
 
-	// Snapshots are stop-and-wait: the client makes each snapshot its delta base
-	// as soon as it reads it, so the next one is written only after this one is
-	// acknowledged.  Acks ride on every usercmd message, so a missing ack means
-	// the snapshot (or one of its fragments) was lost: resend the same message.
-	// Without the resend one lost packet stopped the client's snapshots for good.
-	// The client drops a duplicate (its sequence is not newer).
-	if ( client.snapshotSequence > 0 && client.acknowledgeSnapshotSequence < client.snapshotSequence ) {
-		if ( client.lastSnapshotSize <= 0 || realTime - client.lastSnapshotTime < SERVER_SNAPSHOT_RESEND_MSEC ) {
-			return false;
-		}
-		idBitMsg resendMsg;
-		resendMsg.InitWrite( client.lastSnapshot, sizeof( client.lastSnapshot ) );
-		resendMsg.SetSize( client.lastSnapshotSize );
-		if ( SendMessageToClient( client, resendMsg ) < 0 ) {
-			SendEmptyToClient( clientNum, true );	// let the reliable backlog drain first
-		}
-		client.lastSnapshotTime = realTime;
-		return true;
-	}
-
-	// reliable messages held while the previous snapshot was outstanding go
-	// ahead of this one, which reflects them
-	if ( !FlushPendingReliable( clientNum ) ) {
-		return false;
-	}
+	// Snapshots stream (protocol minor 4, as in retail and Doom 3): each one is
+	// written against the base the server has applied, which the client has
+	// applied too (SERVER_RELIABLE_MESSAGE_APPLYSNAPSHOT), and carries every
+	// change since, so a lost snapshot is simply superseded by the next one.
 	const int sequence = client.snapshotSequence + 1;
 
 	byte gameBuffer[ MAX_MESSAGE_SIZE ];
@@ -1158,8 +1122,7 @@ bool idAsyncServer::SendSnapshotToClient( int clientNum ) {
 	game->ServerWriteSnapshot( clientNum, sequence, gameMsg, ucmdMsg );
 
 	if ( gameMsg.GetNumBitsWritten() == 0 ) {
-		// nothing written (no player yet): the sequence stays unused, since an
-		// unsent sequence would never be acknowledged
+		// nothing written (no player yet): the game recorded nothing either
 		return SendEmptyToClient( clientNum, true );
 	}
 	client.snapshotSequence = sequence;
@@ -1168,8 +1131,9 @@ bool idAsyncServer::SendSnapshotToClient( int clientNum ) {
 	int aheadOfServer = clientAheadTime < -32768 ? -32768 : ( clientAheadTime > 32767 ? 32767 : static_cast<int>( clientAheadTime ) );
 	int numDuplicatedUsercmds = idMath::ClampInt( 0, 255, client.numDuplicatedUsercmds );
 
+	byte buffer[ MAX_MESSAGE_SIZE ];
 	idBitMsg snapshotMsg;
-	snapshotMsg.InitWrite( client.lastSnapshot, sizeof( client.lastSnapshot ) );	// kept for resends
+	snapshotMsg.InitWrite( buffer, sizeof( buffer ) );
 	snapshotMsg.BeginWriting();
 	snapshotMsg.WriteByte( SERVER_UNRELIABLE_MESSAGE_SNAPSHOT );
 	snapshotMsg.WriteLong( gameInitId );
@@ -1184,10 +1148,11 @@ bool idAsyncServer::SendSnapshotToClient( int clientNum ) {
 
 	snapshotMsg.WriteShort( gameMsg.GetSize() );
 	snapshotMsg.WriteData( gameMsg.GetData(), gameMsg.GetSize() );
-	client.lastSnapshotSize = snapshotMsg.GetSize();
 
 	if ( SendMessageToClient( client, snapshotMsg ) < 0 ) {
-		SendEmptyToClient( clientNum, true );	// resent once the reliable backlog has drained
+		// refused (reliable backlog + snapshot too large): the game holds its record
+		// until an apply or the 64-snapshot window frees it; drain the backlog
+		SendEmptyToClient( clientNum, true );
 	}
 
 	client.lastSnapshotTime = realTime;
@@ -1232,11 +1197,17 @@ void idAsyncServer::ProcessUnreliableClientMessage( int clientNum, const idBitMs
 			return;
 		}
 
-		if ( ackSnapshotSeq > clients[ clientNum ].acknowledgeSnapshotSequence ) {
+		// The client read snapshot ackSnapshotSeq: make it the base here and tell the
+		// client to do the same.  Only sequences we sent are applied (a bogus one would
+		// free every pending record).  ServerApplySnapshot fails for a snapshot already
+		// applied or already freed by the 64-snapshot window: no apply then.
+		if ( ackSnapshotSeq > clients[ clientNum ].acknowledgeSnapshotSequence && ackSnapshotSeq <= clients[ clientNum ].snapshotSequence ) {
 			clients[ clientNum ].acknowledgeSnapshotSequence = ackSnapshotSeq;
-			game->ServerApplySnapshot( clientNum, ackSnapshotSeq );
-			if ( ackSnapshotSeq >= clients[ clientNum ].snapshotSequence && !FlushPendingReliable( clientNum ) ) {
-				return;	// dropped
+			if ( game->ServerApplySnapshot( clientNum, ackSnapshotSeq ) ) {
+				SendApplySnapshotToClient( clientNum, ackSnapshotSeq );
+				if ( clients[ clientNum ].clientState < SCS_CONNECTED ) {
+					return;	// dropped (reliable overflow)
+				}
 			}
 		}
 
@@ -1599,22 +1570,7 @@ void idAsyncServer::SendReliableMessage( int clientNum, const idBitMsg& msg ) {
 	if ( clients[ clientNum ].isBot ) {
 		return;
 	}
-	serverClient_t& client = clients[ clientNum ];
-	// While a snapshot is unacknowledged, hold new messages back: a resend of
-	// that stored snapshot carries the channel's reliable queue as it is then,
-	// and the client applies those messages before the snapshot, so a message
-	// queued after it was written (an entity delete, say) would be applied
-	// ahead of state that predates it.
-	if ( client.snapshotSequence > 0 && client.acknowledgeSnapshotSequence < client.snapshotSequence ) {
-		if ( !client.pendingReliable.Add( msg.GetData(), msg.GetSize() ) ) {
-			DropClient( clientNum, "reliable message overflow" );
-		}
-		return;
-	}
-	if ( !FlushPendingReliable( clientNum ) ) {
-		return;
-	}
-	if ( !client.channel.SendReliableMessage( msg ) ) {
+	if ( !clients[ clientNum ].channel.SendReliableMessage( msg ) ) {
 		DropClient( clientNum, "reliable message overflow" );
 	}
 }

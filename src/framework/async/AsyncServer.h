@@ -126,12 +126,6 @@ typedef struct serverClient_s {
 	bool				isBot;
 	bool				isMapLoading;
 
-	// the last snapshot message, resent while it is unacknowledged
-	int					lastSnapshotSize;
-	byte				lastSnapshot[ MAX_MESSAGE_SIZE ];
-	// reliable messages queued while that snapshot is unacknowledged (see SendReliableMessage)
-	idMsgQueue			pendingReliable;
-
 	char				guid[12];  // Even Balance - M. Quinn
 
 } serverClient_t;
@@ -248,7 +242,6 @@ private:
 	void				ReinitRemoteClients( void );
 	void				UpdateClientUserInfo( int clientNum );
 	void				BeginRemoteClient( int clientNum );
-	bool				FlushPendingReliable( int clientNum );
 	int					SendMessageToClient( serverClient_t &client, const idBitMsg &msg );
 	void				LocalClientInput( void );
 	void				CheckClientTimeouts( void );

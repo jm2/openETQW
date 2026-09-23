@@ -215,7 +215,30 @@ if build_dedicated
     args: [
       meson.project_source_root() / 'tests' / 'test_remote_client_map_change.py',
       '--ded-binary', all_stock_maps_ded,
+      '--base-check',
       '--log-dir', meson.project_build_root() / 'meson-logs' / 'remote-client-map-change',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration', 'stock-maps'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
+  # streamed snapshots under latency, jitter (reordering) and loss, with the
+  # client/server snapshot base check on
+  test(
+    'remote-client-map-change-latency',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_remote_client_map_change.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--base-check',
+      '--latency', '60',
+      '--jitter', '40',
+      '--drop', '10',
+      '--min-snapshots', '40',
+      '--port', '29980',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'remote-client-map-change-latency',
     ],
     workdir: meson.project_source_root(),
     suite: ['integration', 'stock-maps'],
