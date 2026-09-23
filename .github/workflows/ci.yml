@@ -223,7 +223,7 @@ jobs:
             cxx: cl
             vcpkg_triplet: x64-windows
             experimental: true
-            blocker: "Windows engine sources do not compile: src/framework/Common.cpp includes execinfo.h/unistd.h and calls backtrace/usleep/clock_gettime; src/sys/win32 SystemBootstrap/win_local SDL3 issues"
+            blocker: "Windows engine sources have never compiled: src/sys/win32 SystemBootstrap/win_local SDL3 issues, and src/sys/sys_local.cpp is POSIX-only (Common.cpp POSIX calls replaced, not yet built with MSVC)"
           - id: windows-arm64-msvc
             name: Windows ARM64 MSVC
             os: windows-11-arm
@@ -233,7 +233,7 @@ jobs:
             cxx: cl
             vcpkg_triplet: arm64-windows
             experimental: true
-            blocker: "Windows engine sources do not compile: src/framework/Common.cpp includes execinfo.h/unistd.h and calls backtrace/usleep/clock_gettime; src/sys/win32 SystemBootstrap/win_local SDL3 issues"
+            blocker: "Windows engine sources have never compiled: src/sys/win32 SystemBootstrap/win_local SDL3 issues, and src/sys/sys_local.cpp is POSIX-only (Common.cpp POSIX calls replaced, not yet built with MSVC)"
     env:
       OPENETQW_GAME_REPO: ${{ github.workspace }}/openETQW-game
       CC: ${{ matrix.cc }}
