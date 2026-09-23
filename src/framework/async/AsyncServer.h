@@ -246,6 +246,7 @@ private:
 	void				BeginLocalClient( void );
 	void				BeginBotClients( void );
 	void				ReinitRemoteClients( void );
+	void				UpdateClientUserInfo( int clientNum );
 	void				BeginRemoteClient( int clientNum );
 	bool				FlushPendingReliable( int clientNum );
 	int					SendMessageToClient( serverClient_t &client, const idBitMsg &msg );

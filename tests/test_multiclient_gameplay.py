@@ -71,7 +71,7 @@ CLIENT1_ARGS = [
     "+set", "net_port", str(CLIENT1_PORT),
     "+set", "si_pure", "0",
     "+set", "com_timeServer", "0",
-    "+set", "name", "GDF_Soldier",
+    "+set", "ui_name", "GDF_Soldier",
     "+connect", f"127.0.0.1:{SERVER_PORT}"
 ]
 
@@ -83,7 +83,7 @@ CLIENT2_ARGS = [
     "+set", "net_port", str(CLIENT2_PORT),
     "+set", "si_pure", "0",
     "+set", "com_timeServer", "0",
-    "+set", "name", "Strogg_Soldier",
+    "+set", "ui_name", "Strogg_Soldier",
     "+connect", f"127.0.0.1:{SERVER_PORT}"
 ]
 

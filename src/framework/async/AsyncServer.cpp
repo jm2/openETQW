@@ -15,6 +15,30 @@
 #include <cstdint>
 
 static const int SERVER_EMPTY_RESEND_MSEC = 500;
+
+// user info limits: client input is untrusted, and every client's info goes to every client
+static const int MAX_USERINFO_KEYS		= 32;
+static const int MAX_USERINFO_VALUE_LEN	= 64;
+static const int MAX_CLANTAG_LEN		= 16;
+
+/*
+==================
+Server_TruncateColored
+
+Shortens a string that may hold ^ colour escapes to at most maxLen characters
+without leaving a dangling '^'.
+==================
+*/
+static void Server_TruncateColored( idStr& s, int maxLen ) {
+	if ( s.Length() <= maxLen ) {
+		return;
+	}
+	int len = maxLen;
+	if ( len > 0 && s[ len - 1 ] == '^' ) {
+		--len;
+	}
+	s.CapLength( len );
+}
 static const int SERVER_SNAPSHOT_RESEND_MSEC = 250;	// resend an unacknowledged snapshot after this long
 static const int SERVER_PING_RESEND_MSEC = 500;
 
@@ -208,6 +232,7 @@ void idAsyncServer::ExecuteMapChange() {
 	sessLocal.mapSpawnData.syncedCVars = *cvarSystem->MoveCVarsToDict( CVAR_NETWORKSYNC );
 	if ( localClientNum >= 0 ) {
 		sessLocal.mapSpawnData.userInfo[ localClientNum ] = *cvarSystem->MoveCVarsToDict( CVAR_USERINFO );
+		cvarSystem->ClearModifiedFlags( CVAR_USERINFO );
 		game->SetClientNum( localClientNum, true );
 	}
 
@@ -359,13 +384,13 @@ int idAsyncServer::AllocateClientSlotForBot( int maxPlayersOnServer ) {
 	clients[ clientNum ].isBot = true;
 	clients[ clientNum ].clientState = SCS_INGAME;
 
+	// the game's user info cvars at their values here (defaults on a dedicated
+	// server), so bots do not read every flag as false
 	idDict& userInfo = sessLocal.mapSpawnData.userInfo[ clientNum ];
-	userInfo.Clear();
-	const idStr botName = va( "Bot %d", clientNum );
-	userInfo.Set( "ui_name", botName );
-	userInfo.Set( "ui_realname", botName );
-	userInfo.SetBool( "ui_bot", true );
-	game->ValidateUserInfo( clientNum, userInfo );
+	userInfo = *cvarSystem->MoveCVarsToDict( CVAR_USERINFO );
+	userInfo.Set( "ui_name", va( "Bot %d", clientNum ) );
+	userInfo.Delete( "ui_clanTag" );
+	UpdateClientUserInfo( clientNum );	// reaches the clients before the bot's player is created
 	game->ServerClientConnect( clientNum );
 	game->ServerClientBegin( clientNum, true );
 	game->UserInfoChanged( clientNum );
@@ -387,13 +412,9 @@ int idAsyncServer::SetBotUserName( int clientNum, const char* playerName ) {
 	if ( clientNum < 0 || clientNum >= MAX_ASYNC_CLIENTS || playerName == NULL || playerName[ 0 ] == '\0' || !clients[ clientNum ].isBot || clients[ clientNum ].clientState < SCS_CONNECTED ) {
 		return 0;
 	}
-	idDict& userInfo = sessLocal.mapSpawnData.userInfo[ clientNum ];
-	userInfo.Set( "ui_name", playerName );
-	userInfo.Set( "ui_realname", playerName );
-	userInfo.SetBool( "ui_bot", true );
-	game->ValidateUserInfo( clientNum, userInfo );
+	sessLocal.mapSpawnData.userInfo[ clientNum ].Set( "ui_name", playerName );
+	UpdateClientUserInfo( clientNum );
 	game->UserInfoChanged( clientNum );
-	SendUserInfoBroadcast( clientNum, userInfo, true );
 	return 1;
 }
 
@@ -413,6 +434,16 @@ void idAsyncServer::RunFrame() {
 		return;
 	}
 	gameTimeResidual += delta;
+
+	// the listen server host changed a user info cvar (ui_name, ...)
+	if ( localClientNum >= 0 && ( cvarSystem->GetModifiedFlags() & CVAR_USERINFO ) != 0 ) {
+		cvarSystem->ClearModifiedFlags( CVAR_USERINFO );
+		if ( clients[ localClientNum ].clientState == SCS_INGAME ) {
+			sessLocal.mapSpawnData.userInfo[ localClientNum ] = *cvarSystem->MoveCVarsToDict( CVAR_USERINFO );
+			UpdateClientUserInfo( localClientNum );
+			game->UserInfoChanged( localClientNum );
+		}
+	}
 
 	while ( gameTimeResidual >= USERCMD_MSEC ) {
 		DuplicateUsercmds( gameFrame, gameTime );
@@ -633,6 +664,7 @@ void idAsyncServer::ClearClient( int clientNum ) {
 
 void idAsyncServer::InitClient( int clientNum, int clientId, int clientRate ) {
 	ClearClient( clientNum );
+	sessLocal.mapSpawnData.userInfo[ clientNum ].Clear();	// always start with a clean base
 	serverClient_t& client = clients[ clientNum ];
 	client.clientId = clientId;
 	client.clientRate = clientRate;
@@ -649,12 +681,7 @@ void idAsyncServer::InitLocalClient( int clientNum ) {
 
 void idAsyncServer::BeginLocalClient() {
 	if ( localClientNum >= 0 && clients[ localClientNum ].clientState == SCS_CONNECTED ) {
-		idDict& userInfo = sessLocal.mapSpawnData.userInfo[ localClientNum ];
-		if ( userInfo.GetString( "ui_name" )[ 0 ] == '\0' ) {
-			userInfo.Set( "ui_name", "Player" );
-		}
-		userInfo.Set( "ui_realname", userInfo.GetString( "ui_name" ) );
-		game->ValidateUserInfo( localClientNum, userInfo );
+		UpdateClientUserInfo( localClientNum );
 		clients[ localClientNum ].clientState = SCS_INGAME;
 		game->ServerClientConnect( localClientNum );
 		game->ServerClientBegin( localClientNum, false );
@@ -684,12 +711,70 @@ void idAsyncServer::BeginBotClients() {
 		client.gameTime = 0;
 		client.lastInputTime = realTime;
 
-		idDict& userInfo = sessLocal.mapSpawnData.userInfo[ i ];
-		game->ValidateUserInfo( i, userInfo );
+		UpdateClientUserInfo( i );
 		game->ServerClientConnect( i );
 		game->ServerClientBegin( i, true );
 		game->UserInfoChanged( i );
 	}
+}
+
+/*
+==================
+idAsyncServer::UpdateClientUserInfo
+
+Validates a client's stored user info and sends it to every client in the
+game.  The engine owns ui_bot and ui_realname (the displayed name: the clan
+tag and ui_name); ValidateUserInfo may change ui_name (a duplicate gets '_'),
+so the real name is composed after it.  Client input is untrusted: only ui_*
+keys are kept, with bounded counts and lengths.
+==================
+*/
+void idAsyncServer::UpdateClientUserInfo( int clientNum ) {
+	idDict& info = sessLocal.mapSpawnData.userInfo[ clientNum ];
+
+	idDict clean;
+	for ( int i = 0; i < info.GetNumKeyVals() && clean.GetNumKeyVals() < MAX_USERINFO_KEYS; ++i ) {
+		const idKeyValue* kv = info.GetKeyVal( i );
+		if ( idStr::Icmpn( kv->GetKey().c_str(), "ui_", 3 ) != 0 || !kv->GetKey().Icmp( "ui_realname" ) || !kv->GetKey().Icmp( "ui_bot" ) ) {
+			continue;
+		}
+		idStr value = kv->GetValue();
+		Server_TruncateColored( value, MAX_USERINFO_VALUE_LEN );
+		clean.Set( kv->GetKey(), value );
+	}
+
+	idStr name = clean.GetString( "ui_name" );
+	name.StripLeading( ' ' );
+	name.StripTrailing( ' ' );
+	Server_TruncateColored( name, MAX_NICKLEN - 1 );
+	if ( name.IsEmpty() ) {
+		if ( clients[ clientNum ].isBot ) {
+			name = va( "Bot %d", clientNum );
+		} else if ( clientNum == localClientNum ) {
+			name = "Player";
+		} else {
+			name = va( "Player %d", clientNum );
+		}
+	}
+	clean.Set( "ui_name", name );
+	idStr clanTag = clean.GetString( "ui_clanTag" );
+	Server_TruncateColored( clanTag, MAX_CLANTAG_LEN );
+	clean.Set( "ui_clanTag", clanTag );
+	clean.SetBool( "ui_bot", clients[ clientNum ].isBot );
+
+	info = clean;
+	game->ValidateUserInfo( clientNum, info );
+
+	// displayed name: "tag^0name", or "name^0tag" with ui_clanTagPosition 1 (a
+	// reconstruction choice, ledger 049)
+	idStr realName = info.GetString( "ui_name" );
+	clanTag = info.GetString( "ui_clanTag" );
+	if ( !clanTag.IsEmpty() ) {
+		realName = info.GetInt( "ui_clanTagPosition" ) == 1 ? realName + "^0" + clanTag : clanTag + "^0" + realName;
+	}
+	info.Set( "ui_realname", realName );
+
+	SendUserInfoBroadcast( clientNum, info, true );
 }
 
 /*
@@ -778,14 +863,27 @@ void idAsyncServer::SendPrintToClient( int clientNum, const char* string ) {
 }
 
 void idAsyncServer::SendUserInfoBroadcast( int userInfoNum, const idDict& info, bool sendToAll ) {
+	// clients in the game only: a loading client gets everyone's info when it
+	// enters the game (BeginRemoteClient)
 	for ( int i = 0; i < MAX_ASYNC_CLIENTS; ++i ) {
-		if ( clients[ i ].clientState >= SCS_CONNECTED && ( sendToAll || i != userInfoNum ) ) {
+		if ( clients[ i ].clientState == SCS_INGAME && ( sendToAll || i != userInfoNum ) ) {
 			SendUserInfoToClient( i, userInfoNum, info );
 		}
 	}
 }
 
 void idAsyncServer::SendUserInfoToClient( int clientNum, int userInfoNum, const idDict& info ) {
+	if ( clientNum < 0 || clientNum >= MAX_ASYNC_CLIENTS || userInfoNum < 0 || userInfoNum >= MAX_ASYNC_CLIENTS || game == NULL ) {
+		return;
+	}
+	byte buffer[ MAX_MESSAGE_SIZE ];
+	idBitMsg msg;
+	msg.InitWrite( buffer, sizeof( buffer ) );
+	msg.BeginWriting();
+	msg.WriteByte( SERVER_RELIABLE_MESSAGE_CLIENTINFO );
+	msg.WriteByte( userInfoNum );
+	game->WriteUserInfo( msg, info );	// the game's codec: names and the flags it uses on clients
+	SendReliableMessage( clientNum, msg );	// skips the local client and bots
 }
 
 void idAsyncServer::SendSyncedCvarsBroadcast( const idDict& cvars ) {
@@ -936,16 +1034,23 @@ void idAsyncServer::BeginRemoteClient( int clientNum ) {
 		return;
 	}
 
-	// 3. Initialize client player entity in game module
-	idDict& userInfo = sessLocal.mapSpawnData.userInfo[ clientNum ];
-	if ( userInfo.GetString( "ui_name" )[ 0 ] == '\0' ) {
-		userInfo.Set( "ui_name", va( "Player %d", clientNum ) );
+	// 3. Everyone's user info, then this client's own (validated, and sent to
+	// every client in the game), ahead of the players' entity creates.  The
+	// client's CLIENTINFO arrived with or before the usercmd that got us here.
+	for ( int i = 0; i < MAX_ASYNC_CLIENTS && client.clientState >= SCS_CONNECTED; ++i ) {
+		if ( i != clientNum && clients[ i ].clientState == SCS_INGAME ) {
+			SendUserInfoToClient( clientNum, i, sessLocal.mapSpawnData.userInfo[ i ] );
+		}
 	}
-	if ( userInfo.GetString( "ui_realname" )[ 0 ] == '\0' ) {
-		userInfo.Set( "ui_realname", userInfo.GetString( "ui_name" ) );
+	if ( client.clientState < SCS_CONNECTED ) {
+		return;
 	}
-	game->ValidateUserInfo( clientNum, userInfo );
+	UpdateClientUserInfo( clientNum );
+	if ( client.clientState < SCS_CONNECTED ) {
+		return;
+	}
 
+	// 4. Initialize client player entity in game module
 	game->ServerClientConnect( clientNum );
 	game->ServerClientBegin( clientNum, false );
 	game->UserInfoChanged( clientNum );
@@ -953,13 +1058,13 @@ void idAsyncServer::BeginRemoteClient( int clientNum ) {
 		return;
 	}
 
-	// 4. Send initial reliable game state burst
+	// 5. Send initial reliable game state burst
 	game->ServerWriteInitialReliableMessages( clientNum );
 	if ( client.clientState < SCS_CONNECTED ) {
 		return;
 	}
 
-	// 5. In the game; the first snapshot goes out with the next SendSnapshotToClient
+	// 6. In the game; the first snapshot goes out with the next SendSnapshotToClient
 	client.clientState = SCS_INGAME;
 	client.isMapLoading = false;
 	client.lastInputTime = realTime;
@@ -1182,6 +1287,21 @@ void idAsyncServer::ProcessReliableClientMessages( int clientNum ) {
 			DropClient( clientNum, "disconnected" );
 			return;
 		}
+		if ( type == CLIENT_RELIABLE_MESSAGE_CLIENTINFO ) {
+			idDict info;
+			msg.ReadDeltaDict( info, NULL );
+			sessLocal.mapSpawnData.userInfo[ clientNum ] = info;
+			common->Printf( "Client %d user info: '%s'\n", clientNum, info.GetString( "ui_name" ) );
+			// a client still loading is validated when it enters the game (BeginRemoteClient)
+			if ( clients[ clientNum ].clientState == SCS_INGAME ) {
+				UpdateClientUserInfo( clientNum );
+				if ( clients[ clientNum ].clientState < SCS_CONNECTED ) {
+					return;
+				}
+				game->UserInfoChanged( clientNum );
+			}
+			continue;
+		}
 		if ( type == CLIENT_RELIABLE_MESSAGE_GAME ) {
 			game->ServerProcessReliableMessage( clientNum, msg );
 		}
@@ -1320,6 +1440,7 @@ void idAsyncServer::ProcessConnectMessage( const netadr_t from, const idBitMsg& 
 	}
 
 	int clientNum = -1;
+	bool resendResponse = false;
 	// 3-pass slot allocation
 	for ( int islot = 0; islot < 3 && clientNum == -1; ++islot ) {
 		for ( int i = 0; i < MAX_ASYNC_CLIENTS; ++i ) {
@@ -1327,6 +1448,17 @@ void idAsyncServer::ProcessConnectMessage( const netadr_t from, const idBitMsg& 
 				if ( Sys_CompareNetAdrBase( from, clients[ i ].channel.GetRemoteAddress() ) &&
 					 ( clientId == clients[ i ].clientId || from.port == clients[ i ].channel.GetRemoteAddress().port ) ) {
 					clientNum = i;
+					if ( clients[ i ].clientState >= SCS_CONNECTED && !clients[ i ].isBot ) {
+						if ( clientId == clients[ i ].clientId && from.port == clients[ i ].channel.GetRemoteAddress().port ) {
+							// the same client again (our connectResponse was lost or slow):
+							// answer again, keep its channel and whatever it already sent
+							resendResponse = true;
+						} else {
+							// a new client instance on this address: the old one's player
+							// and snapshot state must go (the game resets them on disconnect)
+							DropClient( i, "reconnect" );
+						}
+					}
 					break;
 				}
 			} else if ( islot == 1 ) {
@@ -1348,13 +1480,15 @@ void idAsyncServer::ProcessConnectMessage( const netadr_t from, const idBitMsg& 
 		return;
 	}
 
-	InitClient( clientNum, clientId, clientRate );
-	clients[ clientNum ].channel.Init( from, serverId );
-	clients[ clientNum ].OS = OS;
-	idStr::Copynz( clients[ clientNum ].guid, guid, sizeof( clients[ clientNum ].guid ) );
-	challenges[ ichallenge ].connected = true;
+	if ( !resendResponse ) {
+		InitClient( clientNum, clientId, clientRate );
+		clients[ clientNum ].channel.Init( from, serverId );
+		clients[ clientNum ].OS = OS;
+		idStr::Copynz( clients[ clientNum ].guid, guid, sizeof( clients[ clientNum ].guid ) );
+		challenges[ ichallenge ].connected = true;
 
-	common->Printf( "Client %d connected from %s (clientId: %d)\n", clientNum, Sys_NetAdrToString( from ), clientId );
+		common->Printf( "Client %d connected from %s (clientId: %d)\n", clientNum, Sys_NetAdrToString( from ), clientId );
+	}
 
 	byte buffer[ MAX_MESSAGE_SIZE ];
 	idBitMsg outMsg;

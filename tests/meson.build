@@ -223,6 +223,36 @@ if build_dedicated
     timeout: 600,
     is_parallel: false,
   )
+  test(
+    'userinfo',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_userinfo.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'userinfo',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration', 'stock-maps'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
+  test(
+    'userinfo-loss',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_userinfo.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--drop', '20',
+      '--port', '29975',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'userinfo-loss',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration', 'stock-maps'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
   # the same with 20% packet loss each way (net_forceDrop), connecting straight
   # into outskirts: snapshot resends, held reliable messages, the reliable game init
   test(
