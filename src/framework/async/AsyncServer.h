@@ -125,6 +125,10 @@ typedef struct serverClient_s {
 	bool				isBot;
 	bool				isMapLoading;
 
+	// the last snapshot message, resent while it is unacknowledged
+	int					lastSnapshotSize;
+	byte				lastSnapshot[ MAX_MESSAGE_SIZE ];
+
 	char				guid[12];  // Even Balance - M. Quinn
 
 } serverClient_t;
@@ -239,7 +243,7 @@ private:
 	void				BeginLocalClient( void );
 	void				BeginBotClients( void );
 	void				ReinitRemoteClients( void );
-	void				SendMessageToClient( serverClient_t &client, const idBitMsg &msg );
+	int					SendMessageToClient( serverClient_t &client, const idBitMsg &msg );
 	void				LocalClientInput( void );
 	void				CheckClientTimeouts( void );
 	void				SendPrintBroadcast( const char *string );

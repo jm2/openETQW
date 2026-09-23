@@ -419,6 +419,7 @@ void idAsyncClient::SendEmptyToServer( bool force, bool mapLoad ) {
 	msg.InitWrite( buffer, sizeof( buffer ) );
 	msg.BeginWriting();
 	msg.WriteByte( CLIENT_UNRELIABLE_MESSAGE_EMPTY );
+	msg.WriteLong( gameInitId );	// the server ignores the load state of another game
 	msg.WriteBool( mapLoad );
 	channel.SendMessage( clientPort, realTime, msg );
 	lastEmptyTime = realTime;
@@ -455,6 +456,7 @@ void idAsyncClient::SendUsercmdsToServer() {
 	msg.InitWrite( buffer, sizeof( buffer ) );
 	msg.BeginWriting();
 	msg.WriteByte( CLIENT_UNRELIABLE_MESSAGE_USERCMD );
+	msg.WriteLong( gameInitId );	// the server ignores acks and usercmds of another game
 	msg.WriteLong( snapshotSequence );
 	msg.WriteLong( gameFrame );
 	msg.WriteByte( numUsercmds );
@@ -488,7 +490,11 @@ void idAsyncClient::InitGame( int serverGameInitId, int serverGameFrame, int ser
 		sessLocal.ExecuteMapChange( mapName.c_str(), 0, true, true, true );
 	}
 	game->SetClientNum( clientNum, false );
-	clientState = CS_INGAME;
+	// In the game once the first snapshot of this game arrives (as in Doom 3):
+	// the reliable state that follows the game init creates the networked
+	// entities but carries none of their current state, and predicting them
+	// before a snapshot ran client physics on garbage.
+	clientState = CS_CONNECTED;
 }
 
 void idAsyncClient::ProcessUnreliableServerMessage( const idBitMsg& msg ) {
@@ -498,15 +504,8 @@ void idAsyncClient::ProcessUnreliableServerMessage( const idBitMsg& msg ) {
 		SendPingResponseToServer( msg.ReadLong() );
 	} else if ( type == SERVER_UNRELIABLE_MESSAGE_EMPTY ) {
 		lastPacketTime = realTime;
-	} else if ( type == SERVER_UNRELIABLE_MESSAGE_GAMEINIT ) {
-		int sGameInitId = msg.ReadLong();
-		int sGameFrame = msg.ReadLong();
-		int sGameTime = msg.ReadLong();
-		idDict sServerInfo;
-		msg.ReadDeltaDict( sServerInfo, NULL );
-		InitGame( sGameInitId, sGameFrame, sGameTime, sServerInfo );
 	} else if ( type == SERVER_UNRELIABLE_MESSAGE_SNAPSHOT ) {
-		if ( clientState != CS_INGAME || sessLocal.insideExecuteMapChange ) {
+		if ( clientState < CS_CONNECTED || sessLocal.insideExecuteMapChange ) {
 			return;
 		}
 		int sGameInitId = msg.ReadLong();
@@ -559,6 +558,10 @@ void idAsyncClient::ProcessUnreliableServerMessage( const idBitMsg& msg ) {
 			snapshotSequence = sequence;
 			lastSnapshotTime = realTime;
 			predictedGameFrame = snapshotGameFrame;
+			if ( clientState == CS_CONNECTED ) {
+				clientState = CS_INGAME;	// first snapshot of this game
+				gameTimeResidual = 0;
+			}
 			common->Printf( "Client received snapshot %d (frame %d)\n", sequence, sGameFrame );
 		}
 	}
@@ -575,13 +578,22 @@ void idAsyncClient::ProcessReliableServerMessages() {
 				DisconnectFromServer();
 				session->StartMenu();
 				return;
+			case SERVER_RELIABLE_MESSAGE_GAMEINIT: {
+				// Loads the map here, so the reliable messages after it (the new
+				// game's state) are handled on the new map.
+				const int sGameInitId = msg.ReadLong();
+				const int sGameFrame = msg.ReadLong();
+				const int sGameTime = msg.ReadLong();
+				idDict sServerInfo;
+				msg.ReadDeltaDict( sServerInfo, NULL );
+				InitGame( sGameInitId, sGameFrame, sGameTime, sServerInfo );
+				break;
+			}
 			case SERVER_RELIABLE_MESSAGE_GAME:
 				game->ClientProcessReliableMessage( msg );
 				break;
 			case SERVER_RELIABLE_MESSAGE_ENTERGAME:
-				if ( !sessLocal.insideExecuteMapChange ) {
-					clientState = CS_INGAME;
-				}
+				// the first snapshot of the game puts the client in it (InitGame)
 				break;
 			case SERVER_RELIABLE_MESSAGE_SYNCEDCVARS: {
 				idDict& info = sessLocal.mapSpawnData.syncedCVars;

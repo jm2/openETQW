@@ -285,6 +285,18 @@ bool Sys_FPU_StackIsEmpty( void ) {
 	return true;
 }
 
+/*
+===============
+Sys_FPU_SetFTZ / Sys_FPU_SetDAZ
+
+Deliberately no-ops.  Retail set SSE flush-to-zero/denormals-are-zero, but its
+x86 build did scalar float math on the x87 FPU, which ignores them.  On
+x86-64 and AArch64 all float math would be affected, and the game's script VM
+stores integers in float slots (sdProgram::ReturnBoolean returns the integer
+1, and `!sys.isClient()` compiles to a float compare): with the flush modes
+on, that value reads as 0 and a network client runs server-only map script.
+===============
+*/
 #if !defined( MACOS_X )
 void Sys_FPU_SetFTZ( bool ) {}
 void Sys_FPU_SetDAZ( bool ) {}

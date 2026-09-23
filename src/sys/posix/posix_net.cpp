@@ -17,6 +17,7 @@
 
 idCVar net_ip( "net_ip", "localhost", CVAR_SYSTEM, "local IP address" );
 idCVar net_port( "net_port", "0", CVAR_SYSTEM | CVAR_INTEGER, "local IP port number" );
+idCVar net_forceDrop( "net_forceDrop", "0", CVAR_SYSTEM | CVAR_INTEGER, "percentage packet loss" );	// as win_net.cpp: outgoing packets
 
 typedef struct {
 	uint32_t ip;
@@ -151,6 +152,12 @@ void idPort::SendPacket( const netadr_t to, const void *data, int size ) {
 	} else if ( to.type == NA_LOOPBACK ) {
 		addr.sin_addr.s_addr = htonl( INADDR_LOOPBACK );
 	} else {
+		return;
+	}
+
+	if ( net_forceDrop.GetInteger() > 0 && rand() < net_forceDrop.GetInteger() * ( RAND_MAX / 100 ) ) {
+		packetsWritten++;	// counted as sent, as a lost packet would be
+		bytesWritten += size;
 		return;
 	}
 

@@ -12,6 +12,8 @@ binary started with +connect, as test_multiclient_gameplay.py does):
 3. The client is still connected afterwards ('status' on the server shows its
    slot) and neither process logs a failure marker.
 Both processes then exit 0 on 'quit'.
+With --drop N both processes drop N% of their outgoing packets
+(net_forceDrop), which exercises the snapshot resend and the reliable game init.
 
 Exit 77 when ETQW_DATA_PATH is unset/invalid or the binary is missing.
 """
@@ -33,8 +35,9 @@ GAME_INIT_RE = re.compile(r"Sending game init to client (\d+)")
 class RemoteClient(h.DedicatedServer):
     """The dedicated binary as a headless client: +connect instead of +spawnServer."""
 
-    def __init__(self, binary, data, server_port, port, log_path=None):
-        super().__init__(binary, data, "", port, log_path=log_path, cvars={"si_pure": "0", "name": "RemoteClient"})
+    def __init__(self, binary, data, server_port, port, log_path=None, drop=0):
+        super().__init__(binary, data, "", port, log_path=log_path,
+                         cvars={"si_pure": "0", "name": "RemoteClient", "net_forceDrop": str(drop)})
         self.server_port = server_port
 
     def command_line(self):
@@ -53,6 +56,8 @@ def main(argv):
     ap.add_argument("--maps", default="quarry,outskirts", help="first map, then the map to change to")
     ap.add_argument("--port", type=int, default=29960)
     ap.add_argument("--log-dir")
+    ap.add_argument("--drop", type=int, default=0, help="percentage of outgoing packets each process drops")
+    ap.add_argument("--min-snapshots", type=int, default=5, help="snapshots required on each map")
     args = ap.parse_args(argv)
     first, second = [m for m in args.maps.split(",") if m][:2]
 
@@ -70,8 +75,10 @@ def main(argv):
     failures = []
     srv = h.DedicatedServer(binary, data, first, args.port,
                             log_path=(log_dir / "server.log") if log_dir else None,
-                            cvars={"si_rules": "sdGameRulesObjective", "si_pure": "0", "g_teamSwitchDelay": "0"})
-    cl = RemoteClient(binary, data, args.port, args.port + 1, log_path=(log_dir / "client.log") if log_dir else None)
+                            cvars={"si_rules": "sdGameRulesObjective", "si_pure": "0", "g_teamSwitchDelay": "0",
+                                   "net_forceDrop": str(args.drop)})
+    cl = RemoteClient(binary, data, args.port, args.port + 1, log_path=(log_dir / "client.log") if log_dir else None,
+                      drop=args.drop)
     try:
         srv.start()
         if not srv.wait_for_text(READY, 180.0):
@@ -81,11 +88,12 @@ def main(argv):
         cl.start()
         hit = srv.wait_for(lambda s: GAME_INIT_RE.search(s), 120.0)
         client_num = int(hit[2].group(1)) if hit else None
-        cl.wait_for(lambda s: len(snapshots(cl, 0)) >= 5 or None, 180.0)
+        need = args.min_snapshots
+        cl.wait_for(lambda s: len(snapshots(cl, 0)) >= need or None, 180.0)
         before = snapshots(cl, 0)
         print(f"[{first}] client slot {client_num}, snapshots received: {len(before)}")
-        if client_num is None or len(before) < 5:
-            print("FAIL: the client never connected and received 5 snapshots on the first map")
+        if client_num is None or len(before) < need:
+            print(f"FAIL: the client never connected and received {need} snapshots on the first map")
             return 1
 
         srv_mark, cl_mark = srv.mark(), cl.mark()
@@ -101,12 +109,12 @@ def main(argv):
         if not loaded:
             failures.append(f"client never loaded {second}")
         else:
-            cl.wait_for(lambda s: len(snapshots(cl, loaded[0])) >= 5 or None, 120.0, loaded[0])
+            cl.wait_for(lambda s: len(snapshots(cl, loaded[0])) >= need or None, 180.0, loaded[0])
         after = snapshots(cl, loaded[0]) if loaded else []
         print(f"[{second}] snapshots received after the change: {len(after)}"
               f" (sequence {after[0] if after else '-'}..{after[-1] if after else '-'}, last before: {before[-1]})")
-        if len(after) < 5:
-            failures.append(f"client received {len(after)} snapshots on {second} (expected >= 5)")
+        if len(after) < need:
+            failures.append(f"client received {len(after)} snapshots on {second} (expected >= {need})")
         elif after[0] <= before[-1]:
             failures.append(f"snapshot sequence went backwards across the change ({before[-1]} -> {after[0]})")
 

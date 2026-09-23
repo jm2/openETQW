@@ -15,6 +15,7 @@
 #include <cstdint>
 
 static const int SERVER_EMPTY_RESEND_MSEC = 500;
+static const int SERVER_SNAPSHOT_RESEND_MSEC = 250;	// resend an unacknowledged snapshot after this long
 static const int SERVER_PING_RESEND_MSEC = 500;
 
 /*
@@ -423,10 +424,17 @@ void idAsyncServer::RunFrame() {
 	}
 
 	for ( int i = 0; i < MAX_ASYNC_CLIENTS; ++i ) {
-		if ( clients[ i ].clientState >= SCS_CONNECTED && !clients[ i ].isBot ) {
-			SendSnapshotToClient( i );
-			ProcessReliableClientMessages( i );
+		// the local client shares the server's game: no snapshots, no channel traffic
+		if ( i == localClientNum || clients[ i ].clientState < SCS_CONNECTED || clients[ i ].isBot ) {
+			continue;
 		}
+		if ( !SendSnapshotToClient( i ) ) {
+			// Keep the channel moving while no snapshot goes out (the client is
+			// loading, or a snapshot is waiting for its ack): reliable messages and
+			// their retransmissions only travel inside unreliable ones.
+			SendEmptyToClient( i, false );
+		}
+		ProcessReliableClientMessages( i );
 	}
 	MasterHeartbeat();
 }
@@ -616,6 +624,7 @@ void idAsyncServer::ClearClient( int clientNum ) {
 	client.numDuplicatedUsercmds = 0;
 	client.isBot = false;
 	client.isMapLoading = false;
+	client.lastSnapshotSize = 0;
 	client.guid[ 0 ] = '\0';
 	client.channel.Shutdown();
 }
@@ -713,6 +722,7 @@ void idAsyncServer::ReinitRemoteClients() {
 		client.numDuplicatedUsercmds = 0;
 		client.acknowledgeSnapshotSequence = client.snapshotSequence;
 		client.lastSnapshotTime = 0;
+		client.lastSnapshotSize = 0;
 	}
 }
 
@@ -804,14 +814,17 @@ Sends an unreliable message and every fragment it needs.  The channel packs
 the queued reliable messages into each unreliable send, so after a map load
 even a small message (the game init) can exceed FRAGMENT_SIZE; fragments left
 unsent make the channel refuse every later message and SendSnapshotToClient
-wait forever, so the client never saw the game init.
+wait forever, so the client never saw the game init.  Returns the channel's
+result: -1 when it refused the message (queued reliable messages plus the
+message exceed MAX_MESSAGE_SIZE).
 ==================
 */
-void idAsyncServer::SendMessageToClient( serverClient_t& client, const idBitMsg& msg ) {
-	client.channel.SendMessage( serverPort, realTime, msg );
+int idAsyncServer::SendMessageToClient( serverClient_t& client, const idBitMsg& msg ) {
+	const int result = client.channel.SendMessage( serverPort, realTime, msg );
 	while ( client.channel.UnsentFragmentsLeft() ) {
 		client.channel.SendNextFragment( serverPort, realTime );
 	}
+	return result;
 }
 
 bool idAsyncServer::SendEmptyToClient( int clientNum, bool force ) {
@@ -819,7 +832,7 @@ bool idAsyncServer::SendEmptyToClient( int clientNum, bool force ) {
 		return false;
 	}
 	serverClient_t& client = clients[ clientNum ];
-	if ( !force && realTime - client.lastEmptyTime < SERVER_EMPTY_RESEND_MSEC ) {
+	if ( !force && realTime - Max( client.lastEmptyTime, client.lastSnapshotTime ) < SERVER_EMPTY_RESEND_MSEC ) {
 		return false;
 	}
 	byte buffer[ 16 ];
@@ -851,6 +864,19 @@ bool idAsyncServer::SendPingToClient( int clientNum ) {
 	return true;
 }
 
+/*
+==================
+idAsyncServer::SendGameInitToClient
+
+The game init is a reliable message (protocol minor 2), queued ahead of the
+new game's reliable state: the channel retransmits it until it is
+acknowledged, and the client loads the map when it handles it, before the
+state that follows.  As an unreliable message it could be lost, or overtaken
+by that state, which the client then applied to the old map.  The state goes
+out now rather than when the client has loaded: the game's client-side map
+scripts need the networked entities before the client's first frame.
+==================
+*/
 void idAsyncServer::SendGameInitToClient( int clientNum ) {
 	if ( clientNum < 0 || clientNum >= MAX_ASYNC_CLIENTS || clients[ clientNum ].clientState < SCS_CONNECTED ) {
 		return;
@@ -859,22 +885,26 @@ void idAsyncServer::SendGameInitToClient( int clientNum ) {
 
 	common->Printf( "Sending game init to client %d\n", clientNum );
 
-	// 1. Send GameInit packet on channel
+	// 1. The game init
 	byte buffer[ MAX_MESSAGE_SIZE ];
 	idBitMsg msg;
 	msg.InitWrite( buffer, sizeof( buffer ) );
 	msg.BeginWriting();
-	msg.WriteByte( SERVER_UNRELIABLE_MESSAGE_GAMEINIT );
+	msg.WriteByte( SERVER_RELIABLE_MESSAGE_GAMEINIT );
 	msg.WriteLong( gameInitId );
 	msg.WriteLong( gameFrame );
 	msg.WriteLong( gameTime );
 	msg.WriteDeltaDict( sessLocal.mapSpawnData.serverInfo, NULL );
-	SendMessageToClient( client, msg );
+	SendReliableMessage( clientNum, msg );
+	if ( client.clientState < SCS_CONNECTED ) {
+		return;	// dropped (reliable overflow)
+	}
 
 	// 2. Transmit synced cvars
 	SendSyncedCvarsToClient( clientNum, sessLocal.mapSpawnData.syncedCVars );
 
-	// 3. Transmit reliable enter game notification
+	// 3. Transmit reliable enter game notification (sets SCS_INGAME, so the
+	// game's reliable messages below reach this client)
 	SendEnterGameToClient( clientNum );
 
 	// 4. Initialize client player entity in game module
@@ -895,8 +925,12 @@ void idAsyncServer::SendGameInitToClient( int clientNum ) {
 	game->ServerWriteInitialReliableMessages( clientNum );
 
 	// 6. Transition server client state to SCS_INGAME, wait for client map load
+	// (its first usercmd of this game clears isMapLoading)
 	client.clientState = SCS_INGAME;
 	client.isMapLoading = true;
+
+	// carry the reliable messages now; later empties retransmit them
+	SendEmptyToClient( clientNum, true );
 }
 
 bool idAsyncServer::SendSnapshotToClient( int clientNum ) {
@@ -918,11 +952,27 @@ bool idAsyncServer::SendSnapshotToClient( int clientNum ) {
 		return false;
 	}
 
+	// Snapshots are stop-and-wait: the client makes each snapshot its delta base
+	// as soon as it reads it, so the next one is written only after this one is
+	// acknowledged.  Acks ride on every usercmd message, so a missing ack means
+	// the snapshot (or one of its fragments) was lost: resend the same message.
+	// Without the resend one lost packet stopped the client's snapshots for good.
+	// The client drops a duplicate (its sequence is not newer).
 	if ( client.snapshotSequence > 0 && client.acknowledgeSnapshotSequence < client.snapshotSequence ) {
-		return false;
+		if ( client.lastSnapshotSize <= 0 || realTime - client.lastSnapshotTime < SERVER_SNAPSHOT_RESEND_MSEC ) {
+			return false;
+		}
+		idBitMsg resendMsg;
+		resendMsg.InitWrite( client.lastSnapshot, sizeof( client.lastSnapshot ) );
+		resendMsg.SetSize( client.lastSnapshotSize );
+		if ( SendMessageToClient( client, resendMsg ) < 0 ) {
+			SendEmptyToClient( clientNum, true );	// let the reliable backlog drain first
+		}
+		client.lastSnapshotTime = realTime;
+		return true;
 	}
 
-	int sequence = ++client.snapshotSequence;
+	const int sequence = client.snapshotSequence + 1;
 
 	byte gameBuffer[ MAX_MESSAGE_SIZE ];
 	byte ucmdBuffer[ MAX_MESSAGE_SIZE ];
@@ -936,16 +986,18 @@ bool idAsyncServer::SendSnapshotToClient( int clientNum ) {
 	game->ServerWriteSnapshot( clientNum, sequence, gameMsg, ucmdMsg );
 
 	if ( gameMsg.GetNumBitsWritten() == 0 ) {
+		// nothing written (no player yet): the sequence stays unused, since an
+		// unsent sequence would never be acknowledged
 		return SendEmptyToClient( clientNum, true );
 	}
+	client.snapshotSequence = sequence;
 
 	const int64_t clientAheadTime = static_cast<int64_t>( client.gameTime ) - static_cast<int64_t>( gameTime ) - static_cast<int64_t>( gameTimeResidual );
 	int aheadOfServer = clientAheadTime < -32768 ? -32768 : ( clientAheadTime > 32767 ? 32767 : static_cast<int>( clientAheadTime ) );
 	int numDuplicatedUsercmds = idMath::ClampInt( 0, 255, client.numDuplicatedUsercmds );
 
-	byte buffer[ MAX_MESSAGE_SIZE ];
 	idBitMsg snapshotMsg;
-	snapshotMsg.InitWrite( buffer, sizeof( buffer ) );
+	snapshotMsg.InitWrite( client.lastSnapshot, sizeof( client.lastSnapshot ) );	// kept for resends
 	snapshotMsg.BeginWriting();
 	snapshotMsg.WriteByte( SERVER_UNRELIABLE_MESSAGE_SNAPSHOT );
 	snapshotMsg.WriteLong( gameInitId );
@@ -960,8 +1012,11 @@ bool idAsyncServer::SendSnapshotToClient( int clientNum ) {
 
 	snapshotMsg.WriteShort( gameMsg.GetSize() );
 	snapshotMsg.WriteData( gameMsg.GetData(), gameMsg.GetSize() );
+	client.lastSnapshotSize = snapshotMsg.GetSize();
 
-	SendMessageToClient( client, snapshotMsg );
+	if ( SendMessageToClient( client, snapshotMsg ) < 0 ) {
+		SendEmptyToClient( clientNum, true );	// resent once the reliable backlog has drained
+	}
 
 	client.lastSnapshotTime = realTime;
 	return true;
@@ -970,6 +1025,14 @@ bool idAsyncServer::SendSnapshotToClient( int clientNum ) {
 void idAsyncServer::ProcessUnreliableClientMessage( int clientNum, const idBitMsg& msg ) {
 	clients[ clientNum ].lastPacketTime = realTime;
 	const int type = msg.ReadByte();
+	if ( type == CLIENT_UNRELIABLE_MESSAGE_EMPTY || type == CLIENT_UNRELIABLE_MESSAGE_USERCMD ) {
+		// A message written before the client loaded the current game (sent
+		// before a map change, or while the game init was in flight) carries an
+		// older id: its load state, snapshot ack and usercmds belong to that game.
+		if ( msg.ReadLong() != gameInitId ) {
+			return;
+		}
+	}
 	if ( type == CLIENT_UNRELIABLE_MESSAGE_EMPTY ) {
 		bool mapLoad = msg.ReadBool();
 		clients[ clientNum ].lastPacketTime = realTime;
@@ -1314,6 +1377,12 @@ bool idAsyncServer::VerifyChecksumMessage( int clientNum, const netadr_t* from, 
 
 void idAsyncServer::SendReliableMessage( int clientNum, const idBitMsg& msg ) {
 	if ( clientNum < 0 || clientNum >= MAX_ASYNC_CLIENTS || clients[ clientNum ].clientState < SCS_CONNECTED ) {
+		return;
+	}
+	// The local client shares the server's game, and nothing ever acknowledges
+	// its channel: queued messages only piled up until 'reliable message
+	// overflow' dropped the host (Doom 3 skips it too).
+	if ( clientNum == localClientNum ) {
 		return;
 	}
 	if ( clients[ clientNum ].isBot ) {
