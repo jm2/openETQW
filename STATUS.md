@@ -35,7 +35,7 @@ meson test -C build --suite unit --verbose
 # Public runner simulation (verifies clean exit code 77 on missing assets)
 ETQW_DATA_PATH=/nonexistent meson test -C build --verbose
 
-# Full local test suite with retail assets (10/10 passing 100%)
+# Full local test suite with retail assets (13/13 passing)
 meson test -C build -j 1 --verbose
 
 # Game module build
@@ -111,7 +111,7 @@ meson test -C build --suite unit --verbose
 |---|---|---|---|
 | openETQW | `src/sys/stub/headless_stubs.cpp`, `src/renderer/ImageParse.h`, `Material.cpp`, `decllib/declRenderProgram.cpp` | The dedicated server parses image references like the client and gets a placeholder image; render programs resolve without a shader backend | Headless material defaulting turned water, ladder and nonsolid surfaces into CONTENTS_SOLID (about 300–370 failed decls per map, now 0), so collision diverged from the AAS |
 | openETQW | `framework/async/AsyncNetwork.cpp`, `AsyncServer.cpp/.h`, `sys/sys_local.cpp` | `spawnServer <map>` on a running server changes maps; bot client slots are re-begun and released instead of leaking; console lines survive map changes; the game is not ticked without a map | In-process map changes were broken |
-| openETQW | `framework/Common.cpp`, `CVarSystem.cpp`, `CmdSystem.cpp`, `GameModuleCallbacks.h` | Printing is thread-safe; an error in the first map load no longer aborts; cvar and command callbacks into the game module are restored before unload (openQ4 63756efb pattern); CmdSystem is exception-safe | Bot and FS threads print; stability |
+| openETQW | `framework/Common.cpp`, `CVarSystem.cpp`, `CmdSystem.cpp`, `GameModuleCallbacks.h` | Printing is thread-safe; an error in the first map load no longer aborts; cvar and command callbacks into the game module are restored before unload (openQ4 63756efb pattern); CmdSystem is exception-safe; frame pacing uses `std::chrono` and the fatal-error backtrace is POSIX-only | Bot and FS threads print; stability; Windows portability |
 | openETQW | `framework/async/AsyncNetwork.h` | Protocol 0x4F45 ('OE').1, with a refusal message naming it | D7 clean network break |
 | openETQW | `sys/osx/macosx_compat.mm`, `posix_main.cpp`, `renderer/image_sequence.cpp`, `FileSystem.cpp` | The macOS savepath is `openETQW` (was openQ4); the terminal mode is restored; `globalImages` guards | Leftovers and latent crashes |
 | openETQW | `renderer/tr_light.cpp`, `VulkanBackend.cpp` | "Vulkan shadow lights" diagnostic at shutdown | Separates "no shadow light in view" from "shadows dropped" |
@@ -122,7 +122,7 @@ meson test -C build --suite unit --verbose
 | openETQW-game | `idlib/Heap.h/.cpp`, `Properties.*`, `threading/*`, `physics/Clip.cpp` | O(1) `idBlockAlloc::Free` (validation opt-in, UB-free offset); property lifetime; per-thread priority (no macOS process renice), 4 MB stack, signal timeouts, `isRunning`; strict clip thread check | Reverts Gemini's hot-path O(n) validation; threading fixes |
 | openETQW-game | `common/common.h`, `idlib/Lib.cpp`, `meson.build` | Linux x86_64/aarch64 build defines, non-x86 assert trap, MSVC `/Zc:strictStrings-` | Portability (found by the CI review) |
 | openETQW-game | `physics/Push.cpp`, `Game_network.cpp` | An over-long non-clipping push is a teleport; unreliable-event snapshot budget | openQ4-game 841a573 / f5596b6 patterns (independent implementations) |
-| both | `tests/*`, `tools/ci/*`, `.github/workflows/*` | New harness and tests, and CI parity workflows | M2–M4 |
+| both | `tests/*`, `tools/ci/*`, `.github/workflows/*` | New harness and tests, and CI parity workflows; retail data comes from `ETQW_DATA_PATH` only and all 30 retail-data tests exit 77 without it (skip baseline empty) | M2–M4 |
 
 ### Demonstrated
 | Claim | Evidence level | Host / OS / arch / compiler | Command | Result |
@@ -151,8 +151,8 @@ meson test -C build --suite unit --verbose
 | volcano | S.Pacific | 1335+1 / 1336 | 7641 / 36818 | 3928 / 15838 | none (no retail .nav) | 4225 / 8791 | 100% / 100% | 0.0 | 30.3 | 0.5 / 0.999 |
 
 ### Not done / stubbed / known broken
-- Linux and Windows have never been compiled. CI legs exist but are experimental until they pass. The Windows engine needs source work (`Common.cpp` POSIX includes, `SystemBootstrap`/`win_local` SDL3).
-- CI can't build the engine until both repos are public: there is no cross-repo token, by owner decision.
+- The engine has never been compiled on Linux or Windows: hosted CI can't fetch the private game repo (no cross-repo token, by owner decision) and this host has no container runtime. The Windows engine still needs the win32 layer (`SystemBootstrap`/`win_local` SDL3) and a Windows counterpart of `sys/sys_local.cpp`; `Common.cpp` no longer needs POSIX headers.
+- The game module and idLib do compile on other platforms, in the game repo's CI (see the capability matrix).
 - Vulkan validation layers are not installed on the host, so validation errors can't be observed. There is no screenshot support in the Vulkan backend.
 - The headless render world has no traces (radius damage ignores walls on the dedicated server).
 - quarry spawns 415 retail entities (≤500 criterion; owner decision).
@@ -209,8 +209,8 @@ Initial baseline run against `~/etqw` commit `f2b655c`:
 | # | Step | Host / OS needed | Depends on | Acceptance test |
 |---|---|---|---|---|
 | 1 | Get CI green on GitHub for the required legs (macOS), then drive the Linux/Windows legs out of experimental | GitHub Actions | — | CI runs; experimental flags flipped as legs pass |
-| 2 | Stock-maps M5: ledger rows for this phase, fix older overclaiming rows (032, 035), merge to main after owner review | Local | 1 | Docs reviewed; `main` updated |
-| 3 | Windows engine portability (Common.cpp, win32 layer) | Windows CI | 1 | Windows legs compile |
+| 2 | Stock-maps M5: owner review of the WIP branches (ledger rows 036–044 written, 032/035 corrected), then merge to main | Local | 1 | Docs reviewed; `main` updated |
+| 3 | Windows engine portability (win32 layer, `sys_local.cpp`) | Windows CI (repos public) | 1 | Windows legs compile |
 | 4 | jmarshall remediation (owner decision) | — | owner | See release gate |
 
 ## Inputs needed from the owner

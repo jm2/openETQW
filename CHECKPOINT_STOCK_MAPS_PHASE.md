@@ -6,6 +6,15 @@ Written by Claude Code at a quota-forced safe stop. It replaces the earlier Gemi
 - Both repositories are **private** (checked with `gh api`).
 - Local-only session notes (gitignored): `/Users/jmulesa/openETQW/.agents/claude_session_2026-09-22/`. They include the transcript-history briefing, code-reader dossier (`code_results.json`), openQ4 triage, follow-up list, probe tool, and harness JSON reports.
 
+## Latest: M4 CI parity (2026-09-23)
+- **Engine CI** (`ci.yml`): lint and script smoke are green. All 7 build legs plus the sanitizer leg skip cleanly while `openETQW-game` is private, so hosted CI has never built the engine.
+- **Game CI** (`commit-validation.yml`, round 3 at `67ab856`): the module builds and `GetGameAPI` resolves on macOS arm64/x64, Linux x64 GCC/Clang and Windows x64 MSVC. The Linux x64 and macOS ASan+UBSan legs load and unload the module cleanly. The Linux ARM64 cross build failed on `raise`/`SIGTRAP` in `Lib.cpp` (fixed in `86ddd5d`).
+- `852d1e0` (game): the Linux module now exports only `GetGameAPI`, through a version script; before this it exported about 22,800 symbols. Linux x64 GCC/Clang, Linux ASan+UBSan and Windows x64 are no longer experimental. The ARM64 legs stay experimental until a green run.
+- Hosted-runner queueing stalled both repos for more than 30 minutes around 03:15Z. GitHub status said Actions was operational; a private-repo minutes quota is a possible cause (billing can't be read without the `user` scope).
+- **Tests:** retail data comes from `ETQW_DATA_PATH` only. All 30 retail-data tests exit 77 without data (9 meson-registered, 21 standalone), the skip baseline is empty, and no absolute paths remain.
+- Ledger 032 and 035 are corrected to MEDIUM (Partial), stating what was actually verified.
+- `Common.cpp`: the frame pacer uses `std::chrono`, and the backtrace is POSIX-only. Windows still needs the win32 layer and a Windows `sys_local.cpp`, which can't be verified here: there is no container runtime, and mingw has `unistd.h`, so it can't stand in for MSVC.
+
 ## Latest (M2 closed, M3 done; D7 clean network break)
 - **The full `meson test -C build -j 1` with retail data passes 13/13**: the unit tests; client-lifecycle, high-refresh-determinism and vulkan-shadows; all-stock-maps (561 s, serial); protocol-clean-break and inprocess-map-change; bot-gameplay and valley-match. The Valley match now plays a started match (the retail warmup EndGame guard is restored).
 - **Game follow-ups:**
