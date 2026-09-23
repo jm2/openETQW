@@ -161,10 +161,10 @@ Cross-Platform Build & Continuous Integration Matrix Milestone (Linux x86_64, Wi
 | Milestone 3 Multi-Client UDP Replication | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_multiclient_gameplay.py` | PASS: 2 clients (GDF & Strogg), spatial tracking (< 0.05 u error), movement 422.52 u replicated over UDP, weapon attack verified |
 | Valley World & MegaTexture Rendering | match-tested | macOS arm64 / Apple Clang 21.0 | `python3 tests/test_client_lifecycle.py` | PASS: 1,754 Vulkan frames presented, 93,658 world draws, 86,935 MegaTexture draws, exit code 0 |
 
-Evidence levels: inspected < configured < compiled < unit-tested < launched < map-loaded < match-tested < retail-interop-tested
+Evidence levels: inspected < configured < compiled < unit-tested < launched < map-loaded < match-tested
 
 ### Not done / stubbed / known broken
-- Retail network interop wire captures (Milestone 6)
+- Retail 1.5 network interoperability: dropped by owner decision D7 (2026-09-22, clean break like openQ4). OpenETQW uses its own protocol 0x4F45.1, and retail peers are refused at connect (`tests/test_protocol_clean_break.py`).
 
 ## Capability matrix
 Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>`.
@@ -185,10 +185,8 @@ Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>
 | High refresh: vehicles | — | — | match-tested | — | — | Sub-tick proxy view smoothing across cockpit and chased camera |
 | Bots / navigation | — | — | match-tested | — | — | Full AAS navigation, 30 Hz AI thread, terrain traversal > 1000u, combat engagement |
 | Dynamic stencil shadows | — | — | match-tested | — | — | Vulkan two-sided stencil shadow volumes & dynamic lighting interactions |
-| Retail interop: dir 1 (Open ↔ Open) | — | — | match-tested | — | — | OpenETQW dedicated server and multi-client replication verified over UDP |
-| Retail interop: dir 2 (Open client → retail server) | — | — | blocked: M6 | — | — | Requires retail wire captures & auth specs |
-| Retail interop: dir 3 (retail client → Open server) | — | — | blocked: M6 | — | — | Requires retail snapshot agreement |
-| Retail interop: dir 4 (mixed) | — | — | blocked: M6 | — | — | Requires mixed baseline translation |
+| OpenETQW ↔ OpenETQW network play | — | — | match-tested | — | — | Dedicated server and multi-client replication over UDP (protocol 0x4F45.1) |
+| Retail 1.5 peer refused at connect (clean break, D7) | — | — | launched | — | — | `tests/test_protocol_clean_break.py`: majors 1, 2, 10–14 and 22 are refused with 'Server uses protocol 20293.1' |
 
 ### Build and dependency scripts verified
 | Script | Arch | Fedora | Debian | macOS | Windows 11 |
@@ -209,7 +207,7 @@ Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>
 - Serialized/asset format changes: none (preserving retail serialization structures)
 - Wire protocol id and OpenETQW-only deviations: 16-bit MsgChannel framing restored; snapshot delta acknowledgment gating enforced.
 - Ledger rows added (`docs/compat-ledger.md`): Rows 033, 034, and 035 added documenting cross-platform Meson static library resolution and staging, Windows MSVC flags and console dedicated subsystem isolation, and GitHub Actions continuous integration matrix with asset-free unit test decoupling.
-- Consequence for retail 1.5 interop: Simulation and network state encoding strictly agree with retail asset formats and wire protocol.
+- Retail 1.5 network interop: none by design (clean break, D7). Retail asset formats are still read unchanged; the wire protocol is OpenETQW's own (0x4F45.1).
 
 ## Baseline observations delta
 Initial baseline run against `~/etqw` commit `f2b655c`:
@@ -219,7 +217,7 @@ Initial baseline run against `~/etqw` commit `f2b655c`:
 | # | Step | Host / OS needed | Depends on | Acceptance test |
 |---|---|---|---|---|
 | 1 | Upstream Git Synchronization | Local workstation | CI matrix complete | Clean working trees, commit tags, and git push to upstream remotes |
-| 2 | Milestone 6: Retail Network Interop Wire Captures | Linux / macOS / Windows | Step 1 | Retail client/server loopback packet capture & verification |
+| 2 | Stock-maps phase M3–M5 (Vulkan client spot checks, CI parity, docs) | macOS arm64 (CI: all) | Step 1 | See CHECKPOINT_STOCK_MAPS_PHASE.md |
 
 ## Inputs needed from the owner
 - None. Retail assets extracted and isolated successfully.
