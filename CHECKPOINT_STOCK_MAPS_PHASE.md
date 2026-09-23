@@ -6,6 +6,29 @@ Written by Claude Code at a quota-forced safe stop. It replaces the earlier Gemi
 - Both repositories are **private** (checked with `gh api`).
 - Local-only session notes (gitignored): `/Users/jmulesa/openETQW/.agents/claude_session_2026-09-22/`. They include the transcript-history briefing, code-reader dossier (`code_results.json`), openQ4 triage, follow-up list, probe tool, and harness JSON reports.
 
+## Update, later on 2026-09-22 (current state; supersedes "State at stop" below where they differ)
+- **The engine WIP was reviewed and verified:**
+  - Headless materials now parse as they do on the client (failed decls went from about 300–370 per map to 0).
+  - `spawnServer` really changes maps, and queued stdin survives a map change.
+  - Bot slots no longer leak: a console map change releases the bots through the retail spectator timer, and re-added bots reuse the slots. A same-map restart keeps the bots.
+  - Printing is thread-safe, and an error in the first map load no longer aborts.
+  - New test `tests/test_inprocess_map_change.py`: PASS (quarry→outskirts→ark→ark).
+- **Core and bot-AI WIP reviewed** (RSqrt LP64 fix, O(1) `idBlockAlloc::Free`, property lifetime, POSIX threading, `addbot` via CheckRespawns, playerPos/spawn command ownership, the objective-manager `sendNetworkEvent` signature). PLAYER_POS `area=` now reports containment within step height (1/8/16 u above the origin), not the nearest reachable area.
+- **M2 result: `test_all_stock_maps.py`, 11/11 maps PASS**, at the retail default think rate (0.500 ratio) and with `--bot-think-delay 0` (1.000 ratio, true 30 Hz AI):
+  - AAS areas and reachabilities match the retail files;
+  - area containment 96–100%;
+  - longest stuck interval ≤ 6.7 s (was 15–30 s);
+  - gameHz 30.24–30.31.
+  - Reports: `.agents/claude_session_2026-09-22/harness_reports/full11_{a,b,c}.json`.
+- Still to run: `tests/test_valley_match.py`. It may depend on the removed EndGame warmup guard, which is restored now.
+- **Licensing: jmarshall provenance audit (owner directive).** Report: `.agents/claude_session_2026-09-22/JMARSHALL_PROVENANCE_AUDIT.md`; tooling: `.agents/upstreams/`.
+  - Engine: 135 compiled files (about 54.7k lines) are effectively jmarshall-authored, and 34 more are Doom 3 files with his edits.
+  - Game: 57 compiled files are SDK files with his edits (48 of them ≥95% identical to the SDK).
+  - History: both repos are rooted in jmarshall's 3 commits.
+  - Files added after the split are clean.
+  - **The owner chose "audit only for now": no remediation code changes or deletions until the owner decides.**
+- Owner decisions still open: 30 Hz interpretation, quarry <500 entities, jmarshall remediation strategy.
+
 ## State at stop
 - `ninja` builds both repos cleanly after `meson setup --reconfigure build` (engine). `meson test --suite unit`: 5/5 OK.
 - Smoke at the stop, on this exact tree: `test_all_stock_maps.py --maps volcano,ark` gave **2/2 PASS**. GDF/Strogg displacement: volcano 4356/8794 u, ark 8017/10761 u. gameHz 30.25–30.30. The longest Strogg "stuck" interval fell from 30.5 s (ark, earlier build) to 3.6 s, and volcano's to 0.0 s, which suggests the WIP collision/pathing fixes help.
