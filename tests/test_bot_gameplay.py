@@ -26,6 +26,8 @@ import threading
 import time
 from pathlib import Path
 
+import etqw_harness as h
+
 TEST_PROCS = []
 
 
@@ -42,8 +44,7 @@ def cleanup_procs():
 atexit.register(cleanup_procs)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATA_PATH = Path("/Users/jmulesa/etqw_data")
-DATA_PATH = Path(os.environ.get("ETQW_DATA_PATH", str(DEFAULT_DATA_PATH)))
+DATA_PATH = h.env_data_path()
 SERVER_PORT = int(os.environ.get("OPENETQW_BOT_GAMEPLAY_PORT", "27760"))
 
 # The whole script must finish inside the meson timeout (120 s, meson.build);

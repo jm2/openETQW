@@ -27,10 +27,11 @@ import threading
 import time
 from pathlib import Path
 
+import etqw_harness as h
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATA_PATH = Path("/Users/jmulesa/etqw_data")
-DATA_PATH = Path(os.environ.get("ETQW_DATA_PATH", str(DEFAULT_DATA_PATH)))
+DATA_PATH = h.env_data_path()
 def _find_client_binary() -> Path:
     candidates = [
         REPO_ROOT / "build" / "openETQW-client_arm64",

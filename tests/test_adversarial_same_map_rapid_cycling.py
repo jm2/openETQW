@@ -32,11 +32,12 @@ import threading
 import time
 from pathlib import Path
 
+import etqw_harness as h
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATA_PATH = Path("/Users/jmulesa/etqw_data")
-DATA_PATH = Path(os.environ.get("ETQW_DATA_PATH", str(DEFAULT_DATA_PATH)))
+DATA_PATH = h.env_data_path()
 OUT_DIR = Path(os.environ.get("CHALLENGER_OUT_DIR", str(REPO_ROOT / ".agents" / "challenger_m1_iter3_1")))
-BINARY = REPO_ROOT / "build" / "openETQW-ded_arm64"
+BINARY = h.build_binary("ded")
 
 ACTIVE_PROCESSES: list[subprocess.Popen] = []
 
@@ -307,4 +308,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    h.skip_unless_available(DATA_PATH, BINARY)
     sys.exit(main())

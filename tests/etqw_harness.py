@@ -30,6 +30,7 @@ import signal
 import socket
 import struct
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -109,13 +110,28 @@ def _arch_suffixes() -> list[str]:
     return ["arm64", "x64"]
 
 
-def ded_binary_candidates(build_dir: Optional[Path] = None) -> list[Path]:
+def binary_candidates(kind: str, build_dir: Optional[Path] = None) -> list[Path]:
+    """build/openETQW-<kind>_<arch>[.exe] names for kind 'ded' or 'client',
+    host architecture first."""
     build = Path(build_dir) if build_dir else REPO_ROOT / "build"
     names: list[str] = []
     for arch in _arch_suffixes():
-        names += [f"openETQW-ded_{arch}", f"openETQW-ded_{arch}.exe"]
-    names += ["openETQW-ded", "openETQW-ded.exe"]
+        names += [f"openETQW-{kind}_{arch}", f"openETQW-{kind}_{arch}.exe"]
+    names += [f"openETQW-{kind}", f"openETQW-{kind}.exe"]
     return [build / n for n in names]
+
+
+def ded_binary_candidates(build_dir: Optional[Path] = None) -> list[Path]:
+    return binary_candidates("ded", build_dir)
+
+
+def build_binary(kind: str) -> Path:
+    """The first existing build/openETQW-<kind>_<arch>[.exe], else the host
+    architecture's name (so a missing-binary message names what was expected).
+    For standalone tests that build their command lines at import time; pair
+    with skip_unless_available()."""
+    candidates = binary_candidates(kind)
+    return next((c for c in candidates if c.is_file()), candidates[0])
 
 
 def find_ded_binary(explicit: Optional[str] = None) -> Path:
@@ -148,6 +164,27 @@ def resolve_data_path() -> Path:
     if not (p / "base" / "pak000.pk4").is_file():
         raise SkipTest(f"ETQW_DATA_PATH={raw}: {p / 'base' / 'pak000.pk4'} not found")
     return p.resolve()
+
+
+def env_data_path() -> Path:
+    """$ETQW_DATA_PATH as a Path ('.' when unset), for standalone tests that
+    build their command lines at import time; pair with skip_unless_available()."""
+    return Path(os.environ.get("ETQW_DATA_PATH", "").strip()).expanduser()
+
+
+def skip_unless_available(data_path: Path, *binaries: Path) -> None:
+    """Exit 77 (the meson skip code) unless <data_path>/base/pak000.pk4 and
+    every binary exist."""
+    reasons = []
+    if not os.environ.get("ETQW_DATA_PATH", "").strip():
+        reasons.append("ETQW_DATA_PATH is not set (point it at the directory containing base/pak000.pk4)")
+    elif not (Path(data_path) / "base" / "pak000.pk4").is_file():
+        reasons.append(f"{Path(data_path) / 'base' / 'pak000.pk4'} not found")
+    reasons += [f"binary not found: {b}" for b in binaries if not Path(b).is_file()]
+    if reasons:
+        for r in reasons:
+            print(f"[SKIP] {r}")
+        sys.exit(EXIT_SKIP)
 
 
 class PakIndex:

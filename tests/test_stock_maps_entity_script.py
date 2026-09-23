@@ -23,6 +23,8 @@ import threading
 import time
 from pathlib import Path
 
+import etqw_harness as h
+
 STOCK_MAPS = [
     "quarry",
     "area22",
@@ -288,8 +290,8 @@ def probe_map(binary: Path, data_path: Path, map_name: str, port: int, timeout: 
 
 def main() -> int:
     repo_root = Path(__file__).resolve().parents[1]
-    binary = repo_root / "build" / "openETQW-ded_arm64"
-    data_path = Path(os.environ.get("ETQW_DATA_PATH", "/Users/jmulesa/etqw_data"))
+    binary = h.build_binary("ded")
+    data_path = h.env_data_path()
 
     if not binary.is_file():
         print(f"[FAIL] Dedicated binary not found: {binary}", file=sys.stderr)

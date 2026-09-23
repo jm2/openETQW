@@ -20,6 +20,8 @@ import threading
 import time
 from pathlib import Path
 
+import etqw_harness as h
+
 COMPLEX_MAPS = ["volcano", "slipgate", "quarry"]
 
 OBJECTIVE_STATUS_RE = re.compile(
@@ -416,8 +418,8 @@ def probe_map_transition_sequence(binary: Path, data_path: Path, port: int) -> d
 
 def main():
     repo_root = Path(__file__).resolve().parents[1]
-    binary = repo_root / "build" / "openETQW-ded_arm64"
-    data_path = Path(os.environ.get("ETQW_DATA_PATH", "/Users/jmulesa/etqw_data"))
+    binary = h.build_binary("ded")
+    data_path = h.env_data_path()
 
     if not binary.is_file():
         print(f"[FAIL] Dedicated binary not found: {binary}", file=sys.stderr)
