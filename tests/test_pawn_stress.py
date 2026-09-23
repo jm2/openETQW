@@ -17,10 +17,12 @@ import threading
 import time
 from pathlib import Path
 
+import etqw_harness as h
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-BINARY_PATH = REPO_ROOT / "build" / "openETQW-ded_arm64"
-DATA_PATH = Path("/Users/jmulesa/etqw_data")
+BINARY_PATH = h.build_binary("ded")
+DATA_PATH = h.env_data_path()
 
 SERVER_PORT = 27785
 BASE_CLIENT_PORT = 27786
@@ -428,4 +430,5 @@ def run_stress_tests():
 
 
 if __name__ == "__main__":
+    h.skip_unless_available(DATA_PATH, BINARY_PATH)
     sys.exit(run_stress_tests())

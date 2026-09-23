@@ -25,10 +25,11 @@ import threading
 import time
 from pathlib import Path
 
+import etqw_harness as h
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATA_PATH = Path("/Users/jmulesa/etqw_data")
-DATA_PATH = Path(os.environ.get("ETQW_DATA_PATH", str(DEFAULT_DATA_PATH)))
-CLIENT_BIN = REPO_ROOT / "build" / "openETQW-client_arm64"
+DATA_PATH = h.env_data_path()
+CLIENT_BIN = h.build_binary("client")
 
 TEST_PROCS: list[subprocess.Popen] = []
 
@@ -348,4 +349,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    h.skip_unless_available(DATA_PATH, CLIENT_BIN)
     sys.exit(main())

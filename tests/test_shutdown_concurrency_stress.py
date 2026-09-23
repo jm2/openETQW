@@ -26,9 +26,11 @@ import threading
 import time
 from pathlib import Path
 
+import etqw_harness as h
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
-BINARY = REPO_ROOT / "build" / "openETQW-ded_arm64"
-DATA_PATH = Path(os.environ.get("ETQW_DATA_PATH", "/Users/jmulesa/etqw_data"))
+BINARY = h.build_binary("ded")
+DATA_PATH = h.env_data_path()
 
 
 def stream_reader(pipe, q: queue.Queue[str]) -> None:
@@ -505,4 +507,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    h.skip_unless_available(DATA_PATH, BINARY)
     sys.exit(main())
