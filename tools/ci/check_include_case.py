@@ -7,9 +7,11 @@ include of "megatexture/MegaTexture.h" builds on a Mac and fails on Linux when
 the file is megatexture.h. The engine is only built on macOS so far, so this
 checks every quoted #include in tracked C/C++ sources the way the compiler
 searches for it: the including file's directory, then the -I directories in
-order. With a configured build (build/compile_commands.json) those are the real
--I directories of the engine targets; without one (hosted CI) it falls back to
-src/, the repository root and the staged game tree (.tmp/gamelibs_stage).
+order. With a configured build (build/compile_commands.json) a source file is
+checked with the -I list of its own compile command, and a header with each
+distinct -I list in the build. Without one (hosted CI runs this before Meson
+setup) it uses the engine targets' list read from meson.build (the repository
+root, then engine_include_dirs in order).
 
 It is an error when the first directory that holds the file only holds it
 under another letter case: Linux then fails, or skips to a later directory and
@@ -74,17 +76,17 @@ def resolve(path: str) -> bool | None:
     return exact
 
 
-def include_dirs(compile_commands: Path) -> tuple[list[str], set[str]] | None:
-    """The -I directories of every translation unit, in first-seen order, and the compiled
-    files, both relative to the repo."""
+def include_dirs(compile_commands: Path) -> dict[str, list[tuple[str, ...]]] | None:
+    """For every compiled file, the -I lists of its compile commands (in order),
+    relative to the repo."""
     if not compile_commands.is_file():
         return None
-    dirs: list[str] = []
-    compiled: set[str] = set()
+    per_file: dict[str, list[tuple[str, ...]]] = {}
     for entry in json.loads(compile_commands.read_text()):
-        compiled.add(os.path.relpath(os.path.normpath(os.path.join(entry.get("directory", "."), entry["file"])), REPO_ROOT))
-        args = entry.get("arguments") or shlex.split(entry.get("command", ""))
         base = entry.get("directory", ".")
+        source = os.path.relpath(os.path.normpath(os.path.join(base, entry["file"])), REPO_ROOT)
+        args = entry.get("arguments") or shlex.split(entry.get("command", ""))
+        dirs: list[str] = []
         for i, arg in enumerate(args):
             path = arg[2:] if arg.startswith("-I") and len(arg) > 2 else (args[i + 1] if arg == "-I" and i + 1 < len(args) else None)
             if path is None:
@@ -92,7 +94,30 @@ def include_dirs(compile_commands: Path) -> tuple[list[str], set[str]] | None:
             path = os.path.relpath(os.path.normpath(os.path.join(base, path)), REPO_ROOT)
             if path not in dirs:
                 dirs.append(path)
-    return dirs, compiled
+        lists = per_file.setdefault(source, [])
+        if tuple(dirs) not in lists:
+            lists.append(tuple(dirs))
+    return per_file
+
+
+def meson_include_dirs() -> list[str]:
+    """The engine targets' -I order from meson.build: the repository root, then the
+    directories of engine_include_dirs in order."""
+    text = Path("meson.build").read_text()
+    named = dict(re.findall(r"^(\w+)\s*=\s*include_directories\(\s*'([^']+)'\s*\)", text, re.M))
+    block = re.search(r"^engine_include_dirs\s*=\s*\[(.*?)\]", text, re.M | re.S)
+    order = [named[name] for name in re.findall(r"\w+", block.group(1)) if name in named] if block else []
+    dirs = ["."]
+    for d in order:
+        if d not in dirs:
+            dirs.append(d)
+    return dirs
+
+
+def meson_sources() -> set[str]:
+    """Every source file named in tools/build/meson_sources.py (the build's file lists)."""
+    text = Path("tools/build/meson_sources.py").read_text()
+    return set(re.findall(r'"((?:src|tests)/[^"]+\.(?:c|cpp|mm))"', text))
 
 
 def main(argv: list[str]) -> int:
@@ -103,35 +128,47 @@ def main(argv: list[str]) -> int:
     os.chdir(REPO_ROOT)
     database = include_dirs(args.compile_commands)
     if database is not None:
-        # the compiler's order: the including file's directory, then the -I list. Source
-        # files are checked only when the build compiles them; headers always are.
-        search, compiled = database
-        twin = False
+        # a source file with its own command's -I list(s); a header with every distinct list
+        all_lists = sorted({dirs for lists in database.values() for dirs in lists})
     else:
-        search, compiled = ["src", "."] + ([str(STAGE / "src"), str(STAGE)] if STAGE.is_dir() else []), None
-        twin = STAGE.is_dir()	# approximate: the staged copy of the including file's directory
+        fallback = tuple(meson_include_dirs())
+        listed = meson_sources()
     files = subprocess.run(["git", "ls-files", "src", "tests"], capture_output=True, text=True,
                            check=True).stdout.split()
     problems = []
     for f in files:
         if not f.endswith(SOURCE_SUFFIXES) or f.startswith(EXCLUDE) or not os.path.exists(f):
             continue
-        if compiled is not None and not f.endswith((".h", ".hpp", ".inl")) and f not in compiled:
-            continue
+        header = f.endswith((".h", ".hpp", ".inl"))
+        if database is None:
+            if not header and f not in listed and not f.startswith("tests/"):
+                continue	# a source file the build does not compile
+            search_lists = [fallback]
+        elif header:
+            search_lists = all_lists
+        elif f in database:
+            search_lists = database[f]
+        else:
+            continue	# a source file the build does not compile
         with open(f, errors="replace") as source:
             for number, line in enumerate(source, 1):
                 m = INCLUDE_RE.match(line)
                 if not m:
                     continue
                 target = m.group(1)
-                dirs = [os.path.dirname(f)] + ([str(STAGE / os.path.dirname(f))] if twin else []) + search
-                for directory in dirs:
-                    found = resolve(os.path.join(directory, target))
-                    if found is None:
-                        continue
-                    if found is False:
-                        problems.append(f"{f}:{number}: #include \"{target}\" first matches {directory}/ only when case is ignored")
-                    break
+                for search in search_lists:
+                    # the compiler's order: the including file's directory, then the -I list
+                    bad = None
+                    for directory in [os.path.dirname(f)] + list(search):
+                        found = resolve(os.path.join(directory, target))
+                        if found is None:
+                            continue
+                        if found is False:
+                            bad = directory
+                        break
+                    if bad is not None:
+                        problems.append(f"{f}:{number}: #include \"{target}\" first matches {bad}/ only when case is ignored")
+                        break
     for p in problems:
         print(p)
     source = "compile_commands.json -I order" if database is not None else "fallback search list"

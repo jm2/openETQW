@@ -107,6 +107,7 @@ PLAYER_POS_PATTERN = re.compile(
 # every line each process printed, checked for failure markers when the test ends
 # (a common->Error drop or a crash banner does not always change the exit code)
 PROCESS_LINES = {}
+READER_THREADS = []  # joined before the scan, so the last lines a process printed are read
 
 
 def scan_process_output():
@@ -119,6 +120,10 @@ def scan_process_output():
 
 
 def exit_with_scan(rc):
+    # the processes have exited (or are being killed); a reader can still be draining
+    # the pipe, so let each finish before scanning
+    for t in READER_THREADS:
+        t.join(timeout=10.0)
     bad = scan_process_output()
     if bad:
         print("\nFAILURE MARKERS in process output:")
@@ -129,6 +134,7 @@ def exit_with_scan(rc):
 
 
 def stream_reader(pipe, name, q):
+    READER_THREADS.append(threading.current_thread())
     try:
         for line in iter(pipe.readline, ''):
             if not line:

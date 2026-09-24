@@ -20,7 +20,8 @@ get CI back: both stay private until the owner decides to publish.
    - `meson test -C build --suite unit` (asset-free unit tests, including the zero-SDK audit)
 2. **Retail-data suite for runtime changes.** Anything touching the engine, the game or the
    network gets the full Meson suite with retail data:
-   `ETQW_DATA_PATH=<directory containing base/pak000.pk4> meson test -C build -j 1`.
+   `ETQW_DATA_PATH="$HOME/etqw_data" meson test -C build -j 1`
+   (replace `$HOME/etqw_data` with the directory that contains `base/pak000.pk4`).
    Put the result in the PR with the host, OS, architecture and commit. The tests use fixed
    UDP ports, so run one suite at a time on a host.
 3. **Independent review.** Someone other than the author (a person or a separate review
