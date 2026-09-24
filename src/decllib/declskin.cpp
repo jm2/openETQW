@@ -4,7 +4,7 @@
 #include "precompiled.h"
 #include "../framework/DeclParseHelper.h"
 #include "../renderer/Material.h"
-#include "declSkin.h"
+#include "../framework/DeclSkin.h"
 #include "declTypeHolder.h"
 
 #pragma hdrstop

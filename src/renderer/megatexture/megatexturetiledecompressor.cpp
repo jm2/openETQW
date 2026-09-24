@@ -24,10 +24,10 @@ GNU General Public License for more details.
 #pragma hdrstop
 
 #include "Image.h"
-#include "MegaTexture.h"
-#include "MegaTextureCodec.h"
-#include "MegaTextureTileDecompressor.h"
-#include "MegaTextureTileLoader.h"
+#include "megatexture.h"
+#include "megatexturecodec.h"
+#include "megatexturetiledecompressor.h"
+#include "megatexturetileloader.h"
 
 #include <chrono>
 #include <math.h>

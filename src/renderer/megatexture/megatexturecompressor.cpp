@@ -23,6 +23,6 @@ GNU General Public License for more details.
 #include "../../idlib/precompiled.h"
 #pragma hdrstop
 
-#include "MegaTextureCompressor.h"
+#include "megatexturecompressor.h"
 
 idMegaTextureCompressor *megaTextureCompressor = NULL;

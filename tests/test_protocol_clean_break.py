@@ -6,8 +6,10 @@ OpenETQW speaks its own protocol (major 0x4F45 'OE'). This test runs the
 connectionless handshake against a dedicated server as a raw UDP peer:
 getChallenge -> challengeResponse -> connect. A connect that announces a retail
 ET:QW protocol major (10, and the other id/Splash Damage majors) must be refused
-with the server's bad-protocol print naming the OpenETQW protocol. A connect
-with the OpenETQW protocol must get past that check.
+with the server's bad-protocol print naming the OpenETQW protocol. The protocol
+is checked before anything else, so the same answer must come back for a retail
+connect without a challenge from this server, and for one that holds only the
+protocol field. A connect with the OpenETQW protocol must get past that check.
 
 Exit 77 when ETQW_DATA_PATH is unset/invalid or the binary is missing.
 """
@@ -41,6 +43,27 @@ def read_cstr(data: bytes, pos: int) -> tuple[str, int]:
     return data[pos:end].decode("latin1"), end + 1
 
 
+def answer(sock):
+    """The server's next connectionless answer as (command, payload-string)."""
+    while True:
+        data, _ = sock.recvfrom(4096)
+        if struct.unpack_from("<h", data)[0] != -1:
+            continue
+        cmd, pos = read_cstr(data, 2)
+        if cmd == "print":
+            opcode = data[pos]
+            text, _ = read_cstr(data, pos + 1)
+            return cmd, f"{opcode}:{text}"
+        return cmd, ""
+
+
+def bare_connect(sock, addr, protocol: int, body: bytes, timeout: float = 5.0):
+    """connect with no getChallenge first; body follows the protocol field."""
+    sock.settimeout(timeout)
+    sock.sendto(oob(cstr("connect"), struct.pack("<i", protocol), body), addr)
+    return answer(sock)
+
+
 def handshake(sock, addr, client_id: int, protocol: int, timeout: float = 5.0):
     """Returns (command, payload-string) of the server's answer to connect."""
     sock.settimeout(timeout)
@@ -55,16 +78,7 @@ def handshake(sock, addr, client_id: int, protocol: int, timeout: float = 5.0):
     connect = oob(cstr("connect"), struct.pack("<ihiihi", protocol, 0, 0, challenge, client_id, 25000),
                   cstr("0123456789a"), cstr(""))
     sock.sendto(connect, addr)
-    while True:
-        data, _ = sock.recvfrom(4096)
-        if struct.unpack_from("<h", data)[0] != -1:
-            continue
-        cmd, pos = read_cstr(data, 2)
-        if cmd == "print":
-            opcode = data[pos]
-            text, _ = read_cstr(data, pos + 1)
-            return cmd, f"{opcode}:{text}"
-        return cmd, ""
+    return answer(sock)
 
 
 def main(argv):
@@ -104,6 +118,18 @@ def main(argv):
                 print(f"[{'OK' if ok else 'FAIL'}] connect with protocol {major}.41 -> {cmd} {text!r}")
                 if not ok:
                     failures.append(f"major {major}: expected refusal '{expected}', got {cmd} {text!r}")
+            retail = (10 << 16) + 41
+            for label, body in (("an unknown challenge", struct.pack("<hiihi", 0, 0, 12345, 3000, 25000) + cstr("") + cstr("")),
+                                ("only the protocol field", b"")):
+                try:
+                    cmd, text = bare_connect(sock, addr, retail, body)
+                except OSError as e:
+                    failures.append(f"retail connect with {label}: no answer ({e})")
+                    continue
+                ok = cmd == "print" and expected in text
+                print(f"[{'OK' if ok else 'FAIL'}] retail connect with {label} -> {cmd} {text!r}")
+                if not ok:
+                    failures.append(f"retail connect with {label}: expected '{expected}', got {cmd} {text!r}")
             cmd, text = handshake(sock, addr, 2000, (OPENETQW_MAJOR << 16) + OPENETQW_MINOR)
             # only connectResponse proves the connect got through; a print (bad
             # challenge, server full, ...) would mean it was refused before or after

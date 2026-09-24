@@ -3,8 +3,8 @@
 
 #include "../../../framework/FileSystem.h"
 #include "../../../decllib/declAtmosphere.h"
-#include "../../../renderer/megatexture/MegaTexture.h"
-#include "../../../renderer/megatexture/MegaTextureCodec.h"
+#include "../../../renderer/megatexture/megatexture.h"
+#include "../../../renderer/megatexture/megatexturecodec.h"
 #include "../compiler_public.h"
 #include "MegaTextureCompiler.h"
 #include "MegaTextureShadowBaker.h"

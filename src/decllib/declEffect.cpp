@@ -7,7 +7,7 @@
 #pragma hdrstop
 
 #include "BSE.h"
-#include "../framework/DeclManager.h"
+#include "../framework/declManager.h"
 #include "../framework/DeclParseHelper.h"
 
 void rvDeclEffect::Init( void ) {

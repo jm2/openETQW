@@ -13,7 +13,7 @@ Verifies:
 3. Continuous UDP snapshot generation and reception across both clients (50+ snapshots).
 4. Mutual spatial tracking and cross-client entity replication (position error < 2.0 units).
 5. Movement replication over UDP (displacement >= 50 units observed by peer client).
-6. Weapon firing interaction and attack command replication.
+6. The server registers a client's attack button and its release (weapon attacking).
 7. Graceful multi-process shutdown with clean exit code 0 for all instances.
 """
 
@@ -87,6 +87,7 @@ CLIENT2_ARGS = [
     "+set", "net_clientShowSnapshots", "1", "+connect", f"127.0.0.1:{SERVER_PORT}"
 ]
 
+ATTACK_PATTERN = re.compile(r"atk:\s*(\d+)\s*cmd:.*?atk_cmd=(\d+)")
 PLAYER_POS_PATTERN = re.compile(
     r"PLAYER_POS:\s*\(([-\d.]+),\s*([-\d.]+),\s*([-\d.]+)\)\s*"
     r"vel:\s*\(([-\d.]+),\s*([-\d.]+),\s*([-\d.]+)\)\s*"
@@ -97,12 +98,43 @@ PLAYER_POS_PATTERN = re.compile(
 LOG_DIR = None  # --log-dir: every process's output is also written to <name>.log
 
 
+# every line each process printed, checked for failure markers when the test ends
+# (a common->Error drop or a crash banner does not always change the exit code)
+PROCESS_LINES = {}
+READER_THREADS = []  # joined before the scan, so the last lines a process printed are read
+
+
+def scan_process_output():
+    """Failure markers (etqw_harness.scan_failures) in any process's output."""
+    found = []
+    for name, lines in PROCESS_LINES.items():
+        for b in h.scan_failures(lines):
+            found.append(f"{name} line {b['line']}: {b['text']}")
+    return found
+
+
+def exit_with_scan(rc):
+    # the processes have exited (or are being killed); a reader can still be draining
+    # the pipe, so let each finish before scanning
+    for t in READER_THREADS:
+        t.join(timeout=10.0)
+    bad = scan_process_output()
+    if bad:
+        print("\nFAILURE MARKERS in process output:")
+        for b in bad:
+            print(f"  - {b}")
+        rc = rc or 1
+    sys.exit(rc)
+
+
 def stream_reader(pipe, name, q):
+    READER_THREADS.append(threading.current_thread())
     log = open(Path(LOG_DIR) / f"{name}.log", "w", errors="replace") if LOG_DIR else None
     try:
         for line in iter(pipe.readline, ''):
             if not line:
                 break
+            PROCESS_LINES.setdefault(name, []).append(line.rstrip("\n"))
             if log:
                 log.write(line)
                 log.flush()
@@ -437,6 +469,12 @@ def run_multiclient_test():
     # Check attack state on Server for Client 0
     atk_state = query_player_pos(server_proc, "SERVER", output_queue, timeout=3.0, client_num=0)
     print(f"  Server Client 0 Attack State: {atk_state['raw']}")
+    # the server has the attack button in the client's usercmds and its weapon is attacking
+    # (a peer cannot see this: another player's attack state is not in its snapshot, and
+    # the fire effects are client-side, which the headless clients skip)
+    atk = ATTACK_PATTERN.search(atk_state["raw"])
+    if not atk or atk.group(1) != "1" or atk.group(2) != "1":
+        raise AssertionError(f"server did not register Client 0's attack (atk, atk_cmd = {atk.groups() if atk else None})")
 
     # Release attack
     client1_proc.stdin.write("-attack\n")
@@ -445,7 +483,10 @@ def run_multiclient_test():
     time.sleep(0.3)
     released_state = query_player_pos(server_proc, "SERVER", output_queue, timeout=3.0, client_num=0)
     print(f"  Server Client 0 Post-Attack State: {released_state['raw']}")
-    print("  >>> [PASSED] Weapon attack interaction processed cleanly over UDP")
+    atk = ATTACK_PATTERN.search(released_state["raw"])
+    if not atk or atk.group(2) != "0":
+        raise AssertionError(f"server still has Client 0's attack button after -attack (atk, atk_cmd = {atk.groups() if atk else None})")
+    print("  >>> [PASSED] The server registered the attack and its release (atk_cmd 1 -> 0, weapon attacking)")
 
     print("\n[9] Gracefully terminating multi-client session...")
     client1_proc.stdin.write("quit\n")
@@ -472,7 +513,7 @@ def run_multiclient_test():
     print(f" Opposing Team Spawns:        VERIFIED (GDF & Strogg)")
     print(f" Mutual Spatial Replication:  VERIFIED (< {MAX_TOLERANCE} u error)")
     print(f" Peer Movement Replication:   VERIFIED ({displacement:.2f} >= {MIN_DISPLACEMENT} u)")
-    print(f" Weapon Interaction over UDP: VERIFIED (+attack / -attack)")
+    print(f" Weapon Attack on the Server: VERIFIED (+attack / -attack; peers do not see it headless)")
     print(f" Clean Multi-Process Exit:    VERIFIED (c1={c1_exit}, c2={c2_exit}, srv={srv_exit})")
     print("=================================================================\n")
     return 0
@@ -521,7 +562,7 @@ if __name__ == "__main__":
     h.skip_unless_available(DATA_PATH, BINARY_PATH)
     apply_network_conditions(cli)
     try:
-        sys.exit(run_multiclient_test())
+        exit_with_scan(run_multiclient_test())
     except Exception as e:
         print(f"\nTEST FAILED: {e}", file=sys.stderr)
         import traceback

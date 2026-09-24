@@ -1014,12 +1014,21 @@ void idCommonLocal::Frame() {
 				uint64_t elapsedUsec = nowUsec - lastFrameUsec;
 				if ( elapsedUsec < targetFrameUsec ) {
 					uint64_t waitUsec = targetFrameUsec - elapsedUsec;
-					if ( waitUsec > 2000 ) {
-						std::this_thread::sleep_for( std::chrono::microseconds( waitUsec - 1500 ) );
-					}
-					do {
+					if ( networkSystem != NULL && networkSystem->IsDedicated() ) {
+						// a dedicated binary (server, or headless client) never busy-waits:
+						// sleep the whole remainder; its 30 Hz ticks do not need sub-ms pacing
+						std::this_thread::sleep_for( std::chrono::microseconds( waitUsec ) );
 						nowUsec = monotonicUsec();
-					} while ( nowUsec - lastFrameUsec < targetFrameUsec );
+					} else {
+						// a client sleeps until about 1.5 ms before the frame is due, then
+						// spins for exact high-refresh pacing (sleep can overshoot by a ms)
+						if ( waitUsec > 2000 ) {
+							std::this_thread::sleep_for( std::chrono::microseconds( waitUsec - 1500 ) );
+						}
+						do {
+							nowUsec = monotonicUsec();
+						} while ( nowUsec - lastFrameUsec < targetFrameUsec );
+					}
 				}
 			}
 			lastFrameUsec = nowUsec;

@@ -3,7 +3,7 @@
 
 #include "precompiled.h"
 #include "../framework/DeclParseHelper.h"
-#include "declTable.h"
+#include "../framework/DeclTable.h"
 
 #pragma hdrstop
 

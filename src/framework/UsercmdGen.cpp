@@ -6,8 +6,9 @@
 
 #include "../sys/sys_local.h"
 
+#include <chrono>
+
 extern volatile int com_ticNumber;
-extern idCVar com_timescale;
 
 /*
 ================
@@ -112,7 +113,8 @@ private:
 	void					InitCurrent();
 	void					HandleKey( idKey& key, bool down );
 	bool					ButtonState( usercmdButton_t button ) const;
-	void					AdjustAngles();
+	float					TurnTimeScale();
+	void					AdjustAngles( float tickScale );
 	void					KeyMove();
 	void					JoystickMove();
 	void					MouseMove( bool doGameCallback );
@@ -199,6 +201,10 @@ static void PrintClientMove() {
 }
 
 static void Usercmd_PlusForward_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_FORWARD, true ); }
+static void Usercmd_PlusLeft_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_LEFT, true ); }
+static void Usercmd_MinusLeft_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_LEFT, false ); }
+static void Usercmd_PlusRight_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_RIGHT, true ); }
+static void Usercmd_MinusRight_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_RIGHT, false ); }
 static void Usercmd_MinusForward_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_FORWARD, false ); }
 static void Usercmd_PlusBack_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_BACK, true ); }
 static void Usercmd_MinusBack_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_BACK, false ); }
@@ -265,6 +271,10 @@ void idUsercmdGenLocal::Init() {
 	cmdSystem->AddCommand( "-sprint", Usercmd_MinusSprint_f, CMD_FL_SYSTEM, "release sprint" );
 	cmdSystem->AddCommand( "+speed", Usercmd_PlusSpeed_f, CMD_FL_SYSTEM, "speed" );
 	cmdSystem->AddCommand( "-speed", Usercmd_MinusSpeed_f, CMD_FL_SYSTEM, "release speed" );
+	cmdSystem->AddCommand( "+left", Usercmd_PlusLeft_f, CMD_FL_SYSTEM, "turn left (in_yawSpeed degrees a second)" );
+	cmdSystem->AddCommand( "-left", Usercmd_MinusLeft_f, CMD_FL_SYSTEM, "stop turning left" );
+	cmdSystem->AddCommand( "+right", Usercmd_PlusRight_f, CMD_FL_SYSTEM, "turn right (in_yawSpeed degrees a second)" );
+	cmdSystem->AddCommand( "-right", Usercmd_MinusRight_f, CMD_FL_SYSTEM, "stop turning right" );
 	cmdSystem->AddCommand( "clientMove", Usercmd_ClientMove_f, CMD_FL_SYSTEM, "direct client movement: <fwd> <side> <up>" );
 }
 
@@ -297,6 +307,10 @@ void idUsercmdGenLocal::Shutdown() {
 	cmdSystem->RemoveCommand( "-sprint" );
 	cmdSystem->RemoveCommand( "+speed" );
 	cmdSystem->RemoveCommand( "-speed" );
+	cmdSystem->RemoveCommand( "+left" );
+	cmdSystem->RemoveCommand( "-left" );
+	cmdSystem->RemoveCommand( "+right" );
+	cmdSystem->RemoveCommand( "-right" );
 	cmdSystem->RemoveCommand( "clientMove" );
 
 	initialized = false;
@@ -328,17 +342,37 @@ bool idUsercmdGenLocal::ButtonState( usercmdButton_t button ) const {
 	return button >= 0 && button < UB_MAX_BUTTONS && buttonState[ button ] > 0;
 }
 
-void idUsercmdGenLocal::AdjustAngles() {
-	float timescale = com_timescale.GetFloat();
-	int msec = USERCMD_MSEC;
-	if ( timescale != 1.0f ) {
-		msec = idMath::Ftoi( USERCMD_MSEC / timescale );
-		if ( msec < 1 ) {
-			msec = 1;
-		}
-	}
+/*
+================
+idUsercmdGenLocal::TurnTimeScale
 
-	float speed = msec * 0.001f;
+Key and controller turning add a rate per MakeCurrent call as if it ran once per
+usercmd tick, but GetDirectUsercmd also runs on render-only frames (late
+view-angle sampling), so at 240 fps a held key turned eight times as fast as at
+30 fps, and those angles went into the commands the server simulates.  This is
+the real time since the last call in ticks, so the turn rate is per second
+whatever the frame rate (and com_timescale, which only changes how often ticks
+come, needs no correction of its own).  Clamped so a stall does not spin the view.
+================
+*/
+// when angles were last advanced; not a member, so idUsercmdGenLocal keeps the
+// ETQW PDB layout asserted below for 32-bit builds
+static int64_t lastTurnUsec = 0;
+
+float idUsercmdGenLocal::TurnTimeScale() {
+	const int64_t nowUsec = std::chrono::duration_cast< std::chrono::microseconds >(
+		std::chrono::steady_clock::now().time_since_epoch() ).count();
+	float scale = 1.0f;
+	if ( lastTurnUsec != 0 ) {
+		const float elapsedMsec = static_cast< float >( nowUsec - lastTurnUsec ) * 0.001f;
+		scale = idMath::ClampFloat( 0.0f, 4.0f, elapsedMsec / USERCMD_MSEC );
+	}
+	lastTurnUsec = nowUsec;
+	return scale;
+}
+
+void idUsercmdGenLocal::AdjustAngles( float tickScale ) {
+	float speed = USERCMD_MSEC * 0.001f * tickScale;
 	if ( !toggledRun.On() ) {
 		speed *= in_angleSpeedKey.GetFloat();
 	}
@@ -517,11 +551,18 @@ void idUsercmdGenLocal::MakeCurrent( bool doGameCallback ) {
 	toggledRun.SetKeyState( ButtonState( UB_SPEED ), in_toggleRun.GetBool() );
 	toggledSprint.SetKeyState( ButtonState( UB_SPRINT ), in_toggleSprint.GetBool() );
 
-	AdjustAngles();
+	const float turnScale = TurnTimeScale();
+	AdjustAngles( turnScale );
 	CmdButtons();
 	KeyMove();
 	MouseMove( doGameCallback );
+
+	// the game's controller modes turn by speed * USERCMD_MSEC per call too
+	const float yawBeforeController = viewangles[ YAW ];
+	const float pitchBeforeController = viewangles[ PITCH ];
 	ControllerMove( doGameCallback );
+	viewangles[ YAW ] = yawBeforeController + ( viewangles[ YAW ] - yawBeforeController ) * turnScale;
+	viewangles[ PITCH ] = pitchBeforeController + ( viewangles[ PITCH ] - pitchBeforeController ) * turnScale;
 
 	if ( viewangles[ PITCH ] - oldPitch > 90.0f ) {
 		viewangles[ PITCH ] = oldPitch + 90.0f;
@@ -538,11 +579,25 @@ void idUsercmdGenLocal::MakeCurrent( bool doGameCallback ) {
 	scheduledImpulse = -1;
 
 	if ( doGameCallback && game != NULL ) {
-		game->UsercommandCallback( cmd );
+		short sentAngles[ 3 ];
 		for ( int i = 0; i < 3; i++ ) {
-			viewangles[ i ] = SHORT2ANGLE( cmd.angles[ i ] );
+			sentAngles[ i ] = cmd.angles[ i ];
+		}
+		game->UsercommandCallback( cmd );
+		// Take back only the angles the game changed. Copying every angle back through
+		// ANGLE2SHORT truncated each call's step toward zero: harmless when a call added
+		// a whole tick of turning, but with TurnTimeScale's per-frame steps the turn
+		// rate then depended on the direction and the sign of the angle, and stopped
+		// once a step was under one short unit (360/65536 degrees).
+		for ( int i = 0; i < 3; i++ ) {
+			if ( cmd.angles[ i ] != sentAngles[ i ] ) {
+				viewangles[ i ] = SHORT2ANGLE( cmd.angles[ i ] );
+			}
 		}
 	}
+	// keep the accumulator small, as the round trip used to (float precision)
+	viewangles[ YAW ] = idMath::AngleNormalize180( viewangles[ YAW ] );
+	viewangles[ PITCH ] = idMath::AngleNormalize180( viewangles[ PITCH ] );
 }
 
 void idUsercmdGenLocal::Mouse( bool postEvents ) {

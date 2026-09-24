@@ -3,4 +3,5 @@
 
 LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 
-IDB_ETQW_SPLASH BITMAP "res\\etqw_splash.bmp"
+// No splash bitmap: the retail ET:QW artwork is not ours to ship (removed from the
+// history 2026-09-24). Sys_ShowSplashScreen shows nothing without IDB_ETQW_SPLASH.

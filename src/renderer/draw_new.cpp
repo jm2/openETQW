@@ -16,7 +16,7 @@
 #include "VertexCache.h"
 #include "tr_render.h"
 #include "renderbindings.h"
-#include "megatexture/MegaTexture.h"
+#include "megatexture/megatexture.h"
 #include "../decllib/declAmbientCubeMap.h"
 #include "../decllib/declAtmosphere.h"
 #include "../decllib/declRenderProgram.h"

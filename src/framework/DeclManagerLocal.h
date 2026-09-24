@@ -5,7 +5,7 @@
 #ifndef __DECLMANAGERLOCAL_H__
 #define __DECLMANAGERLOCAL_H__
 
-#include "DeclManager.h"
+#include "declManager.h"
 
 class idDeclManagerLocal;
 
