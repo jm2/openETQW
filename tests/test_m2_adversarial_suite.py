@@ -54,6 +54,11 @@ def get_process_cpu_percent(pid: int) -> float:
         return 0.0
 
 
+# the map is loaded and the game running (the objective script's "StartFirstObjective"
+# thread no longer logs a warning since the retail sendNetworkEvent signature was fixed)
+READY_MARKER = "------------- ETQW initialized -------------"
+
+
 def wait_for_marker(proc: subprocess.Popen, marker: str, timeout: float = 30.0) -> bool:
     """Read stdout lines until marker appears or timeout occurs."""
     start = time.time()
@@ -82,16 +87,16 @@ def test_rapid_console_burst():
     )
 
     try:
-        print("[1] Waiting for initial map simulation (StartFirstObjective)...")
-        if not wait_for_marker(proc, "StartFirstObjective", timeout=40.0):
-            raise RuntimeError("Server failed to reach StartFirstObjective")
+        print("[1] Waiting for the map to load (ETQW initialized)...")
+        if not wait_for_marker(proc, READY_MARKER, timeout=40.0):
+            raise RuntimeError("Server failed to load the map")
 
         print("[2] Flooding console: 'status\\nserverMapRestart\\nstatus\\n' in zero-delay burst...")
-        proc.stdin.write("status\nserverMapRestart\nstatus\n")
+        proc.stdin.write("status\nserverMapRestart\nstatus\necho MAP_RESTART_DONE\n")
         proc.stdin.flush()
 
-        print("[3] Waiting for serverMapRestart re-initialization (second StartFirstObjective)...")
-        if not wait_for_marker(proc, "StartFirstObjective", timeout=40.0):
+        print("[3] Waiting for serverMapRestart to finish (echo after the burst)...")
+        if not wait_for_marker(proc, "MAP_RESTART_DONE", timeout=40.0):
             raise RuntimeError("Server failed to re-initialize after serverMapRestart")
 
         print("[4] Map successfully restarted and active! Sending another rapid burst: 'status\\nstatus\\n'...")
@@ -126,8 +131,8 @@ def test_multi_cycle_restart_and_memory():
 
     try:
         print("[1] Waiting for initial map simulation...")
-        if not wait_for_marker(proc, "StartFirstObjective", timeout=40.0):
-            raise RuntimeError("Server failed to reach StartFirstObjective")
+        if not wait_for_marker(proc, READY_MARKER, timeout=40.0):
+            raise RuntimeError("Server failed to load the map")
 
         # Give simulation 2 seconds to stabilize
         time.sleep(2.0)
@@ -138,10 +143,10 @@ def test_multi_cycle_restart_and_memory():
 
         for cycle in range(1, 4):
             print(f"\n[Cycle {cycle}/3] Issuing 'serverMapRestart'...")
-            proc.stdin.write("serverMapRestart\n")
+            proc.stdin.write(f"serverMapRestart\necho RESTART_DONE_{cycle}\n")
             proc.stdin.flush()
 
-            if not wait_for_marker(proc, "StartFirstObjective", timeout=40.0):
+            if not wait_for_marker(proc, f"RESTART_DONE_{cycle}", timeout=40.0):
                 raise RuntimeError(f"Server failed to complete restart in cycle {cycle}")
 
             # Let simulation run for 60 frames (~2 seconds)
@@ -208,8 +213,8 @@ def test_piped_stdin_active_eof_and_signal():
 
     try:
         print("[1] Waiting for active map simulation...")
-        if not wait_for_marker(proc, "StartFirstObjective", timeout=40.0):
-            raise RuntimeError("Server failed to reach StartFirstObjective")
+        if not wait_for_marker(proc, READY_MARKER, timeout=40.0):
+            raise RuntimeError("Server failed to load the map")
 
         print("[2] Sending 'status' and then immediately closing stdin (EOF)...")
         proc.stdin.write("status\n")
@@ -252,8 +257,8 @@ def test_malformed_and_hostile_inputs():
 
     try:
         print("[1] Waiting for active map simulation...")
-        if not wait_for_marker(proc, "StartFirstObjective", timeout=40.0):
-            raise RuntimeError("Server failed to reach StartFirstObjective")
+        if not wait_for_marker(proc, READY_MARKER, timeout=40.0):
+            raise RuntimeError("Server failed to load the map")
 
         print("[2] Injecting hostile inputs:")
         # A: Empty lines and whitespace

@@ -250,7 +250,7 @@ if build_dedicated
   test(
     'multiclient-gameplay',
     py,
-    args: [meson.project_source_root() / 'tests' / 'test_multiclient_gameplay.py', '--base-check'],
+    args: [meson.project_source_root() / 'tests' / 'test_multiclient_gameplay.py', '--ded-binary', all_stock_maps_ded, '--base-check'],
     workdir: meson.project_source_root(),
     suite: ['integration'],
     protocol: 'exitcode',
@@ -264,6 +264,7 @@ if build_dedicated
     py,
     args: [
       meson.project_source_root() / 'tests' / 'test_multiclient_gameplay.py',
+      '--ded-binary', all_stock_maps_ded,
       '--base-check', '--latency', '80', '--jitter', '40', '--drop', '5',
     ],
     workdir: meson.project_source_root(),

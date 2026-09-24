@@ -11,6 +11,12 @@ binary started with +connect, as test_multiclient_gameplay.py does):
    new game (the snapshot sequence keeps increasing across the change).
 3. The client is still connected afterwards ('status' on the server shows its
    slot) and neither process logs a failure marker.
+On each map the client must also get the objective manager's network event
+from the server's initial reliable messages ('oe <entity> <index>', sent by the
+script through sendNetworkEvent( entity, string ); net_clientShowNetworkEvents)
+before its first snapshot of that map: the client handles a packet's reliable
+messages before its snapshot, and the map script's own objective broadcast
+comes seconds later.
 Both processes then exit 0 on 'quit'.
 With --drop N both processes drop N% of their outgoing packets
 (net_forceDrop), which exercises the snapshot resend and the reliable game init.
@@ -36,6 +42,8 @@ SNAPSHOT_RE = re.compile(r"Client received snapshot (\d+) \(frame (\d+)\)")
 SLOTS_RE = re.compile(r"^(\d+) client slots? in use")
 GAME_INIT_RE = re.compile(r"Sending game init to client (\d+)")
 DROPPED_RE = re.compile(r"Server dropped client usercmds: clientGameFrame=(\d+)")
+OBJECTIVE_EVENT = "Client network event: objectives 'oe "
+NETWORK_EVENT_WARNING = "::Event_SendNetworkEvent: "
 
 
 class RemoteClient(h.DedicatedServer):
@@ -43,7 +51,8 @@ class RemoteClient(h.DedicatedServer):
 
     def __init__(self, binary, data, server_port, port, log_path=None, net=None):
         super().__init__(binary, data, "", port, log_path=log_path,
-                         cvars={"si_pure": "0", "ui_name": "RemoteClient", "net_clientShowSnapshots": "1", **(net or {})})
+                         cvars={"si_pure": "0", "ui_name": "RemoteClient", "net_clientShowSnapshots": "1",
+                                 "net_clientShowNetworkEvents": "1", **(net or {})})
         self.server_port = server_port
 
     def command_line(self):
@@ -54,6 +63,16 @@ class RemoteClient(h.DedicatedServer):
 
 def snapshots(proc, start):
     return [int(m.group(1)) for ln in proc.snapshot(start) if (m := SNAPSHOT_RE.search(ln.text))]
+
+
+def joined_with_objective(proc, start):
+    """The objective event from the join burst arrived before the first snapshot."""
+    for ln in proc.snapshot(start):
+        if OBJECTIVE_EVENT in ln.text:
+            return True
+        if SNAPSHOT_RE.search(ln.text):
+            return False
+    return False
 
 
 def main(argv):
@@ -105,6 +124,10 @@ def main(argv):
         if client_num is None or len(before) < need:
             print(f"FAIL: the client never connected and received {need} snapshots on the first map")
             return 1
+        objective = joined_with_objective(cl, 0)
+        print(f"[{first}] client got the objective network event on joining: {objective}")
+        if not objective:
+            failures.append(f"client got no objective network event ('oe ...') before its first snapshot on {first}")
 
         srv_mark, cl_mark = srv.mark(), cl.mark()
         srv.send(f"spawnServer {second}")
@@ -127,6 +150,10 @@ def main(argv):
             failures.append(f"client received {len(after)} snapshots on {second} (expected >= {need})")
         elif after[0] <= before[-1]:
             failures.append(f"snapshot sequence went backwards across the change ({before[-1]} -> {after[0]})")
+        objective = joined_with_objective(cl, loaded[0]) if loaded else False
+        print(f"[{second}] client got the objective network event on joining: {objective}")
+        if not objective:
+            failures.append(f"client got no objective network event ('oe ...') before its first snapshot on {second}")
 
         lines = srv.command("status") or []
         used = [int(SLOTS_RE.match(l.text).group(1)) for l in lines if SLOTS_RE.match(l.text)]
@@ -161,6 +188,9 @@ def main(argv):
         for name, proc in (("server", srv), ("client", cl)):
             for b in h.scan_failures(l.text for l in proc.snapshot()):
                 failures.append(f"{name} log: {b}")
+            for ln in proc.snapshot():
+                if NETWORK_EVENT_WARNING in ln.text:
+                    failures.append(f"{name} log: {ln.text}")
     finally:
         cl.cleanup()
         srv.cleanup()

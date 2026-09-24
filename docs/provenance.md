@@ -106,7 +106,8 @@ The provenance classification and zero-SDK compliance can be independently re-ve
 
 1. **Full Provenance Classification Audit (Baseline + Supplemental SDK)**:
    ```bash
-   python3 tools/build/classify_provenance.py <ETQW SDK source> openetqw_handoff_v3/reference/etqw_sdk_comparison_bundle.zip --game-repo ../openETQW-game --output-json docs/provenance-manifest.json
+   ETQW_SDK_SRC=/path/to/etqw-sdk-source   # the original ETQW SDK source tree
+   python3 tools/build/classify_provenance.py "$ETQW_SDK_SRC" openetqw_handoff_v3/reference/etqw_sdk_comparison_bundle.zip --game-repo ../openETQW-game --output-json docs/provenance-manifest.json
    ```
    *Expectation*: Outputs `Classified 5275 files: {'SDK': 853, 'Doom3_GPL': 311, 'ThirdParty': 3430, 'Reconstruction_retail_RE': 61, 'Reconstruction_original': 620}` with exit code 0.
 

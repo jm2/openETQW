@@ -18,6 +18,7 @@
 #include <time.h>
 #include <pthread.h>
 #include <signal.h>
+#include <atomic>
 
 #if defined( __APPLE__ )
 #include <mach-o/dyld.h>
@@ -513,7 +514,10 @@ Console Input & Event Pump
 ================
 */
 static bool s_stdinEOF = false;
-static volatile sig_atomic_t s_ttyConfigured = 0;
+// set (after s_origTermios) before the terminal goes raw, so a fatal signal on any
+// thread from then on restores it; lock-free, so the signal handler may use it
+static std::atomic<int> s_ttyConfigured( 0 );
+static_assert( ATOMIC_INT_LOCK_FREE == 2, "the fatal signal handler reads s_ttyConfigured" );
 static struct termios s_origTermios;
 
 /*
@@ -525,9 +529,11 @@ tcsetattr, which is async-signal-safe, so the fatal signal handler uses it too.
 ==============
 */
 void Posix_ShutdownConsoleInput( void ) {
-	if ( s_ttyConfigured ) {
+	// cleared only after the restore, so a fatal signal meanwhile restores it
+	// too (restoring twice is harmless)
+	if ( s_ttyConfigured.load( std::memory_order_acquire ) ) {
 		tcsetattr( STDIN_FILENO, TCSANOW, &s_origTermios );
-		s_ttyConfigured = 0;
+		s_ttyConfigured.store( 0, std::memory_order_release );
 	}
 }
 
@@ -535,17 +541,17 @@ void Posix_InitConsoleInput( void ) {
 	// Sys_InitInput (during InitGame) and Posix_LateInit both get here.  A
 	// second tcgetattr would save the already raw attributes as the original
 	// ones, and the terminal was left without echo/line editing after exit.
-	if ( s_ttyConfigured ) {
+	if ( s_ttyConfigured.load( std::memory_order_acquire ) ) {
 		return;
 	}
 	if ( isatty( STDIN_FILENO ) ) {
 		if ( tcgetattr( STDIN_FILENO, &s_origTermios ) == 0 ) {
+			s_ttyConfigured.store( 1, std::memory_order_release );
 			struct termios raw = s_origTermios;
 			raw.c_lflag &= ~( ICANON | ECHO );
 			raw.c_cc[ VMIN ] = 0;
 			raw.c_cc[ VTIME ] = 0;
 			tcsetattr( STDIN_FILENO, TCSANOW, &raw );
-			s_ttyConfigured = 1;
 			static bool atExitRegistered = false;
 			if ( !atExitRegistered ) {
 				atExitRegistered = true;

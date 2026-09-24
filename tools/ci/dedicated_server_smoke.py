@@ -447,6 +447,10 @@ class Server:
     def alive(self) -> bool:
         return self.proc.poll() is None
 
+    def output_closed(self) -> bool:
+        with self._cond:
+            return self._eof
+
     def send(self, text: str) -> bool:
         if not self.alive() or self.proc.stdin is None:
             return False
@@ -612,6 +616,10 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
     try:
         ready = server.wait_line(lambda s: s.startswith(READY_MARKER), args.startup_timeout)
         if ready is None:
+            # A process that is exiting ('+quit' during Init with --drive args never
+            # prints the ready marker) closes its output a moment before it can be reaped.
+            if server.output_closed():
+                server.wait_exit(5.0)
             timed_out_at = "" if not server.alive() else "startup (console never became ready)"
         elif args.drive == "stdin":
             first = sync(1, args.command_timeout)

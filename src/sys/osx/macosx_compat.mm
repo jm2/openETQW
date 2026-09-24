@@ -487,23 +487,17 @@ static void Sys_CollectMacOSGameModuleIssues( const idStr &frameworkDirectory, c
 
 static void Sys_CollectMacOSAppBundleRuntimeIssues( const idStr &resourceDirectory, const idStr &frameworkDirectory, idStr &missingEntries ) {
 	idStr architectureModuleIssues;
-	idStr universalModuleIssues;
 
 	missingEntries.Clear();
 	Sys_RequireMacOSPackageRootDirectory( resourceDirectory, BASE_GAMEDIR, missingEntries );
 
+	// only the name the loader looks for (Sys_DLL_GetFileName: game_<arch>.dylib)
 	Sys_CollectMacOSGameModuleIssues( frameworkDirectory, Sys_MacOSPackageRuntimeArchSuffix(), architectureModuleIssues );
 	if ( architectureModuleIssues.Length() == 0 ) {
 		return;
 	}
 
-	Sys_CollectMacOSGameModuleIssues( frameworkDirectory, "universal2", universalModuleIssues );
-	if ( universalModuleIssues.Length() == 0 ) {
-		return;
-	}
-
 	Sys_AppendMacOSPackageRootIssue( missingEntries, architectureModuleIssues.c_str(), "architecture-specific game module unavailable" );
-	Sys_AppendMacOSPackageRootIssue( missingEntries, universalModuleIssues.c_str(), "universal2 game module unavailable" );
 }
 
 static bool Sys_MacOSAppBundleHasEmbeddedRuntimeMarker( const idStr &resourceDirectory, const idStr &frameworkDirectory ) {

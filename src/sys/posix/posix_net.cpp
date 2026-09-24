@@ -52,6 +52,21 @@ static int Net_ReleaseTime( int netSocket, int wanted ) {
 	return wanted;
 }
 
+// a closed socket's descriptor is reused by the next one opened
+static void Net_PurgeSocket( int netSocket ) {
+	for ( int i = delayedPackets.Num() - 1; i >= 0; i-- ) {
+		if ( delayedPackets[ i ]->socket == netSocket ) {
+			delete delayedPackets[ i ];
+			delayedPackets.RemoveIndex( i );
+		}
+	}
+	for ( int i = socketReleases.Num() - 1; i >= 0; i-- ) {
+		if ( socketReleases[ i ].socket == netSocket ) {
+			socketReleases.RemoveIndex( i );
+		}
+	}
+}
+
 static bool Net_ReadSocket( int netSocket, netadr_t &from, void *data, int &size, int maxSize ) {
 	struct sockaddr_in from_addr;
 	socklen_t fromlen = sizeof( from_addr );
@@ -91,6 +106,7 @@ idPort::~idPort() {
 
 void idPort::Close() {
 	if ( netSocket != 0 ) {
+		Net_PurgeSocket( netSocket );
 		close( netSocket );
 		netSocket = 0;
 	}
@@ -197,6 +213,18 @@ bool idPort::GetPacketBlocking( netadr_t &from, void *data, int &size, int maxSi
 		return false;
 	}
 
+	// a packet held back by net_forceLatency / net_forceJitter can be due already,
+	// and the socket does not wake select when one becomes due
+	if ( GetPacket( from, data, size, maxSize ) ) {
+		return true;
+	}
+	const int now = Sys_Milliseconds();
+	for ( int i = 0; i < delayedPackets.Num(); i++ ) {
+		if ( delayedPackets[ i ]->socket == netSocket ) {
+			timeout = Min( timeout, Max( 0, delayedPackets[ i ]->releaseTime - now ) );
+		}
+	}
+
 	fd_set readfds;
 	FD_ZERO( &readfds );
 	FD_SET( netSocket, &readfds );
@@ -205,8 +233,7 @@ bool idPort::GetPacketBlocking( netadr_t &from, void *data, int &size, int maxSi
 	tv.tv_sec = timeout / 1000;
 	tv.tv_usec = ( timeout % 1000 ) * 1000;
 
-	int selectRet = select( netSocket + 1, &readfds, NULL, NULL, &tv );
-	if ( selectRet <= 0 ) {
+	if ( select( netSocket + 1, &readfds, NULL, NULL, &tv ) < 0 ) {
 		return false;
 	}
 

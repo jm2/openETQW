@@ -196,9 +196,12 @@ def run_multiclient_test():
             raise RuntimeError(f"Server exited prematurely with code {server_proc.returncode}")
         try:
             source, line = output_queue.get(timeout=0.2)
-            if "StartFirstObjective" in line or "Server spawned on" in line:
+            # the map is loaded and the game running (the objective script's
+            # "$null_entity passed to event 'sendNetworkEvent'" warning, once used
+            # here, is gone since the retail sendNetworkEvent signature was fixed)
+            if "ETQW initialized" in line or "Server spawned on" in line:
                 print(f"  [{source}] {line}")
-                if "StartFirstObjective" in line:
+                if "ETQW initialized" in line:
                     server_ready = True
                     break
             elif "Map:" in line or "Game initialized" in line:
@@ -475,18 +478,30 @@ def run_multiclient_test():
     return 0
 
 
-def apply_network_conditions(argv):
-    """--latency/--jitter/--drop: simulated network conditions for all three
-    processes (net_forceLatency/net_forceJitter/net_forceDrop); --base-check
-    makes the server send its snapshot base checksum (net_debugSnapshotBase)."""
+def parse_args(argv):
     import argparse
     ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--ded-binary", help="dedicated binary for all three processes (default: build/)")
     ap.add_argument("--latency", type=int, default=0)
     ap.add_argument("--jitter", type=int, default=0)
     ap.add_argument("--drop", type=int, default=0)
     ap.add_argument("--base-check", action="store_true")
     ap.add_argument("--log-dir")
-    args = ap.parse_args(argv)
+    return ap.parse_args(argv)
+
+
+def use_binary(path):
+    """--ded-binary: the binary meson built, for the server and both clients."""
+    global BINARY_PATH
+    BINARY_PATH = Path(path)
+    for proc_args in (SERVER_ARGS, CLIENT1_ARGS, CLIENT2_ARGS):
+        proc_args[0] = str(BINARY_PATH)
+
+
+def apply_network_conditions(args):
+    """--latency/--jitter/--drop: simulated network conditions for all three
+    processes (net_forceLatency/net_forceJitter/net_forceDrop); --base-check
+    makes the server send its snapshot base checksum (net_debugSnapshotBase)."""
     global LOG_DIR
     if args.log_dir:
         Path(args.log_dir).mkdir(parents=True, exist_ok=True)
@@ -500,8 +515,11 @@ def apply_network_conditions(argv):
 
 
 if __name__ == "__main__":
+    cli = parse_args(sys.argv[1:])
+    if cli.ded_binary:
+        use_binary(cli.ded_binary)
     h.skip_unless_available(DATA_PATH, BINARY_PATH)
-    apply_network_conditions(sys.argv[1:])
+    apply_network_conditions(cli)
     try:
         sys.exit(run_multiclient_test())
     except Exception as e:

@@ -288,9 +288,9 @@ def test_phase4_pawn_spawn_and_ground_contact():
             raise RuntimeError(f"Server exited prematurely with {server_proc.returncode}")
         try:
             src, line = out_q.get(timeout=0.2)
-            if "StartFirstObjective" in line:
+            if "ETQW initialized" in line:
                 server_ready = True
-                print("  [SERVER] Valley objective initialized, server active!")
+                print("  [SERVER] Valley loaded, server active!")
                 break
         except queue.Empty:
             continue

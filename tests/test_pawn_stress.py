@@ -98,9 +98,9 @@ class DedicatedServerHarness:
                 raise RuntimeError(f"Server crashed during startup with code {self.proc.returncode}")
             try:
                 line = self.output_queue.get(timeout=0.2)
-                if "StartFirstObjective" in line or "Server spawned on" in line:
+                if "ETQW initialized" in line or "Server spawned on" in line:
                     print(f"  [SERVER] {line}")
-                    if "StartFirstObjective" in line:
+                    if "ETQW initialized" in line:
                         ready = True
                         break
                 elif "Map:" in line or "Game initialized" in line:
