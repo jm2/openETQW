@@ -11,6 +11,7 @@
 
 #include "../precompiled.h"
 #include "AsyncNetwork.h"
+#include <chrono>
 #include "../Session_local.h"
 
 static const int CLIENT_CONNECT_RESEND_MSEC = 1000;
@@ -135,6 +136,9 @@ void idAsyncClient::ClearPendingPackets() {
 
 void idAsyncClient::ConnectToServer( const netadr_t adr ) {
 	session->Stop();
+	// leave a server we are still connected to (Doom 3): tell it, and shut the old
+	// channel so nothing of that session reaches the new one
+	DisconnectFromServer();
 	if ( !InitPort() ) {
 		return;
 	}
@@ -142,7 +146,15 @@ void idAsyncClient::ConnectToServer( const netadr_t adr ) {
 	ClearPendingPackets();
 	Clear();
 	serverAddress = adr;
-	clientId = Sys_Milliseconds() & CONNECTIONLESS_MESSAGE_ID_MASK;
+	// random: the server tells clients behind one address apart by it, and the
+	// time since start (Doom 3) is the same for clients started together
+	// (a nanosecond clock and a stack address, which differs per process with ASLR,
+	// mixed so both reach the low bits)
+	const int stackMarker = 0;
+	unsigned long long seed = static_cast< unsigned long long >( std::chrono::high_resolution_clock::now().time_since_epoch().count() );
+	seed ^= static_cast< unsigned long long >( reinterpret_cast< uintptr_t >( &stackMarker ) );
+	seed *= 0x9E3779B97F4A7C15ull;
+	clientId = static_cast< int >( ( seed >> 40 ) & CONNECTIONLESS_MESSAGE_ID_MASK );
 	clientDataChecksum = declManager->GetChecksum();
 	clientState = CS_CHALLENGING;
 	active = true;
@@ -279,7 +291,7 @@ float idAsyncClient::GetIncomingPacketLoss() const {
 }
 
 int idAsyncClient::GetGameTimeLeft() const {
-	int elapsedInTic = gameTimeResidual;
+	int elapsedInTic = gameTimeResidual + clientPredictTime;	// the tic boundary RunFrame uses
 	if ( elapsedInTic < 1 ) {
 		elapsedInTic = 1;
 	} else if ( elapsedInTic >= USERCMD_MSEC ) {
@@ -379,6 +391,13 @@ void idAsyncClient::ReadClientUserCmds( int clientNum, const idBitMsg& msg ) {
 		cmd.gameFrame = snapshotGameFrame + j;
 		cmd.duplicateCount = 0;
 		last = &cmd;
+	}
+	// clear the frames after the relayed ones, so prediction duplicates the last
+	// relayed command instead of running old ones (Doom 3)
+	for ( int j = numUsercmds; j < MAX_USERCMD_BACKUP; ++j ) {
+		usercmd_t& cmd = userCmds[ ( snapshotGameFrame + j ) & ( MAX_USERCMD_BACKUP - 1 ) ][ clientNum ];
+		cmd.gameFrame = 0;
+		cmd.gameTime = 0;
 	}
 }
 
@@ -501,6 +520,7 @@ void idAsyncClient::SendUsercmdsToServer() {
 	msg.WriteLong( gameInitId );	// the server ignores acks and usercmds of another game
 	msg.WriteLong( snapshotSequence );
 	msg.WriteLong( gameFrame );
+	msg.WriteShort( clientPrediction );	// the server's anti-lag rewinds by it
 	msg.WriteByte( numUsercmds );
 
 	const usercmd_t* last = NULL;
@@ -523,6 +543,7 @@ void idAsyncClient::InitGame( int serverGameInitId, int serverGameFrame, int ser
 	snapshotGameFrame = serverGameFrame;
 	snapshotGameTime = serverGameTime;
 	predictedGameFrame = serverGameFrame;
+	memset( userCmds, 0, sizeof( userCmds ) );	// the old game's usercmds would be predicted on this map (Doom 3)
 	// every player's user info for this game follows the game init (SERVER_RELIABLE_MESSAGE_CLIENTINFO)
 	for ( int i = 0; i < MAX_ASYNC_CLIENTS; ++i ) {
 		sessLocal.mapSpawnData.userInfo[ i ].Clear();
@@ -770,8 +791,8 @@ void idAsyncClient::ProcessMessage( const netadr_t from, idBitMsg& msg ) {
 		ConnectionlessMessage( from, msg );
 		return;
 	}
-	if ( !active || !Sys_CompareNetAdrBase( from, channel.GetRemoteAddress() ) ) {
-		return;
+	if ( !active || clientState < CS_CONNECTED || !Sys_CompareNetAdrBase( from, channel.GetRemoteAddress() ) ) {
+		return;	// no channel yet: a packet of an earlier session
 	}
 	if ( sessLocal.insideExecuteMapChange ) {
 		return;

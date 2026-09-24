@@ -94,11 +94,18 @@ PLAYER_POS_PATTERN = re.compile(
 )
 
 
+LOG_DIR = None  # --log-dir: every process's output is also written to <name>.log
+
+
 def stream_reader(pipe, name, q):
+    log = open(Path(LOG_DIR) / f"{name}.log", "w", errors="replace") if LOG_DIR else None
     try:
         for line in iter(pipe.readline, ''):
             if not line:
                 break
+            if log:
+                log.write(line)
+                log.flush()
             q.put((name, line.strip()))
     except Exception as e:
         q.put((name, f"READER_ERROR: {e}"))
@@ -478,7 +485,12 @@ def apply_network_conditions(argv):
     ap.add_argument("--jitter", type=int, default=0)
     ap.add_argument("--drop", type=int, default=0)
     ap.add_argument("--base-check", action="store_true")
+    ap.add_argument("--log-dir")
     args = ap.parse_args(argv)
+    global LOG_DIR
+    if args.log_dir:
+        Path(args.log_dir).mkdir(parents=True, exist_ok=True)
+        LOG_DIR = args.log_dir
     net = ["+set", "net_forceLatency", str(args.latency), "+set", "net_forceJitter", str(args.jitter),
            "+set", "net_forceDrop", str(args.drop)]
     for proc_args in (SERVER_ARGS, CLIENT1_ARGS, CLIENT2_ARGS):

@@ -43,9 +43,10 @@ minor 3: user info: CLIENT_RELIABLE_MESSAGE_CLIENTINFO (the client's ui_* cvars)
          SERVER_RELIABLE_MESSAGE_CLIENTINFO (client number + the game's user info codec)
 minor 4: streamed snapshots; the client makes a snapshot its delta base only on
          SERVER_RELIABLE_MESSAGE_APPLYSNAPSHOT (sequence), sent when the server applied it
+minor 5: client usercmd messages carry the client's prediction (ms ahead of the server)
 */
 const int OPENETQW_PROTOCOL_MAJOR	= 0x4F45;	// 'OE'
-const int ASYNC_PROTOCOL_MINOR		= 4;
+const int ASYNC_PROTOCOL_MINOR		= 5;
 const int ASYNC_PROTOCOL_VERSION	= ( OPENETQW_PROTOCOL_MAJOR << 16 ) + ASYNC_PROTOCOL_MINOR;
 #define MAJOR_VERSION(v) ( v >> 16 )
 

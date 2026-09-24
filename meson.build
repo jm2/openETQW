@@ -353,7 +353,7 @@ if build_tests
   test(
     'valley-match',
     py,
-    args: [meson.project_source_root() / 'tests' / 'test_valley_match.py'],
+    args: [meson.project_source_root() / 'tests' / 'test_valley_match.py', '--log', meson.project_build_root() / 'meson-logs' / 'valley-match-server.log'],
     workdir: meson.project_source_root(),
     suite: 'integration',
     timeout: 180,

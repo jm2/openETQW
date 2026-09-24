@@ -224,7 +224,7 @@ if build_dedicated
     timeout: 600,
     is_parallel: false,
   )
-  # streamed snapshots under latency, jitter (reordering) and loss, with the
+  # streamed snapshots under latency, jitter and loss, with the
   # client/server snapshot base check on
   test(
     'remote-client-map-change-latency',

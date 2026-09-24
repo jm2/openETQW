@@ -19,7 +19,7 @@ idCVar net_ip( "net_ip", "localhost", CVAR_SYSTEM, "local IP address" );
 idCVar net_port( "net_port", "0", CVAR_SYSTEM | CVAR_INTEGER, "local IP port number" );
 idCVar net_forceDrop( "net_forceDrop", "0", CVAR_SYSTEM | CVAR_INTEGER, "percentage packet loss" );	// as win_net.cpp: outgoing packets
 idCVar net_forceLatency( "net_forceLatency", "0", CVAR_SYSTEM | CVAR_INTEGER, "milliseconds latency added to received packets" );
-idCVar net_forceJitter( "net_forceJitter", "0", CVAR_SYSTEM | CVAR_INTEGER, "up to this many more milliseconds of random latency per received packet (reorders packets)" );
+idCVar net_forceJitter( "net_forceJitter", "0", CVAR_SYSTEM | CVAR_INTEGER, "up to this many more milliseconds of random latency per received packet (order kept)" );
 
 // Received packets held back by net_forceLatency / net_forceJitter (network testing).
 // Keyed by socket, so idPort (shared with the game module) is unchanged.
@@ -30,6 +30,27 @@ struct delayedPacket_t {
 	idList< byte >	data;
 };
 static idList< delayedPacket_t* > delayedPackets;
+
+// last release time per socket: jitter varies the delay but keeps the arrival
+// order, like queueing on a real path (independent per-packet delays reordered
+// the fragments of every large message, which the channel then dropped)
+struct socketRelease_t {
+	int		socket;
+	int		releaseTime;
+};
+static idList< socketRelease_t > socketReleases;
+
+static int Net_ReleaseTime( int netSocket, int wanted ) {
+	for ( int i = 0; i < socketReleases.Num(); i++ ) {
+		if ( socketReleases[ i ].socket == netSocket ) {
+			socketReleases[ i ].releaseTime = Max( wanted, socketReleases[ i ].releaseTime );
+			return socketReleases[ i ].releaseTime;
+		}
+	}
+	socketRelease_t release = { netSocket, wanted };
+	socketReleases.Append( release );
+	return wanted;
+}
 
 static bool Net_ReadSocket( int netSocket, netadr_t &from, void *data, int &size, int maxSize ) {
 	struct sockaddr_in from_addr;
@@ -142,7 +163,7 @@ bool idPort::GetPacket( netadr_t &from, void *data, int &size, int maxSize ) {
 	while ( Net_ReadSocket( netSocket, packetFrom, data, packetSize, maxSize ) ) {
 		delayedPacket_t* packet = new delayedPacket_t;
 		packet->socket = netSocket;
-		packet->releaseTime = now + latency + ( jitter > 0 ? rand() % ( jitter + 1 ) : 0 );
+		packet->releaseTime = Net_ReleaseTime( netSocket, now + latency + ( jitter > 0 ? rand() % ( jitter + 1 ) : 0 ) );
 		packet->from = packetFrom;
 		packet->data.SetNum( packetSize );
 		memcpy( &packet->data[ 0 ], data, packetSize );

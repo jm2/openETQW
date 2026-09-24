@@ -14,7 +14,12 @@ Checks:
    escape, so the logs show 'TAGAlpha').
 3. A bot added on the server reaches both clients' user info.
 4. A rename on client A ('set ui_name Renamed') reaches the server and B.
-5. After 'spawnServer <other map>' both clients get everyone's info again.
+5. Client B takes the bot's name, so the bot defers to a fallback name
+   ('GDF Bot N'), then takes that name too. When the bot's next fallback is the
+   same name the game's rescan used to loop forever; now B gets 'GDF Bot N_'
+   or the bot renames again. The server must keep answering and the two names
+   must differ.
+6. After 'spawnServer <other map>' both clients get everyone's info again.
 6. All processes exit 0 and log no failure marker.
 With --drop N every process drops N% of its outgoing packets.
 
@@ -24,6 +29,7 @@ Exit 77 when ETQW_DATA_PATH is unset/invalid or the binary is missing.
 import argparse
 import re
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -164,7 +170,42 @@ def main(argv):
             if not ok_b:
                 failures.append("client B never got A's rename")
 
-        # 5. map change: everyone's info again
+        # 5. a bot's name, then its fallback name (server hang regression)
+        if len(bots) == 1 and slot_b is not None:
+            bot = bots[0]
+            bot_name = status_names(srv).get(bot, ("", "", ""))[2]
+            b.send(f'set ui_name "{bot_name}"')
+            fallback = f"GDF Bot {bot}"
+            deadline_ok = False
+            deadline = time.time() + 10.0
+            while time.time() < deadline:
+                names = status_names(srv)
+                if names.get(bot, ("", "", ""))[2] == fallback:
+                    deadline_ok = True
+                    break
+                srv.sync()
+            print(f"[{first}] B took the bot's name {bot_name!r}; bot renamed to {fallback!r}: {deadline_ok}")
+            if not deadline_ok:
+                failures.append(f"the bot did not defer to {fallback!r} (status {status_names(srv).get(bot)})")
+            mark_s = srv.mark()
+            b.send(f'set ui_name "{fallback}"')
+            srv.wait_for(lambda s: s.strip() == f"Client {slot_b} user info: '{fallback}'" or None, 30.0, mark_s)
+            got = None
+            deadline = time.time() + 10.0  # user info is applied at most once a second
+            while time.time() < deadline:
+                names = status_names(srv)  # the server must keep answering
+                if not names:
+                    break
+                b_name, bot_name = names.get(slot_b, ("", "", ""))[2], names.get(bot, ("", "", ""))[2]
+                if b_name in (fallback, fallback + "_") and b_name != bot_name:
+                    got = (b_name, bot_name)
+                    break
+                srv.sync()
+            print(f"[{first}] B asked for {fallback!r}: server answering {bool(status_names(srv))}, B/bot names {got}")
+            if not got:
+                failures.append(f"after taking the bot's fallback name: status {status_names(srv)} (B must be {fallback!r} or {fallback + '_'!r}, unlike the bot; a hang returns no status)")
+
+        # 6. map change: everyone's info again
         marks = {"A": a.mark(), "B": b.mark()}
         srv.send(f"spawnServer {second}")
         if not srv.wait_for_text(f"Map: maps/{second}.world", 120.0):

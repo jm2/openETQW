@@ -12,7 +12,7 @@ Written by Claude Code at a quota-forced safe stop. It replaces the earlier Gemi
   - Game side: pending game states are purged when a rules object is replaced, and `ApplySnapshot` skips an entity with no base.
 - **Client prediction time sync (ledger 045).** The client runs ahead of the server by about the latency, as in Doom 3. Before this, under any real latency a remote player's input reached the server too late to move it.
 - **Test tooling:**
-  - POSIX `net_forceLatency` and `net_forceJitter` (receive-side delay that reorders) plus `net_forceDrop`.
+  - POSIX `net_forceLatency` and `net_forceJitter` (receive-side delay; jitter keeps the order: independent per-packet delays reordered the fragments of every large message, which the channel drops) plus `net_forceDrop`.
   - A game-side debug check, `net_debugSnapshotBase`, compares the shape of the client's and server's bases and the applied counters on every snapshot.
   - It found that state values legitimately differ: the server keeps exact values and the client keeps quantized ones.
 - **New meson tests:**

@@ -14,7 +14,7 @@ binary started with +connect, as test_multiclient_gameplay.py does):
 Both processes then exit 0 on 'quit'.
 With --drop N both processes drop N% of their outgoing packets
 (net_forceDrop), which exercises the snapshot resend and the reliable game init.
---latency/--jitter delay (and with jitter reorder) received packets
+--latency/--jitter delay received packets (jitter varies the delay, order kept)
 (net_forceLatency/net_forceJitter), and --base-check makes the server send a
 checksum of the client's snapshot base with every snapshot
 (net_debugSnapshotBase): the client stops with an error if its base differs.
@@ -65,7 +65,7 @@ def main(argv):
     ap.add_argument("--drop", type=int, default=0, help="percentage of outgoing packets each process drops")
     ap.add_argument("--min-snapshots", type=int, default=5, help="snapshots required on each map")
     ap.add_argument("--latency", type=int, default=0, help="ms added to every received packet (both processes)")
-    ap.add_argument("--jitter", type=int, default=0, help="up to this many more ms per packet (reorders)")
+    ap.add_argument("--jitter", type=int, default=0, help="up to this many more ms per packet (order kept)")
     ap.add_argument("--base-check", action="store_true", help="server sends a snapshot base checksum (net_debugSnapshotBase)")
     args = ap.parse_args(argv)
     first, second = [m for m in args.maps.split(",") if m][:2]
