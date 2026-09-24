@@ -105,11 +105,18 @@ DEPLOY_STATUS_PATTERN = re.compile(
 )
 
 
+LOG_PATH = None  # --log: the server's output is also written there
+
+
 def stream_reader(pipe, name, q):
+    log = open(LOG_PATH, "w", errors="replace") if LOG_PATH else None
     try:
         for line in iter(pipe.readline, ''):
             if not line:
                 break
+            if log:
+                log.write(line)
+                log.flush()
             q.put((name, line.strip()))
     except Exception as e:
         q.put((name, f"READER_ERROR: {e}"))
@@ -348,8 +355,10 @@ def run_valley_match_test():
     # Phase 3: Vehicle Possession, Seat Swapping & Safe Egress
     # -------------------------------------------------------------
     print("[Phase 3] Testing vehicle possession, seat management, and egress...")
-    # Client 0 enters the nearest vehicle
-    send_cmd(server_proc, "enterVehicle 0")
+    # Client 0 (the GDF bot) enters the GDF Titan. The nearest vehicle depended
+    # on where the bot spawned and was sometimes the Platypus boat or the Strogg
+    # Icarus, which the bot left again at once (1 in 3 runs failed here).
+    send_cmd(server_proc, "enterVehicle 0 sdVehicle_RigidBody_vehicle_titan_70")
     time.sleep(1.0)
 
     v_status1 = query_vehicle_status(server_proc, output_queue, client_num=0, timeout=5.0)
@@ -516,6 +525,10 @@ def run_valley_match_test():
 
 
 if __name__ == "__main__":
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--log", help="write the server's output to this file")
+    LOG_PATH = ap.parse_args().log
     try:
         sys.exit(run_valley_match_test())
     except Exception as e:

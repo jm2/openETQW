@@ -112,7 +112,7 @@ meson test -C build --suite unit --verbose
 | openETQW | `src/sys/stub/headless_stubs.cpp`, `src/renderer/ImageParse.h`, `Material.cpp`, `decllib/declRenderProgram.cpp` | The dedicated server parses image references like the client and gets a placeholder image; render programs resolve without a shader backend | Headless material defaulting turned water, ladder and nonsolid surfaces into CONTENTS_SOLID (about 300–370 failed decls per map, now 0), so collision diverged from the AAS |
 | openETQW | `framework/async/AsyncNetwork.cpp`, `AsyncServer.cpp/.h`, `sys/sys_local.cpp` | `spawnServer <map>` on a running server changes maps; bot client slots are re-begun and released instead of leaking; console lines survive map changes; the game is not ticked without a map | In-process map changes were broken |
 | openETQW | `framework/Common.cpp`, `CVarSystem.cpp`, `CmdSystem.cpp`, `GameModuleCallbacks.h` | Printing is thread-safe; an error in the first map load no longer aborts; cvar and command callbacks into the game module are restored before unload (openQ4 63756efb pattern); CmdSystem is exception-safe; frame pacing uses `std::chrono` and the fatal-error backtrace is POSIX-only | Bot and FS threads print; stability; Windows portability |
-| openETQW | `framework/async/AsyncNetwork.h` | Protocol 0x4F45 ('OE').4, with a refusal message naming it; reliable game init, snapshot resend, remote clients follow map changes (ledger 045) | D7 clean network break |
+| openETQW | `framework/async/AsyncNetwork.h` | Protocol 0x4F45 ('OE').5, with a refusal message naming it; reliable game init, snapshot resend, remote clients follow map changes (ledger 045) | D7 clean network break |
 | openETQW | `sys/osx/macosx_compat.mm`, `posix_main.cpp`, `renderer/image_sequence.cpp`, `FileSystem.cpp` | The macOS savepath is `openETQW` (was openQ4); the terminal mode is restored; `globalImages` guards | Leftovers and latent crashes |
 | openETQW | `renderer/tr_light.cpp`, `VulkanBackend.cpp` | "Vulkan shadow lights" diagnostic at shutdown | Separates "no shadow light in view" from "shadows dropped" |
 | openETQW-game | `botai/aas/AASFile_local.cpp` | TraceFloor/Trace treat travel flags as allowed, not blocking; `FindReachabilityByName` returns -1; minimal PushPointIntoArea; portal and cluster index validation | Path smoothing and direct paths were always failing; island disabled a real reachability |
@@ -177,8 +177,8 @@ Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>
 | High refresh: vehicles | — | — | match-tested | — | — | Sub-tick proxy view smoothing across cockpit and chased camera |
 | Bots / navigation | — | — | match-tested | — | — | All 11 stock maps + Valley: AAS loads (counts = retail), bots traverse, 96–100% AAS containment; AI thinks at 15 Hz by default, 30 Hz with bot_threadMinFrameDelay 0 |
 | Dynamic stencil shadows | — | — | match-tested | — | — | Vulkan two-sided stencil shadow volumes & dynamic lighting interactions |
-| OpenETQW ↔ OpenETQW network play | — | — | match-tested | — | — | Dedicated server and multi-client replication over UDP (protocol 0x4F45.4) |
-| Retail 1.5 peer refused at connect (clean break, D7) | — | — | launched | — | — | `tests/test_protocol_clean_break.py`: majors 1, 2, 10–14 and 22 are refused with 'Server uses protocol 20293.4' |
+| OpenETQW ↔ OpenETQW network play | — | — | match-tested | — | — | Dedicated server and multi-client replication over UDP (protocol 0x4F45.5) |
+| Retail 1.5 peer refused at connect (clean break, D7) | — | — | launched | — | — | `tests/test_protocol_clean_break.py`: majors 1, 2, 10–14 and 22 are refused with 'Server uses protocol 20293.5' |
 
 ### Build and dependency scripts verified
 | Script | Arch | Fedora | Debian | macOS | Windows 11 |
@@ -199,7 +199,7 @@ Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>
 - Serialized/asset format changes: none (preserving retail serialization structures)
 - Wire protocol id and OpenETQW-only deviations: 16-bit MsgChannel framing restored; snapshot delta acknowledgment gating enforced.
 - Ledger rows added (`docs/compat-ledger.md`): Rows 033, 034, and 035 added documenting cross-platform Meson static library resolution and staging, Windows MSVC flags and console dedicated subsystem isolation, and GitHub Actions continuous integration matrix with asset-free unit test decoupling.
-- Retail 1.5 network interop: none by design (clean break, D7). Retail asset formats are still read unchanged; the wire protocol is OpenETQW's own (0x4F45.4).
+- Retail 1.5 network interop: none by design (clean break, D7). Retail asset formats are still read unchanged; the wire protocol is OpenETQW's own (0x4F45.5).
 
 ## Baseline observations delta
 Initial baseline run against `~/etqw` commit `f2b655c`:

@@ -110,6 +110,9 @@ typedef struct serverClient_s {
 
 	int					gameInitSequence;
 	int					gameInitSentId;		// gameInitId of the game init sent to this client, GAME_INIT_ID_INVALID if none
+	int					lastUserInfoTime;	// when this client's user info was last validated and sent out
+	bool				userInfoPending;	// a newer CLIENTINFO waits for the rate limit
+	idDict				pendingUserInfo;	// that CLIENTINFO, unvalidated (the live copy is sessLocal.mapSpawnData.userInfo)
 	int					gameFrame;
 	int					gameTime;
 
@@ -241,6 +244,7 @@ private:
 	void				BeginBotClients( void );
 	void				ReinitRemoteClients( void );
 	void				UpdateClientUserInfo( int clientNum );
+	void				ApplyPendingUserInfo( int clientNum );
 	void				BeginRemoteClient( int clientNum );
 	int					SendMessageToClient( serverClient_t &client, const idBitMsg &msg );
 	void				LocalClientInput( void );
