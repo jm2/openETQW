@@ -28,6 +28,8 @@ import threading
 import time
 from pathlib import Path
 
+import etqw_harness as h
+
 TEST_PROCS = []
 
 def cleanup_procs():
@@ -42,8 +44,8 @@ def cleanup_procs():
 atexit.register(cleanup_procs)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-BINARY_PATH = REPO_ROOT / "build" / "openETQW-ded_arm64"
-DATA_PATH = Path("/Users/jmulesa/etqw_data")
+BINARY_PATH = h.build_binary("ded")
+DATA_PATH = h.env_data_path()
 
 SERVER_PORT = 27750
 CLIENT1_PORT = 27751
@@ -69,8 +71,8 @@ CLIENT1_ARGS = [
     "+set", "net_port", str(CLIENT1_PORT),
     "+set", "si_pure", "0",
     "+set", "com_timeServer", "0",
-    "+set", "name", "GDF_Soldier",
-    "+connect", f"127.0.0.1:{SERVER_PORT}"
+    "+set", "ui_name", "GDF_Soldier",
+    "+set", "net_clientShowSnapshots", "1", "+connect", f"127.0.0.1:{SERVER_PORT}"
 ]
 
 CLIENT2_ARGS = [
@@ -81,8 +83,8 @@ CLIENT2_ARGS = [
     "+set", "net_port", str(CLIENT2_PORT),
     "+set", "si_pure", "0",
     "+set", "com_timeServer", "0",
-    "+set", "name", "Strogg_Soldier",
-    "+connect", f"127.0.0.1:{SERVER_PORT}"
+    "+set", "ui_name", "Strogg_Soldier",
+    "+set", "net_clientShowSnapshots", "1", "+connect", f"127.0.0.1:{SERVER_PORT}"
 ]
 
 PLAYER_POS_PATTERN = re.compile(
@@ -92,11 +94,18 @@ PLAYER_POS_PATTERN = re.compile(
 )
 
 
+LOG_DIR = None  # --log-dir: every process's output is also written to <name>.log
+
+
 def stream_reader(pipe, name, q):
+    log = open(Path(LOG_DIR) / f"{name}.log", "w", errors="replace") if LOG_DIR else None
     try:
         for line in iter(pipe.readline, ''):
             if not line:
                 break
+            if log:
+                log.write(line)
+                log.flush()
             q.put((name, line.strip()))
     except Exception as e:
         q.put((name, f"READER_ERROR: {e}"))
@@ -187,9 +196,12 @@ def run_multiclient_test():
             raise RuntimeError(f"Server exited prematurely with code {server_proc.returncode}")
         try:
             source, line = output_queue.get(timeout=0.2)
-            if "StartFirstObjective" in line or "Server spawned on" in line:
+            # the map is loaded and the game running (the objective script's
+            # "$null_entity passed to event 'sendNetworkEvent'" warning, once used
+            # here, is gone since the retail sendNetworkEvent signature was fixed)
+            if "ETQW initialized" in line or "Server spawned on" in line:
                 print(f"  [{source}] {line}")
-                if "StartFirstObjective" in line:
+                if "ETQW initialized" in line:
                     server_ready = True
                     break
             elif "Map:" in line or "Game initialized" in line:
@@ -466,7 +478,48 @@ def run_multiclient_test():
     return 0
 
 
+def parse_args(argv):
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--ded-binary", help="dedicated binary for all three processes (default: build/)")
+    ap.add_argument("--latency", type=int, default=0)
+    ap.add_argument("--jitter", type=int, default=0)
+    ap.add_argument("--drop", type=int, default=0)
+    ap.add_argument("--base-check", action="store_true")
+    ap.add_argument("--log-dir")
+    return ap.parse_args(argv)
+
+
+def use_binary(path):
+    """--ded-binary: the binary meson built, for the server and both clients."""
+    global BINARY_PATH
+    BINARY_PATH = Path(path)
+    for proc_args in (SERVER_ARGS, CLIENT1_ARGS, CLIENT2_ARGS):
+        proc_args[0] = str(BINARY_PATH)
+
+
+def apply_network_conditions(args):
+    """--latency/--jitter/--drop: simulated network conditions for all three
+    processes (net_forceLatency/net_forceJitter/net_forceDrop); --base-check
+    makes the server send its snapshot base checksum (net_debugSnapshotBase)."""
+    global LOG_DIR
+    if args.log_dir:
+        Path(args.log_dir).mkdir(parents=True, exist_ok=True)
+        LOG_DIR = args.log_dir
+    net = ["+set", "net_forceLatency", str(args.latency), "+set", "net_forceJitter", str(args.jitter),
+           "+set", "net_forceDrop", str(args.drop)]
+    for proc_args in (SERVER_ARGS, CLIENT1_ARGS, CLIENT2_ARGS):
+        proc_args[-2:-2] = net  # before the final +spawnServer/+connect
+    if args.base_check:
+        SERVER_ARGS[-2:-2] = ["+set", "net_debugSnapshotBase", "1"]
+
+
 if __name__ == "__main__":
+    cli = parse_args(sys.argv[1:])
+    if cli.ded_binary:
+        use_binary(cli.ded_binary)
+    h.skip_unless_available(DATA_PATH, BINARY_PATH)
+    apply_network_conditions(cli)
     try:
         sys.exit(run_multiclient_test())
     except Exception as e:

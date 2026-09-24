@@ -676,6 +676,10 @@ sdRenderShader* SD_AllocRenderShader( const char* type ) {
 	return NULL;
 }
 
+bool SD_HasRenderShaderBackend() {
+	return true;
+}
+
 void SD_UnbindRenderProgram() {
 	glDisable( GL_VERTEX_PROGRAM_ARB );
 	glDisable( GL_FRAGMENT_PROGRAM_ARB );

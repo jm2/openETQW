@@ -35,6 +35,9 @@ If you have questions concerning this license or the applicable additional terms
 
 extern idCVar com_developer;
 
+// renderer/Image_files.cpp (linked into the client and the dedicated server)
+int R_WriteTGABuffer( byte*& outBuffer, const byte* data, int width, int height, int depth, bool swapBGR, bool flipVertical );
+
 #ifdef WIN32
 	#include <io.h>	// for _read
 #else
@@ -4461,7 +4464,20 @@ void idFileSystemLocal::ReadTGA( const char* name, byte** pic, int* width, int* 
 }
 
 void idFileSystemLocal::WriteTGA( const char* name, const byte* pic, int width, int height ) {
-	globalImages->WriteTGA( name, pic, width, height, 4, true, false );
+	if ( globalImages != NULL ) {
+		globalImages->WriteTGA( name, pic, width, height, 4, true, false );
+		return;
+	}
+
+	// The dedicated server has no image manager; encode the same TGA directly.
+	byte* buffer = NULL;
+	const int length = R_WriteTGABuffer( buffer, pic, width, height, 4, true, false );
+	if ( length > 0 ) {
+		WriteFile( name, buffer, length );
+	} else {
+		common->Warning( "idFileSystem::WriteTGA: can't encode '%s' (%dx%d)", name != NULL ? name : "<NULL>", width, height );
+	}
+	Mem_Free( buffer );
 }
 
 void idFileSystemLocal::FreeTGA( byte* pic ) {

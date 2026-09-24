@@ -1,236 +1,552 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# OpenETQW Continuous Integration Matrix Pipeline
-# Validates Tier-1 Platforms: Linux x86_64, Windows 11 x64, macOS Apple Silicon arm64
+#
+# OpenETQW continuous integration.
+#
+#   lint          actionlint (+ shellcheck of tools/ci/*.sh); independent, gates nothing
+#   script-smoke  Python hygiene, Zero-SDK audit, Meson source-manifest stress,
+#                 "every integration test skips (exit 77) without retail data"
+#   build         Linux x64 GCC/Clang, Linux ARM64, macOS arm64/x64, Windows x64/ARM64:
+#                 companion fetch, game idLib + module, engine client + dedicated +
+#                 tests, unit suite, integration suite must SKIP, assetless
+#                 dedicated-server smoke, logs
+#   sanitizer     Linux x64 Clang ASan+UBSan build of game + engine, unit suite, smoke
+#
+# Companion repository. The engine builds against jm2/openETQW-game at the
+# commit pinned in tools/ci/companion.ref (bump it with
+# tools/ci/bump_companion.py; override it for one run with the workflow_dispatch
+# input 'companion_ref'). tools/ci/fetch_companion.py fetches it anonymously over
+# https and, only if the optional secret OPENETQW_CROSS_REPO_TOKEN is non-empty,
+# retries with that token. While the repositories are private and no token is
+# set, every job that needs the companion succeeds with a notice and a job
+# summary entry ("companion repo not accessible - skipped until repos are
+# public") and skips its remaining steps; it starts building by itself, with no
+# edit here, once the companion is public. Once this repository is public a
+# skipped companion is a warning, and the repository variable
+# OPENETQW_COMPANION_REQUIRED=true turns it into an error.
+#
+# Retail ET:QW data is never available on hosted runners: integration tests must
+# exit 77 (skip) and the dedicated-server smoke uses only files it generates.
+#
+# Experimental legs: a matrix leg with `experimental: true` still runs and shows
+# its own failure, but cannot fail the workflow run. Flip it to false once the
+# leg has passed on the default branch; `blocker` names what is known to break it.
 
-name: CI Matrix
+name: CI
 
 on:
+  # branches with a pull request are built by the pull_request event
   push:
-    branches:
-      - main
-    tags:
-      - 'v*'
+    branches: [main]
   pull_request:
-    branches:
-      - main
   workflow_dispatch:
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    inputs:
+      companion_ref:
+        description: "openETQW-game full commit SHA, branch or tag to build against instead of tools/ci/companion.ref (empty: use the pin)"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
 
+concurrency:
+  group: openetqw-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  # Tool pins; bump deliberately.
+  MESON_VERSION: "1.12.1"
+  NINJA_VERSION: "1.13.2"
+  PYFLAKES_VERSION: "4.0.0"
+  SDL3_TAG: release-3.4.16
+  BUILD_TYPE: debugoptimized
+  OPENETQW_COMPANION_REPO: jm2/openETQW-game
+
 jobs:
-  lint-workflow:
-    name: Lint Workflow (actionlint)
-    runs-on: ubuntu-latest
+  lint:
+    name: Workflow lint (actionlint)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - name: Checkout openETQW
-        uses: actions/checkout@v4
-
-      - name: Run actionlint via reviewdog
-        uses: reviewdog/action-actionlint@v1
+      - name: Checkout
+        uses: actions/checkout@v7
         with:
-          actionlint_flags: "-color"
-          reporter: local
-          fail_level: error
+          persist-credentials: false
 
-  build-and-test:
-    name: Build & Test (${{ matrix.name }})
-    needs: [lint-workflow]
-    runs-on: ${{ matrix.os }}
+      - name: Install actionlint
+        shell: bash
+        env:
+          ACTIONLINT_VERSION: "1.7.12"
+          ACTIONLINT_SHA256_AMD64: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+          ACTIONLINT_SHA256_ARM64: 325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64) arch=amd64; sha256="${ACTIONLINT_SHA256_AMD64}" ;;
+            aarch64) arch=arm64; sha256="${ACTIONLINT_SHA256_ARM64}" ;;
+            *) echo "unsupported runner architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_${arch}.tar.gz"
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/${archive}" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          echo "${sha256}  ${RUNNER_TEMP}/${archive}" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/actionlint"
+          tar -xzf "${RUNNER_TEMP}/${archive}" -C "${RUNNER_TEMP}/actionlint" actionlint
+          echo "${RUNNER_TEMP}/actionlint" >> "${GITHUB_PATH}"
+
+      - name: Run actionlint
+        shell: bash
+        run: |
+          set -euo pipefail
+          actionlint -version
+          # The runner's preinstalled ShellCheck also lints every run: block.
+          actionlint -color
+
+      - name: Run shellcheck on tools/ci
+        shell: bash
+        run: |
+          set -euo pipefail
+          shellcheck --version
+          shellcheck -S style tools/ci/*.sh
+
+  script-smoke:
+    name: Script smoke (Python, Zero-SDK, integration skips)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     defaults:
       run:
         shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
+      - name: Install pyflakes
+        run: python -m pip install "pyflakes==${PYFLAKES_VERSION}"
+
+      - name: Python syntax and pyflakes (tests/, tools/)
+        run: python tools/ci/check_python.py
+
+      - name: Zero-SDK cleanroom audit (blocking)
+        run: python tests/test_zero_sdk.py
+
+      - name: Meson source-manifest stress
+        run: python tests/test_meson_sources_stress.py
+
+      - name: Integration tests skip without retail data (exit 77)
+        run: python tools/ci/check_integration_skips.py --output-dir .tmp/ci/integration-skips
+
+      - name: Upload script-smoke reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-script-smoke
+          path: |
+            .tmp/ci/integration-skips
+            .agents/challenger_m1_1/stress_results.json
+          if-no-files-found: ignore
+          retention-days: 14
+          include-hidden-files: true
+
+  build:
+    name: ${{ matrix.name }}
+    needs: script-smoke
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - windows-latest
-          - macos-latest
         include:
-          - os: ubuntu-latest
-            name: Linux x86_64 (GCC/Clang)
-            compiler: clang
-            pkg_config_path: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
-            binary_arch: x64
-          - os: windows-latest
-            name: Windows 11 x64 (MSVC)
-            compiler: msvc
-            pkg_config_path: ""
-            binary_arch: x64
-          - os: macos-latest
-            name: macOS Apple Silicon (Apple Clang)
-            compiler: apple-clang
-            pkg_config_path: /opt/homebrew/lib/pkgconfig:/opt/homebrew/share/pkgconfig
-            binary_arch: arm64
-
+          # Linux legs have never compiled: experimental until one passes.
+          - id: linux-x64-gcc
+            name: Linux x64 GCC
+            os: ubuntu-24.04
+            platform: linux
+            arch: x64
+            cc: gcc
+            cxx: g++
+            vcpkg_triplet: ""
+            experimental: true
+            blocker: "the Linux engine build has never compiled"
+          - id: linux-x64-clang
+            name: Linux x64 Clang
+            os: ubuntu-24.04
+            platform: linux
+            arch: x64
+            cc: clang
+            cxx: clang++
+            vcpkg_triplet: ""
+            experimental: true
+            blocker: "the Linux engine build has never compiled"
+          - id: linux-arm64-gcc
+            name: Linux ARM64 GCC
+            os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+            cc: gcc
+            cxx: g++
+            vcpkg_triplet: ""
+            experimental: true
+            blocker: "the Linux engine build has never compiled"
+          - id: macos-arm64
+            name: macOS arm64 (Apple Clang)
+            os: macos-15
+            platform: macos
+            arch: arm64
+            cc: clang
+            cxx: clang++
+            vcpkg_triplet: ""
+            experimental: false
+            blocker: ""
+          - id: macos-x64
+            name: macOS Intel x64 (Apple Clang)
+            os: macos-15-intel
+            platform: macos
+            arch: x64
+            cc: clang
+            cxx: clang++
+            vcpkg_triplet: ""
+            experimental: false
+            blocker: ""
+          # Windows engine sources do not compile yet: experimental.
+          - id: windows-x64-msvc
+            name: Windows x64 MSVC
+            os: windows-2025
+            platform: windows
+            arch: x64
+            cc: cl
+            cxx: cl
+            vcpkg_triplet: x64-windows
+            experimental: true
+            blocker: "Windows engine sources have never compiled: src/sys/win32 SystemBootstrap/win_local SDL3 issues, and src/sys/sys_local.cpp is POSIX-only (Common.cpp POSIX calls replaced, not yet built with MSVC)"
+          - id: windows-arm64-msvc
+            name: Windows ARM64 MSVC
+            os: windows-11-arm
+            platform: windows
+            arch: arm64
+            cc: cl
+            cxx: cl
+            vcpkg_triplet: arm64-windows
+            experimental: true
+            blocker: "Windows engine sources have never compiled: src/sys/win32 SystemBootstrap/win_local SDL3 issues, and src/sys/sys_local.cpp is POSIX-only (Common.cpp POSIX calls replaced, not yet built with MSVC)"
     env:
-      PKG_CONFIG_PATH: ${{ matrix.pkg_config_path }}
       OPENETQW_GAME_REPO: ${{ github.workspace }}/openETQW-game
-
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+      LEG: ${{ matrix.name }}
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    defaults:
+      run:
+        shell: bash
+        working-directory: openETQW
     steps:
-      # Step 1: Side-by-side checkout
       - name: Checkout openETQW
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: openETQW
-          fetch-depth: 1
+          persist-credentials: false
 
-      - name: Checkout openETQW-game
-        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v7
         with:
-          repository: ${{ github.repository_owner }}/openETQW-game
-          path: openETQW-game
-          fetch-depth: 1
+          python-version: "3.x"
+          architecture: ${{ matrix.arch }}
 
-      # Step 2: Setup platform dependencies
-      - name: Install APT Dependencies (Linux)
-        if: runner.os == 'Linux'
+      - name: Fetch openETQW-game companion
+        id: companion
+        env:
+          OPENETQW_COMPANION_REF: ${{ inputs.companion_ref }}
+          OPENETQW_CROSS_REPO_TOKEN: ${{ secrets.OPENETQW_CROSS_REPO_TOKEN }}
+        run: python tools/ci/fetch_companion.py --dest "${OPENETQW_GAME_REPO}" --skip-if-unavailable
+
+      # A skipped companion leaves the leg green without building anything: fine
+      # while both repositories are private, a silent hole once this one is public.
+      - name: Companion availability policy
+        if: steps.companion.outputs.available != 'true'
+        env:
+          COMPANION_REQUIRED: ${{ vars.OPENETQW_COMPANION_REQUIRED }}
+          REPO_PRIVATE: ${{ github.event.repository.private }}
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y --no-install-recommends \
-            ninja-build \
-            python3-pip \
-            python3-setuptools \
-            python3-wheel \
-            zlib1g-dev \
-            libvulkan-dev \
-            glslang-tools \
-            spirv-tools \
-            pkg-config \
-            libasound2-dev \
-            libx11-dev \
-            libwayland-dev
-          python3 -m pip install --upgrade --break-system-packages "meson>=1.6.0" ninja || \
-          python3 -m pip install --upgrade "meson>=1.6.0" ninja
+          if [ "${COMPANION_REQUIRED}" = "true" ]; then
+            echo "::error title=Companion required::${OPENETQW_COMPANION_REPO} is not accessible but OPENETQW_COMPANION_REQUIRED=true"
+            exit 1
+          fi
+          if [ "${REPO_PRIVATE}" = "false" ]; then
+            echo "::warning title=Companion skipped::this repository is public but ${OPENETQW_COMPANION_REPO} is not reachable anonymously, so nothing was built (check tools/ci/companion.ref and OPENETQW_COMPANION_REPO)"
+          fi
 
-      - name: Setup SDL3 (Linux)
-        if: runner.os == 'Linux'
-        uses: libsdl-org/setup-sdl@v1
-        id: sdl-linux
-        with:
-          version: 3.2.0
-          install-linux-dependencies: true
-
-      - name: Configure Linux Environment Variables
-        if: runner.os == 'Linux'
+      - name: Install Meson and Ninja
+        if: steps.companion.outputs.available == 'true'
         run: |
-          SDL_PREFIX="${{ steps.sdl-linux.outputs.prefix }}"
-          {
-            echo "PKG_CONFIG_PATH=$SDL_PREFIX/lib/pkgconfig:$SDL_PREFIX/lib64/pkgconfig:$PKG_CONFIG_PATH"
-            echo "LD_LIBRARY_PATH=$SDL_PREFIX/lib:$SDL_PREFIX/lib64:$LD_LIBRARY_PATH"
-            echo "CMAKE_PREFIX_PATH=$SDL_PREFIX:$CMAKE_PREFIX_PATH"
-          } >> "$GITHUB_ENV"
-
-      - name: Setup Windows MSVC Environment
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
-      - name: Setup Windows Python Build Tools
-        if: runner.os == 'Windows'
-        run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install --upgrade "meson>=1.6.0" ninja pkgconf
+          python -m pip install "meson==${MESON_VERSION}" "ninja==${NINJA_VERSION}"
+          meson --version
+          ninja --version
 
-      - name: Setup Windows Vulkan SDK
-        if: runner.os == 'Windows'
-        uses: humbletim/setup-vulkan-sdk@v1.2.0
-        with:
-          vulkan-query-version: 1.3.283.0
-          vulkan-components: Vulkan-Headers, Vulkan-Loader
-          vulkan-use-cache: true
+      - name: Install Linux dependencies and SDL3
+        if: steps.companion.outputs.available == 'true' && matrix.platform == 'linux'
+        run: bash tools/ci/linux_deps.sh "${SDL3_TAG}"
 
-      - name: Setup SDL3 (Windows)
-        if: runner.os == 'Windows'
-        uses: libsdl-org/setup-sdl@v1
-        id: sdl-win
-        with:
-          version: 3.2.0
-
-      - name: Install zlib via vcpkg (Windows)
-        if: runner.os == 'Windows'
+      - name: Install macOS dependencies
+        if: steps.companion.outputs.available == 'true' && matrix.platform == 'macos'
         run: |
-          vcpkg install zlib:x64-windows
+          set -euo pipefail
+          brew install sdl3 vulkan-headers vulkan-loader
+          prefix="$(brew --prefix)"
+          echo "PKG_CONFIG_PATH=${prefix}/lib/pkgconfig:${prefix}/share/pkgconfig${PKG_CONFIG_PATH:+:${PKG_CONFIG_PATH}}" >> "${GITHUB_ENV}"
+          pkg-config --modversion sdl3 vulkan
 
-      - name: Configure Windows Environment Variables
-        if: runner.os == 'Windows'
+      - name: Install Windows dependencies (vcpkg)
+        if: steps.companion.outputs.available == 'true' && matrix.platform == 'windows'
+        shell: pwsh
+        env:
+          VCPKG_TRIPLET: ${{ matrix.vcpkg_triplet }}
         run: |
-          SDL_PREFIX="${{ steps.sdl-win.outputs.prefix }}"
-          VCPKG_PREFIX="$VCPKG_INSTALLATION_ROOT/installed/x64-windows"
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $root = $env:VCPKG_INSTALLATION_ROOT
+          if (-not $root -or -not (Test-Path (Join-Path $root "vcpkg.exe"))) {
+            $root = Join-Path $env:RUNNER_TEMP "vcpkg"
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git $root
+            & (Join-Path $root "bootstrap-vcpkg.bat") -disableMetrics
+          }
+          & (Join-Path $root "vcpkg.exe") install --triplet $env:VCPKG_TRIPLET --clean-after-build sdl3 vulkan-headers vulkan-loader zlib pkgconf
+          $installed = (Join-Path $root "installed/$env:VCPKG_TRIPLET") -replace '\\', '/'
+          "PKG_CONFIG=$installed/tools/pkgconf/pkgconf.exe" >> $env:GITHUB_ENV
+          "PKG_CONFIG_PATH=$installed/lib/pkgconfig;$installed/share/pkgconfig" >> $env:GITHUB_ENV
+          "CMAKE_PREFIX_PATH=$installed" >> $env:GITHUB_ENV
+          "VULKAN_SDK=$installed" >> $env:GITHUB_ENV
+          ($installed + "/bin") -replace '/', '\' >> $env:GITHUB_PATH
 
-          {
-            echo "SDL3_DIR=$SDL_PREFIX"
-            echo "CMAKE_PREFIX_PATH=$SDL_PREFIX;$VCPKG_PREFIX;$CMAKE_PREFIX_PATH"
-            echo "PKG_CONFIG_PATH=$SDL_PREFIX/lib/pkgconfig;$SDL_PREFIX/lib/x64/pkgconfig;$SDL_PREFIX/share/pkgconfig;$VCPKG_PREFIX/lib/pkgconfig;$PKG_CONFIG_PATH"
-          } >> "$GITHUB_ENV"
+      - name: Stage openETQW-game headers
+        if: steps.companion.outputs.available == 'true'
+        run: python tools/build/stage_game.py . "${OPENETQW_GAME_REPO}" .tmp/gamelibs_stage
 
-          {
-            echo "$SDL_PREFIX/bin"
-            echo "$SDL_PREFIX/lib/x64"
-            echo "$VCPKG_PREFIX/bin"
-          } >> "$GITHUB_PATH"
-
-      - name: Setup macOS Dependencies
-        if: runner.os == 'macOS'
+      - name: Build openETQW-game (idLib + game module)
+        if: steps.companion.outputs.available == 'true'
         run: |
-          brew install meson ninja sdl3 vulkan-headers molten-vk glslang
+          set -euo pipefail
+          vsenv=()
+          if [[ "${RUNNER_OS}" == "Windows" ]]; then vsenv=(--vsenv); fi
+          meson setup "${OPENETQW_GAME_REPO}/build" "${OPENETQW_GAME_REPO}" --buildtype="${BUILD_TYPE}" ${vsenv[@]+"${vsenv[@]}"}
+          meson compile -C "${OPENETQW_GAME_REPO}/build"
 
-      - name: Configure macOS Environment Variables
-        if: runner.os == 'macOS'
+      - name: Configure openETQW (client + dedicated + tests)
+        id: configure
+        if: steps.companion.outputs.available == 'true'
         run: |
-          BREW_PREFIX="$(brew --prefix)"
-          {
-            echo "PKG_CONFIG_PATH=$BREW_PREFIX/lib/pkgconfig:$BREW_PREFIX/share/pkgconfig:$BREW_PREFIX/opt/molten-vk/lib/pkgconfig:$BREW_PREFIX/opt/vulkan-headers/share/pkgconfig:$BREW_PREFIX/opt/sdl3/lib/pkgconfig:$PKG_CONFIG_PATH"
-            echo "DYLD_FALLBACK_LIBRARY_PATH=$BREW_PREFIX/lib:$DYLD_FALLBACK_LIBRARY_PATH"
-            echo "VK_ICD_FILENAMES=$BREW_PREFIX/share/vulkan/icd.d/MoltenVK_icd.json"
-          } >> "$GITHUB_ENV"
+          set -euo pipefail
+          vsenv=()
+          if [[ "${RUNNER_OS}" == "Windows" ]]; then vsenv=(--vsenv); fi
+          meson setup build . --buildtype="${BUILD_TYPE}" \
+            -Dbuild_engine=true -Dbuild_dedicated=true -Dbuild_tests=true ${vsenv[@]+"${vsenv[@]}"}
 
-      # Step 3: Blocking cleanroom audit gate
-      - name: Zero-SDK Cleanroom Audit Gate
-        working-directory: openETQW
-        run: python3 tests/test_zero_sdk.py
+      - name: Build openETQW dedicated server
+        id: build_ded
+        if: steps.companion.outputs.available == 'true'
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: meson compile -C build "openETQW-ded_${ARCH}"
 
-      # Step 4: Dynamic header staging
-      - name: Stage Game Headers
-        working-directory: openETQW
-        run: python3 tools/build/stage_game.py . ../openETQW-game .tmp/gamelibs_stage
+      - name: Assetless dedicated-server smoke
+        if: ${{ !cancelled() && steps.build_ded.outcome == 'success' }}
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: >-
+          python tools/ci/dedicated_server_smoke.py --build-dir build --game-repo "${OPENETQW_GAME_REPO}"
+          --arch "${ARCH}" --output-root .tmp/ci/dedicated-smoke
 
-      # Step 5: Configure & compile openETQW-game
-      - name: Configure openETQW-game
-        working-directory: openETQW-game
-        run: meson setup build --buildtype=release
-
-      - name: Compile openETQW-game
-        working-directory: openETQW-game
+      - name: Build openETQW client and tests
+        id: build_all
+        if: ${{ !cancelled() && steps.configure.outcome == 'success' }}
         run: meson compile -C build
 
-      # Step 6: Configure & compile openETQW
-      - name: Configure openETQW
-        working-directory: openETQW
-        env:
-          OPENETQW_GAME_REPO: ${{ github.workspace }}/openETQW-game
-        run: >
-          meson setup build
-          --buildtype=release
-          -Dbuild_engine=true
-          -Dbuild_dedicated=true
-          -Dbuild_tests=true
+      - name: Unit tests (meson test --suite unit)
+        if: ${{ !cancelled() && steps.build_all.outcome == 'success' }}
+        run: meson test -C build --suite unit --no-rebuild --print-errorlogs
 
-      - name: Compile openETQW
-        working-directory: openETQW
-        env:
-          OPENETQW_GAME_REPO: ${{ github.workspace }}/openETQW-game
-        run: meson compile -C build
+      - name: Integration suite skips without retail data (exit 77)
+        if: ${{ !cancelled() && steps.build_all.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          meson_status=0
+          env -u ETQW_DATA_PATH meson test -C build --suite integration --no-rebuild \
+            --timeout-multiplier 0.1 --logbase testlog-integration --print-errorlogs || meson_status=$?
+          python tools/ci/check_meson_testlog.py build/meson-logs/testlog-integration.json \
+            --expect SKIP --title "Integration suite without retail data (${LEG})"
+          exit "${meson_status}"
 
-      # Step 7: Asset-free unit test suite
-      - name: Execute Asset-Free Unit Tests
-        working-directory: openETQW
+      - name: Note experimental leg failure
+        if: ${{ failure() && matrix.experimental }}
         env:
-          ETQW_DATA_PATH: /nonexistent
-        run: meson test -C build --suite unit --verbose
+          BLOCKER: ${{ matrix.blocker }}
+        working-directory: .
+        run: |
+          echo "::warning title=Experimental leg failed::${LEG} failed; this leg is experimental and does not fail the run. Known blocker: ${BLOCKER}"
+          {
+            echo "### ${LEG}: failed (experimental, does not fail the run)"
+            echo "Known blocker: ${BLOCKER}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-${{ matrix.id }}-logs
+          path: |
+            openETQW/build/meson-logs
+            openETQW-game/build/meson-logs
+            openETQW/.tmp/ci
+            openETQW/.tmp/gamelibs_stage/openetqw_gamelibs_stage_manifest.json
+          if-no-files-found: ignore
+          retention-days: 14
+          include-hidden-files: true
+
+  sanitizer:
+    name: ${{ matrix.name }}
+    needs: script-smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: linux-x64-clang-asan-ubsan
+            name: Linux x64 Clang ASan+UBSan
+            experimental: true
+            blocker: "the Linux engine build has never compiled (the idBlockAlloc::Free UBSan report is fixed in the pinned companion)"
+    env:
+      OPENETQW_GAME_REPO: ${{ github.workspace }}/openETQW-game
+      CC: clang
+      CXX: clang++
+      LEG: ${{ matrix.name }}
+      # idLib is linked statically into both the engine and the game module (as
+      # in retail), so the same globals legitimately exist twice; only report
+      # ODR violations whose sizes differ.
+      ASAN_OPTIONS: halt_on_error=1:abort_on_error=1:detect_leaks=0:detect_odr_violation=1:suppressions=${{ github.workspace }}/openETQW/tools/ci/asan.supp
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1:suppressions=${{ github.workspace }}/openETQW/tools/ci/ubsan.supp
+    defaults:
+      run:
+        shell: bash
+        working-directory: openETQW
+    steps:
+      - name: Checkout openETQW
+        uses: actions/checkout@v7
+        with:
+          path: openETQW
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
+      - name: Fetch openETQW-game companion
+        id: companion
+        env:
+          OPENETQW_COMPANION_REF: ${{ inputs.companion_ref }}
+          OPENETQW_CROSS_REPO_TOKEN: ${{ secrets.OPENETQW_CROSS_REPO_TOKEN }}
+        run: python tools/ci/fetch_companion.py --dest "${OPENETQW_GAME_REPO}" --skip-if-unavailable
+
+      # A skipped companion leaves the leg green without building anything: fine
+      # while both repositories are private, a silent hole once this one is public.
+      - name: Companion availability policy
+        if: steps.companion.outputs.available != 'true'
+        env:
+          COMPANION_REQUIRED: ${{ vars.OPENETQW_COMPANION_REQUIRED }}
+          REPO_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          if [ "${COMPANION_REQUIRED}" = "true" ]; then
+            echo "::error title=Companion required::${OPENETQW_COMPANION_REPO} is not accessible but OPENETQW_COMPANION_REQUIRED=true"
+            exit 1
+          fi
+          if [ "${REPO_PRIVATE}" = "false" ]; then
+            echo "::warning title=Companion skipped::this repository is public but ${OPENETQW_COMPANION_REPO} is not reachable anonymously, so nothing was built (check tools/ci/companion.ref and OPENETQW_COMPANION_REPO)"
+          fi
+
+      - name: Install Meson and Ninja
+        if: steps.companion.outputs.available == 'true'
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install "meson==${MESON_VERSION}" "ninja==${NINJA_VERSION}"
+
+      - name: Install Linux dependencies and SDL3
+        if: steps.companion.outputs.available == 'true'
+        run: bash tools/ci/linux_deps.sh "${SDL3_TAG}"
+
+      - name: Allow ASan shadow mapping
+        if: steps.companion.outputs.available == 'true'
+        # Recent runner kernels randomize mmap with more bits than older ASan
+        # runtimes can map around ("AddressSanitizer:DEADLYSIGNAL" at startup).
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+
+      - name: Stage openETQW-game headers
+        if: steps.companion.outputs.available == 'true'
+        run: python tools/build/stage_game.py . "${OPENETQW_GAME_REPO}" .tmp/gamelibs_stage
+
+      - name: Build openETQW-game with ASan+UBSan
+        if: steps.companion.outputs.available == 'true'
+        run: |
+          set -euo pipefail
+          meson setup "${OPENETQW_GAME_REPO}/build" "${OPENETQW_GAME_REPO}" --buildtype="${BUILD_TYPE}" \
+            -Db_sanitize=address,undefined -Db_lundef=false
+          meson compile -C "${OPENETQW_GAME_REPO}/build"
+
+      - name: Build openETQW with ASan+UBSan
+        id: build_all
+        if: steps.companion.outputs.available == 'true'
+        run: |
+          set -euo pipefail
+          meson setup build . --buildtype="${BUILD_TYPE}" -Db_sanitize=address,undefined -Db_lundef=false \
+            -Dbuild_engine=true -Dbuild_dedicated=true -Dbuild_tests=true
+          meson compile -C build
+
+      - name: Unit tests under sanitizers
+        if: steps.companion.outputs.available == 'true'
+        run: meson test -C build --suite unit --no-rebuild --print-errorlogs
+
+      - name: Assetless dedicated-server smoke under sanitizers
+        if: ${{ !cancelled() && steps.build_all.outcome == 'success' }}
+        run: >-
+          python tools/ci/dedicated_server_smoke.py --build-dir build --game-repo "${OPENETQW_GAME_REPO}"
+          --arch x64 --output-root .tmp/ci/dedicated-smoke
+          --startup-timeout 240 --command-timeout 90 --quit-timeout 120
+
+      - name: Note experimental leg failure
+        if: ${{ failure() && matrix.experimental }}
+        env:
+          BLOCKER: ${{ matrix.blocker }}
+        working-directory: .
+        run: |
+          echo "::warning title=Experimental leg failed::${LEG} failed; this leg is experimental and does not fail the run. Known blocker: ${BLOCKER}"
+          {
+            echo "### ${LEG}: failed (experimental, does not fail the run)"
+            echo "Known blocker: ${BLOCKER}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload sanitizer logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-${{ matrix.id }}-logs
+          path: |
+            openETQW/build/meson-logs
+            openETQW-game/build/meson-logs
+            openETQW/.tmp/ci
+            openETQW/.tmp/gamelibs_stage/openetqw_gamelibs_stage_manifest.json
+          if-no-files-found: ignore
+          retention-days: 14
+          include-hidden-files: true

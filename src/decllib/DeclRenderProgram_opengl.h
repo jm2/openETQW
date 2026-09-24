@@ -167,6 +167,9 @@ private:
 };
 
 sdRenderShader* SD_AllocRenderShader( const char* type );
+// False on the dedicated server, which has no render-shader backend: no
+// render-program decl there ever owns a program or shader object.
+bool SD_HasRenderShaderBackend();
 void SD_UnbindRenderProgram();
 void SD_ApplyRenderProgramState( int stateBits, cullType_t cullType );
 

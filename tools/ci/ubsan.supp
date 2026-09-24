@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# UndefinedBehaviorSanitizer suppressions for the CI sanitizer job
+# (.github/workflows/ci.yml, job 'sanitizer'), passed as
+# UBSAN_OPTIONS=suppressions=<this file>.
+#
+# Intentionally empty: every UBSan report fails CI (halt_on_error=1). Add an
+# entry only for a diagnosed report, each with a comment naming the issue that
+# tracks its removal. Syntax: <check>:<function, file or module glob>, e.g.
+#   alignment:src/idlib/math/*.cpp
+#   vptr:libstdc++*
+#   null:idClass::Cast
+# Check names: https://clang.llvm.org/docs/UndefinedBehaviorSanitizer.html

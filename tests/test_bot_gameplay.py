@@ -7,8 +7,10 @@ spawns opposing AI soldier bots (GDF Soldier and Strogg Soldier),
 and verifies:
 1. Genuine bot allocation and physical pawn possession (spectating 0 for both bots).
 2. Parachute drop and ground contact (ground: 1).
-3. 30 Hz Bot AI Thread execution and AAS pathfinding navigation.
-4. Dynamic directional movement generation (forwardmove/rightmove) with displacement >= 50 units over 100+ frames.
+3. AAS pathfinding navigation, with the server tick rate MEASURED from SIM_HASH
+   tick numbers (+set g_simHash 1) and wall-clock timestamps (27..33.5 Hz).
+4. Dynamic directional movement generation (forwardmove/rightmove) with displacement >= 50 units over >= 100
+   measured server ticks.
 5. Combat perception, aiming, and weapon firing interaction (atk_cmd: 1 / atk: 1).
 6. Graceful dedicated server shutdown via 'quit' with clean exit code 0.
 """
@@ -23,6 +25,8 @@ import sys
 import threading
 import time
 from pathlib import Path
+
+import etqw_harness as h
 
 TEST_PROCS = []
 
@@ -40,11 +44,22 @@ def cleanup_procs():
 atexit.register(cleanup_procs)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATA_PATH = Path("/Users/jmulesa/etqw_data")
-DATA_PATH = Path(os.environ.get("ETQW_DATA_PATH", str(DEFAULT_DATA_PATH)))
-SERVER_PORT = 27760
+DATA_PATH = h.env_data_path()
+SERVER_PORT = int(os.environ.get("OPENETQW_BOT_GAMEPLAY_PORT", "27760"))
+
+# The whole script must finish inside the meson timeout (120 s, meson.build);
+# the waits below are sized so the worst case stays under it:
+# 45 load + 2 + 10 spawn + (40 + 4.5 loop overrun) + 10 quit ~= 112 s.
+SERVER_READY_TIMEOUT = 45.0
+SPAWN_CONFIRM_TIMEOUT = 10.0
+QUERY_TIMEOUT = 2.0
+TICK_HZ_RANGE = (27.0, 33.5)
+MIN_MEASURED_TICKS = 100
 
 def _find_dedicated_binary() -> Path:
+    override = os.environ.get("OPENETQW_DED_BINARY")
+    if override:
+        return Path(override)
     candidates = [
         REPO_ROOT / "build" / "openETQW-ded_arm64",
         REPO_ROOT / "build" / "openETQW-ded_x64",
@@ -71,8 +86,14 @@ SERVER_ARGS = [
     "+set", "bot_enable", "1",
     "+set", "bot_sleepWhenServerEmpty", "0",
     "+set", "g_teamSwitchDelay", "0",
+    # SIM_HASH lines carry the server frame number every tick; the game
+    # default is changing to 0, so request them explicitly.
+    "+set", "g_simHash", "1",
     "+spawnServer", "valley"
 ]
+
+SIM_HASH_TICK_RE = re.compile(r"SIM_HASH:\s+tick=(\d+)")
+SIM_TICKS = []  # (time.monotonic(), tick) for every SIM_HASH line
 
 PLAYER_POS_PATTERN = re.compile(
     r"PLAYER_POS:\s*\(([-\d.]+),\s*([-\d.]+),\s*([-\d.]+)\)\s*"
@@ -88,6 +109,12 @@ def stream_reader(pipe, name, q):
         for line in iter(pipe.readline, ''):
             if not line:
                 break
+            m = SIM_HASH_TICK_RE.search(line)
+            if m:
+                # timestamp here, in the reader thread; SIM_HASH lines are not
+                # queued (they would drown the PLAYER_POS replies)
+                SIM_TICKS.append((time.monotonic(), int(m.group(1))))
+                continue
             q.put((name, line.strip()))
     except Exception as e:
         q.put((name, f"READER_ERROR: {e}"))
@@ -175,7 +202,7 @@ def run_bot_gameplay_test():
 
     server_ready = False
     server_start_time = time.time()
-    while time.time() - server_start_time < 60.0:
+    while time.time() - server_start_time < SERVER_READY_TIMEOUT:
         if server_proc.poll() is not None:
             raise RuntimeError(f"Server exited prematurely with code {server_proc.returncode}")
         try:
@@ -192,7 +219,7 @@ def run_bot_gameplay_test():
 
     if not server_ready:
         server_proc.kill()
-        raise TimeoutError("Server failed to load Valley within 60s")
+        raise TimeoutError(f"Server failed to load Valley within {SERVER_READY_TIMEOUT:.0f}s")
 
     print("\n[2] Dedicated server active on Valley! Spawning GDF Soldier and Strogg Soldier bots...")
 
@@ -210,7 +237,7 @@ def run_bot_gameplay_test():
     spawn_gdf_confirmed = False
     spawn_strogg_confirmed = False
     confirm_start = time.time()
-    while time.time() - confirm_start < 15.0:
+    while time.time() - confirm_start < SPAWN_CONFIRM_TIMEOUT:
         try:
             source, line = output_queue.get(timeout=0.2)
             if "joined the GDF" in line or ("spawned at" in line and "team gdf" in line):
@@ -235,10 +262,10 @@ def run_bot_gameplay_test():
     strogg_max_displacement = 0.0
     combat_engagement_seen = False
     both_grounded_once = False
-    total_frames_sampled = 0
     grounded_samples = 0
 
     test_start_time = time.time()
+    monitor_start_mono = time.monotonic()
     MAX_TEST_DURATION = 40.0  # seconds
 
     while time.time() - test_start_time < MAX_TEST_DURATION:
@@ -246,11 +273,10 @@ def run_bot_gameplay_test():
             raise RuntimeError(f"Server exited unexpectedly with code {server_proc.returncode}")
 
         time.sleep(0.5)
-        total_frames_sampled += 15  # ~15 server ticks at 30 Hz per 0.5s
 
         try:
-            pos0 = query_player_pos(server_proc, output_queue, client_num=0, timeout=3.0)
-            pos1 = query_player_pos(server_proc, output_queue, client_num=1, timeout=3.0)
+            pos0 = query_player_pos(server_proc, output_queue, client_num=0, timeout=QUERY_TIMEOUT)
+            pos1 = query_player_pos(server_proc, output_queue, client_num=1, timeout=QUERY_TIMEOUT)
         except Exception as e:
             print(f"  Query warning: {e}")
             continue
@@ -300,12 +326,14 @@ def run_bot_gameplay_test():
             # - both bots grounded
             # - both displacements >= 50 units
             # - combat engagement confirmed
-            # - 100+ frames sampled (grounded_samples >= 7 implies 7 * 15 = 105+ frames at 30 Hz)
+            # - >= 100 server ticks measured (SIM_HASH) since monitoring began
+            window_ticks = [k for (t, k) in list(SIM_TICKS) if t >= monitor_start_mono]
+            measured_ticks = (window_ticks[-1] - window_ticks[0]) if len(window_ticks) >= 2 else 0
             if (
                 gdf_max_displacement >= 50.0
                 and strogg_max_displacement >= 50.0
                 and combat_engagement_seen
-                and grounded_samples >= 7
+                and measured_ticks >= MIN_MEASURED_TICKS
             ):
                 print(f"\n  >>> ALL BOT CRITERIA SATISFIED! (GDF disp={gdf_max_displacement:.1f}u, Strogg disp={strogg_max_displacement:.1f}u, combat={combat_engagement_seen})")
                 break
@@ -335,8 +363,20 @@ def run_bot_gameplay_test():
         raise AssertionError("Bot combat engagement failed: neither bot asserted attack command (atk_cmd=1 / atk=1)")
     print("  [OK] Bot combat engagement verified: attack command and weapon firing asserted")
 
-    estimated_frames = grounded_samples * 15
-    print(f"  [OK] Multi-frame continuous simulation: ~{estimated_frames} frames (>= 100 frames at 30 Hz)")
+    window = [(t, k) for (t, k) in list(SIM_TICKS) if t >= monitor_start_mono]
+    if len(window) < 2 or window[-1][0] <= window[0][0]:
+        raise AssertionError("No SIM_HASH ticks observed during bot monitoring (+set g_simHash 1); "
+                             "server tick rate could not be measured")
+    measured_ticks = window[-1][1] - window[0][1]
+    measured_wall = window[-1][0] - window[0][0]
+    tick_hz = measured_ticks / measured_wall
+    if measured_ticks < MIN_MEASURED_TICKS:
+        raise AssertionError(f"Only {measured_ticks} server ticks measured during monitoring (< {MIN_MEASURED_TICKS})")
+    if not (TICK_HZ_RANGE[0] <= tick_hz <= TICK_HZ_RANGE[1]):
+        raise AssertionError(f"Server tick rate {tick_hz:.2f} Hz outside {TICK_HZ_RANGE[0]}..{TICK_HZ_RANGE[1]} Hz "
+                             f"({measured_ticks} ticks in {measured_wall:.1f}s)")
+    print(f"  [OK] Server simulation: {measured_ticks} ticks in {measured_wall:.1f}s = {tick_hz:.2f} Hz "
+          f"(measured from SIM_HASH, >= {MIN_MEASURED_TICKS} ticks)")
 
     # Clean shutdown
     print("\n[5] Terminating dedicated server cleanly via 'quit'...")
@@ -354,13 +394,14 @@ def run_bot_gameplay_test():
 
     print("\n=================================================================")
     print(" SUCCESS: Milestone 4 Bot AI Navigation & Combat Verified!")
-    print(f" 30 Hz Bot AI Thread:      VERIFIED (active concurrent execution)")
+    print(f" Server Tick Rate:         {tick_hz:.2f} Hz measured ({measured_ticks} ticks / {measured_wall:.1f}s)")
+    print(f" Bot AI Think Rate:        not measured here (see tests/test_all_stock_maps.py, botThreadStats)")
     print(f" Physical Pawn Possession: VERIFIED (spectating 0 for both bots)")
     print(f" Terrain Ground Contact:   VERIFIED (ground: 1)")
     print(f" GDF Displacement:         {gdf_max_displacement:.2f} u (>= {MIN_DISPLACEMENT} u)")
     print(f" Strogg Displacement:      {strogg_max_displacement:.2f} u (>= {MIN_DISPLACEMENT} u)")
     print(f" Combat Engagement:        VERIFIED (atk_cmd: 1 / atk: 1 asserted)")
-    print(f" Simulation Frames:        ~{estimated_frames} frames (>= 100 frames)")
+    print(f" Simulation Frames:        {measured_ticks} server ticks measured (>= {MIN_MEASURED_TICKS})")
     print(f" Clean Server Shutdown:    VERIFIED (exit code 0)")
     print("=================================================================\n")
     return 0

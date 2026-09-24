@@ -30,15 +30,24 @@ If you have questions concerning this license or the applicable additional terms
 #define __ASYNCNETWORK_H__
 
 /*
-DOOM III gold:	33
-1.1 beta patch:	34
-1.1 patch:		35
-1.2 XP:			36-39
-1.3 patch:		40
-1.3.1:			41
+OpenETQW speaks its own network protocol: a clean break from retail ET:QW 1.5, as openQ4
+did for Quake 4 (CHARTER D7). The major is OpenETQW's own and differs from every id /
+Splash Damage major listed next to ASYNC_PROTOCOL_MAJOR in Licensee.h (1 Doom 3, 2 Quake 4,
+10-14 ET:QW builds, 22 Quake 4 Xbox 360), so a retail peer is refused at connect with
+"Server uses protocol <major>.<minor>". Bump the minor on every incompatible wire change.
+
+minor 1: first OpenETQW protocol (16-bit channel framing, acked snapshot baselines)
+minor 2: the game init is a reliable message (SERVER_RELIABLE_MESSAGE_GAMEINIT);
+         client empty and usercmd messages carry the client's game init id
+minor 3: user info: CLIENT_RELIABLE_MESSAGE_CLIENTINFO (the client's ui_* cvars) and
+         SERVER_RELIABLE_MESSAGE_CLIENTINFO (client number + the game's user info codec)
+minor 4: streamed snapshots; the client makes a snapshot its delta base only on
+         SERVER_RELIABLE_MESSAGE_APPLYSNAPSHOT (sequence), sent when the server applied it
+minor 5: client usercmd messages carry the client's prediction (ms ahead of the server)
 */
-const int ASYNC_PROTOCOL_MINOR		= 41;
-const int ASYNC_PROTOCOL_VERSION	= ( ASYNC_PROTOCOL_MAJOR << 16 ) + ASYNC_PROTOCOL_MINOR;
+const int OPENETQW_PROTOCOL_MAJOR	= 0x4F45;	// 'OE'
+const int ASYNC_PROTOCOL_MINOR		= 5;
+const int ASYNC_PROTOCOL_VERSION	= ( OPENETQW_PROTOCOL_MAJOR << 16 ) + ASYNC_PROTOCOL_MINOR;
 #define MAJOR_VERSION(v) ( v >> 16 )
 
 // ETQW publishes this limit through NetworkSystem.h.
@@ -79,7 +88,7 @@ const int GAME_INIT_ID_MAP_LOAD		= -2;
 enum {
 	SERVER_UNRELIABLE_MESSAGE_EMPTY = 0,
 	SERVER_UNRELIABLE_MESSAGE_PING,
-	SERVER_UNRELIABLE_MESSAGE_GAMEINIT,
+	SERVER_UNRELIABLE_MESSAGE_GAMEINIT,	// unused since minor 2 (SERVER_RELIABLE_MESSAGE_GAMEINIT)
 	SERVER_UNRELIABLE_MESSAGE_SNAPSHOT
 };
 
@@ -93,7 +102,8 @@ enum {
 	SERVER_RELIABLE_MESSAGE_DISCONNECT,
 	SERVER_RELIABLE_MESSAGE_APPLYSNAPSHOT,
 	SERVER_RELIABLE_MESSAGE_GAME,
-	SERVER_RELIABLE_MESSAGE_ENTERGAME
+	SERVER_RELIABLE_MESSAGE_ENTERGAME,
+	SERVER_RELIABLE_MESSAGE_GAMEINIT	// gameInitId, gameFrame, gameTime, serverInfo
 };
 
 // unreliable client -> server messages

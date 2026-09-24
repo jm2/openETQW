@@ -17,10 +17,12 @@ import threading
 import time
 from pathlib import Path
 
+import etqw_harness as h
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-BINARY_PATH = REPO_ROOT / "build" / "openETQW-ded_arm64"
-DATA_PATH = Path("/Users/jmulesa/etqw_data")
+BINARY_PATH = h.build_binary("ded")
+DATA_PATH = h.env_data_path()
 
 SERVER_PORT = 27785
 BASE_CLIENT_PORT = 27786
@@ -96,9 +98,9 @@ class DedicatedServerHarness:
                 raise RuntimeError(f"Server crashed during startup with code {self.proc.returncode}")
             try:
                 line = self.output_queue.get(timeout=0.2)
-                if "StartFirstObjective" in line or "Server spawned on" in line:
+                if "ETQW initialized" in line or "Server spawned on" in line:
                     print(f"  [SERVER] {line}")
-                    if "StartFirstObjective" in line:
+                    if "ETQW initialized" in line:
                         ready = True
                         break
                 elif "Map:" in line or "Game initialized" in line:
@@ -150,7 +152,7 @@ class ClientHarness:
             "+set", "net_port", str(self.client_port),
             "+set", "si_pure", "0",
             "+set", "com_timeServer", "1",
-            "+connect", f"127.0.0.1:{self.server_port}"
+            "+set", "net_clientShowSnapshots", "1", "+connect", f"127.0.0.1:{self.server_port}"
         ]
         self.proc = subprocess.Popen(
             client_args,
@@ -428,4 +430,5 @@ def run_stress_tests():
 
 
 if __name__ == "__main__":
+    h.skip_unless_available(DATA_PATH, BINARY_PATH)
     sys.exit(run_stress_tests())

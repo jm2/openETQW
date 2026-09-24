@@ -13,17 +13,17 @@ import math
 import random
 import struct
 import sys
-import zipfile
-from pathlib import Path
 
-PAK_PATH = Path("/Users/jmulesa/etqw_data/base/pak004.pk4")
 AAS_FILES = [
     "maps/valley.aas_playerb",
     "maps/valley.aas_vehicleb"
 ]
 
 
-def parse_aas(data, file_name):
+def parse_aas(data, file_name, counts_only=False):
+    """Parse an ETQWAASB 2.2 file. With counts_only=True the plane and node
+    arrays are skipped and only the header/settings and the area and
+    reachability counts are returned (fast enough to run on every map)."""
     offset = 0
 
     def read(fmt):
@@ -58,7 +58,11 @@ def parse_aas(data, file_name):
 
     # 1. Planes (16 bytes: float a, b, c, d)
     num_planes, = read('<i')
-    planes = [read('<4f') for _ in range(num_planes)]
+    if counts_only:
+        offset += num_planes * 16
+        planes = []
+    else:
+        planes = [read('<4f') for _ in range(num_planes)]
 
     # 2. Vertices (12 bytes)
     num_verts, = read('<i')
@@ -79,6 +83,20 @@ def parse_aas(data, file_name):
     # 6. Areas (28 bytes)
     num_areas, = read('<i')
     offset += num_areas * 28
+    if offset > len(data):
+        raise ValueError(f"{file_name}: truncated before the node array ({offset} > {len(data)} bytes)")
+
+    if counts_only:
+        return {
+            "name": file_name,
+            "type": aas_type,
+            "ext": ext,
+            "bbox": bbox,
+            "planes": planes,
+            "nodes": [],
+            "num_areas": num_areas,
+            "num_reach": num_reach,
+        }
 
     # 7. Nodes (12 bytes: uint16 planeNum, uint16 flags, int32 children[2])
     num_nodes, = read('<i')
@@ -248,16 +266,23 @@ def main():
     print(" OpenETQW Milestone 4: AAS Spatial Query & PointAreaNum Stress")
     print("===============================================================")
 
-    if not PAK_PATH.is_file():
-        print(f"ERROR: Pak archive not found: {PAK_PATH}", file=sys.stderr)
-        return 1
+    # Retail data comes from ETQW_DATA_PATH only; every base/pak*.pk4 is
+    # searched (area22/ark/canyon live in pak000, the rest in pak004).
+    from etqw_harness import PakIndex, SkipTest, resolve_data_path
+    try:
+        paks = PakIndex(resolve_data_path())
+    except SkipTest as e:
+        print(f"[SKIP] {e}")
+        return 77
 
-    with zipfile.ZipFile(PAK_PATH, 'r') as z:
-        for aas_file in AAS_FILES:
-            raw = z.read(aas_file)
-            aas = parse_aas(raw, aas_file)
-            verify_aas_structure(aas)
-            stress_test_coordinates(aas)
+    for aas_file in AAS_FILES:
+        raw = paks.read(aas_file)
+        if raw is None:
+            print(f"ERROR: {aas_file} not found in any of {[p.name for p in paks.paks]}", file=sys.stderr)
+            return 1
+        aas = parse_aas(raw, aas_file)
+        verify_aas_structure(aas)
+        stress_test_coordinates(aas)
 
     print("\n===============================================================")
     print(" ALL AAS SPATIAL STRESS TESTS PASSED SUCCESSFULLY (APPROVE)")

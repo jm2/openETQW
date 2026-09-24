@@ -17,6 +17,69 @@
 
 idCVar net_ip( "net_ip", "localhost", CVAR_SYSTEM, "local IP address" );
 idCVar net_port( "net_port", "0", CVAR_SYSTEM | CVAR_INTEGER, "local IP port number" );
+idCVar net_forceDrop( "net_forceDrop", "0", CVAR_SYSTEM | CVAR_INTEGER, "percentage packet loss" );	// as win_net.cpp: outgoing packets
+idCVar net_forceLatency( "net_forceLatency", "0", CVAR_SYSTEM | CVAR_INTEGER, "milliseconds latency added to received packets" );
+idCVar net_forceJitter( "net_forceJitter", "0", CVAR_SYSTEM | CVAR_INTEGER, "up to this many more milliseconds of random latency per received packet (order kept)" );
+
+// Received packets held back by net_forceLatency / net_forceJitter (network testing).
+// Keyed by socket, so idPort (shared with the game module) is unchanged.
+struct delayedPacket_t {
+	int				socket;
+	int				releaseTime;
+	netadr_t		from;
+	idList< byte >	data;
+};
+static idList< delayedPacket_t* > delayedPackets;
+
+// last release time per socket: jitter varies the delay but keeps the arrival
+// order, like queueing on a real path (independent per-packet delays reordered
+// the fragments of every large message, which the channel then dropped)
+struct socketRelease_t {
+	int		socket;
+	int		releaseTime;
+};
+static idList< socketRelease_t > socketReleases;
+
+static int Net_ReleaseTime( int netSocket, int wanted ) {
+	for ( int i = 0; i < socketReleases.Num(); i++ ) {
+		if ( socketReleases[ i ].socket == netSocket ) {
+			socketReleases[ i ].releaseTime = Max( wanted, socketReleases[ i ].releaseTime );
+			return socketReleases[ i ].releaseTime;
+		}
+	}
+	socketRelease_t release = { netSocket, wanted };
+	socketReleases.Append( release );
+	return wanted;
+}
+
+// a closed socket's descriptor is reused by the next one opened
+static void Net_PurgeSocket( int netSocket ) {
+	for ( int i = delayedPackets.Num() - 1; i >= 0; i-- ) {
+		if ( delayedPackets[ i ]->socket == netSocket ) {
+			delete delayedPackets[ i ];
+			delayedPackets.RemoveIndex( i );
+		}
+	}
+	for ( int i = socketReleases.Num() - 1; i >= 0; i-- ) {
+		if ( socketReleases[ i ].socket == netSocket ) {
+			socketReleases.RemoveIndex( i );
+		}
+	}
+}
+
+static bool Net_ReadSocket( int netSocket, netadr_t &from, void *data, int &size, int maxSize ) {
+	struct sockaddr_in from_addr;
+	socklen_t fromlen = sizeof( from_addr );
+	int ret = recvfrom( netSocket, static_cast< char* >( data ), maxSize, 0, reinterpret_cast< struct sockaddr* >( &from_addr ), &fromlen );
+	if ( ret <= 0 ) {
+		return false;
+	}
+	from.type = NA_IP;
+	from.port = ntohs( from_addr.sin_port );
+	memcpy( from.ip, &from_addr.sin_addr.s_addr, 4 );
+	size = ret;
+	return true;
+}
 
 typedef struct {
 	uint32_t ip;
@@ -43,6 +106,7 @@ idPort::~idPort() {
 
 void idPort::Close() {
 	if ( netSocket != 0 ) {
+		Net_PurgeSocket( netSocket );
 		close( netSocket );
 		netSocket = 0;
 	}
@@ -97,25 +161,68 @@ bool idPort::GetPacket( netadr_t &from, void *data, int &size, int maxSize ) {
 		return false;
 	}
 
-	struct sockaddr_in from_addr;
-	socklen_t fromlen = sizeof( from_addr );
-	int ret = recvfrom( netSocket, static_cast< char* >( data ), maxSize, 0, reinterpret_cast< struct sockaddr* >( &from_addr ), &fromlen );
-	if ( ret <= 0 ) {
-		return false;
+	const int latency = Max( 0, net_forceLatency.GetInteger() );
+	const int jitter = Max( 0, net_forceJitter.GetInteger() );
+	if ( latency == 0 && jitter == 0 && delayedPackets.Num() == 0 ) {
+		if ( !Net_ReadSocket( netSocket, from, data, size, maxSize ) ) {
+			return false;
+		}
+		packetsRead++;
+		bytesRead += size;
+		return true;
 	}
 
-	from.type = NA_IP;
-	from.port = ntohs( from_addr.sin_port );
-	memcpy( from.ip, &from_addr.sin_addr.s_addr, 4 );
-	size = ret;
+	// queue everything that has arrived, each with its own release time
+	const int now = Sys_Milliseconds();
+	netadr_t packetFrom;
+	int packetSize = 0;
+	while ( Net_ReadSocket( netSocket, packetFrom, data, packetSize, maxSize ) ) {
+		delayedPacket_t* packet = new delayedPacket_t;
+		packet->socket = netSocket;
+		packet->releaseTime = Net_ReleaseTime( netSocket, now + latency + ( jitter > 0 ? rand() % ( jitter + 1 ) : 0 ) );
+		packet->from = packetFrom;
+		packet->data.SetNum( packetSize );
+		memcpy( &packet->data[ 0 ], data, packetSize );
+		delayedPackets.Append( packet );
+	}
+
+	// hand out the due packet of this socket that is released first
+	int best = -1;
+	for ( int i = 0; i < delayedPackets.Num(); i++ ) {
+		const delayedPacket_t* packet = delayedPackets[ i ];
+		if ( packet->socket == netSocket && packet->releaseTime <= now && ( best < 0 || packet->releaseTime < delayedPackets[ best ]->releaseTime ) ) {
+			best = i;
+		}
+	}
+	if ( best < 0 ) {
+		return false;
+	}
+	delayedPacket_t* packet = delayedPackets[ best ];
+	delayedPackets.RemoveIndex( best );
+	from = packet->from;
+	size = Min( packet->data.Num(), maxSize );
+	memcpy( data, &packet->data[ 0 ], size );
+	delete packet;
 	packetsRead++;
-	bytesRead += ret;
+	bytesRead += size;
 	return true;
 }
 
 bool idPort::GetPacketBlocking( netadr_t &from, void *data, int &size, int maxSize, int timeout ) {
 	if ( netSocket == 0 ) {
 		return false;
+	}
+
+	// a packet held back by net_forceLatency / net_forceJitter can be due already,
+	// and the socket does not wake select when one becomes due
+	if ( GetPacket( from, data, size, maxSize ) ) {
+		return true;
+	}
+	const int now = Sys_Milliseconds();
+	for ( int i = 0; i < delayedPackets.Num(); i++ ) {
+		if ( delayedPackets[ i ]->socket == netSocket ) {
+			timeout = Min( timeout, Max( 0, delayedPackets[ i ]->releaseTime - now ) );
+		}
 	}
 
 	fd_set readfds;
@@ -126,8 +233,7 @@ bool idPort::GetPacketBlocking( netadr_t &from, void *data, int &size, int maxSi
 	tv.tv_sec = timeout / 1000;
 	tv.tv_usec = ( timeout % 1000 ) * 1000;
 
-	int selectRet = select( netSocket + 1, &readfds, NULL, NULL, &tv );
-	if ( selectRet <= 0 ) {
+	if ( select( netSocket + 1, &readfds, NULL, NULL, &tv ) < 0 ) {
 		return false;
 	}
 
@@ -151,6 +257,13 @@ void idPort::SendPacket( const netadr_t to, const void *data, int size ) {
 	} else if ( to.type == NA_LOOPBACK ) {
 		addr.sin_addr.s_addr = htonl( INADDR_LOOPBACK );
 	} else {
+		return;
+	}
+
+	const int dropPercent = idMath::ClampInt( 0, 100, net_forceDrop.GetInteger() );
+	if ( dropPercent > 0 && rand() < dropPercent * ( RAND_MAX / 100 ) ) {
+		packetsWritten++;	// counted as sent, as a lost packet would be
+		bytesWritten += size;
 		return;
 	}
 

@@ -109,6 +109,10 @@ typedef struct serverClient_s {
 	int					clientPing;
 
 	int					gameInitSequence;
+	int					gameInitSentId;		// gameInitId of the game init sent to this client, GAME_INIT_ID_INVALID if none
+	int					lastUserInfoTime;	// when this client's user info was last validated and sent out
+	bool				userInfoPending;	// a newer CLIENTINFO waits for the rate limit
+	idDict				pendingUserInfo;	// that CLIENTINFO, unvalidated (the live copy is sessLocal.mapSpawnData.userInfo)
 	int					gameFrame;
 	int					gameTime;
 
@@ -139,6 +143,8 @@ public:
 	void				Spawn( void );
 	void				Kill( void );
 	void				ExecuteMapChange( void );
+						// true if the running map was started from this si_map value
+	bool				IsMapRequestLoaded( const char *mapRequest ) const;
 
 	int					GetPort( void ) const;
 	netadr_t			GetBoundAdr( void ) const;
@@ -185,6 +191,7 @@ public:
 	void				GetAsyncStatsAvgMsg( idStr &msg );
 
 	void				PrintLocalServerInfo( void );
+	void				PrintClientSlots( void ) const;
 
 private:
 	bool				active;						// true if server is active
@@ -212,6 +219,9 @@ private:
 
 	bool				serverReloadingEngine;		// flip-flop to not loop over when net_serverReloadEngine is on
 
+	idStr				loadedMapRequest;			// normalized si_map of the running map, empty if none
+	idStr				loadedRules;				// si_rules the running map was started with
+
 	bool				noRconOutput;				// for default rcon response when command is silent
 
 	int					lastAuthTime;				// global for auth server timeout
@@ -231,6 +241,12 @@ private:
 	void				InitClient( int clientNum, int clientId, int clientRate );
 	void				InitLocalClient( int clientNum );
 	void				BeginLocalClient( void );
+	void				BeginBotClients( void );
+	void				ReinitRemoteClients( void );
+	void				UpdateClientUserInfo( int clientNum );
+	void				ApplyPendingUserInfo( int clientNum );
+	void				BeginRemoteClient( int clientNum );
+	int					SendMessageToClient( serverClient_t &client, const idBitMsg &msg );
 	void				LocalClientInput( void );
 	void				CheckClientTimeouts( void );
 	void				SendPrintBroadcast( const char *string );

@@ -26,6 +26,8 @@ import threading
 import time
 from pathlib import Path
 
+import etqw_harness as h
+
 TEST_PROCS = []
 
 
@@ -42,8 +44,7 @@ def cleanup_procs():
 atexit.register(cleanup_procs)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATA_PATH = Path("/Users/jmulesa/etqw_data")
-DATA_PATH = Path(os.environ.get("ETQW_DATA_PATH", str(DEFAULT_DATA_PATH)))
+DATA_PATH = h.env_data_path()
 SERVER_PORT = 27795
 
 def _find_dedicated_binary() -> Path:
@@ -69,6 +70,11 @@ SERVER_ARGS = [
     "+set", "fs_game", "base",
     "+set", "net_port", str(SERVER_PORT),
     "+set", "si_rules", "sdGameRulesObjective",
+    "+set", "g_debugDeployables", "1",
+    "+set", "g_warmup", "0",
+    # the console drives vehicle entry/exit; keep the bot AI from boarding vehicles on its own
+    "+set", "bot_useVehicles", "0",
+    "+set", "bot_useAirVehicles", "0",
     "+set", "si_pure", "0",
     "+set", "bot_enable", "1",
     "+set", "bot_sleepWhenServerEmpty", "0",
@@ -99,11 +105,18 @@ DEPLOY_STATUS_PATTERN = re.compile(
 )
 
 
+LOG_PATH = None  # --log: the server's output is also written there
+
+
 def stream_reader(pipe, name, q):
+    log = open(LOG_PATH, "w", errors="replace") if LOG_PATH else None
     try:
         for line in iter(pipe.readline, ''):
             if not line:
                 break
+            if log:
+                log.write(line)
+                log.flush()
             q.put((name, line.strip()))
     except Exception as e:
         q.put((name, f"READER_ERROR: {e}"))
@@ -274,6 +287,27 @@ def run_valley_match_test():
         server_proc.kill()
         raise TimeoutError("Dedicated server failed to load Valley within 60s")
 
+    # A match that is still in warmup cannot end (retail rules), so start it
+    # before playing the objectives. g_warmup 0 makes the countdown immediate.
+    send_cmd(server_proc, "admin startMatch")
+    game_on = False
+    gs_start = time.time()
+    while time.time() - gs_start < 30.0:
+        time.sleep(1.0)
+        try:
+            status = query_objective_status(server_proc, output_queue, timeout=3.0)
+        except TimeoutError:
+            continue
+        if status["state"] == 3:
+            game_on = True
+            break
+        if status["state"] == 1:
+            # 'Loading Map Bot Actions' prints before the map has finished loading, and
+            # the rules reset the admin start request at map start: ask again in warmup
+            send_cmd(server_proc, "admin startMatch")
+    if not game_on:
+        raise AssertionError("Match did not reach GS_GAMEON (state 3) after 'admin startMatch'")
+    print("  Match started: gameState 3 (GS_GAMEON)")
     print("  -> Phase 1 Passed: Server online and Valley map initialized.\n")
 
     # -------------------------------------------------------------
@@ -289,7 +323,7 @@ def run_valley_match_test():
     bot0_grounded = False
     bot1_grounded = False
     p2_start = time.time()
-    while time.time() - p2_start < 25.0:
+    while time.time() - p2_start < 50.0:
         if server_proc.poll() is not None:
             raise RuntimeError(f"Server died during bot spawn: {server_proc.returncode}")
         time.sleep(0.5)
@@ -321,8 +355,11 @@ def run_valley_match_test():
     # Phase 3: Vehicle Possession, Seat Swapping & Safe Egress
     # -------------------------------------------------------------
     print("[Phase 3] Testing vehicle possession, seat management, and egress...")
-    # Client 0 enters the nearest vehicle
-    send_cmd(server_proc, "enterVehicle 0")
+    # Client 0 (the GDF bot) enters the GDF Titan (by entityDef: entity names carry
+    # the entity number). The nearest vehicle depended on where the bot spawned and
+    # was sometimes the Platypus boat or the Strogg Icarus, which the bot left again
+    # at once (1 in 3 runs failed here).
+    send_cmd(server_proc, "enterVehicle 0 vehicle_titan")
     time.sleep(1.0)
 
     v_status1 = query_vehicle_status(server_proc, output_queue, client_num=0, timeout=5.0)
@@ -489,6 +526,10 @@ def run_valley_match_test():
 
 
 if __name__ == "__main__":
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--log", help="write the server's output to this file")
+    LOG_PATH = ap.parse_args().log
     try:
         sys.exit(run_valley_match_test())
     except Exception as e:

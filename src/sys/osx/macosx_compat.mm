@@ -47,9 +47,13 @@ If you have questions concerning this license or the applicable additional terms
 #import "macosx_local.h"
 #import "macosx_sys.h"
 
-#ifndef OPENQ4_GAMEDIR
-#define OPENQ4_GAMEDIR BASE_GAMEDIR
-#endif
+// openETQW package layout (app bundle or loose package root).  ETQW has a
+// single game module, game_<arch>.dylib; the retail data (pak000.pk4 ...) is
+// supplied by the user through fs_basepath and is not part of the package.
+#define OPENETQW_APP_NAME		"openETQW.app"
+#define OPENETQW_CLIENT_NAME	"openETQW-client"
+#define OPENETQW_DEDICATED_NAME	"openETQW-ded"
+#define OPENETQW_GAME_MODULE	"game"
 
 static idStr	basepath;
 static idStr	savepath;
@@ -422,40 +426,16 @@ static void Sys_RequireMacOSPackageRootExecutable( const idStr &packageDirectory
 	}
 }
 
-static void Sys_RequireMacOSPackageRootRegularFile( const idStr &packageDirectory, const char *entry, idStr &missingEntries ) {
-	idStr testPath = packageDirectory;
-	testPath.AppendPath( entry );
-
-	struct stat st;
-	if ( lstat( testPath.c_str(), &st ) == -1 ) {
-		Sys_AppendMacOSPackageRootIssue( missingEntries, entry, "missing" );
-		return;
-	}
-	if ( S_ISLNK( st.st_mode ) ) {
-		Sys_AppendMacOSPackageRootIssue( missingEntries, entry, "symlink" );
-		return;
-	}
-	if ( !S_ISREG( st.st_mode ) ) {
-		Sys_AppendMacOSPackageRootIssue( missingEntries, entry, "not a regular file" );
-		return;
-	}
-	if ( access( testPath.c_str(), R_OK ) != 0 ) {
-		Sys_AppendMacOSPackageRootIssue( missingEntries, entry, "not readable" );
-	}
-}
-
 static void Sys_AppendAlternateMacOSPackageRootEntryIfPresent( const idStr &packageDirectory, const char *entry, idStr &foundEntries ) {
 	if ( Sys_MacOSPackageRootPathExists( packageDirectory, entry ) ) {
 		Sys_AppendMacOSPackageRootFoundEntry( foundEntries, entry );
 	}
 }
 
-static void Sys_AppendAlternateMacOSPackageRootGameModuleEntries( const idStr &packageDirectory, const char *gameDir, const char *arch, idStr &foundEntries ) {
+static void Sys_AppendAlternateMacOSPackageRootGameModuleEntries( const idStr &packageDirectory, const char *arch, idStr &foundEntries ) {
 	char entry[96];
 
-	idStr::snPrintf( entry, sizeof( entry ), "%s/game-sp_%s.dylib", gameDir, arch );
-	Sys_AppendAlternateMacOSPackageRootEntryIfPresent( packageDirectory, entry, foundEntries );
-	idStr::snPrintf( entry, sizeof( entry ), "%s/game-mp_%s.dylib", gameDir, arch );
+	idStr::snPrintf( entry, sizeof( entry ), "%s_%s.dylib", OPENETQW_GAME_MODULE, arch );
 	Sys_AppendAlternateMacOSPackageRootEntryIfPresent( packageDirectory, entry, foundEntries );
 }
 
@@ -469,30 +449,24 @@ static void Sys_AppendAlternateMacOSPackageRootEntries( const idStr &packageDire
 			continue;
 		}
 
-		idStr::snPrintf( entry, sizeof( entry ), "openQ4-client_%s", arch );
+		idStr::snPrintf( entry, sizeof( entry ), "%s_%s", OPENETQW_CLIENT_NAME, arch );
 		Sys_AppendAlternateMacOSPackageRootEntryIfPresent( packageDirectory, entry, foundEntries );
-		idStr::snPrintf( entry, sizeof( entry ), "openQ4-ded_%s", arch );
+		idStr::snPrintf( entry, sizeof( entry ), "%s_%s", OPENETQW_DEDICATED_NAME, arch );
 		Sys_AppendAlternateMacOSPackageRootEntryIfPresent( packageDirectory, entry, foundEntries );
-		Sys_AppendAlternateMacOSPackageRootGameModuleEntries( packageDirectory, OPENQ4_GAMEDIR, arch, foundEntries );
-		Sys_AppendAlternateMacOSPackageRootGameModuleEntries( packageDirectory, BASE_GAMEDIR, arch, foundEntries );
+		Sys_AppendAlternateMacOSPackageRootGameModuleEntries( packageDirectory, arch, foundEntries );
 	}
 
-	Sys_AppendAlternateMacOSPackageRootGameModuleEntries( packageDirectory, BASE_GAMEDIR, expectedArch, foundEntries );
-
-	idStr::snPrintf( entry, sizeof( entry ), "%s/game-sp_%s.dll", OPENQ4_GAMEDIR, expectedArch );
+	// modules built for another platform
+	idStr::snPrintf( entry, sizeof( entry ), "%s_%s.dll", OPENETQW_GAME_MODULE, expectedArch );
 	Sys_AppendAlternateMacOSPackageRootEntryIfPresent( packageDirectory, entry, foundEntries );
-	idStr::snPrintf( entry, sizeof( entry ), "%s/game-mp_%s.dll", OPENQ4_GAMEDIR, expectedArch );
-	Sys_AppendAlternateMacOSPackageRootEntryIfPresent( packageDirectory, entry, foundEntries );
-	idStr::snPrintf( entry, sizeof( entry ), "%s/game-sp_%s.so", OPENQ4_GAMEDIR, expectedArch );
-	Sys_AppendAlternateMacOSPackageRootEntryIfPresent( packageDirectory, entry, foundEntries );
-	idStr::snPrintf( entry, sizeof( entry ), "%s/game-mp_%s.so", OPENQ4_GAMEDIR, expectedArch );
+	idStr::snPrintf( entry, sizeof( entry ), "%s_%s.so", OPENETQW_GAME_MODULE, expectedArch );
 	Sys_AppendAlternateMacOSPackageRootEntryIfPresent( packageDirectory, entry, foundEntries );
 }
 
 static idStr Sys_LocalizedMacOSPackageRootString( const char *key, const char *fallback ) {
 	NSString *keyString = [NSString stringWithUTF8String:key != NULL ? key : ""];
 	NSString *fallbackString = [NSString stringWithUTF8String:fallback != NULL ? fallback : ""];
-	NSString *localizedString = [[NSBundle mainBundle] localizedStringForKey:keyString value:fallbackString table:@"OpenQ4PackageRoot"];
+	NSString *localizedString = [[NSBundle mainBundle] localizedStringForKey:keyString value:fallbackString table:@"OpenETQWPackageRoot"];
 	if ( localizedString == nil || [localizedString length] == 0 ) {
 		localizedString = fallbackString;
 	}
@@ -504,64 +478,52 @@ static idStr Sys_LocalizedMacOSPackageRootString( const char *key, const char *f
 	return idStr( utf8String );
 }
 
-static void Sys_CollectMacOSGameModulePairIssues( const idStr &frameworkDirectory, const char *arch, idStr &missingEntries ) {
-	char spModuleEntry[64];
-	char mpModuleEntry[64];
+static void Sys_CollectMacOSGameModuleIssues( const idStr &frameworkDirectory, const char *arch, idStr &missingEntries ) {
+	char moduleEntry[64];
 
-	idStr::snPrintf( spModuleEntry, sizeof( spModuleEntry ), "game-sp_%s.dylib", arch );
-	idStr::snPrintf( mpModuleEntry, sizeof( mpModuleEntry ), "game-mp_%s.dylib", arch );
-	Sys_RequireMacOSPackageRootExecutable( frameworkDirectory, spModuleEntry, missingEntries );
-	Sys_RequireMacOSPackageRootExecutable( frameworkDirectory, mpModuleEntry, missingEntries );
+	idStr::snPrintf( moduleEntry, sizeof( moduleEntry ), "%s_%s.dylib", OPENETQW_GAME_MODULE, arch );
+	Sys_RequireMacOSPackageRootExecutable( frameworkDirectory, moduleEntry, missingEntries );
 }
 
 static void Sys_CollectMacOSAppBundleRuntimeIssues( const idStr &resourceDirectory, const idStr &frameworkDirectory, idStr &missingEntries ) {
 	idStr architectureModuleIssues;
-	idStr universalModuleIssues;
 
 	missingEntries.Clear();
-	Sys_RequireMacOSPackageRootDirectory( resourceDirectory, OPENQ4_GAMEDIR, missingEntries );
-	Sys_RequireMacOSPackageRootRegularFile( resourceDirectory, OPENQ4_GAMEDIR "/mod.json", missingEntries );
-	Sys_RequireMacOSPackageRootRegularFile( resourceDirectory, OPENQ4_GAMEDIR "/pak0.pk4", missingEntries );
-	Sys_RequireMacOSPackageRootRegularFile( resourceDirectory, OPENQ4_GAMEDIR "/pak1.pk4", missingEntries );
+	Sys_RequireMacOSPackageRootDirectory( resourceDirectory, BASE_GAMEDIR, missingEntries );
 
-	Sys_CollectMacOSGameModulePairIssues( frameworkDirectory, Sys_MacOSPackageRuntimeArchSuffix(), architectureModuleIssues );
+	// only the name the loader looks for (Sys_DLL_GetFileName: game_<arch>.dylib)
+	Sys_CollectMacOSGameModuleIssues( frameworkDirectory, Sys_MacOSPackageRuntimeArchSuffix(), architectureModuleIssues );
 	if ( architectureModuleIssues.Length() == 0 ) {
 		return;
 	}
 
-	Sys_CollectMacOSGameModulePairIssues( frameworkDirectory, "universal2", universalModuleIssues );
-	if ( universalModuleIssues.Length() == 0 ) {
-		return;
-	}
-
-	Sys_AppendMacOSPackageRootIssue( missingEntries, architectureModuleIssues.c_str(), "architecture-specific module pair unavailable" );
-	Sys_AppendMacOSPackageRootIssue( missingEntries, universalModuleIssues.c_str(), "universal2 module pair unavailable" );
+	Sys_AppendMacOSPackageRootIssue( missingEntries, architectureModuleIssues.c_str(), "architecture-specific game module unavailable" );
 }
 
 static bool Sys_MacOSAppBundleHasEmbeddedRuntimeMarker( const idStr &resourceDirectory, const idStr &frameworkDirectory ) {
-	return Sys_MacOSPackageRootPathExists( resourceDirectory, OPENQ4_GAMEDIR )
+	return Sys_MacOSPackageRootPathExists( resourceDirectory, BASE_GAMEDIR )
 		|| Sys_DirectoryExists( frameworkDirectory.c_str() );
 }
 
 static bool Sys_MacOSAppBundleDeclaresSelfContainedRuntime( const idStr &appDirectory ) {
 	NSString *appPath = [NSString stringWithUTF8String:appDirectory.c_str()];
 	NSBundle *appBundle = appPath != nil ? [NSBundle bundleWithPath:appPath] : nil;
-	NSString *runtimeLayout = [appBundle objectForInfoDictionaryKey:@"OpenQ4RuntimeLayout"];
+	NSString *runtimeLayout = [appBundle objectForInfoDictionaryKey:@"OpenETQWRuntimeLayout"];
 	return runtimeLayout != nil && [runtimeLayout isEqualToString:@"self-contained-v1"];
 }
 
 static void Sys_ErrorIfMacOSAppBundleRuntimeIncomplete( const idStr &appDirectory, const idStr &resourceDirectory, const idStr &frameworkDirectory, const idStr &missingEntries ) {
 	idStr title = Sys_LocalizedMacOSPackageRootString(
-		"OpenQ4BundleRuntimeMissingTitle",
-		"openQ4.app is incomplete"
+		"OpenETQWBundleRuntimeMissingTitle",
+		OPENETQW_APP_NAME " is incomplete"
 	);
 	idStr body = Sys_LocalizedMacOSPackageRootString(
-		"OpenQ4BundleRuntimeMissingBody",
-		"Reinstall the complete openQ4.app. Its game data and signed game modules must remain inside the application bundle."
+		"OpenETQWBundleRuntimeMissingBody",
+		"Reinstall the complete " OPENETQW_APP_NAME ". Its " BASE_GAMEDIR " directory and signed game module must remain inside the application bundle."
 	);
 
 	Sys_Error(
-		"%s\n\n%s\n\nExpected self-contained app contract: data in Contents/Resources/baseoq4 and signed game modules in Contents/Frameworks.\nExpected runtime architecture: %s\nApp path: %s\nResource root: %s\nModule root: %s\nMissing or unusable entries: %s",
+		"%s\n\n%s\n\nExpected self-contained app contract: " BASE_GAMEDIR " in Contents/Resources and the signed game module in Contents/Frameworks.\nExpected runtime architecture: %s\nApp path: %s\nResource root: %s\nModule root: %s\nMissing or unusable entries: %s",
 		title.c_str(),
 		body.c_str(),
 		Sys_MacOSPackageRuntimeArchSuffix(),
@@ -578,19 +540,17 @@ static void Sys_ErrorIfMacOSAppBundlePackageRootIncomplete( const idStr &appDire
 	const char *arch = Sys_MacOSPackageRuntimeArchSuffix();
 	char clientEntry[64];
 	char dedicatedEntry[64];
-	char spModuleEntry[96];
-	char mpModuleEntry[96];
+	char moduleEntry[96];
 
-	idStr::snPrintf( clientEntry, sizeof( clientEntry ), "openQ4-client_%s", arch );
-	idStr::snPrintf( dedicatedEntry, sizeof( dedicatedEntry ), "openQ4-ded_%s", arch );
-	idStr::snPrintf( spModuleEntry, sizeof( spModuleEntry ), "%s/game-sp_%s.dylib", OPENQ4_GAMEDIR, arch );
-	idStr::snPrintf( mpModuleEntry, sizeof( mpModuleEntry ), "%s/game-mp_%s.dylib", OPENQ4_GAMEDIR, arch );
+	idStr::snPrintf( clientEntry, sizeof( clientEntry ), "%s_%s", OPENETQW_CLIENT_NAME, arch );
+	idStr::snPrintf( dedicatedEntry, sizeof( dedicatedEntry ), "%s_%s", OPENETQW_DEDICATED_NAME, arch );
+	// FindDLL looks for the game module next to the executable first.
+	idStr::snPrintf( moduleEntry, sizeof( moduleEntry ), "%s_%s.dylib", OPENETQW_GAME_MODULE, arch );
 
-	Sys_RequireMacOSPackageRootDirectory( packageDirectory, OPENQ4_GAMEDIR, missingEntries );
+	Sys_RequireMacOSPackageRootDirectory( packageDirectory, BASE_GAMEDIR, missingEntries );
 	Sys_RequireMacOSPackageRootExecutable( packageDirectory, clientEntry, missingEntries );
 	Sys_RequireMacOSPackageRootExecutable( packageDirectory, dedicatedEntry, missingEntries );
-	Sys_RequireMacOSPackageRootExecutable( packageDirectory, spModuleEntry, missingEntries );
-	Sys_RequireMacOSPackageRootExecutable( packageDirectory, mpModuleEntry, missingEntries );
+	Sys_RequireMacOSPackageRootExecutable( packageDirectory, moduleEntry, missingEntries );
 
 	if ( missingEntries.Length() == 0 ) {
 		return;
@@ -599,16 +559,16 @@ static void Sys_ErrorIfMacOSAppBundlePackageRootIncomplete( const idStr &appDire
 	Sys_AppendAlternateMacOSPackageRootEntries( packageDirectory, arch, foundMismatchedEntries );
 
 	idStr title = Sys_LocalizedMacOSPackageRootString(
-		"OpenQ4PackageRootMissingTitle",
-		"openQ4.app adjacent package root is incomplete"
+		"OpenETQWPackageRootMissingTitle",
+		OPENETQW_APP_NAME " adjacent package root is incomplete"
 	);
 	idStr body = Sys_LocalizedMacOSPackageRootString(
-		"OpenQ4PackageRootMissingBody",
-		"This legacy package layout needs openQ4.app, baseoq4/, openQ4-client_<arch>, and openQ4-ded_<arch> together in the same package folder. Current self-contained packages support moving only openQ4.app to /Applications; reinstall this package to use that layout."
+		"OpenETQWPackageRootMissingBody",
+		"This package layout needs " OPENETQW_APP_NAME ", " BASE_GAMEDIR "/, " OPENETQW_CLIENT_NAME "_<arch>, " OPENETQW_DEDICATED_NAME "_<arch> and " OPENETQW_GAME_MODULE "_<arch>.dylib together in the same package folder. Self-contained packages support moving only " OPENETQW_APP_NAME " to /Applications; reinstall this package to use that layout."
 	);
 
 	Sys_Error(
-		"%s\n\n%s\n\nExpected adjacent package-root contract: openQ4.app, loose binaries, and baseoq4/ together.\nExpected runtime architecture: %s\nPackage root: %s\nApp path: %s\nMissing or unusable entries: %s\nExisting mismatched runtime entries: %s",
+		"%s\n\n%s\n\nExpected adjacent package-root contract: " OPENETQW_APP_NAME ", loose binaries, the game module and " BASE_GAMEDIR "/ together.\nExpected runtime architecture: %s\nPackage root: %s\nApp path: %s\nMissing or unusable entries: %s\nExisting mismatched runtime entries: %s",
 		title.c_str(),
 		body.c_str(),
 		arch,
@@ -651,7 +611,7 @@ static bool Sys_SelectMacOSAppBundleRuntimeRoots( const idStr &exeDirectory, idS
 
 static bool Sys_GetSiblingSelfContainedAppRuntimeRoots( const idStr &exeDirectory, idStr &contentRoot, idStr &moduleRoot ) {
 	idStr appDirectory = exeDirectory;
-	appDirectory.AppendPath( "openQ4.app" );
+	appDirectory.AppendPath( OPENETQW_APP_NAME );
 	idStr resourceDirectory;
 	idStr frameworkDirectory;
 	Sys_GetMacOSAppBundleRuntimeDirectories( appDirectory, resourceDirectory, frameworkDirectory );
@@ -722,7 +682,7 @@ Sys_DefaultCDPath
 
 Finder and LaunchServices do not guarantee an application's process working
 directory. Self-contained app launches use Contents/Resources; loose packaged
-binaries use that same content root when a sibling openQ4.app is present.
+binaries use that same content root when a sibling openETQW.app is present.
 Legacy adjacent packages remain supported by the runtime-root selector.
 =============
 */
@@ -757,10 +717,12 @@ const char *Sys_DefaultSavePath( void ) {
 		idStr candidate = home;
 		candidate.AppendPath( "Library" );
 		candidate.AppendPath( "Application Support" );
+		// Per-user configs, logs and warnings.txt.  This was the OpenQ4
+		// directory, which openETQW then shared with a real OpenQ4 install.
 #if defined( ID_DEMO_BUILD )
-		candidate.AppendPath( "openQ4 Demo" );
+		candidate.AppendPath( "openETQW Demo" );
 #else
-		candidate.AppendPath( "openQ4" );
+		candidate.AppendPath( "openETQW" );
 #endif
 		if ( Sys_SetUsableMacOSSavePath( candidate, "Application Support" ) ) {
 			return savepath.c_str();

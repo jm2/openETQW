@@ -14,6 +14,10 @@ sdRenderShader* SD_AllocRenderShader( const char* type ) {
 	return NULL;
 }
 
+bool SD_HasRenderShaderBackend() {
+	return false;
+}
+
 void SD_UnbindRenderProgram() {
 }
 

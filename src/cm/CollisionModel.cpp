@@ -134,7 +134,11 @@ void idCollisionModelManagerLocal::GetFullModelName( idStr &out, const char *map
 void idCollisionModelManagerLocal::LoadMap( const char *fileName, bool forceReload ) {
 	idStr worldName;
 	GetFullModelName( worldName, fileName, WORLD_MODEL_NAME );
-	if ( !forceReload && ( FindModel( worldName.c_str() ) >= 0 || FindModel( ( worldName + "0" ).c_str() ) >= 0 ) ) {
+	const cmHandle_t h0 = FindModel( worldName.c_str() );
+	const cmHandle_t h1 = FindModel( ( worldName + "0" ).c_str() );
+	const bool modelActive = ( h0 >= 0 && models[ h0 ] != NULL && models[ h0 ]->refCount > 0 ) ||
+	                         ( h1 >= 0 && models[ h1 ] != NULL && models[ h1 ]->refCount > 0 );
+	if ( !forceReload && modelActive ) {
 		return;
 	}
 
@@ -167,19 +171,31 @@ void idCollisionModelManagerLocal::FreeModel( idCollisionModel *model ) {
 }
 
 void idCollisionModelManagerLocal::PurgeModels( void ) {
-	for ( int i = numModels - 1; i >= 0; --i ) {
+	if ( models == NULL || numModels <= 0 ) {
+		return;
+	}
+
+	int newNumModels = 0;
+	for ( int i = 0; i < numModels; ++i ) {
 		idCollisionModelLocal *model = models[ i ];
-		if ( model == NULL || model->refCount != 0 || model->isWorld ) {
+		if ( model == NULL ) {
 			continue;
 		}
 
-		FreeModelMemory( model );
-		delete model;
-		for ( int j = i + 1; j < numModels; ++j ) {
-			models[ j - 1 ] = models[ j ];
+		if ( model->refCount == 0 ) {
+			FreeModelMemory( model );
+			delete model;
+			models[ i ] = NULL;
+			continue;
 		}
-		--numModels;
+
+		models[ newNumModels++ ] = model;
 	}
+
+	for ( int i = newNumModels; i < numModels; ++i ) {
+		models[ i ] = NULL;
+	}
+	numModels = newNumModels;
 }
 
 idCollisionModel *idCollisionModelManagerLocal::ModelFromTrm( const char *mapName,

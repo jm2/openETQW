@@ -11,10 +11,14 @@
 
 #include "../precompiled.h"
 #include "AsyncNetwork.h"
+#include <chrono>
 #include "../Session_local.h"
 
 static const int CLIENT_CONNECT_RESEND_MSEC = 1000;
 static const int CLIENT_EMPTY_RESEND_MSEC = 500;
+static const int PREDICTION_FAST_ADJUST = 4;	// Doom 3: fraction of the prediction error corrected per snapshot
+
+static idCVar net_clientShowSnapshots( "net_clientShowSnapshots", "0", CVAR_SYSTEM | CVAR_BOOL | CVAR_NOCHEAT, "print a line for every snapshot the client reads (network tests)" );
 
 idAsyncClient::idAsyncClient() :
 	active( false ),
@@ -134,6 +138,9 @@ void idAsyncClient::ClearPendingPackets() {
 
 void idAsyncClient::ConnectToServer( const netadr_t adr ) {
 	session->Stop();
+	// leave a server we are still connected to (Doom 3): tell it, and shut the old
+	// channel so nothing of that session reaches the new one
+	DisconnectFromServer();
 	if ( !InitPort() ) {
 		return;
 	}
@@ -141,7 +148,15 @@ void idAsyncClient::ConnectToServer( const netadr_t adr ) {
 	ClearPendingPackets();
 	Clear();
 	serverAddress = adr;
-	clientId = Sys_Milliseconds() & CONNECTIONLESS_MESSAGE_ID_MASK;
+	// random: the server tells clients behind one address apart by it, and the
+	// time since start (Doom 3) is the same for clients started together
+	// (a nanosecond clock and a stack address, which differs per process with ASLR,
+	// mixed so both reach the low bits)
+	const int stackMarker = 0;
+	unsigned long long seed = static_cast< unsigned long long >( std::chrono::high_resolution_clock::now().time_since_epoch().count() );
+	seed ^= static_cast< unsigned long long >( reinterpret_cast< uintptr_t >( &stackMarker ) );
+	seed *= 0x9E3779B97F4A7C15ull;
+	clientId = static_cast< int >( ( seed >> 40 ) & CONNECTIONLESS_MESSAGE_ID_MASK );
 	clientDataChecksum = declManager->GetChecksum();
 	clientState = CS_CHALLENGING;
 	active = true;
@@ -278,7 +293,7 @@ float idAsyncClient::GetIncomingPacketLoss() const {
 }
 
 int idAsyncClient::GetGameTimeLeft() const {
-	int elapsedInTic = gameTimeResidual;
+	int elapsedInTic = gameTimeResidual + clientPredictTime;	// the tic boundary RunFrame uses
 	if ( elapsedInTic < 1 ) {
 		elapsedInTic = 1;
 	} else if ( elapsedInTic >= USERCMD_MSEC ) {
@@ -311,9 +326,12 @@ void idAsyncClient::RunFrame() {
 	}
 
 	SetupConnection();
+	if ( clientState >= CS_CONNECTED && !sessLocal.insideExecuteMapChange && ( cvarSystem->GetModifiedFlags() & CVAR_USERINFO ) != 0 ) {
+		SendUserInfoToServer();	// a ui_* cvar changed
+	}
 	if ( clientState == CS_INGAME && !sessLocal.insideExecuteMapChange ) {
 		const int startFrame = gameFrame;
-		while ( gameTimeResidual >= USERCMD_MSEC ) {
+		while ( gameTimeResidual + clientPredictTime >= USERCMD_MSEC ) {
 			SendUsercmdsToServer();
 			++gameFrame;
 			gameTime += USERCMD_MSEC;
@@ -376,6 +394,13 @@ void idAsyncClient::ReadClientUserCmds( int clientNum, const idBitMsg& msg ) {
 		cmd.duplicateCount = 0;
 		last = &cmd;
 	}
+	// clear the frames after the relayed ones, so prediction duplicates the last
+	// relayed command instead of running old ones (Doom 3)
+	for ( int j = numUsercmds; j < MAX_USERCMD_BACKUP; ++j ) {
+		usercmd_t& cmd = userCmds[ ( snapshotGameFrame + j ) & ( MAX_USERCMD_BACKUP - 1 ) ][ clientNum ];
+		cmd.gameFrame = 0;
+		cmd.gameTime = 0;
+	}
 }
 
 void idAsyncClient::SendVersionCheck( bool fromMenu ) {
@@ -404,7 +429,39 @@ void idAsyncClient::DuplicateUsercmds( int frame, int time ) {
 	}
 }
 
+/*
+==================
+idAsyncClient::SendUserInfoToServer
+
+The ui_* user info cvars, in full (the server validates them and sends every
+player's info back through SERVER_RELIABLE_MESSAGE_CLIENTINFO).  Sent at
+connect and whenever one of them changes.
+==================
+*/
 void idAsyncClient::SendUserInfoToServer() {
+	if ( !active || clientState < CS_CONNECTED ) {
+		return;
+	}
+	const idDict* cvars = cvarSystem->MoveCVarsToDict( CVAR_USERINFO );
+	idDict info;
+	for ( int i = 0; cvars != NULL && i < cvars->GetNumKeyVals() && info.GetNumKeyVals() < 32; ++i ) {
+		const idKeyValue* kv = cvars->GetKeyVal( i );
+		if ( idStr::Icmpn( kv->GetKey().c_str(), "ui_", 3 ) != 0 ) {
+			continue;
+		}
+		idStr value = kv->GetValue();
+		value.CapLength( 64 );
+		info.Set( kv->GetKey(), value );
+	}
+	byte buffer[ MAX_MESSAGE_SIZE ];
+	idBitMsg msg;
+	msg.InitWrite( buffer, sizeof( buffer ) );
+	msg.BeginWriting();
+	msg.WriteByte( CLIENT_RELIABLE_MESSAGE_CLIENTINFO );
+	msg.WriteDeltaDict( info, NULL );
+	if ( channel.SendReliableMessage( msg ) ) {
+		cvarSystem->ClearModifiedFlags( CVAR_USERINFO );	// otherwise retried next frame
+	}
 }
 
 void idAsyncClient::SendEmptyToServer( bool force, bool mapLoad ) {
@@ -419,8 +476,12 @@ void idAsyncClient::SendEmptyToServer( bool force, bool mapLoad ) {
 	msg.InitWrite( buffer, sizeof( buffer ) );
 	msg.BeginWriting();
 	msg.WriteByte( CLIENT_UNRELIABLE_MESSAGE_EMPTY );
+	msg.WriteLong( gameInitId );	// the server ignores the load state of another game
 	msg.WriteBool( mapLoad );
 	channel.SendMessage( clientPort, realTime, msg );
+	while ( channel.UnsentFragmentsLeft() ) {	// a large reliable backlog fragments even a small message
+		channel.SendNextFragment( clientPort, realTime );
+	}
 	lastEmptyTime = realTime;
 }
 
@@ -432,6 +493,9 @@ void idAsyncClient::SendPingResponseToServer( int time ) {
 	msg.WriteByte( CLIENT_UNRELIABLE_MESSAGE_PINGRESPONSE );
 	msg.WriteLong( time );
 	channel.SendMessage( clientPort, realTime, msg );
+	while ( channel.UnsentFragmentsLeft() ) {
+		channel.SendNextFragment( clientPort, realTime );
+	}
 }
 
 void idAsyncClient::SendUsercmdsToServer() {
@@ -455,8 +519,10 @@ void idAsyncClient::SendUsercmdsToServer() {
 	msg.InitWrite( buffer, sizeof( buffer ) );
 	msg.BeginWriting();
 	msg.WriteByte( CLIENT_UNRELIABLE_MESSAGE_USERCMD );
+	msg.WriteLong( gameInitId );	// the server ignores acks and usercmds of another game
 	msg.WriteLong( snapshotSequence );
 	msg.WriteLong( gameFrame );
+	msg.WriteShort( clientPrediction );	// the server's anti-lag rewinds by it
 	msg.WriteByte( numUsercmds );
 
 	const usercmd_t* last = NULL;
@@ -479,6 +545,11 @@ void idAsyncClient::InitGame( int serverGameInitId, int serverGameFrame, int ser
 	snapshotGameFrame = serverGameFrame;
 	snapshotGameTime = serverGameTime;
 	predictedGameFrame = serverGameFrame;
+	memset( userCmds, 0, sizeof( userCmds ) );	// the old game's usercmds would be predicted on this map (Doom 3)
+	// every player's user info for this game follows the game init (SERVER_RELIABLE_MESSAGE_CLIENTINFO)
+	for ( int i = 0; i < MAX_ASYNC_CLIENTS; ++i ) {
+		sessLocal.mapSpawnData.userInfo[ i ].Clear();
+	}
 	sessLocal.mapSpawnData.serverInfo = serverSI;
 	game->SetServerInfo( serverSI );
 
@@ -488,7 +559,11 @@ void idAsyncClient::InitGame( int serverGameInitId, int serverGameFrame, int ser
 		sessLocal.ExecuteMapChange( mapName.c_str(), 0, true, true, true );
 	}
 	game->SetClientNum( clientNum, false );
-	clientState = CS_INGAME;
+	// In the game once the first snapshot of this game arrives (as in Doom 3):
+	// the reliable state that follows the game init creates the networked
+	// entities but carries none of their current state, and predicting them
+	// before a snapshot ran client physics on garbage.
+	clientState = CS_CONNECTED;
 }
 
 void idAsyncClient::ProcessUnreliableServerMessage( const idBitMsg& msg ) {
@@ -498,15 +573,8 @@ void idAsyncClient::ProcessUnreliableServerMessage( const idBitMsg& msg ) {
 		SendPingResponseToServer( msg.ReadLong() );
 	} else if ( type == SERVER_UNRELIABLE_MESSAGE_EMPTY ) {
 		lastPacketTime = realTime;
-	} else if ( type == SERVER_UNRELIABLE_MESSAGE_GAMEINIT ) {
-		int sGameInitId = msg.ReadLong();
-		int sGameFrame = msg.ReadLong();
-		int sGameTime = msg.ReadLong();
-		idDict sServerInfo;
-		msg.ReadDeltaDict( sServerInfo, NULL );
-		InitGame( sGameInitId, sGameFrame, sGameTime, sServerInfo );
 	} else if ( type == SERVER_UNRELIABLE_MESSAGE_SNAPSHOT ) {
-		if ( clientState != CS_INGAME || sessLocal.insideExecuteMapChange ) {
+		if ( clientState < CS_CONNECTED || sessLocal.insideExecuteMapChange ) {
 			return;
 		}
 		int sGameInitId = msg.ReadLong();
@@ -543,7 +611,11 @@ void idAsyncClient::ProcessUnreliableServerMessage( const idBitMsg& msg ) {
 		snapshotGameFrame = sGameFrame;
 		snapshotGameTime = sGameTime;
 
-		if ( gameFrame < snapshotGameFrame || gameTime < snapshotGameTime ) {
+		// The client runs ahead of the server by about the latency, so its usercmds
+		// arrive before the server runs their frames (Doom 3).  Behind the snapshot,
+		// or further ahead than net_clientMaxPrediction: restart from the snapshot.
+		const int maxPrediction = idAsyncNetwork::clientMaxPrediction.GetInteger();
+		if ( gameTime < snapshotGameTime || gameTime > snapshotGameTime + maxPrediction ) {
 			for ( int f = gameFrame; f <= snapshotGameFrame; ++f ) {
 				memset( &userCmds[ f & ( MAX_USERCMD_BACKUP - 1 ) ][ clientNum ], 0, sizeof( usercmd_t ) );
 				userCmds[ f & ( MAX_USERCMD_BACKUP - 1 ) ][ clientNum ].gameFrame = f;
@@ -551,15 +623,33 @@ void idAsyncClient::ProcessUnreliableServerMessage( const idBitMsg& msg ) {
 			}
 			gameFrame = snapshotGameFrame;
 			gameTime = snapshotGameTime;
-			gameTimeResidual = 0;
+			gameTimeResidual = idMath::ClampInt( -maxPrediction, maxPrediction, gameTimeResidual );
+			clientPredictTime = idMath::ClampInt( -maxPrediction, maxPrediction, clientPredictTime );
 		}
 
+		// read only: the snapshot becomes the delta base when the server says so
+		// (SERVER_RELIABLE_MESSAGE_APPLYSNAPSHOT); snapshotSequence is the ack
 		if ( game->ClientReadSnapshot( sequence, sGameFrame, sGameTime, numDuplicatedUsercmds, aheadOfServer, gameMsg, ucmdMsg ) ) {
-			game->ClientApplySnapshot( sequence );
 			snapshotSequence = sequence;
 			lastSnapshotTime = realTime;
 			predictedGameFrame = snapshotGameFrame;
-			common->Printf( "Client received snapshot %d (frame %d)\n", sequence, sGameFrame );
+			if ( clientState == CS_CONNECTED ) {
+				clientState = CS_INGAME;	// first snapshot of this game
+				gameTimeResidual = 0;
+			}
+
+			// aheadOfServer: how far ahead of the server's time our newest usercmd was
+			// when the server wrote this snapshot.  Move the prediction a millisecond at
+			// a time towards net_clientPrediction ahead, and the clock towards the
+			// snapshot time plus that prediction (Doom 3).
+			clientPrediction -= ( 1 - ( INTSIGNBITSET( aheadOfServer - idAsyncNetwork::clientPrediction.GetInteger() ) << 1 ) );
+			clientPrediction = idMath::ClampInt( idAsyncNetwork::clientPrediction.GetInteger(), maxPrediction, clientPrediction );
+			const int delta = gameTime - ( snapshotGameTime + clientPrediction );
+			clientPredictTime -= ( delta / PREDICTION_FAST_ADJUST ) + ( 1 - ( INTSIGNBITSET( delta ) << 1 ) );
+
+			if ( net_clientShowSnapshots.GetBool() ) {
+				common->Printf( "Client received snapshot %d (frame %d)\n", sequence, sGameFrame );
+			}
 		}
 	}
 }
@@ -575,13 +665,44 @@ void idAsyncClient::ProcessReliableServerMessages() {
 				DisconnectFromServer();
 				session->StartMenu();
 				return;
+			case SERVER_RELIABLE_MESSAGE_GAMEINIT: {
+				// Loads the map here, so the reliable messages after it (the new
+				// game's state) are handled on the new map.
+				const int sGameInitId = msg.ReadLong();
+				const int sGameFrame = msg.ReadLong();
+				const int sGameTime = msg.ReadLong();
+				idDict sServerInfo;
+				msg.ReadDeltaDict( sServerInfo, NULL );
+				InitGame( sGameInitId, sGameFrame, sGameTime, sServerInfo );
+				break;
+			}
+			case SERVER_RELIABLE_MESSAGE_CLIENTINFO: {
+				// The server's validated info for one player.  Not written back into
+				// our ui_name cvar: that is archived, and would keep a server's '_'.
+				const int infoNum = msg.ReadByte();
+				idDict info;
+				game->ReadUserInfo( msg, info );
+				if ( infoNum >= 0 && infoNum < MAX_ASYNC_CLIENTS ) {
+					sessLocal.mapSpawnData.userInfo[ infoNum ] = info;
+					common->Printf( "Client user info %d: '%s'\n", infoNum, info.GetString( "ui_realname" ) );
+					game->UserInfoChanged( infoNum );
+				}
+				break;
+			}
+			case SERVER_RELIABLE_MESSAGE_APPLYSNAPSHOT: {
+				// the server made this snapshot its base for us; it is one we read (the
+				// ack), and applying it frees the older ones
+				const int sequence = msg.ReadLong();
+				if ( !game->ClientApplySnapshot( sequence ) ) {
+					common->Error( "idAsyncClient: couldn't apply snapshot %d", sequence );
+				}
+				break;
+			}
 			case SERVER_RELIABLE_MESSAGE_GAME:
 				game->ClientProcessReliableMessage( msg );
 				break;
 			case SERVER_RELIABLE_MESSAGE_ENTERGAME:
-				if ( !sessLocal.insideExecuteMapChange ) {
-					clientState = CS_INGAME;
-				}
+				// the first snapshot of the game puts the client in it (InitGame)
 				break;
 			case SERVER_RELIABLE_MESSAGE_SYNCEDCVARS: {
 				idDict& info = sessLocal.mapSpawnData.syncedCVars;
@@ -605,8 +726,8 @@ void idAsyncClient::ProcessChallengeResponseMessage( const netadr_t from, const 
 }
 
 void idAsyncClient::ProcessConnectResponseMessage( const netadr_t from, const idBitMsg& msg ) {
-	if ( !Sys_CompareNetAdrBase( from, serverAddress ) ) {
-		return;
+	if ( !Sys_CompareNetAdrBase( from, serverAddress ) || clientState != CS_CONNECTING ) {
+		return;	// a repeated response must not reset the channel (Doom 3)
 	}
 	serverId = msg.ReadLong();
 	clientNum = msg.ReadLong();
@@ -614,6 +735,9 @@ void idAsyncClient::ProcessConnectResponseMessage( const netadr_t from, const id
 	clientState = CS_CONNECTED;
 	lastPacketTime = realTime;
 	common->Printf( "Client connected to server (slot %d, serverId %d)\n", clientNum, serverId );
+	// first estimate of how far ahead to run: the connect round trip (Doom 3)
+	clientPredictTime = clientPrediction = idMath::ClampInt( 0, idAsyncNetwork::clientMaxPrediction.GetInteger(), realTime - lastConnectTime );
+	SendUserInfoToServer();
 }
 
 void idAsyncClient::ProcessDisconnectMessage( const netadr_t from, const idBitMsg& msg ) {
@@ -671,7 +795,9 @@ void idAsyncClient::ProcessMessage( const netadr_t from, idBitMsg& msg ) {
 		ConnectionlessMessage( from, msg );
 		return;
 	}
-	if ( !active || !Sys_CompareNetAdrBase( from, channel.GetRemoteAddress() ) ) {
+	// no channel yet, or a packet of another server on this address (the id is
+	// the server's; a stale server's packet would move the channel to its port)
+	if ( !active || clientState < CS_CONNECTED || id != serverId || !Sys_CompareNetAdrBase( from, channel.GetRemoteAddress() ) ) {
 		return;
 	}
 	if ( sessLocal.insideExecuteMapChange ) {

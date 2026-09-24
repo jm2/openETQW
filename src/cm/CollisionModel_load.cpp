@@ -260,9 +260,13 @@ void idCollisionModelManagerLocal::Shutdown( void ) {
 			if ( models[ i ] != NULL ) {
 				FreeModelMemory( models[ i ] );
 				delete models[ i ];
+				models[ i ] = NULL;
 			}
 		}
 		Mem_Free( models );
+		models = NULL;
+		numModels = 0;
+		maxModels = 0;
 	}
 
 	if ( procNodes != NULL ) {
@@ -366,19 +370,44 @@ void idCollisionModelManagerLocal::FreeModelMemory( cm_model_t *model ) {
 		block = next;
 	}
 
+	model->polygonRefBlocks = NULL;
+	model->brushRefBlocks = NULL;
+
 	for ( cm_nodeBlock_t *block = model->nodeBlocks; block != NULL; ) {
 		cm_nodeBlock_t *next = block->next;
 		Mem_Free( block );
 		block = next;
 	}
+	model->nodeBlocks = NULL;
 
-	Mem_FreeAligned( model->polygonEdges );
-	Mem_FreeAligned( model->polygons );
-	Mem_FreeAligned( model->brushPlanes );
-	Mem_FreeAligned( model->brushes );
-	Mem_Free( model->edges );
-	Mem_Free( model->vertices );
-	Mem_Free( model->texCoords );
+	if ( model->polygonEdges != NULL ) {
+		Mem_FreeAligned( model->polygonEdges );
+		model->polygonEdges = NULL;
+	}
+	if ( model->polygons != NULL ) {
+		Mem_FreeAligned( model->polygons );
+		model->polygons = NULL;
+	}
+	if ( model->brushPlanes != NULL ) {
+		Mem_FreeAligned( model->brushPlanes );
+		model->brushPlanes = NULL;
+	}
+	if ( model->brushes != NULL ) {
+		Mem_FreeAligned( model->brushes );
+		model->brushes = NULL;
+	}
+	if ( model->edges != NULL ) {
+		Mem_Free( model->edges );
+		model->edges = NULL;
+	}
+	if ( model->vertices != NULL ) {
+		Mem_Free( model->vertices );
+		model->vertices = NULL;
+	}
+	if ( model->texCoords != NULL ) {
+		Mem_Free( model->texCoords );
+		model->texCoords = NULL;
+	}
 
 	ClearModel( model );
 }

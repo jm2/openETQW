@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Known integration tests that do NOT yet skip cleanly (exit 77, no traceback,
+# no engine launch) when retail data is absent. tools/ci/check_integration_skips.py
+# reports these as warnings instead of failing CI; every other integration test
+# must skip cleanly. Fix the test, then delete its line (CI prints a notice when
+# an entry has been fixed). Regenerate with:
+#   python3 tools/ci/check_integration_skips.py --write-baseline
+#
+# Format: tests/<file>.py  # what was observed

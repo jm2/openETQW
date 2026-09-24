@@ -7,12 +7,17 @@
 #include "../idlib/precompiled.h"
 #pragma hdrstop
 
-#include <execinfo.h>
+#if !defined( _WIN32 )
+#include <execinfo.h>	// backtrace() in FatalError
 #include <unistd.h>
-#include <time.h>
+#endif
+#include <chrono>
+#include <mutex>
+#include <thread>
 #include "precompiled.h"
 #include "AdManager.h"
 #include "GraphManager.h"
+#include "GameModuleCallbacks.h"
 #include "NotificationSystem.h"
 #include "../decllib/declLocStr.h"
 #include "../renderer/DeviceContext.h"
@@ -131,6 +136,31 @@ idGameEdit* gameEdit = NULL;
 static idCmdArgs com_consoleLines[ MAX_CONSOLE_LINES ];
 static int com_numConsoleLines;
 
+/*
+==================
+Com_PrintMutex
+
+The bot thread, the file-system thread, the MegaTexture threads and the
+Vulkan debug callback all print through common while the main thread does.
+This serializes everything the print paths share: the console buffer, the
+log file, the rcon redirect buffer and the warning/error lists.  It is
+recursive because printing re-enters (opening the log file prints, an rcon
+flush prints) and Error() can be raised inside a print; the guards are RAII,
+so an exception thrown through them releases the lock.  Nothing that joins or
+waits for another thread (session->Stop, Shutdown, UpdateScreen) runs while
+it is held.  Signal handlers never print through common (posix_signal.cpp).
+Never destroyed: other threads may still print while the process exits.
+==================
+*/
+static std::recursive_mutex& Com_PrintMutex() {
+	static std::recursive_mutex* printMutex = new std::recursive_mutex;
+	return *printMutex;
+}
+typedef std::lock_guard< std::recursive_mutex > comPrintLock_t;
+
+// Only the main thread may refresh the screen from a print.
+static std::thread::id com_mainThreadId;
+
 // The retail table is a 26-entry, 20-byte array at r_vidModes.  Aspect values
 // are the SDK's 4:3, 16:9, 16:10 and 5:4 indices.
 static vidmode_t r_vidModes[ 26 ] = {
@@ -217,6 +247,8 @@ private:
 	void					WriteConfiguration();
 	void					CloseLogFile();
 	void					DumpWarnings();
+	void					VPrintfInternal( const char* fmt, va_list args, bool allowRefresh );
+	void					PrintfNoRefresh( const char* fmt, ... );
 
 	bool					com_fullyInitialized;
 	bool					refreshOnPrint;
@@ -266,6 +298,7 @@ void idCommonLocal::BeginRedirect( char* buffer, int buffersize, void* user, voi
 	if ( buffer == NULL || buffersize <= 0 || flush == NULL ) {
 		return;
 	}
+	comPrintLock_t lock( Com_PrintMutex() );
 	rd_buffer = buffer;
 	rd_buffersize = buffersize;
 	rd_user = user;
@@ -274,6 +307,7 @@ void idCommonLocal::BeginRedirect( char* buffer, int buffersize, void* user, voi
 }
 
 void idCommonLocal::EndRedirect() {
+	comPrintLock_t lock( Com_PrintMutex() );
 	if ( rd_flush != NULL && rd_buffer != NULL && rd_buffer[ 0 ] != '\0' ) {
 		rd_flush( rd_user, rd_buffer );
 	}
@@ -288,6 +322,7 @@ void idCommonLocal::SetRefreshOnPrint( bool set ) {
 }
 
 void idCommonLocal::CloseLogFile() {
+	comPrintLock_t lock( Com_PrintMutex() );
 	if ( logFile != NULL && fileSystem != NULL ) {
 		com_logFile.SetInteger( 0 );
 		fileSystem->CloseFile( logFile );
@@ -296,6 +331,18 @@ void idCommonLocal::CloseLogFile() {
 }
 
 void idCommonLocal::VPrintf( const char* fmt, va_list args ) {
+	VPrintfInternal( fmt, args, true );
+}
+
+/*
+==================
+idCommonLocal::VPrintfInternal
+
+allowRefresh false is TPrintf/DPrintf/TWarning: never refresh the screen,
+without toggling the shared refreshOnPrint flag under other threads.
+==================
+*/
+void idCommonLocal::VPrintfInternal( const char* fmt, va_list args, bool allowRefresh ) {
 	if ( fmt == NULL ) {
 		return;
 	}
@@ -317,54 +364,62 @@ void idCommonLocal::VPrintf( const char* fmt, va_list args ) {
 		msg[ sizeof( msg ) - 1 ] = '\0';
 	}
 
-	if ( rd_buffer != NULL ) {
-		const int messageLength = idStr::Length( msg );
-		const int currentLength = idStr::Length( rd_buffer );
-		if ( currentLength + messageLength > rd_buffersize - 1 ) {
-			rd_flush( rd_user, rd_buffer );
-			rd_buffer[ 0 ] = '\0';
+	bool refresh = false;
+	{
+		comPrintLock_t lock( Com_PrintMutex() );
+		if ( rd_buffer != NULL ) {
+			const int messageLength = idStr::Length( msg );
+			const int currentLength = idStr::Length( rd_buffer );
+			if ( currentLength + messageLength > rd_buffersize - 1 ) {
+				rd_flush( rd_user, rd_buffer );
+				rd_buffer[ 0 ] = '\0';
+			}
+			if ( messageLength <= rd_buffersize - 1 ) {
+				idStr::Append( rd_buffer, rd_buffersize, msg );
+			} else {
+				rd_flush( rd_user, msg );
+			}
+			return;
 		}
-		if ( messageLength <= rd_buffersize - 1 ) {
-			idStr::Append( rd_buffer, rd_buffersize, msg );
-		} else {
-			rd_flush( rd_user, msg );
+
+		if ( console != NULL ) {
+			console->Print( msg );
 		}
-		return;
-	}
 
-	if ( console != NULL ) {
-		console->Print( msg );
-	}
+		char plain[ MAX_PRINT_MSG_SIZE ];
+		idStr::Copynz( plain, msg, sizeof( plain ) );
+		idStr::RemoveColors( plain );
+		Sys_Printf( "%s", plain );
 
-	char plain[ MAX_PRINT_MSG_SIZE ];
-	idStr::Copynz( plain, msg, sizeof( plain ) );
-	idStr::RemoveColors( plain );
-	Sys_Printf( "%s", plain );
-
-	static bool logFileFailed = false;
-	static bool openingLogFile = false;
-	if ( cvarSystem != NULL && cvarSystem->IsInitialized() &&
-			com_logFile.GetInteger() != 0 && !logFileFailed &&
-			fileSystem != NULL && fileSystem->IsInitialized() ) {
-		if ( logFile == NULL && !openingLogFile ) {
-			openingLogFile = true;
-			const char* name = com_logFileName.GetString()[ 0 ] != '\0' ? com_logFileName.GetString() : "console.log";
-			logFile = fileSystem->OpenFileWrite( name, "fs_userpath" );
-			openingLogFile = false;
-			if ( logFile == NULL ) {
-				logFileFailed = true;
-				Sys_Printf( "failed to open log file '%s'\n", name );
-			} else if ( com_logFile.GetInteger() > 1 ) {
-				logFile->ForceFlush();
+		static bool logFileFailed = false;
+		static bool openingLogFile = false;
+		if ( cvarSystem != NULL && cvarSystem->IsInitialized() &&
+				com_logFile.GetInteger() != 0 && !logFileFailed &&
+				fileSystem != NULL && fileSystem->IsInitialized() ) {
+			if ( logFile == NULL && !openingLogFile ) {
+				openingLogFile = true;
+				const char* name = com_logFileName.GetString()[ 0 ] != '\0' ? com_logFileName.GetString() : "console.log";
+				logFile = fileSystem->OpenFileWrite( name, "fs_userpath" );
+				openingLogFile = false;
+				if ( logFile == NULL ) {
+					logFileFailed = true;
+					Sys_Printf( "failed to open log file '%s'\n", name );
+				} else if ( com_logFile.GetInteger() > 1 ) {
+					logFile->ForceFlush();
+				}
+			}
+			if ( logFile != NULL ) {
+				logFile->Write( plain, idStr::Length( plain ) );
+				logFile->Flush();
 			}
 		}
-		if ( logFile != NULL ) {
-			logFile->Write( plain, idStr::Length( plain ) );
-			logFile->Flush();
-		}
+
+		refresh = allowRefresh && com_errorEntered != ERP_FATAL && refreshOnPrint && session != NULL &&
+			std::this_thread::get_id() == com_mainThreadId;
 	}
 
-	if ( com_errorEntered != ERP_FATAL && refreshOnPrint && session != NULL ) {
+	// Outside the lock: rendering a frame can wait on threads that print.
+	if ( refresh ) {
 		session->UpdateScreen( true );
 	}
 }
@@ -377,13 +432,17 @@ void idCommonLocal::Printf( const char* fmt, ... ) {
 }
 
 void idCommonLocal::TPrintf( const char* fmt, ... ) {
-	const bool oldRefresh = refreshOnPrint;
-	refreshOnPrint = false;
 	va_list args;
 	va_start( args, fmt );
-	VPrintf( fmt, args );
+	VPrintfInternal( fmt, args, false );
 	va_end( args );
-	refreshOnPrint = oldRefresh;
+}
+
+void idCommonLocal::PrintfNoRefresh( const char* fmt, ... ) {
+	va_list args;
+	va_start( args, fmt );
+	VPrintfInternal( fmt, args, false );
+	va_end( args );
 }
 
 void idCommonLocal::DPrintf( const char* fmt, ... ) {
@@ -395,10 +454,7 @@ void idCommonLocal::DPrintf( const char* fmt, ... ) {
 	va_start( args, fmt );
 	idStr::vsnPrintf( msg, sizeof( msg ), fmt, args );
 	va_end( args );
-	const bool oldRefresh = refreshOnPrint;
-	refreshOnPrint = false;
-	Printf( S_COLOR_GRAY "%s", msg );
-	refreshOnPrint = oldRefresh;
+	PrintfNoRefresh( S_COLOR_GRAY "%s", msg );
 }
 
 static void FormatCommonMessage( char* target, int targetSize, const char* fmt, va_list args ) {
@@ -416,6 +472,7 @@ void idCommonLocal::Warning( const char* fmt, ... ) {
 	FormatCommonMessage( msg, sizeof( msg ), fmt, args );
 	va_end( args );
 	Printf( S_COLOR_YELLOW "WARNING: %s\n", msg );
+	comPrintLock_t lock( Com_PrintMutex() );
 	if ( warningList.Num() < MAX_WARNING_LIST ) {
 		warningList.AddUnique( msg );
 	}
@@ -430,10 +487,8 @@ void idCommonLocal::TWarning( const char* fmt, ... ) {
 	va_start( args, fmt );
 	FormatCommonMessage( msg, sizeof( msg ), fmt, args );
 	va_end( args );
-	const bool oldRefresh = refreshOnPrint;
-	refreshOnPrint = false;
-	Printf( S_COLOR_YELLOW "WARNING: %s\n", msg );
-	refreshOnPrint = oldRefresh;
+	PrintfNoRefresh( S_COLOR_YELLOW "WARNING: %s\n", msg );
+	comPrintLock_t lock( Com_PrintMutex() );
 	if ( warningList.Num() < MAX_WARNING_LIST ) {
 		warningList.AddUnique( msg );
 	}
@@ -452,24 +507,36 @@ void idCommonLocal::DWarning( const char* fmt, ... ) {
 }
 
 void idCommonLocal::PrintWarnings() {
-	if ( warningList.Num() == 0 ) {
-		return;
+	// Print a copy: a warning raised meanwhile (another thread) must not
+	// reallocate the list being walked, and printing may refresh the screen,
+	// which must not happen under the print lock.
+	idStrList warnings;
+	idStr caption;
+	{
+		comPrintLock_t lock( Com_PrintMutex() );
+		if ( warningList.Num() == 0 ) {
+			return;
+		}
+		warningList.Sort();
+		warnings = warningList;
+		caption = warningCaption;
 	}
-	warningList.Sort();
 	Printf( "------------- Warnings ---------------\n" );
-	Printf( "during %s...\n", warningCaption.c_str() );
-	for ( int i = 0; i < warningList.Num(); ++i ) {
-		Printf( S_COLOR_YELLOW "WARNING: %s\n", warningList[ i ].c_str() );
+	Printf( "during %s...\n", caption.c_str() );
+	for ( int i = 0; i < warnings.Num(); ++i ) {
+		Printf( S_COLOR_YELLOW "WARNING: %s\n", warnings[ i ].c_str() );
 	}
-	Printf( "%s%d warnings\n", warningList.Num() >= MAX_WARNING_LIST ? "more than " : "", warningList.Num() );
+	Printf( "%s%d warnings\n", warnings.Num() >= MAX_WARNING_LIST ? "more than " : "", warnings.Num() );
 }
 
 void idCommonLocal::ClearWarnings( const char* reason ) {
+	comPrintLock_t lock( Com_PrintMutex() );
 	warningCaption = reason != NULL ? reason : "";
 	warningList.Clear();
 }
 
 void idCommonLocal::DumpWarnings() {
+	comPrintLock_t lock( Com_PrintMutex() );
 	if ( warningList.Num() == 0 || fileSystem == NULL || !fileSystem->IsInitialized() ) {
 		return;
 	}
@@ -496,17 +563,26 @@ void idCommonLocal::Error( const char* fmt, ... ) {
 		Sys_Quit();
 	}
 	com_errorEntered = ERP_DROP;
+	char msg[ MAX_PRINT_MSG_SIZE ];
 	va_list args;
 	va_start( args, fmt );
-	FormatCommonMessage( errorMessage, sizeof( errorMessage ), fmt, args );
+	FormatCommonMessage( msg, sizeof( msg ), fmt, args );
 	va_end( args );
-	errorList.AddUnique( errorMessage );
+	{
+		comPrintLock_t lock( Com_PrintMutex() );
+		idStr::Copynz( errorMessage, msg, sizeof( errorMessage ) );
+		errorList.AddUnique( msg );
+	}
+	// Not under the print lock: stopping the session joins the bot thread.
 	if ( session != NULL ) {
 		session->Stop();
 	}
-	Printf( "********************\nERROR: %s\n********************\n", errorMessage );
+	Printf( "********************\nERROR: %s\n********************\n", msg );
 	com_errorEntered = ERP_NONE;
-	throw idException( errorMessage );
+	// idException strcpy()s into a fixed buffer smaller than msg.
+	char exceptionText[ sizeof( static_cast< idException* >( NULL )->error ) ];
+	idStr::Copynz( exceptionText, msg, sizeof( exceptionText ) );
+	throw idException( exceptionText );
 }
 
 void idCommonLocal::FatalError( const char* fmt, ... ) {
@@ -515,14 +591,19 @@ void idCommonLocal::FatalError( const char* fmt, ... ) {
 		Sys_Quit();
 	}
 	com_errorEntered = ERP_FATAL;
-	va_list args;
-	va_start( args, fmt );
-	FormatCommonMessage( errorMessage, sizeof( errorMessage ), fmt, args );
-	va_end( args );
+	{
+		comPrintLock_t lock( Com_PrintMutex() );
+		va_list args;
+		va_start( args, fmt );
+		FormatCommonMessage( errorMessage, sizeof( errorMessage ), fmt, args );
+		va_end( args );
+	}
 	Printf( "********************\nFATAL ERROR: %s\n********************\n", errorMessage );
+#if !defined( _WIN32 )
 	void *callstack[ 64 ];
 	int frames = backtrace( callstack, 64 );
 	backtrace_symbols_fd( callstack, frames, STDERR_FILENO );
+#endif
 	Sys_SetFatalError( errorMessage );
 	Shutdown();
 	Sys_Error( "%s", errorMessage );
@@ -924,19 +1005,20 @@ void idCommonLocal::Frame() {
 		const int maxFPS = com_maxFPS.GetInteger() > 0 ? com_maxFPS.GetInteger() : com_unlock_maxFPS.GetInteger();
 		if ( maxFPS > 0 ) {
 			const uint64_t targetFrameUsec = 1000000ull / static_cast< uint64_t >( maxFPS );
-			struct timespec ts;
-			clock_gettime( CLOCK_MONOTONIC, &ts );
-			uint64_t nowUsec = static_cast< uint64_t >( ts.tv_sec ) * 1000000ull + static_cast< uint64_t >( ts.tv_nsec ) / 1000ull;
+			const auto monotonicUsec = []() {
+				return static_cast< uint64_t >( std::chrono::duration_cast< std::chrono::microseconds >(
+					std::chrono::steady_clock::now().time_since_epoch() ).count() );
+			};
+			uint64_t nowUsec = monotonicUsec();
 			if ( lastFrameUsec != 0 && nowUsec > lastFrameUsec ) {
 				uint64_t elapsedUsec = nowUsec - lastFrameUsec;
 				if ( elapsedUsec < targetFrameUsec ) {
 					uint64_t waitUsec = targetFrameUsec - elapsedUsec;
 					if ( waitUsec > 2000 ) {
-						usleep( static_cast< useconds_t >( waitUsec - 1500 ) );
+						std::this_thread::sleep_for( std::chrono::microseconds( waitUsec - 1500 ) );
 					}
 					do {
-						clock_gettime( CLOCK_MONOTONIC, &ts );
-						nowUsec = static_cast< uint64_t >( ts.tv_sec ) * 1000000ull + static_cast< uint64_t >( ts.tv_nsec ) / 1000ull;
+						nowUsec = monotonicUsec();
 					} while ( nowUsec - lastFrameUsec < targetFrameUsec );
 				}
 			}
@@ -957,6 +1039,7 @@ static void Com_Status_f( const idCmdArgs& ) {
 	common->Printf( "  Version: %s\n", versionString.string );
 	common->Printf( "  Dedicated: %s\n", cvarSystem->GetCVarBool( "dedicated" ) ? "Yes" : "No" );
 	common->Printf( "  State: Running (Headless Dedicated)\n" );
+	idAsyncNetwork::server.PrintClientSlots();
 }
 
 static void Com_Help_f( const idCmdArgs& ) {
@@ -1048,6 +1131,10 @@ void idCommonLocal::LoadGameDLL() {
 		FatalError( "couldn't load game dynamic library '%s'", dllPath );
 		return;
 	}
+	// Before GetGameAPI registers the module's cvars and commands; restored by
+	// every UnloadGameDLL (GameModuleCallbacks.h).
+	CVar_CaptureModuleCallbacks();
+	Cmd_CaptureModuleCommands();
 
 	GetGameAPI_t getGameAPI = reinterpret_cast< GetGameAPI_t >( sys->DLL_GetProcAddress( gameDLL, "GetGameAPI" ) );
 	if ( getGameAPI == NULL ) {
@@ -1116,6 +1203,13 @@ void idCommonLocal::UnloadGameDLL() {
 	game = NULL;
 	gameEdit = NULL;
 	if ( gameDLL != NULL ) {
+		// Nothing in the engine may keep pointing into the module's code.
+		const int cvarsRestored = CVar_RestoreModuleCallbacks();
+		const int commandsRemoved = Cmd_RemoveModuleCommands();
+		if ( cvarsRestored != 0 || commandsRemoved != 0 ) {
+			DPrintf( "unloading game module: restored the completion/callbacks of %d cvar%s and removed %d command%s it left registered\n",
+				cvarsRestored, cvarsRestored == 1 ? "" : "s", commandsRemoved, commandsRemoved == 1 ? "" : "s" );
+		}
 		sys->DLL_Unload( gameDLL );
 		gameDLL = NULL;
 	}
@@ -1217,41 +1311,59 @@ void idCommonLocal::Init( int argc, const char** argv, const char* cmdline ) {
 	if ( com_fullyInitialized ) {
 		return;
 	}
-	idLib::sys = sys;
-	idLib::common = common;
-	idLib::cvarSystem = cvarSystem;
-	idLib::fileSystem = fileSystem;
-	idLib::Init();
-	mainThreadLastTicMsec = 0;
-	mainThreadTicResidual = 0.0;
-	com_ticNumber = 0;
-	ClearWarnings( GAME_NAME " initialization" );
+	com_mainThreadId = std::this_thread::get_id();
 
-	idCmdArgs commandLine;
-	if ( cmdline != NULL && cmdline[ 0 ] != '\0' ) {
-		commandLine.TokenizeString( cmdline, true );
-		argv = commandLine.GetArgs( &argc );
+	try {
+		idLib::sys = sys;
+		idLib::common = common;
+		idLib::cvarSystem = cvarSystem;
+		idLib::fileSystem = fileSystem;
+		idLib::Init();
+		mainThreadLastTicMsec = 0;
+		mainThreadTicResidual = 0.0;
+		com_ticNumber = 0;
+		ClearWarnings( GAME_NAME " initialization" );
+
+		idCmdArgs commandLine;
+		if ( cmdline != NULL && cmdline[ 0 ] != '\0' ) {
+			commandLine.TokenizeString( cmdline, true );
+			argv = commandLine.GetArgs( &argc );
+		}
+		ParseCommandLine( argc, argv );
+
+		cmdSystem->Init();
+		cvarSystem->Init();
+		idCVar::RegisterStaticVars();
+		// The main-menu GUI installs an onCVarChanged callback for this engine
+		// variable during game DLL initialization.  Keep the retail ownership in
+		// Common and make the cross-DLL registration explicit.
+		cvarSystem->Register( &com_machineSpec );
+		idKeyInput::Init();
+		console->Init();
+		Sys_Init();
+		Sys_InitNetworking();
+		StartupVariable( NULL );
+		Printf( "%s\n", versionString.string );
+		InitCommands();
+		InitSIMD();
+		InitGame( false );
+	} catch ( idException& ) {
+		// Error() has already printed the error banner.
+		Sys_Error( "Error during initialization" );
 	}
-	ParseCommandLine( argc, argv );
 
-	cmdSystem->Init();
-	cvarSystem->Init();
-	idCVar::RegisterStaticVars();
-	// The main-menu GUI installs an onCVarChanged callback for this engine
-	// variable during game DLL initialization.  Keep the retail ownership in
-	// Common and make the cross-DLL registration explicit.
-	cvarSystem->Register( &com_machineSpec );
-	idKeyInput::Init();
-	console->Init();
-	Sys_Init();
-	Sys_InitNetworking();
-	StartupVariable( NULL );
-	Printf( "%s\n", versionString.string );
-	InitCommands();
-	InitSIMD();
-	InitGame( false );
+	// Startup commands (+spawnServer <map>, +exec ...) run before the ready
+	// banner so the first map is loaded when it prints.  An error in one of
+	// them is handled as it is when the same command fails later in Frame():
+	// Error() has printed the ERROR banner and stopped the session, and the
+	// engine keeps running (a dedicated server stays up without a map until
+	// another one is started), as idTech 4 does for a failing +map.  Letting
+	// the exception out of Init aborted the process (SIGABRT, exit 134).
 	AddStartupCommands();
-	cmdSystem->ExecuteCommandBuffer();
+	try {
+		cmdSystem->ExecuteCommandBuffer();
+	} catch ( idException& ) {
+	}
 	com_fullyInitialized = true;
 	Printf( "------------- ETQW initialized -------------\n" );
 }

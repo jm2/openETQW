@@ -978,9 +978,11 @@ void idMaterial::ParseStage( idParser& src ) {
 	while ( src.ReadToken( &token ) ) {
 		if ( token == "}" ) {
 			if ( !megaTextureName.IsEmpty() ) {
-				stage->megaTexture = globalImages->MegaTextureFromFile( megaTextureName.c_str() );
+				stage->megaTexture = ( globalImages != NULL ) ? globalImages->MegaTextureFromFile( megaTextureName.c_str() ) : NULL;
 				if ( stage->megaTexture == NULL ) {
-					src.Warning( "Unable to load megaTexture '%s'", megaTextureName.c_str() );
+					if ( globalImages != NULL ) {
+						src.Warning( "Unable to load megaTexture '%s'", megaTextureName.c_str() );
+					}
 				} else {
 					// The backend uses this ETQW material flag to include MegaTexture
 					// surfaces in its ambient interaction pass.
@@ -1154,19 +1156,6 @@ void idMaterial::ParseStage( idParser& src ) {
 		} else if ( !token.Icmp( "breakpoint" ) ) {
 			stage->breakpoint = true;
 		} else {
-			if ( !token.Icmp( "lightProjectionMap" ) && declManager != NULL ) {
-				qhandle_t rbHandle = declManager->GetDeclTypeHandle( "renderBinding" );
-				if ( rbHandle != -1 ) {
-					int num = declManager->GetNumDecls( rbHandle );
-					for ( int i = 0; i < num; ++i ) {
-						const idDecl* d = declManager->DeclByIndex( rbHandle, i, false );
-						if ( d != NULL && idStr::Icmp( d->GetName(), "lightProjectionMap" ) == 0 ) {
-							const_cast<idDecl*>( d )->SetText( "{\n\ttexture { lights/squarelight1.tga }\n}\n" );
-							break;
-						}
-					}
-				}
-			}
 			const sdDeclRenderBinding* binding = declHolder.FindRenderBinding( token.c_str(), false );
 			if ( binding == NULL ) {
 				src.Warning( "Unknown token '%s'", token.c_str() );

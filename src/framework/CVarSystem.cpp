@@ -29,6 +29,8 @@ If you have questions concerning this license or the applicable additional terms
 #include "../idlib/precompiled.h"
 #pragma hdrstop
 
+#include "GameModuleCallbacks.h"
+
 idCVar * idCVar::staticVars = NULL;
 
 /*
@@ -525,8 +527,19 @@ public:
 	idInternalCVar *		FindInternal( const char *name ) const;
 	void					SetInternal( const char *name, const char *value, int flags, bool force, bool clearLatched );
 
+	void					CaptureModuleCallbacks( void );
+	int						RestoreModuleCallbacks( void );
+
 private:
+	struct moduleCallbackState_t {
+		idInternalCVar *			cvar;
+		argCompletion_t				valueCompletion;
+		idList< idCVarCallback* >	callbacks;
+	};
+
 	bool					initialized;
+	idList<moduleCallbackState_t>	moduleCallbackStates;	// see GameModuleCallbacks.h
+	bool					moduleCallbacksCaptured;
 	idList<idInternalCVar*>	cvars;
 	idHashIndex				cvarHash;
 	int						modifiedFlags;
@@ -549,6 +562,87 @@ private:
 
 idCVarSystemLocal			localCVarSystem;
 idCVarSystem *				cvarSystem = &localCVarSystem;
+
+/*
+============
+idCVarSystemLocal::CaptureModuleCallbacks
+============
+*/
+void idCVarSystemLocal::CaptureModuleCallbacks( void ) {
+	moduleCallbackStates.Clear();
+	moduleCallbackStates.SetNum( cvars.Num() );
+	for ( int i = 0; i < cvars.Num(); i++ ) {
+		moduleCallbackStates[ i ].cvar = cvars[ i ];
+		moduleCallbackStates[ i ].valueCompletion = cvars[ i ]->valueCompletion;
+		moduleCallbackStates[ i ].callbacks = cvars[ i ]->callbacks;
+	}
+	moduleCallbacksCaptured = true;
+}
+
+/*
+============
+idCVarSystemLocal::RestoreModuleCallbacks
+============
+*/
+int idCVarSystemLocal::RestoreModuleCallbacks( void ) {
+	if ( !moduleCallbacksCaptured ) {
+		// never captured: restoring would clear every callback
+		return 0;
+	}
+	int changed = 0;
+	for ( int i = 0; i < cvars.Num(); i++ ) {
+		idInternalCVar *cvar = cvars[ i ];
+		// cvars are appended, so a captured one normally keeps its index;
+		// cvar_restart removes user-created ones and shifts the rest
+		const moduleCallbackState_t *state = NULL;
+		if ( i < moduleCallbackStates.Num() && moduleCallbackStates[ i ].cvar == cvar ) {
+			state = &moduleCallbackStates[ i ];
+		} else {
+			for ( int j = 0; j < moduleCallbackStates.Num(); j++ ) {
+				if ( moduleCallbackStates[ j ].cvar == cvar ) {
+					state = &moduleCallbackStates[ j ];
+					break;
+				}
+			}
+		}
+		argCompletion_t valueCompletion = NULL;
+		const idList< idCVarCallback* > *callbacks = NULL;
+		if ( state != NULL ) {
+			valueCompletion = state->valueCompletion;
+			callbacks = &state->callbacks;
+		}
+		bool differs = cvar->valueCompletion != valueCompletion;
+		if ( callbacks != NULL ) {
+			differs |= cvar->callbacks.Num() != callbacks->Num();
+			for ( int j = 0; !differs && j < callbacks->Num(); j++ ) {
+				differs = cvar->callbacks[ j ] != ( *callbacks )[ j ];
+			}
+		} else {
+			differs |= cvar->callbacks.Num() != 0;
+		}
+		if ( !differs ) {
+			continue;
+		}
+		cvar->valueCompletion = valueCompletion;
+		if ( callbacks != NULL ) {
+			cvar->callbacks = *callbacks;
+		} else {
+			cvar->callbacks.Clear();
+		}
+		changed++;
+	}
+	moduleCallbackStates.Clear();
+	moduleCallbacksCaptured = false;
+	return changed;
+}
+
+void CVar_CaptureModuleCallbacks( void ) {
+	localCVarSystem.CaptureModuleCallbacks();
+}
+
+int CVar_RestoreModuleCallbacks( void ) {
+	return localCVarSystem.RestoreModuleCallbacks();
+}
 
 idDict						idCVarSystemLocal::moveCVarsToDict;
 
@@ -623,6 +717,7 @@ idCVarSystemLocal::idCVarSystemLocal
 */
 idCVarSystemLocal::idCVarSystemLocal( void ) {
 	initialized = false;
+	moduleCallbacksCaptured = false;
 	modifiedFlags = 0;
 }
 

@@ -2337,6 +2337,11 @@ void R_AddModelSurfaces() {
 	view->numDrawSurfs = sortedDrawSurfaces.Num();
 }
 
+// Diagnostics printed with the Vulkan shutdown metrics: views of lights that may cast
+// stencil shadows, and how many of those had at least one shadow-casting surface.
+unsigned int r_shadowLightViews = 0;
+unsigned int r_shadowLightViewsWithCasters = 0;
+
 void R_AddLightSurfaces() {
 	viewDef_s* view = RB_GetViewDef();
 	if ( view == NULL ) return;
@@ -2346,6 +2351,11 @@ void R_AddLightSurfaces() {
 	if ( R_UseVulkanBackend() && R_RayTracingIsInitialized() ) return;
 	for ( viewLight_s* light = view->viewLights; light != NULL; light = light->next ) {
 		if ( light->culled || light->material == NULL || IsSkippedWaterFog( light->material ) ) continue;
+		const bool shadowLight = !light->lightDef->flags.noShadows && light->material->LightCastsShadows();
+		if ( shadowLight ) {
+			r_shadowLightViews++;
+		}
+		bool hadCaster = false;
 		for ( int surfaceIndex = 0; surfaceIndex < sortedDrawSurfaces.Num(); ++surfaceIndex ) {
 			drawSurf_s* surface = sortedDrawSurfaces[ surfaceIndex ];
 			if ( !SurfaceSharesLightArea( surface, light ) ) continue;
@@ -2356,6 +2366,7 @@ void R_AddLightSurfaces() {
 					( surface->geo->shadowCache != NULL || surface->geo->shadowVertexes != NULL ) ) {
 				drawSurf_s* shadow = AllocInteractionSurface( surface );
 				shadow->scissorRect = light->scissorRect;
+				hadCaster = true;
 				if ( local ) {
 					shadow->nextOnLight = light->localShadows;
 					light->localShadows = shadow;
@@ -2398,6 +2409,9 @@ void R_AddLightSurfaces() {
 				interaction->nextOnLight = light->globalInteractions;
 				light->globalInteractions = interaction;
 			}
+		}
+		if ( shadowLight && hadCaster ) {
+			r_shadowLightViewsWithCasters++;
 		}
 	}
 	FinalizeLightInteractionGeometry();

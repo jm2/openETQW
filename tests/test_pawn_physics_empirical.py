@@ -45,11 +45,13 @@ import time
 import zipfile
 from pathlib import Path
 
+import etqw_harness as h
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GAME_ROOT = REPO_ROOT.parent / "openETQW-game"
-BINARY_PATH = REPO_ROOT / "build" / "openETQW-ded_arm64"
-DATA_PATH = Path("/Users/jmulesa/etqw_data")
+BINARY_PATH = h.build_binary("ded")
+DATA_PATH = h.env_data_path()
 
 SERVER_PORT = 27750
 CLIENT_PORT = 27751
@@ -262,7 +264,7 @@ def test_phase4_pawn_spawn_and_ground_contact():
         "+set", "net_port", str(CLIENT_PORT),
         "+set", "si_pure", "0",
         "+set", "com_timeServer", "1",
-        "+connect", f"127.0.0.1:{SERVER_PORT}"
+        "+set", "net_clientShowSnapshots", "1", "+connect", f"127.0.0.1:{SERVER_PORT}"
     ]
 
     out_q = queue.Queue()
@@ -286,9 +288,9 @@ def test_phase4_pawn_spawn_and_ground_contact():
             raise RuntimeError(f"Server exited prematurely with {server_proc.returncode}")
         try:
             src, line = out_q.get(timeout=0.2)
-            if "StartFirstObjective" in line:
+            if "ETQW initialized" in line:
                 server_ready = True
-                print("  [SERVER] Valley objective initialized, server active!")
+                print("  [SERVER] Valley loaded, server active!")
                 break
         except queue.Empty:
             continue
@@ -417,4 +419,5 @@ def main():
 
 
 if __name__ == "__main__":
+    h.skip_unless_available(DATA_PATH, BINARY_PATH)
     sys.exit(main())

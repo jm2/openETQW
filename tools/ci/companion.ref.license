@@ -1,0 +1,4 @@
+SPDX-License-Identifier: GPL-3.0-or-later
+
+tools/ci/companion.ref is a one-line data file (the pinned openETQW-game commit
+SHA) and cannot carry an inline header; this REUSE-style sidecar licenses it.
