@@ -152,7 +152,7 @@ class ClientHarness:
             "+set", "net_port", str(self.client_port),
             "+set", "si_pure", "0",
             "+set", "com_timeServer", "1",
-            "+connect", f"127.0.0.1:{self.server_port}"
+            "+set", "net_clientShowSnapshots", "1", "+connect", f"127.0.0.1:{self.server_port}"
         ]
         self.proc = subprocess.Popen(
             client_args,

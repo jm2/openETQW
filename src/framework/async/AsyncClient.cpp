@@ -18,6 +18,8 @@ static const int CLIENT_CONNECT_RESEND_MSEC = 1000;
 static const int CLIENT_EMPTY_RESEND_MSEC = 500;
 static const int PREDICTION_FAST_ADJUST = 4;	// Doom 3: fraction of the prediction error corrected per snapshot
 
+static idCVar net_clientShowSnapshots( "net_clientShowSnapshots", "0", CVAR_SYSTEM | CVAR_BOOL | CVAR_NOCHEAT, "print a line for every snapshot the client reads (network tests)" );
+
 idAsyncClient::idAsyncClient() :
 	active( false ),
 	realTime( 0 ),
@@ -645,7 +647,9 @@ void idAsyncClient::ProcessUnreliableServerMessage( const idBitMsg& msg ) {
 			const int delta = gameTime - ( snapshotGameTime + clientPrediction );
 			clientPredictTime -= ( delta / PREDICTION_FAST_ADJUST ) + ( 1 - ( INTSIGNBITSET( delta ) << 1 ) );
 
-			common->Printf( "Client received snapshot %d (frame %d)\n", sequence, sGameFrame );
+			if ( net_clientShowSnapshots.GetBool() ) {
+				common->Printf( "Client received snapshot %d (frame %d)\n", sequence, sGameFrame );
+			}
 		}
 	}
 }
@@ -791,8 +795,10 @@ void idAsyncClient::ProcessMessage( const netadr_t from, idBitMsg& msg ) {
 		ConnectionlessMessage( from, msg );
 		return;
 	}
-	if ( !active || clientState < CS_CONNECTED || !Sys_CompareNetAdrBase( from, channel.GetRemoteAddress() ) ) {
-		return;	// no channel yet: a packet of an earlier session
+	// no channel yet, or a packet of another server on this address (the id is
+	// the server's; a stale server's packet would move the channel to its port)
+	if ( !active || clientState < CS_CONNECTED || id != serverId || !Sys_CompareNetAdrBase( from, channel.GetRemoteAddress() ) ) {
+		return;
 	}
 	if ( sessLocal.insideExecuteMapChange ) {
 		return;

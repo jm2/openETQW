@@ -1277,6 +1277,7 @@ void idAsyncServer::ApplyPendingUserInfo( int clientNum ) {
 	client.lastUserInfoTime = realTime;
 	sessLocal.mapSpawnData.userInfo[ clientNum ] = client.pendingUserInfo;
 	UpdateClientUserInfo( clientNum );
+	common->Printf( "Client %d user info: '%s'\n", clientNum, sessLocal.mapSpawnData.userInfo[ clientNum ].GetString( "ui_name" ) );
 	if ( client.clientState >= SCS_CONNECTED ) {
 		game->UserInfoChanged( clientNum );
 	}
@@ -1301,7 +1302,6 @@ void idAsyncServer::ProcessReliableClientMessages( int clientNum ) {
 			info.Clear();
 			msg.ReadDeltaDict( info, NULL );
 			clients[ clientNum ].userInfoPending = true;
-			common->Printf( "Client %d user info: '%s'\n", clientNum, info.GetString( "ui_name" ) );
 			continue;
 		}
 		if ( type == CLIENT_RELIABLE_MESSAGE_GAME ) {

@@ -102,9 +102,9 @@ def main(argv):
                             cvars={"si_rules": "sdGameRulesObjective", "si_pure": "0", "g_teamSwitchDelay": "0",
                                    "bot_enable": "1", **drop})
     a = RemoteClient(binary, data, args.port, args.port + 1, log_path=lp("client_a.log"),
-                     cvars={"si_pure": "0", "ui_name": "Alpha", "ui_clanTag": "TAG", **drop})
+                     cvars={"si_pure": "0", "ui_name": "Alpha", "ui_clanTag": "TAG", "net_clientShowSnapshots": "1", **drop})
     b = RemoteClient(binary, data, args.port, args.port + 2, log_path=lp("client_b.log"),
-                     cvars={"si_pure": "0", "ui_name": "Alpha", "ui_clanTag": LONG_TAG, **drop})
+                     cvars={"si_pure": "0", "ui_name": "Alpha", "ui_clanTag": LONG_TAG, "net_clientShowSnapshots": "1", **drop})
     procs = (srv, a, b)
     try:
         srv.start()
@@ -189,7 +189,7 @@ def main(argv):
                 failures.append(f"the bot did not defer to {fallback!r} (status {status_names(srv).get(bot)})")
             mark_s = srv.mark()
             b.send(f'set ui_name "{fallback}"')
-            srv.wait_for(lambda s: s.strip() == f"Client {slot_b} user info: '{fallback}'" or None, 30.0, mark_s)
+            srv.wait_for(lambda s: s.strip() in (f"Client {slot_b} user info: '{fallback}'", f"Client {slot_b} user info: '{fallback}_'") or None, 30.0, mark_s)
             got = None
             deadline = time.time() + 10.0  # user info is applied at most once a second
             while time.time() < deadline:

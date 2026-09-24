@@ -39,18 +39,18 @@ Milestone 4 delivers the complete AI bot simulation and navigation mesh subsyste
 
 ```bash
 # 1. Build the game module dylib
-cd /Users/jmulesa/openETQW-game
+cd ../openETQW-game
 ninja -C build
 
 # 2. Build the dedicated server and client targets
-cd /Users/jmulesa/openETQW
+cd .
 ninja -C build openETQW-ded_arm64 openETQW-client_arm64
 ```
 
 ### 2.2 Run the Automated Bot Integration Test
 
 ```bash
-python3 /Users/jmulesa/openETQW/tests/test_bot_gameplay.py
+python3 ./tests/test_bot_gameplay.py
 ```
 
 **Verified Output**:
@@ -118,7 +118,7 @@ python3 /Users/jmulesa/openETQW/tests/test_bot_gameplay.py
 ### 2.3 Run Full Meson Test Suite
 
 ```bash
-cd /Users/jmulesa/openETQW
+cd .
 meson test -C build --verbose
 ```
 
@@ -139,12 +139,12 @@ Fail:               0
 ### 2.4 Verify Zero-SDK Compliance
 
 ```bash
-python3 /Users/jmulesa/openETQW/tests/test_zero_sdk.py
+python3 ./tests/test_zero_sdk.py
 ```
 
 **Verified Output**:
 ```text
-Running Zero-SDK Audit on repository: /Users/jmulesa/openETQW
+Running Zero-SDK Audit on repository: .
 Loaded 901 SDK verification fingerprints, 925 SDK paths.
 Auditing 4253 tracked files...
 
@@ -158,9 +158,9 @@ Auditing 4253 tracked files...
 To run an interactive dedicated server session with bots on Valley:
 
 ```bash
-/Users/jmulesa/openETQW/build/openETQW-ded_arm64 \
+./build/openETQW-ded_arm64 \
   +set dedicated 1 \
-  +set fs_basepath /Users/jmulesa/etqw_data \
+  +set fs_basepath $ETQW_DATA_PATH \
   +set fs_game base \
   +set si_rules sdGameRulesObjective \
   +set si_pure 0 \
@@ -284,7 +284,7 @@ Four comprehensive adversarial test suites verify the robustness of the implemen
 The full match end-to-end integration test (`tests/test_valley_match.py`) exercises all 9 phases of a complete ETQW Valley match on an authoritative dedicated server:
 
 ```bash
-python3 /Users/jmulesa/openETQW/tests/test_valley_match.py
+python3 ./tests/test_valley_match.py
 ```
 
 ### Verified Console Output:
@@ -355,7 +355,7 @@ python3 /Users/jmulesa/openETQW/tests/test_valley_match.py
 The dedicated adversarial stress test harness (`tests/test_vehicle_deployable_stress.py`) evaluates vehicle seat allocation, boundary conditions, rapid seat switching, safe egress clearance, deployable placement restrictions, and capacity overflow:
 
 ```bash
-python3 /Users/jmulesa/openETQW/tests/test_vehicle_deployable_stress.py
+python3 ./tests/test_vehicle_deployable_stress.py
 ```
 
 ### Verified Console Output:
