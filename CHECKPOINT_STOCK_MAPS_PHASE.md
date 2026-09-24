@@ -6,6 +6,21 @@ Written by Claude Code at a quota-forced safe stop. It replaces the earlier Gemi
 - Both repositories are **private** (checked with `gh api`).
 - Local-only session notes (gitignored): `/Users/jmulesa/openETQW/.agents/claude_session_2026-09-22/`. They include the transcript-history briefing, code-reader dossier (`code_results.json`), openQ4 triage, follow-up list, probe tool, and harness JSON reports.
 
+## Latest: network play over real links (2026-09-23)
+- **User info (protocol .3, ledger 049).** Players' names, clan tags and flags reach the server and every client, validated and bounded. Before this, every remote player was "Player N". New tests: `userinfo`, `userinfo-loss`.
+- **Streamed snapshots (protocol .4, ledger 015 and 045).** Replaced stop-and-wait with the retail/Doom 3 flow. The server streams snapshots against the base it has applied. It applies on the client's ack and sends `SERVER_RELIABLE_MESSAGE_APPLYSNAPSHOT`, and the client makes a snapshot its base only on that message.
+  - Game side: pending game states are purged when a rules object is replaced, and `ApplySnapshot` skips an entity with no base.
+- **Client prediction time sync (ledger 045).** The client runs ahead of the server by about the latency, as in Doom 3. Before this, under any real latency a remote player's input reached the server too late to move it.
+- **Test tooling:**
+  - POSIX `net_forceLatency` and `net_forceJitter` (receive-side delay that reorders) plus `net_forceDrop`.
+  - A game-side debug check, `net_debugSnapshotBase`, compares the shape of the client's and server's bases and the applied counters on every snapshot.
+  - It found that state values legitimately differ: the server keeps exact values and the client keeps quantized ones.
+- **New meson tests:**
+  - `remote-client-map-change-latency` (60+40 ms, 10% loss, base check);
+  - `multiclient-gameplay` and `multiclient-gameplay-latency` (80–120 ms, 5% loss, movement replication).
+- **Verified:** the base check held up to 150 ms latency, 100 ms jitter and 20% loss.
+- **Flakes seen once each (both pass on rerun):** valley-match phase 3 (bot vehicle entry) and all-stock-maps salvage (GDF bot AAS-area validity 87% < 90%).
+
 ## Latest: pre-merge review (2026-09-23)
 Three adversarial review rounds over the WIP branches, run as multi-agent workflows (local notes: `.agents/claude_session_2026-09-22/FOLLOWUPS.md`). Every confirmed finding is fixed except two: the APPLYSNAPSHOT redesign (follow-up) and ledger 047 (owner decision).
 

@@ -246,6 +246,32 @@ if build_dedicated
     timeout: 600,
     is_parallel: false,
   )
+  # two remote clients: spawns, replication, movement and weapon input over UDP
+  test(
+    'multiclient-gameplay',
+    py,
+    args: [meson.project_source_root() / 'tests' / 'test_multiclient_gameplay.py', '--base-check'],
+    workdir: meson.project_source_root(),
+    suite: ['integration'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
+  # the same over a simulated 80-120 ms, 5% loss link: client prediction time
+  # sync (the client runs ahead so its usercmds arrive in time)
+  test(
+    'multiclient-gameplay-latency',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_multiclient_gameplay.py',
+      '--base-check', '--latency', '80', '--jitter', '40', '--drop', '5',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
   test(
     'userinfo',
     py,

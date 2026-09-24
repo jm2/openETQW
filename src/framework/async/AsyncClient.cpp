@@ -15,6 +15,7 @@
 
 static const int CLIENT_CONNECT_RESEND_MSEC = 1000;
 static const int CLIENT_EMPTY_RESEND_MSEC = 500;
+static const int PREDICTION_FAST_ADJUST = 4;	// Doom 3: fraction of the prediction error corrected per snapshot
 
 idAsyncClient::idAsyncClient() :
 	active( false ),
@@ -316,7 +317,7 @@ void idAsyncClient::RunFrame() {
 	}
 	if ( clientState == CS_INGAME && !sessLocal.insideExecuteMapChange ) {
 		const int startFrame = gameFrame;
-		while ( gameTimeResidual >= USERCMD_MSEC ) {
+		while ( gameTimeResidual + clientPredictTime >= USERCMD_MSEC ) {
 			SendUsercmdsToServer();
 			++gameFrame;
 			gameTime += USERCMD_MSEC;
@@ -587,7 +588,11 @@ void idAsyncClient::ProcessUnreliableServerMessage( const idBitMsg& msg ) {
 		snapshotGameFrame = sGameFrame;
 		snapshotGameTime = sGameTime;
 
-		if ( gameFrame < snapshotGameFrame || gameTime < snapshotGameTime ) {
+		// The client runs ahead of the server by about the latency, so its usercmds
+		// arrive before the server runs their frames (Doom 3).  Behind the snapshot,
+		// or further ahead than net_clientMaxPrediction: restart from the snapshot.
+		const int maxPrediction = idAsyncNetwork::clientMaxPrediction.GetInteger();
+		if ( gameTime < snapshotGameTime || gameTime > snapshotGameTime + maxPrediction ) {
 			for ( int f = gameFrame; f <= snapshotGameFrame; ++f ) {
 				memset( &userCmds[ f & ( MAX_USERCMD_BACKUP - 1 ) ][ clientNum ], 0, sizeof( usercmd_t ) );
 				userCmds[ f & ( MAX_USERCMD_BACKUP - 1 ) ][ clientNum ].gameFrame = f;
@@ -595,7 +600,8 @@ void idAsyncClient::ProcessUnreliableServerMessage( const idBitMsg& msg ) {
 			}
 			gameFrame = snapshotGameFrame;
 			gameTime = snapshotGameTime;
-			gameTimeResidual = 0;
+			gameTimeResidual = idMath::ClampInt( -maxPrediction, maxPrediction, gameTimeResidual );
+			clientPredictTime = idMath::ClampInt( -maxPrediction, maxPrediction, clientPredictTime );
 		}
 
 		// read only: the snapshot becomes the delta base when the server says so
@@ -608,6 +614,16 @@ void idAsyncClient::ProcessUnreliableServerMessage( const idBitMsg& msg ) {
 				clientState = CS_INGAME;	// first snapshot of this game
 				gameTimeResidual = 0;
 			}
+
+			// aheadOfServer: how far ahead of the server's time our newest usercmd was
+			// when the server wrote this snapshot.  Move the prediction a millisecond at
+			// a time towards net_clientPrediction ahead, and the clock towards the
+			// snapshot time plus that prediction (Doom 3).
+			clientPrediction -= ( 1 - ( INTSIGNBITSET( aheadOfServer - idAsyncNetwork::clientPrediction.GetInteger() ) << 1 ) );
+			clientPrediction = idMath::ClampInt( idAsyncNetwork::clientPrediction.GetInteger(), maxPrediction, clientPrediction );
+			const int delta = gameTime - ( snapshotGameTime + clientPrediction );
+			clientPredictTime -= ( delta / PREDICTION_FAST_ADJUST ) + ( 1 - ( INTSIGNBITSET( delta ) << 1 ) );
+
 			common->Printf( "Client received snapshot %d (frame %d)\n", sequence, sGameFrame );
 		}
 	}
@@ -694,6 +710,8 @@ void idAsyncClient::ProcessConnectResponseMessage( const netadr_t from, const id
 	clientState = CS_CONNECTED;
 	lastPacketTime = realTime;
 	common->Printf( "Client connected to server (slot %d, serverId %d)\n", clientNum, serverId );
+	// first estimate of how far ahead to run: the connect round trip (Doom 3)
+	clientPredictTime = clientPrediction = idMath::ClampInt( 0, idAsyncNetwork::clientMaxPrediction.GetInteger(), realTime - lastConnectTime );
 	SendUserInfoToServer();
 }
 
