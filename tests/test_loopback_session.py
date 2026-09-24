@@ -103,9 +103,9 @@ def run_loopback_test():
             raise RuntimeError(f"Server exited prematurely with code {server_proc.returncode}")
         try:
             source, line = output_queue.get(timeout=0.2)
-            if "StartFirstObjective" in line or "Server spawned on" in line:
+            if "ETQW initialized" in line or "Server spawned on" in line:
                 print(f"  [{source}] {line}")
-                if "StartFirstObjective" in line:
+                if "ETQW initialized" in line:
                     server_ready = True
                     break
             elif "Map:" in line or "Game initialized" in line:
@@ -115,7 +115,7 @@ def run_loopback_test():
 
     if not server_ready:
         server_proc.kill()
-        raise TimeoutError("Server failed to reach StartFirstObjective within 60s")
+        raise TimeoutError("Server failed to load the map within 60s")
 
     print("\n[2] Dedicated server active on Valley! Spawning client instance...")
 

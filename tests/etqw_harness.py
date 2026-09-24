@@ -412,6 +412,8 @@ FAILURE_MARKERS = (
     "No valid AAS navigation profiles",
     "bind() failed",
     "called from a thread other than the main thread",
+    # a retail script event declaration its native handler cannot take (game ReconcileEventsWithScript)
+    "does not match its native definition",
 )
 
 

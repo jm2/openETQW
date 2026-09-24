@@ -103,9 +103,9 @@ def run_pawn_spawn_test():
             raise RuntimeError(f"Server exited prematurely with code {server_proc.returncode}")
         try:
             source, line = output_queue.get(timeout=0.2)
-            if "StartFirstObjective" in line or "Server spawned on" in line:
+            if "ETQW initialized" in line or "Server spawned on" in line:
                 print(f"  [{source}] {line}")
-                if "StartFirstObjective" in line:
+                if "ETQW initialized" in line:
                     server_ready = True
                     break
             elif "Map:" in line or "Game initialized" in line:

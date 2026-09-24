@@ -24,7 +24,7 @@ Written by Claude Code at a quota-forced safe stop. It replaces the earlier Gemi
 - **Flakes seen once each (both pass on rerun):** valley-match phase 3 (bot vehicle entry) and all-stock-maps salvage (GDF bot AAS-area validity 87% < 90%).
 
 ## Latest: pre-merge review (2026-09-23)
-Three adversarial review rounds over the WIP branches, run as multi-agent workflows (local notes: `.agents/claude_session_2026-09-22/FOLLOWUPS.md`). Every confirmed finding is fixed except two: the APPLYSNAPSHOT redesign (follow-up) and ledger 047 (owner decision).
+Three adversarial review rounds over the WIP branches, run as multi-agent workflows (local notes: `.agents/claude_session_2026-09-22/FOLLOWUPS.md`). Every confirmed finding is fixed except two: the APPLYSNAPSHOT redesign, done since (streamed snapshots and apply acknowledgements, protocol 0x4F45.4, above), and ledger 047 (owner decision).
 
 **Round 1 (whole diff vs main), 11 confirmed:**
 - **High:** a server map change (`spawnServer`, admin changemap, campaign) left every remote human frozen on the old map until they timed out. Fixed, with the new test `remote-client-map-change`.

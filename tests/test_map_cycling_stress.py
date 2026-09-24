@@ -566,6 +566,7 @@ def main() -> int:
 
     output_json_path = REPO_ROOT / ".agents" / "challenger_m1_1" / "stress_results.json"
     try:
+        output_json_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_json_path, "w", encoding="utf-8") as f:
             json.dump(suite_summary, f, indent=2)
         print(f"\n[METRICS] Saved empirical test metrics to: {output_json_path}")
@@ -584,6 +585,10 @@ def main() -> int:
     if suite_summary["defects_unmasked"]:
         print(f"\n[CRITICAL CHALLENGE RESULT] {len(suite_summary['defects_unmasked'])} defects unmasked!")
         print("Verdict: REJECT (Dynamic in-process cycling and map switching crash/desync)")
+        return 1
+    failed = [t["name"] for t in (t1, t2, t3, t4, t5) if t["status"] != "PASS"]
+    if failed:
+        print(f"\nVerdict: REJECT ({', '.join(failed)} did not pass)")
         return 1
 
     print("\nVerdict: APPROVE")

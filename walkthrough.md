@@ -43,7 +43,7 @@ cd ../openETQW-game
 ninja -C build
 
 # 2. Build the dedicated server and client targets
-cd .
+cd ../openETQW
 ninja -C build openETQW-ded_arm64 openETQW-client_arm64
 ```
 
@@ -118,7 +118,7 @@ python3 ./tests/test_bot_gameplay.py
 ### 2.3 Run Full Meson Test Suite
 
 ```bash
-cd .
+cd ../openETQW
 meson test -C build --verbose
 ```
 

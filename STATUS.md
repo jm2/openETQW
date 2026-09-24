@@ -43,7 +43,7 @@ cd ../openETQW-game
 ninja -C build
 
 # Engine client & dedicated server builds
-cd .
+cd ../openETQW
 ninja -C build openETQW-client_arm64 openETQW-ded_arm64
 ```
 

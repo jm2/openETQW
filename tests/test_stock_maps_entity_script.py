@@ -293,13 +293,7 @@ def main() -> int:
     binary = h.build_binary("ded")
     data_path = h.env_data_path()
 
-    if not binary.is_file():
-        print(f"[FAIL] Dedicated binary not found: {binary}", file=sys.stderr)
-        return 1
-
-    if not (data_path / "base" / "pak000.pk4").is_file():
-        print(f"[SKIP] Retail assets not found at: {data_path}. Exit code 77.", file=sys.stderr)
-        return 77
+    h.skip_unless_available(data_path, binary)
 
     print("=" * 95)
     print(" OPENETQW EMPIRICAL PROBE: ENTITY DICTIONARIES, SCRIPT THREADS & OBJECTIVE STATE")

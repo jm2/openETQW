@@ -489,6 +489,7 @@ def main() -> int:
     print("=" * 80)
 
     summary_file = REPO_ROOT / ".agents" / "challenger_m1_iter2_2" / "shutdown_stress_results.json"
+    summary_file.parent.mkdir(parents=True, exist_ok=True)
     data = {
         "overall_passed": overall_passed,
         "elapsed_seconds": elapsed,

@@ -113,8 +113,15 @@ private:
 	// a command stored to be executed after a reloadEngine and all associated commands have been processed
 	idCmdArgs				postReload;
 
-	// commands registered before the game module was loaded (GameModuleCallbacks.h)
-	idList<const commandDef_t*>	moduleCapturedCommands;
+	// commands registered before the game module was loaded (GameModuleCallbacks.h),
+	// with their handlers: a node freed while the module is loaded can come back at
+	// the same address for a command the module adds
+	struct capturedCommand_t {
+		const commandDef_t *	def;
+		cmdFunction_t			function;
+		argCompletion_t			argCompletion;
+	};
+	idList<capturedCommand_t>	moduleCapturedCommands;
 	bool					moduleCommandsCaptured;
 
 private:	
@@ -453,7 +460,10 @@ idCmdSystemLocal::CaptureModuleCommands
 void idCmdSystemLocal::CaptureModuleCommands( void ) {
 	moduleCapturedCommands.Clear();
 	for ( const commandDef_t *cmd = commands; cmd != NULL; cmd = cmd->next ) {
-		moduleCapturedCommands.Append( cmd );
+		capturedCommand_t &captured = moduleCapturedCommands.Alloc();
+		captured.def = cmd;
+		captured.function = cmd->function;
+		captured.argCompletion = cmd->argCompletion;
 	}
 	moduleCommandsCaptured = true;
 }
@@ -474,7 +484,12 @@ int idCmdSystemLocal::RemoveModuleCommands( void ) {
 	int removed = 0;
 	commandDef_t *cmd, **last;
 	for ( last = &commands, cmd = *last; cmd; cmd = *last ) {
-		if ( moduleCapturedCommands.FindIndex( cmd ) == -1 ) {
+		bool captured = false;
+		for ( int i = 0; i < moduleCapturedCommands.Num() && !captured; i++ ) {
+			const capturedCommand_t &c = moduleCapturedCommands[ i ];
+			captured = c.def == cmd && c.function == cmd->function && c.argCompletion == cmd->argCompletion;
+		}
+		if ( !captured ) {
 			common->DPrintf( "removing command '%s' left by the game module\n", cmd->name );
 			*last = cmd->next;
 			Mem_Free( cmd->name );
