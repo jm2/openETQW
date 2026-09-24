@@ -13,7 +13,7 @@
 #include "Image.h"
 #include "VertexCache.h"
 #include "renderbindings.h"
-#include "megatexture/MegaTexture.h"
+#include "megatexture/megatexture.h"
 #include "../decllib/declAtmosphere.h"
 #include "../decllib/declAmbientCubeMap.h"
 #include "../decllib/declRenderBinding.h"

@@ -1,16 +1,18 @@
 # OpenETQW Milestone 4 Walkthrough: Bot AI, AAS Navigation & Combat
 
-This document provides a comprehensive operational walkthrough, reproduction steps, commands, and verified console logs for **Milestone 4 (Bot AI & Navigation Bring-Up)** in OpenETQW.
+This document walks through the bot AI and navigation bring-up on Valley: reproduction steps, commands, and console logs.
+
+> **Status (2026-09-24).** This walkthrough was written on 2026-09-21. Its console outputs were recorded then, on macOS arm64 (Apple Clang, debug build), and several no longer match the current code; the notes below say where. The charter audit of 2026-09-24 rates M4 mostly not met: one Valley objective match with objectives, vehicles and deployables forced from the console, soldier class only, no damage or kill observed, and no campaign or stopwatch transitions. The engine has not been built on Linux or Windows. Current status: `STATUS.md`.
 
 ---
 
 ## 1. Overview & Architecture
 
-Milestone 4 delivers the complete AI bot simulation and navigation mesh subsystem on stock map Valley (`maps/valley.world`):
+This walkthrough covers the bot AI and navigation mesh bring-up on stock map Valley (`maps/valley.world`):
 
 1. **Bot Subsystem & Spawning Bring-Up**:
    - Registered `addbot` console command in `openETQW-game` (direct alias forwarding to `admin addbot [team] [class] [weapon]`).
-   - Hardened bot spawning in `sdAdminSystemCommand_AddBot::PerformCommand`: newly added bots invoke `newPlayer->SpawnFromSpawnSpot()` immediately after class configuration, clearing limbo and spectator flags (`spectating 0`), equipping weapons, and deploying parachutes on aerial drops.
+   - Bot spawning: an earlier workaround made `addbot` call `SpawnFromSpawnSpot()` at once, which could spawn bots at (0,0,0) before the map script had set team spawns. It was removed (compat ledger row 042): bots now spawn through `sdGameRules::CheckRespawns`, as in the SDK.
    - Enhanced `playerPos [clientNum]` diagnostics returning team lookup names (`gdf`/`strogg`) and explicit pawn possession state (`spectating %d`).
 
 2. **Navigation Mesh & AAS File Loading**:
@@ -19,17 +21,17 @@ Milestone 4 delivers the complete AI bot simulation and navigation mesh subsyste
    - Successfully loads `maps/valley.aas_playerb` (9,348 areas, 47,802 reachabilities), `maps/valley.aas_vehicleb` (6,391 areas, 26,237 reachabilities), and `maps/valley.nav` vehicle navigation graph (164 nodes).
    - Resolved map metadata lookup prefix normalization (`maps/` prefix) in `FileSystem.h` ensuring `Valley_MapScript()` executes on map load and registers GDF base spawn points.
 
-3. **30 Hz Bot Navigation & Terrain Traversal**:
+3. **Bot Navigation & Terrain Traversal**:
    - Guarded `bot_sleepWhenServerEmpty` in `BotThreadData.cpp` to verify `!ServerHasHumans() && GetNumBotsInServer( NOTEAM ) == 0`. When bots are present on the dedicated server, `botsSleep` remains `false`.
-   - `idBotThread` runs at 30 Hz concurrently (`bot_threading 1`), formulating goals, querying AAS reachabilities, and driving dynamic directional movement (`usercmd.forwardmove`, `rightmove`, `upmove`). Both bots traverse Valley terrain, achieving > 1,500u to 2,200u displacement.
+   - `idBotThread` runs concurrently (`bot_threading 1`), formulating goals, querying AAS reachabilities, and driving directional movement (`usercmd.forwardmove`, `rightmove`, `upmove`). It is not a 30 Hz AI: with the retail default `bot_threadMinFrameDelay 1` the AI thinks on every second 30 Hz game frame (about 15 Hz), while bot usercmds are applied every frame (compat ledger row 040; `botThreadStats` reports both). In the recorded run both bots moved 1,533 u and 2,266 u; the test requires 50 u.
 
 4. **Bot Combat & Weapon Interaction**:
-   - Visual perception and FOV tracking in `Bot_FindEnemy()` detects opposing players, transitions to `COMBAT_Foot_AttackEnemy`, tracks aim angles with `Bot_LookAtEntity`, asserts attack commands (`atk_cmd: 1`), and discharges weapons (`atk: 1` / `idWeapon::IsAttacking`).
+   - Visual perception and FOV tracking in `Bot_FindEnemy()` detects opposing players, transitions to `COMBAT_Foot_AttackEnemy`, tracks aim angles with `Bot_LookAtEntity`, asserts attack commands (`atk_cmd: 1`), and discharges weapons (`atk: 1` / `idWeapon::IsAttacking`). The test checks the attack command and the weapon's attacking state only; no damage or kill is asserted.
 
-5. **Automated Verification & Zero-SDK Cleanroom**:
-   - Full automated integration test in `tests/test_bot_gameplay.py` registered in `meson.build`.
-   - 7/7 Meson tests passing 100%.
-   - Zero SDK violations (0 files) across all tracked engine files.
+5. **Automated Verification & Zero-SDK Check**:
+   - Automated integration test `tests/test_bot_gameplay.py`, registered in the top-level `meson.build` as `bot-gameplay`. It now measures the server tick rate from `SIM_HASH` lines and, since 2026-09-24, fails on failure markers in the server output (`etqw_harness.scan_failures`).
+   - The Meson suite had 7 tests when this was written; it now has 22 (5 unit, 17 integration). The last complete retail-data run before the `fix/audit-followups` changes passed 21/21 (2026-09-24, macOS arm64). See `STATUS.md` for the latest run.
+   - No SDK-licensed files are tracked in the engine repository (`zero-sdk` test). The engine binaries still link SDK code from the game repository (`docs/provenance.md` §4).
 
 ---
 
@@ -38,22 +40,28 @@ Milestone 4 delivers the complete AI bot simulation and navigation mesh subsyste
 ### 2.1 Build Game Module and Engine
 
 ```bash
-# 1. Build the game module dylib
+# 1. Build the game module dylib (and the SDK idLib the engine links)
 cd ../openETQW-game
+meson setup build        # first time only
 ninja -C build
 
-# 2. Build the dedicated server and client targets
+# 2. Build the dedicated server and client targets (the engine options default to off)
 cd ../openETQW
+meson setup build -Dbuild_engine=true -Dbuild_dedicated=true -Dbuild_tests=true   # first time only
 ninja -C build openETQW-ded_arm64 openETQW-client_arm64
 ```
 
+The engine stages the game's headers at configure time only: after changing game headers, run `meson setup --reconfigure build` in `openETQW`. These commands were run on macOS arm64 only.
+
 ### 2.2 Run the Automated Bot Integration Test
 
+The retail-data tests read the data path from `ETQW_DATA_PATH` only and exit 77 (skip) without it:
+
 ```bash
-python3 ./tests/test_bot_gameplay.py
+ETQW_DATA_PATH=/path/to/etqw python3 ./tests/test_bot_gameplay.py   # the directory containing base/pak000.pk4
 ```
 
-**Verified Output**:
+**Output recorded on 2026-09-21** (the test has changed since: it now prints a measured server tick rate and "Bot AI Think Rate: not measured here" instead of the "30 Hz Bot AI Thread: VERIFIED" line, which the old test printed without measuring anything; its "~210 frames" was an estimate from the number of samples):
 ```text
 =================================================================
  OpenETQW Milestone 4: Bot AI Navigation & Combat Integration Test
@@ -119,10 +127,13 @@ python3 ./tests/test_bot_gameplay.py
 
 ```bash
 cd ../openETQW
-meson test -C build --verbose
+meson test -C build --suite unit                                  # asset-free unit tests
+ETQW_DATA_PATH=/path/to/etqw meson test -C build -j 1 --verbose   # full suite with retail data
 ```
 
-**Verified Output**:
+The tests use fixed UDP ports, so run one suite at a time on a host (`CONTRIBUTING.md`).
+
+**Output recorded on 2026-09-21**, when the suite had 7 tests (it has 22 now; see `STATUS.md` for the latest run):
 ```text
 1/7 openETQW / bitmsg                  OK              0.04s
 2/7 openETQW / usercmd-delta           OK              0.04s
@@ -142,7 +153,7 @@ Fail:               0
 python3 ./tests/test_zero_sdk.py
 ```
 
-**Verified Output**:
+**Output recorded on 2026-09-21** (the engine now tracks about 4,300 files). The check covers the files tracked in the repository, not the SDK code the engine binaries link (`docs/provenance.md` §4):
 ```text
 Running Zero-SDK Audit on repository: .
 Loaded 901 SDK verification fingerprints, 925 SDK paths.
@@ -167,6 +178,8 @@ To run an interactive dedicated server session with bots on Valley:
   +set bot_enable 1 \
   +spawnServer valley
 ```
+
+The logs below were recorded on 2026-09-21. Since then `addbot` no longer spawns the bot at once (ledger row 042), so the first "spawned ... team none spectating 1" line no longer appears, and `PLAYER_POS` lines end with `hp= dead= area=` (row 044) and, on `fix/audit-followups`, `yaw=`.
 
 ### Server Startup Logs
 ```text
@@ -245,11 +258,11 @@ Loaded vehicle navigation graph 'maps/valley.nav' (164 nodes)
 
 ## 4. Adversarial & Empirical Stress Verification
 
-Four comprehensive adversarial test suites verify the robustness of the implementation:
+Four standalone stress scripts exist. They are not registered in Meson, and the results below were recorded on 2026-09-21; they were not re-run for this update:
 
 1. **AAS Spatial Query & Singularity Robustness**:
    ```bash
-   python3 tests/test_aas_stress.py
+   ETQW_DATA_PATH=/path/to/etqw python3 tests/test_aas_stress.py
    ```
    - Tests 32 coordinate singularities ($\pm 10^{38}$, `+inf`, `-inf`, `nan`, $10^{-45}$).
    - Executes 100,000 wide-range queries uniformly across $[-2\times 10^6, 2\times 10^6]^3$.
@@ -257,7 +270,7 @@ Four comprehensive adversarial test suites verify the robustness of the implemen
 
 2. **Bot AI Stress & Scaling Suite**:
    ```bash
-   python3 tests/test_bot_stress.py
+   ETQW_DATA_PATH=/path/to/etqw python3 tests/test_bot_stress.py
    ```
    - Tests invalid input rejection (`addbot martians`, `addbot unknown`, `addbot gdf wizard`, `addbot strogg jedi`, out-of-range weapons).
    - Validates multi-bot concurrency across 4 active bots (2 GDF + 2 Strogg) and 8 active bots (4 GDF + 4 Strogg).
@@ -265,14 +278,14 @@ Four comprehensive adversarial test suites verify the robustness of the implemen
 
 3. **Bot Combat Engagement Stress Suite**:
    ```bash
-   python3 tests/test_bot_combat_stress.py
+   ETQW_DATA_PATH=/path/to/etqw python3 tests/test_bot_combat_stress.py
    ```
    - Verifies closing distance between opposing bots along Valley road corridor.
    - Asserts target acquisition in `Bot_FindEnemy()`, aim angle tracking, backpedal maneuvering, and sustained attack assertions (`atk_cmd: 1`, `atk: 1`).
 
 4. **Multi-Run Deterministic Repeatability**:
    ```bash
-   python3 tests/test_bot_repeatability.py
+   ETQW_DATA_PATH=/path/to/etqw python3 tests/test_bot_repeatability.py
    ```
    - Executes 5 consecutive independent runs of `tests/test_bot_gameplay.py`.
    - Result: 5/5 passed (100% success rate), average duration 14.86s, 0 socket bind errors, 0 deadlocks.
@@ -281,13 +294,19 @@ Four comprehensive adversarial test suites verify the robustness of the implemen
 
 ## 5. Milestone 4 Full Match Automated Verification (Vehicles, Deployables & Objectives)
 
-The full match end-to-end integration test (`tests/test_valley_match.py`) exercises all 9 phases of a complete ETQW Valley match on an authoritative dedicated server:
+The Valley match integration test (`tests/test_valley_match.py`, meson `valley-match`) runs 9 phases on a dedicated server. Objectives, vehicle entry and deployables are forced from the console (`completeObjective`, `enterVehicle`, `deploy`); only soldier bots take part, and no damage or kill is checked.
 
 ```bash
-python3 ./tests/test_valley_match.py
+ETQW_DATA_PATH=/path/to/etqw python3 ./tests/test_valley_match.py
 ```
 
-### Verified Console Output:
+Changes since the output below was recorded (2026-09-21):
+- The test starts the match (`admin startMatch`, `g_warmup 0`) before completing objectives, because the retail warmup guard in `EndGame` was restored (ledger rows 025 and 043).
+- `[DEPLOY_DELIVER]` is printed only with `g_debugDeployables 1`, which the test sets (row 044).
+- Phase 3, seat swap: the old test read the seat from a `vehicleStatus` query half a second after `swapVehicleSeat`. A bot alone in a gunner seat takes the empty driver's seat back through its own vehicle AI (`becomeDriver`), so that query can show seat 0 again; this is bot behaviour, not a seat bug (row 051). Since 2026-09-24 the test asserts the `SWAP_SEAT` line printed in the same frame as the swap.
+- Since 2026-09-24 the test fails on failure markers in the server output (`etqw_harness.scan_failures`).
+
+### Console Output (recorded 2026-09-21):
 ```text
 =================================================================
  OpenETQW Milestone 4: Valley Match Integration Test
@@ -355,10 +374,12 @@ python3 ./tests/test_valley_match.py
 The dedicated adversarial stress test harness (`tests/test_vehicle_deployable_stress.py`) evaluates vehicle seat allocation, boundary conditions, rapid seat switching, safe egress clearance, deployable placement restrictions, and capacity overflow:
 
 ```bash
-python3 ./tests/test_vehicle_deployable_stress.py
+ETQW_DATA_PATH=/path/to/etqw python3 ./tests/test_vehicle_deployable_stress.py
 ```
 
-### Verified Console Output:
+It is not registered in Meson. Seat readings in stages 4 to 6 can also reflect a bot's own vehicle AI taking the empty driver's seat (see section 5).
+
+### Console Output (recorded 2026-09-21):
 ```text
 ==========================================================================
  Milestone 4 Adversarial Challenge: Vehicles & Deployables Stress Suite

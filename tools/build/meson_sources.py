@@ -31,6 +31,7 @@ COMMON_FRAMEWORK_SOURCES = (
     "src/framework/UsercmdGen.cpp",
     "src/framework/async/AsyncClient.cpp",
     "src/framework/async/AsyncNetwork.cpp",
+    "src/framework/async/UsercmdCodec.cpp",
     "src/framework/async/AsyncServer.cpp",
     "src/framework/async/MsgChannel.cpp",
     "src/framework/async/NetworkSystem.cpp",

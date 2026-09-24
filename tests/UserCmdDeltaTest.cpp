@@ -9,6 +9,7 @@ Verifies usercmd_t delta serialization, sequence wrap, and late arrival.
 #include "src/idlib/precompiled.h"
 #include "src/idlib/BitMsg.h"
 #include "src/framework/UsercmdGen.h"
+#include "src/framework/async/UsercmdCodec.h"
 
 static int g_failures = 0;
 
@@ -74,79 +75,17 @@ static TestCommonMock s_testCommon;
 idCommon * common = &s_testCommon;
 idSys * sys = NULL;
 
-// Usercmd delta serialization routines matching AsyncNetwork specification
+// The engine's usercmd codec (src/framework/async/UsercmdCodec.cpp), not a copy of it
 static void TestWriteUserCmdDelta( idBitMsg &msg, const usercmd_t &cmd, const usercmd_t *base, int timeOffset = 0 ) {
-    const int gameTime = cmd.gameTime - timeOffset;
-
-    if ( base ) {
-        msg.WriteDeltaLongCounter( base->gameTime, gameTime );
-
-        const bool movementChanged =
-            base->buttons.btnValue != cmd.buttons.btnValue ||
-            base->forwardmove != cmd.forwardmove ||
-            base->rightmove != cmd.rightmove ||
-            base->upmove != cmd.upmove;
-
-        msg.WriteBits( movementChanged ? 1 : 0, 1 );
-        if ( movementChanged ) {
-            msg.WriteDelta( base->buttons.btnValue, cmd.buttons.btnValue, USERCMD_NUM_BUTTONS );
-            msg.WriteDelta( base->forwardmove, cmd.forwardmove, -8 );
-            msg.WriteDelta( base->rightmove, cmd.rightmove, -8 );
-            msg.WriteDelta( base->upmove, cmd.upmove, -8 );
-        }
-        msg.WriteDelta( base->angles[0], cmd.angles[0], -16 );
-        msg.WriteDelta( base->angles[1], cmd.angles[1], -16 );
-        return;
-    }
-
-    msg.WriteBits( gameTime, 32 );
-    msg.WriteBits( cmd.buttons.btnValue, USERCMD_NUM_BUTTONS );
-    msg.WriteDelta( 0, cmd.forwardmove, -8 );
-    msg.WriteDelta( 0, cmd.rightmove, -8 );
-    msg.WriteDelta( 0, cmd.upmove, -8 );
-    msg.WriteBits( cmd.angles[0], -16 );
-    msg.WriteBits( cmd.angles[1], -16 );
+    Net_WriteUserCmdDelta( msg, cmd, base, timeOffset );
 }
 
 static void TestReadUserCmdDelta( const idBitMsg &msg, usercmd_t &cmd, const usercmd_t *base ) {
-    memset( &cmd, 0, sizeof( cmd ) );
-
-    if ( base ) {
-        cmd.gameTime = msg.ReadDeltaLongCounter( base->gameTime );
-        if ( msg.ReadBits( 1 ) != 0 ) {
-            cmd.buttons.btnValue = msg.ReadDelta( base->buttons.btnValue, USERCMD_NUM_BUTTONS );
-            cmd.forwardmove = msg.ReadDelta( base->forwardmove, -8 );
-            cmd.rightmove = msg.ReadDelta( base->rightmove, -8 );
-            cmd.upmove = msg.ReadDelta( base->upmove, -8 );
-        } else {
-            cmd.buttons.btnValue = base->buttons.btnValue;
-            cmd.forwardmove = base->forwardmove;
-            cmd.rightmove = base->rightmove;
-            cmd.upmove = base->upmove;
-        }
-        cmd.angles[0] = msg.ReadDelta( base->angles[0], -16 );
-        cmd.angles[1] = msg.ReadDelta( base->angles[1], -16 );
-        return;
-    }
-
-    cmd.gameTime = msg.ReadBits( 32 );
-    cmd.buttons.btnValue = msg.ReadBits( USERCMD_NUM_BUTTONS );
-    cmd.forwardmove = msg.ReadDelta( 0, -8 );
-    cmd.rightmove = msg.ReadDelta( 0, -8 );
-    cmd.upmove = msg.ReadDelta( 0, -8 );
-    cmd.angles[0] = msg.ReadBits( -16 );
-    cmd.angles[1] = msg.ReadBits( -16 );
+    Net_ReadUserCmdDelta( msg, cmd, base );
 }
 
 static bool TestDuplicateUsercmd( const usercmd_t &prevCmd, usercmd_t &curCmd, int frame, int time ) {
-    if ( curCmd.gameTime <= prevCmd.gameTime ) {
-        curCmd = prevCmd;
-        curCmd.gameFrame = frame;
-        curCmd.gameTime = time;
-        curCmd.duplicateCount++;
-        return true;
-    }
-    return false;
+    return Net_DuplicateUsercmd( prevCmd, curCmd, frame, time );
 }
 
 static void TestAbsoluteSerialization() {

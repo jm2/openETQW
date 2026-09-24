@@ -5,7 +5,7 @@
 #ifndef __DECL_TEMPLATE_H__
 #define __DECL_TEMPLATE_H__
 
-#include "../framework/DeclManager.h"
+#include "../framework/declManager.h"
 
 class sdDeclTemplate : public idDecl {
 public:

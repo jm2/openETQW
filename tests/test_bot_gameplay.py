@@ -104,11 +104,36 @@ PLAYER_POS_PATTERN = re.compile(
 )
 
 
+# every line each process printed, checked for failure markers when the test ends
+# (a common->Error drop or a crash banner does not always change the exit code)
+PROCESS_LINES = {}
+
+
+def scan_process_output():
+    """Failure markers (etqw_harness.scan_failures) in any process's output."""
+    found = []
+    for name, lines in PROCESS_LINES.items():
+        for b in h.scan_failures(lines):
+            found.append(f"{name} line {b['line']}: {b['text']}")
+    return found
+
+
+def exit_with_scan(rc):
+    bad = scan_process_output()
+    if bad:
+        print("\nFAILURE MARKERS in process output:")
+        for b in bad:
+            print(f"  - {b}")
+        rc = rc or 1
+    sys.exit(rc)
+
+
 def stream_reader(pipe, name, q):
     try:
         for line in iter(pipe.readline, ''):
             if not line:
                 break
+            PROCESS_LINES.setdefault(name, []).append(line.rstrip("\n"))
             m = SIM_HASH_TICK_RE.search(line)
             if m:
                 # timestamp here, in the reader thread; SIM_HASH lines are not
@@ -266,7 +291,10 @@ def run_bot_gameplay_test():
 
     test_start_time = time.time()
     monitor_start_mono = time.monotonic()
-    MAX_TEST_DURATION = 40.0  # seconds
+    # Two bots on Valley find each other at random; within 40 s they failed to meet in
+    # about one run in four (FOLLOWUPS), so allow 90 s. The loop stops as soon as every
+    # criterion is met.
+    MAX_TEST_DURATION = 90.0  # seconds
 
     while time.time() - test_start_time < MAX_TEST_DURATION:
         if server_proc.poll() is not None:
@@ -313,6 +341,8 @@ def run_bot_gameplay_test():
 
             # 4. Check combat engagement (atk_cmd or atk)
             if pos0["atk_cmd"] == 1 or pos0["atk"] == 1 or pos1["atk_cmd"] == 1 or pos1["atk"] == 1:
+                if not combat_engagement_seen:
+                    print(f"  first combat after {time.time() - test_start_time:.1f} s of monitoring")
                 combat_engagement_seen = True
                 print(f"  [COMBAT DETECTED] Bot 0 (atk={pos0['atk']}, atk_cmd={pos0['atk_cmd']}) | Bot 1 (atk={pos1['atk']}, atk_cmd={pos1['atk_cmd']})")
 
@@ -409,7 +439,7 @@ def run_bot_gameplay_test():
 
 if __name__ == "__main__":
     try:
-        sys.exit(run_bot_gameplay_test())
+        exit_with_scan(run_bot_gameplay_test())
     except Exception as e:
         print(f"\nTEST FAILED: {e}", file=sys.stderr)
         import traceback

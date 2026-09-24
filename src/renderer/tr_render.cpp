@@ -17,7 +17,7 @@
 #include "GuiModel.h"
 #include "renderbindings.h"
 #include "renderbindingmanager.h"
-#include "megatexture/MegaTexture.h"
+#include "megatexture/megatexture.h"
 #include "../decllib/declAtmosphere.h"
 #include "../decllib/declRenderProgram.h"
 #include "../decllib/DeclRenderProgram_opengl.h"

@@ -53,7 +53,6 @@ const int ASYNC_PROTOCOL_VERSION	= ( OPENETQW_PROTOCOL_MAJOR << 16 ) + ASYNC_PRO
 // ETQW publishes this limit through NetworkSystem.h.
 
 const int MAX_USERCMD_BACKUP		= 256;
-const int MAX_USERCMD_DUPLICATION	= 25;
 const int MAX_USERCMD_RELAY			= 10;
 
 // index 0 is hardcoded to be the idnet master
@@ -70,6 +69,7 @@ const int GAME_INIT_ID_INVALID		= -1;
 const int GAME_INIT_ID_MAP_LOAD		= -2;
 
 
+#include "UsercmdCodec.h"
 #include "MsgChannel.h"
 #include "AsyncServer.h"
 #include "ServerScan.h"

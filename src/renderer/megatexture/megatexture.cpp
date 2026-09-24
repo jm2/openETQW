@@ -30,10 +30,10 @@ GNU General Public License for more details.
 #include "../VulkanBackend.h"
 #include "../renderbindings.h"
 #include "../../decllib/declRenderBinding.h"
-#include "MegaTexture.h"
-#include "MegaTextureCodec.h"
-#include "MegaTextureTileLoader.h"
-#include "MegaTextureTileDecompressor.h"
+#include "megatexture.h"
+#include "megatexturecodec.h"
+#include "megatexturetileloader.h"
+#include "megatexturetiledecompressor.h"
 
 #include <chrono>
 #include <thread>

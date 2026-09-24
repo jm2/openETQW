@@ -91,6 +91,7 @@ PLAYER_POS_PATTERN = re.compile(
     r"cmd:\s*fwd=([-\d]+)\s*side=([-\d]+)\s*up=([-\d]+)\s*atk_cmd=(\d+)"
 )
 
+SWAP_SEAT_PATTERN = re.compile(r"SWAP_SEAT: client (\d+) in \S+ now in seat (\d+)")
 VEHICLE_STATUS_PATTERN = re.compile(
     r"VEHICLE_STATUS:\s*client=(\d+)\s*in_vehicle=(\d+)"
     r"(?:\s*name=(\S+)\s*def=(\S+)\s*seat=(\d+)\s*health=(\d+)\s*pos=\(([-\d.]+),\s*([-\d.]+),\s*([-\d.]+)\))?"
@@ -108,12 +109,37 @@ DEPLOY_STATUS_PATTERN = re.compile(
 LOG_PATH = None  # --log: the server's output is also written there
 
 
+# every line each process printed, checked for failure markers when the test ends
+# (a common->Error drop or a crash banner does not always change the exit code)
+PROCESS_LINES = {}
+
+
+def scan_process_output():
+    """Failure markers (etqw_harness.scan_failures) in any process's output."""
+    found = []
+    for name, lines in PROCESS_LINES.items():
+        for b in h.scan_failures(lines):
+            found.append(f"{name} line {b['line']}: {b['text']}")
+    return found
+
+
+def exit_with_scan(rc):
+    bad = scan_process_output()
+    if bad:
+        print("\nFAILURE MARKERS in process output:")
+        for b in bad:
+            print(f"  - {b}")
+        rc = rc or 1
+    sys.exit(rc)
+
+
 def stream_reader(pipe, name, q):
     log = open(LOG_PATH, "w", errors="replace") if LOG_PATH else None
     try:
         for line in iter(pipe.readline, ''):
             if not line:
                 break
+            PROCESS_LINES.setdefault(name, []).append(line.rstrip("\n"))
             if log:
                 log.write(line)
                 log.flush()
@@ -371,11 +397,26 @@ def run_valley_match_test():
 
     initial_seat = v_status1["seat"]
 
-    # Swap vehicle seat
+    # Swap vehicle seat. SWAP_SEAT reports the seat in the same frame as the swap: a
+    # bot alone in a gunner seat takes the driver's seat back a moment later
+    # (becomeDriver in its vehicle AI; bot_pause cannot be set in multiplayer).
     send_cmd(server_proc, "swapVehicleSeat 0")
+    swapped_seat = None
+    start = time.time()
+    while time.time() - start < 5.0 and swapped_seat is None:
+        try:
+            source, line = output_queue.get(timeout=0.2)
+        except queue.Empty:
+            continue
+        m = SWAP_SEAT_PATTERN.search(line) if source == "SERVER" else None
+        if m and int(m.group(1)) == 0:
+            swapped_seat = int(m.group(2))
+    print(f"  Seat after swapVehicleSeat: {swapped_seat} (was {initial_seat})")
+    if swapped_seat is None or swapped_seat == initial_seat:
+        raise AssertionError(f"Seat swap did not move Bot 0 out of seat {initial_seat} (SWAP_SEAT seat {swapped_seat})")
     time.sleep(0.5)
     v_status2 = query_vehicle_status(server_proc, output_queue, client_num=0, timeout=5.0)
-    print(f"  Vehicle Status after seat swap: seat={v_status2.get('seat')} (was {initial_seat})")
+    print(f"  Vehicle Status half a second later: seat={v_status2.get('seat')} (the bot may have taken the driver's seat back)")
 
     # Exit vehicle
     send_cmd(server_proc, "exitVehicle 0")
@@ -531,7 +572,7 @@ if __name__ == "__main__":
     ap.add_argument("--log", help="write the server's output to this file")
     LOG_PATH = ap.parse_args().log
     try:
-        sys.exit(run_valley_match_test())
+        exit_with_scan(run_valley_match_test())
     except Exception as e:
         print(f"\n[FATAL TEST FAILURE]: {e}", file=sys.stderr)
         sys.exit(1)

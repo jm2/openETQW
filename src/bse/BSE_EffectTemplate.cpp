@@ -24,7 +24,7 @@ GNU General Public License for more details.
 #pragma hdrstop
 
 #include "BSE.h"
-#include "../framework/DeclManager.h"
+#include "../framework/declManager.h"
 
 rvDeclEffect::rvDeclEffect() {
 	size = 8.0f;

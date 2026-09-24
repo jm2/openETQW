@@ -1374,10 +1374,22 @@ void idAsyncServer::ProcessChallengeMessage( const netadr_t from, const idBitMsg
 }
 
 void idAsyncServer::ProcessConnectMessage( const netadr_t from, const idBitMsg& msg ) {
-	if ( msg.GetRemainingData() < 4 + 2 + 4 + 4 + 2 + 4 ) {
+	// The protocol comes first in every idTech connect message, and it is checked
+	// first (as Doom 3 does), so a retail ET:QW peer or another OpenETQW version is
+	// told which protocol this server speaks, whatever the rest of its message holds
+	// and whether or not its challenge is one of ours.
+	if ( msg.GetRemainingData() < 4 ) {
 		return;
 	}
 	int protocol = msg.ReadLong();
+	if ( protocol != ASYNC_PROTOCOL_VERSION ) {
+		PrintOOB( from, SERVER_PRINT_BADPROTOCOL, va( "Server uses protocol %d.%d", OPENETQW_PROTOCOL_MAJOR, ASYNC_PROTOCOL_MINOR ) );
+		return;
+	}
+
+	if ( msg.GetRemainingData() < 2 + 4 + 4 + 2 + 4 ) {
+		return;
+	}
 	int OS = msg.ReadShort();
 	int clientChecksum = msg.ReadLong();
 	int challenge = msg.ReadLong();
@@ -1387,11 +1399,6 @@ void idAsyncServer::ProcessConnectMessage( const netadr_t from, const idBitMsg& 
 	int ichallenge = ValidateChallenge( from, challenge, clientId );
 	if ( ichallenge == -1 ) {
 		PrintOOB( from, SERVER_PRINT_BADCHALLENGE, "Bad challenge" );
-		return;
-	}
-
-	if ( protocol != ASYNC_PROTOCOL_VERSION ) {
-		PrintOOB( from, SERVER_PRINT_BADPROTOCOL, va( "Server uses protocol %d.%d", OPENETQW_PROTOCOL_MAJOR, ASYNC_PROTOCOL_MINOR ) );
 		return;
 	}
 

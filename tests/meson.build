@@ -51,6 +51,7 @@ test('bitmsg', bitmsg_test, suite: 'unit', timeout: 30)
 # 2. UserCmd delta serialization & sequence test
 usercmd_test_src = files(
   'UserCmdDeltaTest.cpp',
+  meson.project_source_root() / 'src' / 'framework' / 'async' / 'UsercmdCodec.cpp',
   game_stage_root / 'src' / 'idlib' / 'BitMsg.cpp',
 )
 
@@ -85,6 +86,7 @@ test('struct-layout', struct_layout_test, suite: 'unit', timeout: 30)
 # 4. UserCmd history, ring buffer & transport lifecycle test
 usercmd_history_test_src = files(
   'test_usercmd_history.cpp',
+  meson.project_source_root() / 'src' / 'framework' / 'async' / 'UsercmdCodec.cpp',
   game_stage_root / 'src' / 'idlib' / 'BitMsg.cpp',
 )
 
@@ -191,6 +193,22 @@ if build_dedicated
     ],
     workdir: meson.project_source_root(),
     suite: ['integration'],
+    protocol: 'exitcode',
+    timeout: 300,
+    is_parallel: false,
+  )
+  # key turning runs at in_yawSpeed a second whatever the client's frame rate
+  test(
+    'turn-rate',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_turn_rate.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--port', '29990',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'turn-rate',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration', 'stock-maps'],
     protocol: 'exitcode',
     timeout: 300,
     is_parallel: false,

@@ -30,7 +30,7 @@ If you have questions concerning this license or the applicable additional terms
 #define __TR_LOCAL_H__
 
 #include "Image.h"
-#include "megatexture/MegaTexture.h"
+#include "megatexture/megatexture.h"
  
 class idRenderWorldLocal;
 

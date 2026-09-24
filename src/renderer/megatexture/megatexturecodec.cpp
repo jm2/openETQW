@@ -23,8 +23,8 @@ GNU General Public License for more details.
 #include "../../framework/precompiled.h"
 #pragma hdrstop
 
-#include "MegaTexture.h"
-#include "MegaTextureCodec.h"
+#include "megatexture.h"
+#include "megatexturecodec.h"
 
 #include <math.h>
 

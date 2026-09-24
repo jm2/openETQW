@@ -135,6 +135,9 @@ jobs:
       - name: Python syntax and pyflakes (tests/, tools/)
         run: python tools/ci/check_python.py
 
+      - name: Include letter case (Linux is case-sensitive; macOS is not)
+        run: python tools/ci/check_include_case.py
+
       - name: Zero-SDK cleanroom audit (blocking)
         run: python tests/test_zero_sdk.py
 

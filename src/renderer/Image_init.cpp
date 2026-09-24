@@ -14,7 +14,7 @@
 #include "ImageParse.h"
 #include "RenderSystem.h"
 #include "VulkanBackend.h"
-#include "megatexture/MegaTexture.h"
+#include "megatexture/megatexture.h"
 
 extern glconfig_t glConfig;
 

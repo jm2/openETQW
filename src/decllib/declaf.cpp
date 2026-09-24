@@ -4,7 +4,7 @@
 // keeps it in decllib/declaf.cpp and adds the dictionary cache hook below.
 
 #include "precompiled.h"
-#include "declAF.h"
+#include "../framework/DeclAF.h"
 #include "declTypeHolder.h"
 
 #pragma hdrstop
