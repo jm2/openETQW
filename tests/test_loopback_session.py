@@ -46,7 +46,7 @@ CLIENT_ARGS = [
     "+set", "net_port", str(CLIENT_PORT),
     "+set", "si_pure", "0",
     "+set", "com_timeServer", "1",
-    "+connect", f"127.0.0.1:{SERVER_PORT}"
+    "+set", "net_clientShowSnapshots", "1", "+connect", f"127.0.0.1:{SERVER_PORT}"
 ]
 
 REQUIRED_SNAPSHOTS = 150

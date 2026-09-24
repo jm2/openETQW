@@ -303,7 +303,7 @@ if build_dedicated
     is_parallel: false,
   )
   # the same with 20% packet loss each way (net_forceDrop), connecting straight
-  # into outskirts: snapshot resends, held reliable messages, the reliable game init
+  # into outskirts: streamed snapshots superseding lost ones, the reliable game init
   test(
     'remote-client-map-change-loss',
     py,

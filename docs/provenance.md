@@ -8,13 +8,13 @@
 
 Under **Owner Decision D5**, OpenETQW establishes strict licensing and repository separation between the GPL-licensed engine and the SDK-licensed game module:
 
-1. **Engine Repository (`/Users/jmulesa/openETQW`)**:
+1. **Engine Repository (`.`)**:
    - **License**: GNU General Public License v3 (`GPL-3.0-or-later`) with Id Software Additional Terms.
    - **Scope**: Platform abstraction, Vulkan renderer, audio system, collision models, particles, navigation, async networking, framework, developer tools, unit tests, and build system.
    - **Invariant**: Strictly **zero SDK-licensed files** are tracked in this repository.
    - **Header Bridge**: Required game interface definitions are staged dynamically at configure time from `openETQW-game` into `.tmp/gamelibs_stage/` (git-ignored) via `tools/build/stage_game.py`. Every staged header is cataloged in the Tracked Exceptions Registry below.
 
-2. **Game Module Repository (`/Users/jmulesa/openETQW-game`)**:
+2. **Game Module Repository (`../openETQW-game`)**:
    - **License**: ETQW SDK EULA (`LicenseRef-ETQW-SDK`) for SDK source files; MIT License for new game-side files and build infrastructure.
    - **Scope**: Entity logic, player movement, weapons, vehicles, bot AI, rules, declarations, UI system, SDK idLib, and reconstructed DoomScript native codegen.
    - **Invariant**: Strictly **zero GPL-only files** reside in this repository.
@@ -106,7 +106,7 @@ The provenance classification and zero-SDK compliance can be independently re-ve
 
 1. **Full Provenance Classification Audit (Baseline + Supplemental SDK)**:
    ```bash
-   python3 tools/build/classify_provenance.py /Users/jmulesa/etqw openetqw_handoff_v3/reference/etqw_sdk_comparison_bundle.zip --game-repo /Users/jmulesa/openETQW-game --output-json docs/provenance-manifest.json
+   python3 tools/build/classify_provenance.py <ETQW SDK source> openetqw_handoff_v3/reference/etqw_sdk_comparison_bundle.zip --game-repo ../openETQW-game --output-json docs/provenance-manifest.json
    ```
    *Expectation*: Outputs `Classified 5275 files: {'SDK': 853, 'Doom3_GPL': 311, 'ThirdParty': 3430, 'Reconstruction_retail_RE': 61, 'Reconstruction_original': 620}` with exit code 0.
 

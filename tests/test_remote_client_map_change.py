@@ -43,7 +43,7 @@ class RemoteClient(h.DedicatedServer):
 
     def __init__(self, binary, data, server_port, port, log_path=None, net=None):
         super().__init__(binary, data, "", port, log_path=log_path,
-                         cvars={"si_pure": "0", "ui_name": "RemoteClient", **(net or {})})
+                         cvars={"si_pure": "0", "ui_name": "RemoteClient", "net_clientShowSnapshots": "1", **(net or {})})
         self.server_port = server_port
 
     def command_line(self):

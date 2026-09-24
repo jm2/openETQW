@@ -264,7 +264,7 @@ def test_phase4_pawn_spawn_and_ground_contact():
         "+set", "net_port", str(CLIENT_PORT),
         "+set", "si_pure", "0",
         "+set", "com_timeServer", "1",
-        "+connect", f"127.0.0.1:{SERVER_PORT}"
+        "+set", "net_clientShowSnapshots", "1", "+connect", f"127.0.0.1:{SERVER_PORT}"
     ]
 
     out_q = queue.Queue()

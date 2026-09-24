@@ -355,10 +355,11 @@ def run_valley_match_test():
     # Phase 3: Vehicle Possession, Seat Swapping & Safe Egress
     # -------------------------------------------------------------
     print("[Phase 3] Testing vehicle possession, seat management, and egress...")
-    # Client 0 (the GDF bot) enters the GDF Titan. The nearest vehicle depended
-    # on where the bot spawned and was sometimes the Platypus boat or the Strogg
-    # Icarus, which the bot left again at once (1 in 3 runs failed here).
-    send_cmd(server_proc, "enterVehicle 0 sdVehicle_RigidBody_vehicle_titan_70")
+    # Client 0 (the GDF bot) enters the GDF Titan (by entityDef: entity names carry
+    # the entity number). The nearest vehicle depended on where the bot spawned and
+    # was sometimes the Platypus boat or the Strogg Icarus, which the bot left again
+    # at once (1 in 3 runs failed here).
+    send_cmd(server_proc, "enterVehicle 0 vehicle_titan")
     time.sleep(1.0)
 
     v_status1 = query_vehicle_status(server_proc, output_queue, client_num=0, timeout=5.0)

@@ -1,10 +1,12 @@
 # Checkpoint: Stock Maps phase, M2 (AAS + 30 Hz bot traversal), 2026-09-22
 
+> **Historical.** This checkpoint records the stock-maps phase as it went; it is merged to `main` with the phase. Current state: `STATUS.md` and `docs/compat-ledger.md` (network: rows 015, 036, 045, 049; protocol 0x4F45.5).
+
 Written by Claude Code at a quota-forced safe stop. It replaces the earlier Gemini checkpoint, which overstated M1 ("100% verified"): its final M1 review/audit round never produced a verdict.
 
 - Branch: `wip/stock-maps-m2-checkpoint` in both `jm2/openETQW` and `jm2/openETQW-game` (pushed). `main` is untouched (engine `7545679`, game `93f939f`).
 - Both repositories are **private** (checked with `gh api`).
-- Local-only session notes (gitignored): `/Users/jmulesa/openETQW/.agents/claude_session_2026-09-22/`. They include the transcript-history briefing, code-reader dossier (`code_results.json`), openQ4 triage, follow-up list, probe tool, and harness JSON reports.
+- Local-only session notes (gitignored): `.agents/claude_session_2026-09-22/`. They include the transcript-history briefing, code-reader dossier (`code_results.json`), openQ4 triage, follow-up list, probe tool, and harness JSON reports.
 
 ## Latest: network play over real links (2026-09-23)
 - **User info (protocol .3, ledger 049).** Players' names, clan tags and flags reach the server and every client, validated and bounded. Before this, every remote player was "Player N". New tests: `userinfo`, `userinfo-loss`.
@@ -167,7 +169,7 @@ Three adversarial review rounds over the WIP branches, run as multi-agent workfl
    - `ninja -C ~/openETQW-game/build`;
    - `cd ~/openETQW && meson setup --reconfigure build && ninja -C build && meson test -C build --suite unit`.
 2. Review and verify the three WIP worker areas (engine, bot AI, core): read each diff against `.agents/claude_session_2026-09-22/m1_baseline_diffs/` plus this list. Fix anything half-finished, then run:
-   - `ETQW_DATA_PATH=/Users/jmulesa/etqw_data python3 tests/test_all_stock_maps.py --jobs 3` (with and without `--bot-think-delay 0`);
+   - `ETQW_DATA_PATH=$ETQW_DATA_PATH python3 tests/test_all_stock_maps.py --jobs 3` (with and without `--bot-think-delay 0`);
    - the M1 regression scenarios (outskirts and ark shutdown ×5, in-process map changes);
    - an adversarial review of each diff.
 3. Resolve the owner decisions (30 Hz, quarry), apply the openQ4-pattern ports and the AAS bounds checks, then continue with M3 (Vulkan client on outskirts, ark, canyon, refinery), M4 (CI parity plus test registration) and M5 (STATUS.md, compat-ledger rows from 036, zero-SDK, merge to main, push).

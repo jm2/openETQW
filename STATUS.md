@@ -35,15 +35,15 @@ meson test -C build --suite unit --verbose
 # Public runner simulation (verifies clean exit code 77 on missing assets)
 ETQW_DATA_PATH=/nonexistent meson test -C build --verbose
 
-# Full local test suite with retail assets (13/13 passing)
+# Full local test suite with retail assets (21/21 passing)
 meson test -C build -j 1 --verbose
 
 # Game module build
-cd /Users/jmulesa/openETQW-game
+cd ../openETQW-game
 ninja -C build
 
 # Engine client & dedicated server builds
-cd /Users/jmulesa/openETQW
+cd .
 ninja -C build openETQW-client_arm64 openETQW-ded_arm64
 ```
 
@@ -112,7 +112,7 @@ meson test -C build --suite unit --verbose
 | openETQW | `src/sys/stub/headless_stubs.cpp`, `src/renderer/ImageParse.h`, `Material.cpp`, `decllib/declRenderProgram.cpp` | The dedicated server parses image references like the client and gets a placeholder image; render programs resolve without a shader backend | Headless material defaulting turned water, ladder and nonsolid surfaces into CONTENTS_SOLID (about 300–370 failed decls per map, now 0), so collision diverged from the AAS |
 | openETQW | `framework/async/AsyncNetwork.cpp`, `AsyncServer.cpp/.h`, `sys/sys_local.cpp` | `spawnServer <map>` on a running server changes maps; bot client slots are re-begun and released instead of leaking; console lines survive map changes; the game is not ticked without a map | In-process map changes were broken |
 | openETQW | `framework/Common.cpp`, `CVarSystem.cpp`, `CmdSystem.cpp`, `GameModuleCallbacks.h` | Printing is thread-safe; an error in the first map load no longer aborts; cvar and command callbacks into the game module are restored before unload (openQ4 63756efb pattern); CmdSystem is exception-safe; frame pacing uses `std::chrono` and the fatal-error backtrace is POSIX-only | Bot and FS threads print; stability; Windows portability |
-| openETQW | `framework/async/AsyncNetwork.h` | Protocol 0x4F45 ('OE').5, with a refusal message naming it; reliable game init, snapshot resend, remote clients follow map changes (ledger 045) | D7 clean network break |
+| openETQW | `framework/async/AsyncNetwork.h` | Protocol 0x4F45 ('OE').5, with a refusal message naming it; reliable game init, streamed snapshots (APPLYSNAPSHOT), client prediction sync, remote clients follow map changes (ledger 045) | D7 clean network break |
 | openETQW | `sys/osx/macosx_compat.mm`, `posix_main.cpp`, `renderer/image_sequence.cpp`, `FileSystem.cpp` | The macOS savepath is `openETQW` (was openQ4); the terminal mode is restored; `globalImages` guards | Leftovers and latent crashes |
 | openETQW | `renderer/tr_light.cpp`, `VulkanBackend.cpp` | "Vulkan shadow lights" diagnostic at shutdown | Separates "no shadow light in view" from "shadows dropped" |
 | openETQW-game | `botai/aas/AASFile_local.cpp` | TraceFloor/Trace treat travel flags as allowed, not blocking; `FindReachabilityByName` returns -1; minimal PushPointIntoArea; portal and cluster index validation | Path smoothing and direct paths were always failing; island disabled a real reachability |
@@ -129,7 +129,7 @@ meson test -C build --suite unit --verbose
 |---|---|---|---|---|
 | All 11 stock maps: load, entities, scripts, AAS, bots | match-tested | macOS arm64 / Apple Clang 21 | `ETQW_DATA_PATH=… python3 tests/test_all_stock_maps.py --jobs 3` | 11/11 PASS (table below) |
 | Bot AI at a true 30 Hz | match-tested | macOS arm64 | same, with `--bot-think-delay 0` | 11/11 PASS, think ratio 0.999–1.000 (the retail default thinks every second frame: 0.500) |
-| Full meson suite with retail data | match-tested | macOS arm64 | `ETQW_DATA_PATH=… meson test -C build -j 1` | 13/13 OK, including all-stock-maps, inprocess-map-change, protocol-clean-break, valley-match (a started match, 9/9 phases), bot-gameplay, vulkan-shadows, determinism |
+| Full meson suite with retail data | match-tested | macOS arm64 | `ETQW_DATA_PATH=… meson test -C build -j 1` | 21/21 OK, including all-stock-maps, inprocess-map-change, protocol-clean-break, valley-match (a started match, 9/9 phases), bot-gameplay, vulkan-shadows, determinism |
 | In-process map changes | map-loaded | macOS arm64 | `tests/test_inprocess_map_change.py` | quarry→outskirts→ark→ark: correct map and entities, queued stdin survives, no bot slot leak |
 | Clean network break (D7) | launched | macOS arm64 | `tests/test_protocol_clean_break.py` | 8 retail/id majors refused; OpenETQW protocol reaches connectResponse |
 | Vulkan client, one map per campaign | match-tested | macOS arm64 / MoltenVK | `tests/test_campaign_client_maps.py` | 4/4: outskirts (224k shadow draws), ark (29k), canyon from the Strogg spawn (25k), refinery loading bay (14k); MegaTexture, sky, interactions, exit 0 |
@@ -197,7 +197,7 @@ Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>
 ## Compatibility record
 - Module ABI (`GAME_API_VERSION`, interface changes this session): `GAME_API_VERSION 1` intact in `Game.h`. `gameImport_t` (192 bytes on 64-bit, offset 0x68 union) and `gameExport_t` (24 bytes) validated via `StructLayoutTest.cpp`. `GAME_API_EXPORT` defined for dynamic export across MSVC (`__declspec(dllexport)`) and GCC/Clang (`__attribute__((visibility("default")))`).
 - Serialized/asset format changes: none (preserving retail serialization structures)
-- Wire protocol id and OpenETQW-only deviations: 16-bit MsgChannel framing restored; snapshot delta acknowledgment gating enforced.
+- Wire protocol id and OpenETQW-only deviations: 16-bit MsgChannel framing restored; snapshots stream with APPLYSNAPSHOT base confirmation (ledger 045).
 - Ledger rows added (`docs/compat-ledger.md`): Rows 033, 034, and 035 added documenting cross-platform Meson static library resolution and staging, Windows MSVC flags and console dedicated subsystem isolation, and GitHub Actions continuous integration matrix with asset-free unit test decoupling.
 - Retail 1.5 network interop: none by design (clean break, D7). Retail asset formats are still read unchanged; the wire protocol is OpenETQW's own (0x4F45.5).
 

@@ -72,7 +72,7 @@ CLIENT1_ARGS = [
     "+set", "si_pure", "0",
     "+set", "com_timeServer", "0",
     "+set", "ui_name", "GDF_Soldier",
-    "+connect", f"127.0.0.1:{SERVER_PORT}"
+    "+set", "net_clientShowSnapshots", "1", "+connect", f"127.0.0.1:{SERVER_PORT}"
 ]
 
 CLIENT2_ARGS = [
@@ -84,7 +84,7 @@ CLIENT2_ARGS = [
     "+set", "si_pure", "0",
     "+set", "com_timeServer", "0",
     "+set", "ui_name", "Strogg_Soldier",
-    "+connect", f"127.0.0.1:{SERVER_PORT}"
+    "+set", "net_clientShowSnapshots", "1", "+connect", f"127.0.0.1:{SERVER_PORT}"
 ]
 
 PLAYER_POS_PATTERN = re.compile(
