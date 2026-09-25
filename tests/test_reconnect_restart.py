@@ -53,10 +53,14 @@ class Failed(Exception):
 
 
 def player_pos(proc, client_num):
+    """The PLAYER_POS of client_num as proc sees it; a non-finite origin or
+    velocity fails the test (every distance computed from it would be nan)."""
     lines = proc.command(f"playerPos {client_num}") or []
     for ln in lines:
         p = h.parse_player_pos(ln.text)
         if p and p["client"] == client_num:
+            if not h.finite(*p["org"], *p["vel"]):
+                raise Failed(f"{proc.name} reports a non-finite position for client {client_num}: {ln.text}")
             return p
     raise Failed(f"no PLAYER_POS for client {client_num} from {proc.name}")
 

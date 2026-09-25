@@ -440,14 +440,19 @@ def run_multiclient_test():
         # the player slides for about half a second after the stop; compare once the
         # server has it at rest and a few more snapshots have reached the observer
         deadline = time.time() + 5.0
-        while time.time() < deadline:
+        while True:
             time.sleep(0.25)
-            if math.hypot(*query_player_pos(server_proc, "SERVER", output_queue, timeout=3.0, client_num=mover_slot)["vel"]) < 1.0:
+            speed = math.hypot(*query_player_pos(server_proc, "SERVER", output_queue, timeout=3.0, client_num=mover_slot)["vel"])
+            if speed < 1.0:
                 break
+            if time.time() >= deadline:
+                raise ValueError(f"client {mover_slot} is still moving at {speed:.1f} u/s 5 s after it was told to stop")
         time.sleep(0.5)
 
         seen = query_player_pos(observer_proc, observer_name, output_queue, timeout=3.0, client_num=mover_slot)["org"]
         authoritative = query_player_pos(server_proc, "SERVER", output_queue, timeout=3.0, client_num=mover_slot)["org"]
+        if not all(math.isfinite(v) for v in (*initial, *seen, *authoritative)):
+            raise ValueError(f"non-finite position: initial {initial}, seen {seen}, server {authoritative}")
         moved = math.hypot(seen[0] - initial[0], seen[1] - initial[1])
         lag = dist(seen, authoritative)
         print(f"  Client {mover_slot} Initial Pos (seen by {observer_name}): {initial}")
