@@ -10,8 +10,9 @@ Both histories were rewritten on 2026-09-24 (see "This session"). Every commit I
 **Integrator role:** held by Claude Code integrator session 3a9edf51 on mbp-m1max
 
 ## Owner decisions in effect
-D1 public source and binaries · D2 all RE methods · D3 hard fork · D4 macOS / Windows 11 / Arch / Fedora / Debian, inputs on request · D5 two repos: GPL-3.0-or-later engine; SDK license + MIT game · D6 Meson · D7 clean network break from retail 1.5, for now (2026-09-22; **deferred 2026-09-24**: retail 1.5 network compatibility is temporarily dropped to match openQ4, until the owner decides whether to keep that contract; retail 1.5 data stays required and supported)
+D1 public source and binaries · D2 all RE methods · D3 hard fork · D4 macOS / Windows 11 / Arch / Fedora / Debian, inputs on request · D5 two repos: GPL-3.0-or-later engine; SDK license + MIT game · D6 Meson · D7 clean network break from retail 1.5 (2026-09-22; deferred 2026-09-24; **dropped 2026-09-25**: OpenETQW does not aim for retail 1.5 network compatibility, matching openQ4; retail 1.5 data stays required and supported)
 Also from the owner, 2026-09-24: both repositories stay private; the history rewrite to purge retail content was authorized ("If retail content got accidentally uploaded rewrite the history to purge it").
+From the owner, 2026-09-25: retail 1.5 network compatibility is dropped (D7); the jmarshall remediation is deferred; removing GitHub's leftover `refs/pull/1/head` is deferred until the repositories are recreated, which the owner expects to do; the SDK files in the engine's imported root commits stay in history unless that violates the GPL, which the GPL text does not appear to say (`docs/provenance.md` §6).
 Environment corrections vs. SESSION_BRIEF: the only host is macOS arm64; there is no Linux or Windows host. GitHub Actions minutes for private repositories ran out on 2026-09-24, so hosted CI does not run. Local checks, local independent reviews and CodeRabbit (about one review an hour) replace it (`CONTRIBUTING.md`). Merge gates are a convention; the free plan has no branch protection.
 
 ## Toolchain and commands (this session)
@@ -29,7 +30,7 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
   - The engine `meson setup` options are the ones recorded in `build/meson-private/cmd_line.txt`. `build_engine` and `build_dedicated` default to `false`, so a plain `meson setup build` builds no engine binary.
   - The game build directory was configured with plain `meson setup build` (default options, per its `meson-private/cmd_line.txt`).
   - Engine configure fails unless `../openETQW-game/build/libidLib.a` already exists, so a fresh checkout builds the game first. Configure also runs `stage_game.py` itself.
-  - `ETQW_DATA_PATH` is the retail 1.5 install root holding `base/pak000.pk4`. Without it every retail-data test exits 77 (skip).
+  - `ETQW_DATA_PATH` is the retail install root holding `base/pak000.pk4`. Here it holds the English DVD data (`pak000`–`pak004`, `zpak_english000`; their MD5s match the DVD list in the official ETQW 1.5 Linux README) without the 1.5 patch paks (`pak005`–`pak008`, `zpak_english001`–`003`). Without it every retail-data test exits 77 (skip).
   - The full suite uses fixed UDP ports: one suite at a time per host.
 - Never run: any Linux or Windows command (native or cross), `scripts/deps/*`, `scripts/build.*` (neither exists).
 
@@ -67,7 +68,7 @@ The turn-rate fix removes a render-rate dependence from authoritative commands. 
 | both | Docs pass (merged in PR #2, fact-checked by two independent checkers): engine `readme.md`, game `README.md` (new), `CONTRIBUTING.md` and PR templates in both repos, `docs/compat-ledger.md` (header, rows 003, 008, 009, 013, 014, 026, 027, 028, 029, 033, 034, 035, 036, 045, 050, new 051), `docs/provenance.md`, `docs/provenance-manifest.json`, `walkthrough.md`, `CHECKPOINT_STOCK_MAPS_PHASE.md`, game `tools/ci/spdx_allowlist.txt` and `check_spdx.py` wording | README text on the repo split, the SDK license and the retail-data requirement. Merge gates without hosted CI. History-rewrite notes. Provenance relabels, import method and the full SDK exception registry (Release gates 2 and 3) | Audit findings: release gates 3 and 4; stale process docs | — |
 
 ### Demonstrated
-All rows: host mbp-m1max, macOS 27 arm64, Apple Clang 21, debug build, retail 1.5 data at `$HOME/etqw_data`. Network tests use loopback (127.0.0.1) only.
+All rows: host mbp-m1max, macOS 27 arm64, Apple Clang 21, debug build, retail data at `$HOME/etqw_data`: the English DVD paks without the 1.5 patch paks (found 2026-09-25; every result below comes from the SDK 1.5 game code on that unpatched data). Network tests use loopback (127.0.0.1) only.
 
 | Claim | Evidence level | Host / OS / arch / compiler | Command | Result (log path) |
 |---|---|---|---|---|
@@ -266,7 +267,7 @@ Both repositories are private and have no releases.
    - `~/etqw` and upstream (still f2b655c) have no license.
    - A local byte-level audit (2026-09-22, gitignored `.agents/claude_session_2026-09-22/JMARSHALL_PROVENANCE_AUDIT.md`) found about 135 compiled engine files (about 54.7k lines) that are jmarshall-authored, and 57 game files that are SDK files with his edits. Both histories start from his commits.
    - Some engine sources carry Hex-Rays/IDA-style markers. They are his reconstructed code (the `retail_RE` provenance tier), not raw decompiler output, and fall under the same open question.
-   - Waiting on the owner.
+   - Remediation deferred by the owner (2026-09-25). This gate stays blocking until it is resolved.
 2. **SDK-licensed code linked into engine binaries: not cleared.**
    - At 84a224b, `docs/provenance.md` registers only 7 staged headers (`Game.h`, `NetworkSystem.h`, `UsercmdGen.h`, `BuildDefines.h`, `BuildDefines.inc`, `BotAI_Debug.h`, `Bot_Common.h`).
    - Not registered at 84a224b:
@@ -276,7 +277,7 @@ Both repositories are private and have no releases.
      - the staged SDK `BitMsg.cpp`, compiled into three unit tests.
    - Today's docs pass rewrites the registry (`docs/provenance.md` §4) to list all of this (merged in PR #2).
    - There are no decision records and no owner approvals.
-   - Engine HEAD contains no SDK files, but engine history does, through jmarshall's root commits.
+   - Engine HEAD contains no SDK files, but engine history does, through jmarshall's root commits. The owner left that history in place (2026-09-25). Before publishing, SDK EULA §5 (the EULA must accompany each copy) still has to be handled for those commits (`docs/provenance.md` §6).
 3. **`docs/provenance.md` coverage: not cleared.**
    - At 84a224b, `docs/provenance-manifest.json` classified 5,275 imported files; after today's edit (splash entry dropped) it classifies 5,274.
    - About 103 engine files and 29 game files added after the split are not in it.
@@ -289,7 +290,7 @@ Both repositories are private and have no releases.
    - Today's docs pass drafted an engine `readme.md` and a game `README.md` covering these points. They are merged in PR #2 and await owner review.
 5. **No retail binaries, PDBs, raw RE output, captures or assets in either repo's history: not cleared.**
    - The one retail file found, the splash bitmap, was purged from both repos' history on 2026-09-24 (`main` and `wip/stock-maps-m2-checkpoint` force-pushed).
-   - GitHub still keeps `refs/pull/1/head` in each repo, pointing at the old commits (engine 53d0172, game 9b3a02b), whose history still contains it. Removing them needs GitHub Support or recreating the repositories (owner decision).
+   - GitHub still keeps `refs/pull/1/head` in each repo, pointing at the old commits (engine 53d0172, game 9b3a02b), whose history still contains it. Removing them needs GitHub Support or recreating the repositories. The owner deferred this on 2026-09-25 and expects to recreate the repositories; check that the old refs are gone when that happens.
    - Local backup bundles of the pre-purge repos exist outside the repos (session scratchpad).
    - No `.exe`, `.pdb`, `.pk4` or capture files and no raw decompiler output were found.
    - Third-party binary blobs remain: `src/openal/lib/openal32.lib`, `eaxguid.lib` (2 copies) and zlib contrib `.obj` files. They are not retail content, but they are unreviewed restricted dependencies (§11).
@@ -311,12 +312,12 @@ Both repositories are private and have no releases.
   - minor 5: client prediction in usercmd messages.
 
   Retail 1.5 peers are refused at connect with "Server uses protocol 20293.5". As of today (PR #2), the protocol is checked first. That assumes a retail connect starts with the protocol field, as Doom 3's does; no real retail client has been tried.
-- **Retail 1.5 network compatibility:** deferred (temporarily dropped, matching openQ4) until the owner decides whether to keep that contract. It is not claimed. Retail 1.5 data is required and supported.
+- **Retail 1.5 network compatibility:** dropped (owner decision, 2026-09-25, matching openQ4). It is not claimed. Retail 1.5 data is required and supported.
 - **Protocol id coverage:** game-side codecs (snapshots, user info, network events) are outside the protocol id. The game's `ServerAllowClient` has no version check, so minor bumps are kept by convention only.
 - **Ledger rows (`docs/compat-ledger.md`) this work bears on** (updated in today's docs pass):
   - 050: added in PR #1, merged today.
   - 009: dedicated pacing. Its "no busy-spin" claim was wrong until today's change; the row now describes the `std::chrono` sleep, the client spin tail and the 1.5% → 1.1% measurement.
-  - 036: clean break. The rejection is now checked before the challenge, and D7 is now deferred.
+  - 036: clean break. The rejection is now checked before the challenge. D7 was deferred on 2026-09-24 and dropped on 2026-09-25.
   - 014: the 16-bit wire parity claim is withdrawn; the usercmd tests now compile the engine codec and are labeled self-consistency tests.
   - 051 (new): turn rate, connect check order, seat-swap finding.
   - 008: aim/camera; relevant to the turn-rate fix.
@@ -338,14 +339,11 @@ None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline
 
 ## Inputs needed from the owner
 - A Linux x86_64 host (Arch, Fedora or Debian) and a Windows 11 x64 host, each with the retail 1.5 paks. A private or self-hosted runner, or restored Actions minutes, would also do. Needed for M0 (configure on the other OSes), M1 and the cross-OS pair in M3.
+- The ET:QW 1.5 patch data: `pak005`–`pak008.pk4` and `zpak_english001`–`003.pk4` (from the official 1.5 patch or a full 1.5 client install). The local data is the unpatched DVD set, so the SDK 1.5 game code has only ever run on pre-1.5 scripts and assets; some of the retail script mismatches the game now reconciles may come from that.
 - Optional: a retail ET:QW 1.5 client binary (Linux or Windows), used locally as a behavior reference. It would confirm what a real retail client sees at connect; the current test uses a simulated peer.
 
 ## Questions for the owner
-- Retail 1.5 network compatibility (deferred 2026-09-24): keep the retail network contract and restore interop later, or confirm the drop?
-- jmarshall provenance: what remediation strategy? A license request, a replacement, or both.
 - SDK EULA scope (EULA §2): does it cover a module built for OpenETQW?
-- GitHub `refs/pull/1/head` in both repos still reaches the pre-purge commits: ask GitHub Support to remove them, or recreate the repositories?
-- SDK files in engine history: jmarshall's root commits put the full SDK tree into engine history. Does "the engine repo itself contains none" (gate 2) cover history, which would mean another rewrite?
 - SDK code in engine binaries: approve `libidLib.a`, `DeclType.cpp` and the staged headers as exceptions, or replace them (for example with a Doom 3 GPL idLib)?
 - Retail-install check: which design? It must still allow the asset-free CI smoke.
 - 30 Hz criterion: should bots think at a true 30 Hz (`bot_threadMinFrameDelay 0`)? The retail default is about 15 Hz.

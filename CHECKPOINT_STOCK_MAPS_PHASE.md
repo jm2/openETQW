@@ -4,7 +4,7 @@
 >
 > **Engine commit IDs in this file predate the 2026-09-24 history rewrite** (a retail bitmap was purged from both repositories; `docs/provenance.md` §7) and no longer resolve; for example engine `main` `7545679` below. Game commit IDs were remapped to the rewritten game history, and openQ4-game IDs are unaffected. Current IDs are in `STATUS.md`.
 >
-> **Superseded verdicts:** the 2026-09-24 charter audit rates the M2 client side and M3 partial (charter milestone numbers, `STATUS.md`). The clean network break (D7) below is the current, temporary state: retail 1.5 network compatibility is deferred pending an owner decision (ledger row 036).
+> **Superseded verdicts:** the 2026-09-24 charter audit rates the M2 client side and M3 partial (charter milestone numbers, `STATUS.md`). The clean network break (D7) below is final: the owner dropped retail 1.5 network compatibility on 2026-09-25 (ledger row 036).
 
 Written by Claude Code at a quota-forced safe stop. It replaces the earlier Gemini checkpoint, which overstated M1 ("100% verified"): its final M1 review/audit round never produced a verdict.
 

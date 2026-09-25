@@ -20,15 +20,15 @@ The layout follows openQ4 and openQ4-game. The engine and the game module are bu
 
 ## Retail game data is required
 
-OpenETQW needs the data from a full retail ET:QW install patched to 1.5 (the `base/` paks). You must own the game. The branches of both repositories contain no retail game data, executables or media, and none may be added. One retail image was purged from both histories on 2026-09-24; GitHub still keeps it in pull-request refs until those are removed (see `STATUS.md`, release gate 5). No retail executable is used at run time.
+OpenETQW needs the data from a full retail ET:QW install patched to 1.5 (the `base/` paks). You must own the game. So far it has been tested only with the unpatched English DVD paks (`pak000`–`pak004`, `zpak_english000`), not with the 1.5 patch paks. The branches of both repositories contain no retail game data, executables or media, and none may be added. One retail image was purged from both histories on 2026-09-24; GitHub still keeps it in pull-request refs until those are removed (see `STATUS.md`, release gate 5). No retail executable is used at run time.
 
 The engine does not yet refuse to run without a full retail install. That check is one of the release-gate items.
 
-## Network play: OpenETQW only, for now
+## Network play: OpenETQW only
 
 OpenETQW speaks its own network protocol, 20293.5 (major `0x4F45`, "OE", minor 5; see `src/framework/async/AsyncNetwork.h`). It cannot play with retail ET:QW 1.5 clients or servers. The server refuses a retail client at connect with "Server uses protocol 20293.5" (tested with a simulated retail peer; no real retail 1.5 client has been tried).
 
-This follows openQ4. Retail 1.5 network compatibility is deferred, not ruled out: the owner will decide later whether to restore it. Retail 1.5 game data stays required and supported.
+This follows openQ4: retail 1.5 network compatibility is not a goal. Retail 1.5 game data stays required and supported.
 
 ## Status
 
