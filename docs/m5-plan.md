@@ -23,15 +23,9 @@ M5 is done when:
 3. **Per-frame pose capture (game + engine tests).** On foot done (2026-09-25): `g_logFramePoses` and `frame-poses-join`/`-listen` at caps 60/120/240, with a negative control. The first run confirmed every predicted gap and found one more: the network client's viewmodel repeats on about a fifth of draws, because `Present()` returns early while `isNewFrame` is false after a snapshot re-runs prediction (`docs/frame-path.md` §9, criterion 3). Each known gap is checked against its predicted shape. Still to do: vehicle seats (D2) and a devmap variant.
    - Also found: right after a snapshot the client's prediction-clock correction can step the presented time back by a millisecond or two (about 1 draw in 500–700). Keep the presented fraction from falling within a tick (no decision needed).
    - Next (no decision needed): let the unlock presentation paths (`ClientUpdateView`'s weapon, and later the `interpolateEntities` consumer) push the render entity even when `isNewFrame` is false. The `frame-poses-join` A6 gap must then turn into a pass.
-   - Add a CVar `g_logFramePoses` that prints one `FRAME_POSE` line per main-view draw, just before `RenderScene` in `idPlayerView::SingleView`. It logs:
-     - the view origin and angles;
-     - the viewmodel origin;
-     - the render origins of up to N remote players;
-     - `unlockedDraw`, `canUnlockFrames` and `interpFraction`.
-   - Add tests `frame-poses-join` and `frame-poses-listen` (the Vulkan client with a headless peer that walks), and a devmap variant with a bot.
-   - The known-gap table (which assertions are expected to fail today) is written from the code before the first run and is not adjusted to fit that run.
-   - A negative control must make each detector fail at least once.
-   - This step depends on `test_client_network.py` (merged).
+   - Done: the CVar `g_logFramePoses` (game; a cheat, since it logs other players' positions) prints one `FRAME_POSE` line per main-view draw, just before `RenderScene` in `idPlayerView::SingleView`: the view, the viewmodel, the seat and up to 8 other players' render-world poses, and the unlock state and fraction.
+   - Done: `frame-poses-join` and `frame-poses-listen` (the Vulkan client with a headless peer that walks). Known gaps were written from the code before the first run (plus the one it found), each with the shape its failure must keep. A negative control makes the camera detectors fail.
+   - To do: a devmap variant with a bot, vehicle seats (D2), and a negative control for the remote-player detector once the `Entity::Present` producer is restored.
    - **Decision D2:** which vehicle and seat count as "one vehicle seat", and does "pose" include skeletal joints? *Recommendation:* the driver seat of a ground vehicle on valley, with entity origins and axes only (no joints).
 
 4. **The ~120 fps ceiling.**
