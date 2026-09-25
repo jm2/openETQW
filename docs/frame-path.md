@@ -625,7 +625,11 @@ Remaining stepped paths must be listed rather than claimed as interpolated, and 
 - No mixed-cap session has been run.
 
 **Criterion 3: captured frame data**
-- Nothing records per-frame poses. Every existing check reads authoritative state (`SIM_HASH`, `playerPos`) or the lifetime present count.
+- Measured 2026-09-25 with `g_logFramePoses` (game repo: `src/game/PlayerView.cpp`, one `FRAME_POSE` line per main-view draw) and `tests/test_frame_poses.py` (meson `frame-poses-join`, `frame-poses-listen`), on foot, at caps 60/120/240:
+  - network client (join): the camera turns and moves on every draw (A4, A5: 99.8–100% of draw pairs) and every draw between ticks is unlocked with a rising fraction (A8). Remote players change only once per tick (A7: 50.5% of draw pairs at 60 fps, 25.2% at 120 and 240), as predicted from §6.6. **Not predicted:** the viewmodel's drawn pose repeats on about a fifth of draw pairs while walking (A6: 79–82%), mostly between unlocked draws of the same tick; cause not yet known.
+  - listen host: camera, viewmodel and remote players all change only once per tick (50.5% at 60, about 25–29% at 120 and 240), and most draws between ticks are not unlocked (A8), as predicted from §4.3.
+  - with `g_unlock_updateAngles`, `g_unlock_updateViewpos` and `g_unlock_interpolateMoving` off, the network client's camera also changes on only 51% of draw pairs at 60 fps: the checks can fail.
+  - Vehicle seats are not captured yet (owner decision D2).
 - Vehicle seats are blocked by the proxy gate (§6.3), and the OE vehicle branch has the defects listed in §6.8.
 - Interpolation is origin-only. The axis and skeletal animation step at 30 Hz (§6.6).
 
