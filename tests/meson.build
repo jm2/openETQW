@@ -403,3 +403,28 @@ if build_engine and build_dedicated
     )
   endforeach
 endif
+
+# 9. What the Vulkan client draws, frame by frame (M5): FRAME_POSE lines from the game
+#    (g_logFramePoses) while the observer turns and walks and a headless peer walks, at
+#    caps 60/120/240; known gaps are listed in the test (needs both binaries; a window)
+if build_engine and build_dedicated
+  foreach observer : ['join', 'listen']
+    test(
+      'frame-poses-' + observer,
+      py,
+      args: [
+        meson.project_source_root() / 'tests' / 'test_frame_poses.py',
+        '--observer', observer,
+        '--ded-binary', all_stock_maps_ded,
+        '--client-binary', campaign_client,
+        '--port', observer == 'join' ? '29920' : '29924',
+        '--log-dir', meson.project_build_root() / 'meson-logs' / 'frame-poses',
+      ],
+      workdir: meson.project_source_root(),
+      suite: ['client', 'integration'],
+      protocol: 'exitcode',
+      timeout: 600,
+      is_parallel: false,
+    )
+  endforeach
+endif
