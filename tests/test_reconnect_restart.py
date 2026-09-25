@@ -14,7 +14,10 @@ started with +connect, as test_remote_client_map_change.py does) on one map:
    cannot tell it is the same player: the new process gets a new slot and
    plays as above, and the dead one's slot is freed by the client timeout
    ('client N dropped: timed out'; the server runs with
-   net_serverClientTimeout --client-timeout), leaving 2 slots in use.
+   net_serverClientTimeout --client-timeout), leaving 2 slots in use. If the
+   OS happens to give the new process the dead one's port, the server
+   replaces that endpoint instead ('client N dropped: reconnect') and the new
+   client keeps the slot; both outcomes are accepted.
 4. Map restart: 'serverMapRestart' on the server with both clients connected.
    Both clients keep receiving snapshots, the game respawns both players on
    their teams, and they see each other.
@@ -248,13 +251,18 @@ def main(argv):
         a = client("ClientA", args.port + 1, "client_a2")
         procs[1] = ("client_a2", a)
         joined = connect(srv, a, "restart")
-        timed_out = srv.wait_for(lambda s: s.strip() == f"client {dead_slot} dropped: timed out",
-                                 args.client_timeout + 15.0, mark)
+        drop_lines = (f"client {dead_slot} dropped: timed out", f"client {dead_slot} dropped: reconnect")
+        gone = srv.wait_for(lambda s: s.strip() in drop_lines and s.strip(), args.client_timeout + 15.0, mark)
         used = slots_in_use(srv, 2)
-        print(f"[restart] new slot {a.slot}; dead slot {dead_slot} timed out: {bool(timed_out)}; server slots in use: {used}")
-        if not timed_out:
-            raise Failed(f"restart: the dead client's slot {dead_slot} never timed out")
-        if a.slot == dead_slot:
+        print(f"[restart] slot {a.slot}; dead slot {dead_slot}: {gone[2] if gone else 'never dropped'};"
+              f" server slots in use: {used}")
+        if not gone:
+            raise Failed(f"restart: the dead client's slot {dead_slot} was never dropped")
+        if gone[2].endswith("reconnect"):
+            # the new process got the dead one's port: the server replaced that endpoint
+            if a.slot != dead_slot or joined < gone[0]:
+                raise Failed(f"restart: endpoint replacement left the new client in slot {a.slot} (dead slot {dead_slot})")
+        elif a.slot == dead_slot:
             # the dead slot is free for this address once it has timed out
             if joined < timed_out[0]:
                 raise Failed(f"restart: the new client got slot {dead_slot} while the dead client still held it")

@@ -35,13 +35,12 @@ from test_reconnect_restart import (  # noqa: E402
 from test_remote_client_map_change import READY, SNAPSHOT_RE, RemoteClient  # noqa: E402
 
 
-def snapshot_gaps(cl, start):
+def snapshot_gaps(cl, start, start_t):
     """(longest pause between received snapshots from line index start, counting the
-    time since the last one; number received). No snapshot at all is an endless pause."""
-    times = [ln.t for ln in cl.snapshot(start) if SNAPSHOT_RE.search(ln.text)]
-    if not times:
-        return float("inf"), 0
-    return max([b - a for a, b in zip(times, times[1:])] + [time.monotonic() - times[-1]]), len(times)
+    pause from start_t (the session start) to the first one and from the last one
+    to now; number received). No snapshot at all is one pause since start_t."""
+    times = [start_t] + [ln.t for ln in cl.snapshot(start) if SNAPSHOT_RE.search(ln.text)] + [time.monotonic()]
+    return max(b - a for a, b in zip(times, times[1:])), len(times) - 2
 
 
 def alive(p):
@@ -101,6 +100,7 @@ def main(argv):
             spawn(srv, cl, cl.team)
         session_start = srv.mark()
         client_start = {cl.name: cl.mark() for cl in clients}
+        start_t = time.monotonic()
         print(f"session: {args.minutes} min, drop {args.drop}%, delay {args.latency}..{args.latency + args.jitter} ms")
 
         def connection_check():
@@ -110,7 +110,7 @@ def main(argv):
             for cl in clients:
                 if not cl.alive():
                     raise Failed(f"{cl.name} exited (code {cl.proc.returncode})")
-                gap, count = snapshot_gaps(cl, client_start[cl.name])
+                gap, count = snapshot_gaps(cl, client_start[cl.name], start_t)
                 if gap > args.max_gap:
                     raise Failed(f"{cl.name} went {gap:.1f} s without a snapshot")
 
@@ -132,8 +132,8 @@ def main(argv):
             check_walk(srv, mover, clients[(n + 1) % 2], f"walk {n}", fwd=127 if (n // 2) % 2 == 0 else -127, seconds=1.0)
             stats["walks"] += 1
             elapsed = args.minutes * 60.0 - (end - time.monotonic())
-            gaps = ", ".join(f"{cl.name} {snapshot_gaps(cl, client_start[cl.name])[1]} snapshots"
-                             f" (longest gap {snapshot_gaps(cl, client_start[cl.name])[0]:.2f} s)" for cl in clients)
+            gaps = ", ".join(f"{cl.name} {snapshot_gaps(cl, client_start[cl.name], start_t)[1]} snapshots"
+                             f" (longest gap {snapshot_gaps(cl, client_start[cl.name], start_t)[0]:.2f} s)" for cl in clients)
             print(f"[{n}] {elapsed / 60.0:.1f} min: {gaps}")
 
         connection_check()
