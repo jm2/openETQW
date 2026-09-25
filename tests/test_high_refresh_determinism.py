@@ -444,6 +444,15 @@ def main() -> int:
     views = {fps: sim_views(schedule_lines[fps]) for fps in rates}
     if not views[rates[0]]:
         raise AssertionError("no SIM_VIEW lines: the game build predates them")
+    # every simulated tick must have its SIM_VIEW line, in every schedule, or the
+    # comparison below would skip the missing ones
+    for fps in rates:
+        missing = sorted(set(common_ticks) - set(views[fps]))
+        extra = sorted(set(views[fps]) - set(common_ticks))
+        if missing or extra:
+            raise AssertionError(f"{cap_label(fps)}: SIM_VIEW ticks do not match the SIM_HASH ticks"
+                                 f" (missing {missing[:10]}{'...' if len(missing) > 10 else ''},"
+                                 f" extra {extra[:10]}{'...' if len(extra) > 10 else ''})")
     def fields_of(line):
         return dict(re.findall(r"(\w+)=(\([^)]*\)|\S+)", line or ""))
 
