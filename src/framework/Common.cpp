@@ -1104,17 +1104,21 @@ void idCommonLocal::Frame() {
 						// A client sleeps until shortly before the frame is due, then spins for exact
 						// high-refresh pacing. How late a sleep wakes depends on the OS: macOS wakes
 						// about 2 ms late (with the 1.5 ms margin used before, a 60 fps cap ran at
-						// 58 fps), so the spin margin follows the lateness measured on recent sleeps:
-						// it rises to a late wake at once and decays over about a hundred frames.
+						// 58 fps), so the spin margin follows the lateness measured on recent sleeps.
+						// It rises to a late wake at once and decays by 1/64 on every paced frame,
+						// also on frames too short to sleep, so one late wake cannot leave every later
+						// frame spinning; the stored lateness is clamped to where the margin saturates.
 						static uint64_t sleepLatenessUsec = 2000;
-						const uint64_t spinUsec = std::min< uint64_t >( sleepLatenessUsec + 500, 6000 );
+						const uint64_t maxLatenessUsec = 5500;
+						const uint64_t spinUsec = sleepLatenessUsec + 500;
+						sleepLatenessUsec -= sleepLatenessUsec / 64;
 						if ( waitUsec > spinUsec ) {
 							const uint64_t sleepUsec = waitUsec - spinUsec;
 							const uint64_t sleepStartUsec = monotonicUsec();
 							std::this_thread::sleep_for( std::chrono::microseconds( sleepUsec ) );
 							const uint64_t sleptUsec = monotonicUsec() - sleepStartUsec;
 							const uint64_t latenessUsec = sleptUsec > sleepUsec ? sleptUsec - sleepUsec : 0;
-							sleepLatenessUsec = std::max( latenessUsec, sleepLatenessUsec - sleepLatenessUsec / 64 );
+							sleepLatenessUsec = std::max( sleepLatenessUsec, std::min( latenessUsec, maxLatenessUsec ) );
 						}
 						do {
 							nowUsec = monotonicUsec();

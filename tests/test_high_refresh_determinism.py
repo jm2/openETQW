@@ -13,11 +13,15 @@ Validates:
 3. Identical player/vehicle coordinates, velocities, health, objective state, and serviced event counts.
 4. The frame rate each schedule reached during play, from the engine's once-a-second
    FRAME_TIMING lines (com_logFrameTiming 1; windows with >= 25 game ticks), taken from the
-   median frame interval so one loading hitch does not decide it: it may not exceed the cap
-   by more than 3%, and must reach 90% of the lower of the cap and the uncapped rate. A cap
-   above the uncapped rate is reported as unreachable on this host (on a 120 Hz display,
-   presentation waits for the display, so 144 and 240 run at about 120). The average rate
-   and the longest frame are reported too.
+   median frame interval so one loading hitch does not decide it. It may not exceed the cap
+   by more than 3%. A cap clearly below the uncapped rate (<= 90% of it) is set by the pacer
+   and must be held to 98% (the pacer ran a 60 cap at 58 fps before 2026-09-25); any other
+   cap must reach 90% of the lower of the cap and the uncapped rate, which provisionally
+   implements the recommendation in docs/m5-plan.md decision D1 (owner decision pending).
+   A cap above the uncapped rate is reported as unreachable on this host (on a 120 Hz
+   display, presentation waits for the display, so 144 and 240 run at about 120). The
+   average rate and the longest frame are reported too, and every FRAME_TIMING window must
+   report the schedule's own cap.
 5. Clean shutdown with exit code 0.
 """
 
@@ -89,7 +93,8 @@ FRAME_TIMING_RE = re.compile(
 )
 PLAY_MIN_TICKS = 25     # a FRAME_TIMING window with fewer game ticks is loading or menus
 CAP_OVERSHOOT = 1.03    # a schedule may run at most this much above its cap
-REACH_FRACTION = 0.9    # ... and must reach this fraction of min(cap, the uncapped rate)
+PACED_FRACTION = 0.98   # a cap <= REACH_FRACTION x the uncapped rate must be held this closely
+REACH_FRACTION = 0.9    # any other cap must reach this fraction of min(cap, the uncapped rate)
 
 
 def play_timing(lines: list[str]) -> dict | None:
@@ -101,6 +106,7 @@ def play_timing(lines: list[str]) -> dict | None:
     frames = sum(int(m.group(2)) for m in windows)
     medians = sorted(float(m.group(5)) for m in windows)
     return {
+        "caps": sorted({int(m.group(4)) for m in re.finditer(FRAME_TIMING_RE, "\n".join(lines))}),
         "windows": len(windows),
         "fps": 1000.0 / medians[len(medians) // 2],  # from the median frame interval
         "avg_fps": frames * 1000.0 / ms,
@@ -387,12 +393,21 @@ def main() -> int:
             continue
         if t["fps"] > CAP_OVERSHOOT * fps:
             rate_failures.append(f"{cap_label(fps)}: {t['fps']:.1f} fps is above the cap (> {CAP_OVERSHOOT:.2f} x {fps})")
-        need = REACH_FRACTION * min(fps, ceiling)
+        if fps <= REACH_FRACTION * ceiling:
+            # the pacer, not the host, sets this rate: hold the cap
+            need = PACED_FRACTION * fps
+            why = f"{PACED_FRACTION:.0%} of the cap, which is well below uncapped {ceiling:.1f}"
+        else:
+            need = REACH_FRACTION * min(fps, ceiling)
+            why = f"{REACH_FRACTION:.0%} of min(cap, uncapped {ceiling:.1f})"
         if t["fps"] < need:
-            rate_failures.append(f"{cap_label(fps)}: {t['fps']:.1f} fps is below {need:.1f}"
-                                 f" ({REACH_FRACTION:.0%} of min(cap, uncapped {ceiling:.1f}))")
-        if ceiling < REACH_FRACTION * fps:
+            rate_failures.append(f"{cap_label(fps)}: {t['fps']:.1f} fps is below {need:.1f} ({why})")
+        if ceiling < fps:
             print(f"  [NOTE] {cap_label(fps)} is not reachable on this host: uncapped play runs at {ceiling:.1f} fps")
+    for fps in rates:
+        t = timing[fps]
+        if t is not None and t["caps"] != [fps]:
+            rate_failures.append(f"{cap_label(fps)}: FRAME_TIMING reported caps {t['caps']}, expected [{fps}]")
     for f in rate_failures:
         print(f"  [FAIL] {f}")
 

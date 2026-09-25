@@ -4,7 +4,7 @@ This document traces what one host frame does in each run mode, from input sampl
 
 Written 2026-09-25 against engine main 85879e3 and game main d8e5b3d; the engine citations were remapped for the frame-timing change the same day. Line numbers drift; re-check before relying on one.
 
-**Evidence level.** Everything here was read from code. Nothing was built or run for this document, and nothing here was measured unless it says so. Statements marked *(inferred)* or *(derived)* are conclusions drawn from the code or from arithmetic that nobody has observed at runtime. Engine `src/` is identical at 84ad1bb, a6dbde0 and 85879e3; only tests, docs and the companion pin changed between them. Game `src/` differs between 7f0e275 and d8e5b3d only in `src/game/gamesys/SysCmds.cpp` (`playerPos`), which this document does not cite.
+**Evidence level.** Everything here was read from code, except the frame rates and pacing results in §7.1, §7.5 and §7.6, which were measured with `com_logFrameTiming` on 2026-09-25. Nothing else was built or run for this document. Statements marked *(inferred)* or *(derived)* are conclusions drawn from the code or from arithmetic that nobody has observed at runtime. Engine `src/` is identical at 84ad1bb, a6dbde0 and 85879e3; only tests, docs and the companion pin changed between them. Game `src/` differs between 7f0e275 and d8e5b3d only in `src/game/gamesys/SysCmds.cpp` (`playerPos`), which this document does not cite.
 
 **Conventions.**
 - Citations use one of these forms:
@@ -30,7 +30,7 @@ Written 2026-09-25 against engine main 85879e3 and game main d8e5b3d; the engine
 | Server tick clock | `gameTimeResidual` (int, ms) | `src/framework/async/AsyncServer.cpp:436`, `src/framework/async/AsyncServer.h:213` |
 | Per-frame wall-time clamp | client and server add at most 100 ms per host frame (`UpdateTime( 100 )`) | `src/framework/async/AsyncClient.cpp:311`, `src/framework/async/AsyncClient.cpp:882-895`, `src/framework/async/AsyncServer.cpp:426`, `src/framework/async/AsyncServer.cpp:1646-1658` |
 | Client prediction lead | `net_clientPrediction` 16 ms; `net_clientMaxPrediction` 1000 ms | `src/framework/async/AsyncNetwork.cpp:54-55` |
-| Frame pacer | `std::chrono::steady_clock`, µs | `src/framework/Common.cpp:1086-1135` |
+| Frame pacer | `std::chrono::steady_clock`, µs | `src/framework/Common.cpp:1086-1139` |
 | Key and controller turn scale | `steady_clock` µs since the previous usercmd build, clamped to 0-4 ticks | `src/framework/UsercmdGen.cpp:362-372` |
 | Snapshot interval | `net_serverSnapshotDelay`, default 50 ms, rounded up to the server's host-frame grid (§4.5) | `src/framework/async/AsyncNetwork.cpp:45`; checked at `src/framework/async/AsyncServer.cpp:1113` |
 
@@ -76,7 +76,7 @@ The meson build chooses the platform sources in `tools/build/meson_sources.py:19
 
 No meson build starts an input thread. During play the only input pump is `Sys_GenerateEvents` at the start of each frame; loads also pump it from `PacifierUpdate` (`src/framework/Session.cpp:248`).
 
-### 3.2 `idCommonLocal::Frame` (`src/framework/Common.cpp:1031-1138`)
+### 3.2 `idCommonLocal::Frame` (`src/framework/Common.cpp:1031-1142`)
 
 1. **Input pump.** `Sys_GenerateEvents` (`src/framework/Common.cpp:1039`). On POSIX it calls `Sys_ProcessSDLEvents`, then queues at most one stdin console line as `SE_CONSOLE` (`src/sys/posix/posix_main.cpp:625-641`). Mouse motion is queued as `SE_MOUSE`, and SDL's float `xrel`/`yrel` are truncated to int (`src/sys/sdl/sdl_events.cpp:233-235`).
 2. **Single-player clock.** `Com_UpdateGameTime` (`src/framework/Common.cpp:1040`; body `src/framework/Common.cpp:901-937`) runs in every mode. Only single player uses `com_ticNumber` to run ticks, but every mode reads it:
@@ -94,7 +94,7 @@ No meson build starts an input thread. During play the only input pump is `Sys_G
    - `UpdateScreen` (`src/framework/Session.cpp:218-232`) returns at once when `!Sys_IsWindowVisible()`. That is always the case in `ID_DEDICATED` builds, and in a client whose window is minimised (`src/sys/posix/posix_main.cpp:425-432`). Otherwise it runs `BeginFrame`, `Draw`, `EndFrame`.
    - With a map spawned, `Draw` calls `game->Draw()` (`src/framework/Session.cpp:278`), then `Draw2D` and `DrawSystemUI`.
    - The call chain is `game->Draw()` → `idPlayerView::RenderPlayerView` (`game repo: src/game/Game_local.cpp:5939-5941`, `game repo: src/game/PlayerView.cpp:857`) → `SingleView` (`game repo: src/game/PlayerView.cpp:973`) → `gameRenderWorld->RenderScene( view )` (`game repo: src/game/PlayerView.cpp:350`).
-9. `++com_frameNumber`. Then `com_maxFPS` and `com_unlock_maxFPS` are mirrored (`src/framework/Common.cpp:1073-1084`) and the frame is paced (`src/framework/Common.cpp:1086-1135`); see §7.1. Pacing runs after present and before the next input pump.
+9. `++com_frameNumber`. Then `com_maxFPS` and `com_unlock_maxFPS` are mirrored (`src/framework/Common.cpp:1073-1084`) and the frame is paced (`src/framework/Common.cpp:1086-1139`); see §7.1. Pacing runs after present and before the next input pump.
 
 ## 4. Per-mode call sequences
 
@@ -495,13 +495,13 @@ These paths let a render frame change what the next tick, a snapshot or AoR code
 
 ## 7. Pacing, the unlock CVars and render submission
 
-### 7.1 The pacer (`src/framework/Common.cpp:1073-1135`, OE 8191cae; sleep-only dedicated branch OE 007233d)
+### 7.1 The pacer (`src/framework/Common.cpp:1073-1139`, OE 8191cae; sleep-only dedicated branch OE 007233d)
 
-- **Target.** `targetFrameUsec = 1000000 / maxFPS` (`src/framework/Common.cpp:1091`), measured from where the previous frame's pacing ended (`lastFrameUsec`, `src/framework/Common.cpp:1087`, `src/framework/Common.cpp:1125`). Work time therefore counts toward the target.
+- **Target.** `targetFrameUsec = 1000000 / maxFPS` (`src/framework/Common.cpp:1091`), measured from where the previous frame's pacing ended (`lastFrameUsec`, `src/framework/Common.cpp:1087`, `src/framework/Common.cpp:1129`). Work time therefore counts toward the target.
 - **Wait.**
-  - Client: sleep until a margin before the frame is due, then spin (`src/framework/Common.cpp:1103-1122`). The margin is the lateness measured on recent sleeps plus 0.5 ms, capped at 6 ms: it rises to a late wake at once and decays by 1/64 a frame (`src/framework/Common.cpp:1109-1118`). Until 2026-09-25 it was a fixed 1.5 ms.
+  - Client: sleep until a margin before the frame is due, then spin. The margin is the lateness measured on recent sleeps plus 0.5 ms: it rises to a late wake at once (the stored lateness is clamped to 5.5 ms) and decays by 1/64 on every paced frame, including frames too short to sleep, so one late wake cannot leave every later frame spinning. Until 2026-09-25 it was a fixed 1.5 ms.
   - Dedicated: sleep only (`src/framework/Common.cpp:1098-1102`).
-- **No catch-up.** An overrunning frame is not compensated (`src/framework/Common.cpp:1094-1096`, `src/framework/Common.cpp:1125`).
+- **No catch-up.** An overrunning frame is not compensated (`src/framework/Common.cpp:1094-1096`, `src/framework/Common.cpp:1129`).
 - **The pacer can pull the average below the cap.** When frame times vary around the target, short frames are padded up to the target and long frames are not compensated. The average rate then falls below both the cap and the uncapped rate. For example, alternating 5 ms and 12 ms frames at cap 120 average about 98 fps, against about 117 fps uncapped *(derived)*.
 - **Sleeps wake late.** macOS wakes `sleep_for` about 2 ms after the requested time (measured 2026-09-25). With the old fixed 1.5 ms margin every paced client frame ran late: cap 60 gave 17.19 ms frames (58–59 fps). With a 3 ms margin, and with the adaptive margin, cap 60 holds 16.67 ms and cap 120 holds 8.33 ms (`FRAME_TIMING`, §7.6). The dedicated branch only sleeps (`src/framework/Common.cpp:1101`); its 30 Hz ticks do not need sub-millisecond pacing.
 - **When every frame takes longer than the target**, the pacer never waits and cannot be the limiter. That is the case at caps 144 and 240 on this host, where each frame's own work takes one display refresh (§7.5, measured).
@@ -537,7 +537,7 @@ These paths let a render frame change what the next tick, a snapshot or AoR code
 
 ### 7.4 Changing the cap during play
 
-- `com_maxFPS` is read every frame (`src/framework/Common.cpp:1089`). Setting 0 resets the pacing timer (`src/framework/Common.cpp:1126-1127`).
+- `com_maxFPS` is read every frame (`src/framework/Common.cpp:1089`). Setting 0 resets the pacing timer (`src/framework/Common.cpp:1130-1131`).
 - Changing `r_swapInterval` recreates the swapchain, with `DeviceWaitIdle`, on the next `BeginFrame` (`src/renderer/VulkanBackend.cpp:5190-5201`).
 - Nothing in the engine blocks a cap change. No registered meson test covers one. `tests/test_frame_pacing_adversarial.py` sends `set com_maxFPS` over stdin during play (`tests/test_frame_pacing_adversarial.py:309-310`) and tries edge cases (1000, -60, 1, rapid 60/240 toggles; `tests/test_frame_pacing_adversarial.py:456-490`), but it is not in `tests/meson.build`.
 
@@ -551,18 +551,18 @@ These paths let a render frame change what the next tick, a snapshot or AoR code
 
 **The earlier recorded result.** `STATUS.md` (the render-cap replay determinism row, before 2026-09-25) records 387/645/647/647 presented frames at caps 60/120/144/240. The paragraph below explains why that count could not say which rate gameplay reached; §7.6 replaces it.
 - `framesPresented` counts the whole process lifetime: loading frames, pacifier frames at up to 30 Hz (`src/framework/Session.cpp:234-255`), `CompleteWipe` frames, and gameplay.
-- The test divides by 150 (`tests/test_high_refresh_determinism.py:332`) and only asserts that the 120 run presented more frames than the 60 run (`tests/test_high_refresh_determinism.py:334-335`).
+- The test then divided that count by 150 and only asserted that the 120 run presented more frames than the 60 run (`tests/test_high_refresh_determinism.py` before 2026-09-25; it now measures the rate during play, §7.6).
 - Gameplay lasts about 4.95 s, since the replay quits at tick 150 (`game repo: src/game/Game_local.cpp:5370-5371`).
 - If the 60 run met its cap, gameplay at caps of 120 and above ran at roughly (645 − 90) / 4.95 ≈ 112 fps *(derived arithmetic, not measured; the 60 run in fact ran at 58–59 fps, §7.1, and the measured median rate is about 120, §7.5)*. That also assumes gameplay spans the full 150 ticks of wall time and that the number of frames outside gameplay is the same at every cap. Neither is guaranteed:
   - `CompleteWipe` presents frames in a loop outside the pacer (`src/framework/Session.cpp:631-638`), so their count depends on uncapped speed, not on the cap;
   - the catch-up cap lets one frame run up to 10 ticks at once (`src/framework/Common.cpp:924-929`; `src/framework/Session.cpp:319-328`), which may shorten gameplay after the load *(inferred)*.
 
 **Host facts** (build output and hardware, not code)
-- The client-network test logs (build output under `build/meson-logs/client-network/`, not in the repo) show `Vulkan swapchain: 2560x1440, 3 images, format 44, present mode 0`, that is IMMEDIATE, for both the join and the listen-host runs. So FIFO vsync is not the limiter.
+- The client-network test logs (build output under `build/meson-logs/client-network/`, not in the repo) show `Vulkan swapchain: 2560x1440, 3 images, format 44, present mode 0`, that is IMMEDIATE, for both the join and the listen-host runs. So FIFO vsync is not what limits the rate; the display still does (below).
 - The window is 1280x720 points with `SDL_WINDOW_HIGH_PIXEL_DENSITY` (`src/sys/sdl/sdl_glimp.cpp:52`), and `r_fullscreen` defaults to 0 (`src/renderer/RenderSystem_init.cpp:69`).
 - The host is an M1 Max whose built-in panel runs at up to 120 Hz. MoltenVK is 1.4.2.
 
-**Cause: presentation waits for the display (measured 2026-09-25).** With `com_logFrameTiming 1` (§7.6), uncapped play and caps 144 and 240 all run at about 120 fps, and each frame's *work* (from the start of the frame to the pacer, which includes `BeginFrame`'s fence wait and image acquire and `EndFrame`'s present) takes the whole 8.3 ms. The pacer never waits. The same client at cap 120 does its work in about 7.7 ms and waits the rest, and at cap 60 in about 3.8 ms. So on this host a windowed IMMEDIATE-mode swapchain is paced by the 120 Hz display; hypothesis (b), frame cost, is ruled out. Which call blocks (the fence wait or the acquire) and whether fullscreen, a 60 Hz panel setting or MoltenVK settings change it was not measured; `r_showmetrics 1` (`src/renderer/RendererMetrics.cpp:18`) times both scopes (`src/renderer/VulkanBackend.cpp:5233`, `src/renderer/VulkanBackend.cpp:5206`).
+**Cause: presentation waits for the display (measured 2026-09-25).** With `com_logFrameTiming 1` (§7.6), uncapped play and caps 144 and 240 all run at about 120 fps, and each frame's *work* (from the start of the frame to the pacer, which includes `BeginFrame`'s fence wait and image acquire and `EndFrame`'s present) takes the whole 8.3 ms. The pacer never waits. The same client at cap 120 does its work in about 7.7 ms and waits the rest, and at cap 60 in about 3.8 ms. So on this host a windowed IMMEDIATE-mode swapchain is paced by the 120 Hz display. The other explanation considered, the frame's own CPU or GPU cost, does not fit: at cap 120 the same frames finish their work in 7.7 ms with two frames in flight. Which call blocks (the fence wait or the acquire) and whether fullscreen, a 60 Hz panel setting or MoltenVK settings change it was not measured; `r_showmetrics 1` (`src/renderer/RendererMetrics.cpp:18`) times both scopes (`src/renderer/VulkanBackend.cpp:5233`, `src/renderer/VulkanBackend.cpp:5206`).
 
 **Consequence for M5.** Caps 144 and 240 cannot be reached here in a window. `high-refresh-determinism` now reports them as unreachable rather than failing (M5 plan decision D1 is still the owner's), and still requires every schedule's per-tick state to match.
 
@@ -573,7 +573,7 @@ These paths let a render frame change what the next tick, a snapshot or AoR code
 ### 7.6 Measuring the frame rate: `com_logFrameTiming`
 
 - `com_frameTicks` counts the game ticks run in the current host frame. `idCommonLocal::Frame` resets it (`src/framework/Common.cpp:1036`); single player (`src/framework/Session.cpp:335`), the network client (`src/framework/async/AsyncClient.cpp:339`) and the server (`src/framework/async/AsyncServer.cpp:455`) add to it.
-- With `com_logFrameTiming 1`, every host frame adds its interval (end of the previous frame's pacing to the end of its own) and its work time (start of the frame to the pacer), and once a second the engine prints one `FRAME_TIMING` line: the window length, frames, ticks, the cap, and the p50/p95/p99/max of the intervals and the p50/p95/max of the work times (`src/framework/Common.cpp:975-1024`, called at `src/framework/Common.cpp:1131`).
+- With `com_logFrameTiming 1`, every host frame adds its interval (end of the previous frame's pacing to the end of its own) and its work time (start of the frame to the pacer), and once a second the engine prints one `FRAME_TIMING` line: the window length, frames, ticks, the cap, and the p50/p95/p99/max of the intervals and the p50/p95/max of the work times (`src/framework/Common.cpp:975-1024`, called at `src/framework/Common.cpp:1135`).
 - A window with about 30 ticks is play; fewer ticks means loading or menus. `high-refresh-determinism` takes the frame rate from the median frame interval over the play windows, so one hitch does not decide it, and reports the average and the longest frame as well.
 
 ## 8. Doom 3, and what retail ETQW added

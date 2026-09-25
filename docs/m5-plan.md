@@ -13,12 +13,11 @@ M5 is done when:
 
 1. **Frame-path doc** (`docs/frame-path.md`). Documentation only.
 
-2. **Frame timing (engine).**
-   - Add a counter of ticks run in each host frame, set by `idSessionLocal::Frame`, `idAsyncClient::RunFrame` and `idAsyncServer::RunFrame`.
-   - Add a CVar `com_logFrameTiming` (default 0). When set, print one `FRAME_TIMING` line per host frame: frame number, work time, pacing wait, ticks run and `timeLeft`.
-   - `high-refresh-determinism` then reports the achieved gameplay frame rate per cap, and its frame-time distribution (median and 95th/99th percentile), instead of the renderer's lifetime present counter.
-   - It fails when the rate is above 1.03 × cap, or when the per-tick hashes differ.
-   - Done (2026-09-25): `com_logFrameTiming` and `com_frameTicks`, and `high-refresh-determinism` measures the median-interval frame rate per cap with an uncapped run for the host ceiling. It also fixed the pacer, which ran a 60 cap at 58–59 fps because macOS wakes sleeps about 2 ms late.
+2. **Frame timing (engine).** Done (2026-09-25):
+   - `com_frameTicks` counts the ticks run in each host frame (single player, network client, server).
+   - `com_logFrameTiming 1` prints one `FRAME_TIMING` line a second: frames, ticks, the cap, and the percentiles of frame intervals and frame work. Per-frame lines with `timeLeft` are deferred to step 3's capture.
+   - `high-refresh-determinism` measures the rate during play from the median frame interval, per cap, with an uncapped run for this host's ceiling (also compared tick by tick). It fails above 1.03 × cap, below 0.98 × cap where the cap is well below the ceiling, and below 0.9 × min(cap, ceiling) otherwise. That last bound provisionally implements D1's recommendation.
+   - It also fixed the pacer, which ran a 60 cap at 58–59 fps because macOS wakes sleeps about 2 ms late.
    - **Decision D1:** when the host cannot reach a cap (this Mac tops out at about 120 fps in a window, the display's rate), should the test fail or report the cap as unreachable? *Recommendation:* report it as unreachable with the measured ceiling, and fail only below 0.9 × min(cap, ceiling). A test that always fails on this Mac gates nothing.
 
 3. **Per-frame pose capture (game + engine tests).**
