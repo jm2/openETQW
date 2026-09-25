@@ -12,7 +12,7 @@ Both histories were rewritten on 2026-09-24 (see "This session"). Every commit I
 ## Owner decisions in effect
 D1 public source and binaries · D2 all RE methods · D3 hard fork · D4 macOS / Windows 11 / Arch / Fedora / Debian, inputs on request · D5 two repos: GPL-3.0-or-later engine; SDK license + MIT game · D6 Meson · D7 clean network break from retail 1.5 (2026-09-22; deferred 2026-09-24; **dropped 2026-09-25**: OpenETQW does not aim for retail 1.5 network compatibility, matching openQ4; retail 1.5 data stays required and supported)
 Also from the owner, 2026-09-24: both repositories stay private; the history rewrite to purge retail content was authorized ("If retail content got accidentally uploaded rewrite the history to purge it").
-From the owner, 2026-09-25: retail 1.5 network compatibility is dropped (D7); the jmarshall remediation is deferred; removing GitHub's leftover `refs/pull/1/head` is deferred until the repositories are recreated, which the owner expects to do.
+From the owner, 2026-09-25: retail 1.5 network compatibility is dropped (D7); the jmarshall remediation is deferred; removing GitHub's leftover `refs/pull/1/head` is deferred until the repositories are recreated, which the owner expects to do; the SDK files in the engine's imported root commits stay in history unless that violates the GPL, which the GPL text does not appear to say (`docs/provenance.md` §6).
 Environment corrections vs. SESSION_BRIEF: the only host is macOS arm64; there is no Linux or Windows host. GitHub Actions minutes for private repositories ran out on 2026-09-24, so hosted CI does not run. Local checks, local independent reviews and CodeRabbit (about one review an hour) replace it (`CONTRIBUTING.md`). Merge gates are a convention; the free plan has no branch protection.
 
 ## Toolchain and commands (this session)
@@ -277,7 +277,7 @@ Both repositories are private and have no releases.
      - the staged SDK `BitMsg.cpp`, compiled into three unit tests.
    - Today's docs pass rewrites the registry (`docs/provenance.md` §4) to list all of this (merged in PR #2).
    - There are no decision records and no owner approvals.
-   - Engine HEAD contains no SDK files, but engine history does, through jmarshall's root commits.
+   - Engine HEAD contains no SDK files, but engine history does, through jmarshall's root commits. The owner left that history in place (2026-09-25). Before publishing, SDK EULA §5 (the EULA must accompany each copy) still has to be handled for those commits (`docs/provenance.md` §6).
 3. **`docs/provenance.md` coverage: not cleared.**
    - At 84a224b, `docs/provenance-manifest.json` classified 5,275 imported files; after today's edit (splash entry dropped) it classifies 5,274.
    - About 103 engine files and 29 game files added after the split are not in it.
@@ -344,7 +344,6 @@ None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline
 
 ## Questions for the owner
 - SDK EULA scope (EULA §2): does it cover a module built for OpenETQW?
-- SDK files in engine history: jmarshall's root commits put the full SDK tree into engine history. Does "the engine repo itself contains none" (gate 2) cover history, which would mean another rewrite?
 - SDK code in engine binaries: approve `libidLib.a`, `DeclType.cpp` and the staged headers as exceptions, or replace them (for example with a Doom 3 GPL idLib)?
 - Retail-install check: which design? It must still allow the asset-free CI smoke.
 - 30 Hz criterion: should bots think at a true 30 Hz (`bot_threadMinFrameDelay 0`)? The retail default is about 15 Hz.
