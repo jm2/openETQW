@@ -93,6 +93,6 @@ M5 is done when:
 
 15. **Mixed-cap live session.** Two Vulkan clients at different caps (60 with 240, then 120 with 144) and a headless peer. Each client is judged against its own cap; the test depends on step 4 for the caps this host cannot reach.
 
-16. **GUI updates in network sessions.** Call `GuiFrameEvents` once per frame in multiplayer, as single player and Doom 3 do. First check that the HUD is not already updated some other way; otherwise it would update twice per frame.
+16. **GUI updates in network sessions.** Done (2026-09-25): no GUI updated during a network game (0 updates in 5 s); a client or listen host now calls `GuiFrameEvents` once per frame, as single player and Doom 3 do (60 updates/s at cap 60), and `client-network-*` check it. Originally: call `GuiFrameEvents` once per frame in multiplayer, as single player and Doom 3 do. First check that the HUD is not already updated some other way; otherwise it would update twice per frame.
 
 Steps 1, 2, 3, 5 and 16 need no decision.

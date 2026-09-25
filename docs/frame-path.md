@@ -232,7 +232,7 @@ Timing *(derived from the code, not measured)*:
 | `ClientUpdateView` | frames with no tick | frames with no tick | never | never |
 | Frames that ran a tick | base draw | base draw | base draw (so is every other frame) | no draw |
 | Pacer wait | sleep, then spin | sleep, then spin | sleep, then spin | sleep only |
-| `GuiFrameEvents` per frame | yes (`src/framework/Session.cpp:310`) | no | no | no |
+| `GuiFrameEvents` per frame | yes (`src/framework/Session.cpp:310`) | yes, since 2026-09-25 (`src/framework/Common.cpp:1073`) | yes, since 2026-09-25 (`src/framework/Common.cpp:1073`) | no |
 
 ## 5. Input sampling, and the aim shown versus the aim fired
 
@@ -646,7 +646,7 @@ Remaining stepped paths must be listed rather than claimed as interpolated, and 
 **Pacing and other gaps in the frame path**
 - Caps above 120 cannot be reached on the development Mac in a window: presentation waits for its 120 Hz display (measured, §7.5). Every replay schedule also has one ~410–540 ms stall right after spawn: first-use material and render-program loading (§7.5).
 - Three CVars are read nowhere: `com_unlock_avgFrames`, `com_unlock_safetyMargin` and `com_unlock_timingMethod` (§7.2). CHARTER §7.5 requires every exposed pacing CVar to do something.
-- In client and listen-host sessions, `GuiFrameEvents` → `uiManager->Update` never runs per frame (`src/framework/Common.cpp:1062-1068`). It runs only out of sequence, during loads and wipes (`src/framework/Session.cpp:224-226`). Doom 3 called it in that branch. Whether HUD GUIs still update by another route is unverified.
+- Fixed 2026-09-25: in client and listen-host sessions `GuiFrameEvents` → `uiManager->Update` did not run per frame, only out of sequence during loads and wipes (`src/framework/Session.cpp:224-226`), and no other route updated the GUIs: with `g_guiSpeeds 1` a joined Vulkan client made 0 GUI updates in 5 s of play, against 277 in single player. `idCommonLocal::Frame` now calls it once per frame for a client or listen host (`src/framework/Common.cpp:1073`), as Doom 3's multiplayer branch did; `client-network-join`/`-listen` require >= 40 updates a second (measured 60/s at cap 60).
 - Render-only input samples have side effects (§5): the weapon lock can clear between ticks, the `m_smooth` window is counted in samples, and mouse-strafe motion from render-only samples is dropped.
 - Windows `Sleep( 1 )` sits outside the pacer (§7.5).
 
