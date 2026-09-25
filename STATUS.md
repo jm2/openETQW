@@ -114,7 +114,7 @@ Notes on the per-map results:
 - The entity check proves parsing, not spawning: every map entity counts as spawned or not spawned. Each nonzero "not spawned" count is a `Class idPathCorner not found` failure: 11 entities on 6 maps.
 - canyon GDF's area figure rests on 7 grounded samples of 86.
 - 30 Hz bot AI (`bot_threadMinFrameDelay 0`) passed 11/11 once, on 2026-09-22 with an older binary. A later delay-0 run failed slipgate (AAS area validity 88.6% < 90%). Not rerun since.
-- slipgate failed AAS area validity intermittently at the default rate (2 of 4 runs on 2026-09-25: 67.1%, 74.1%). Cause: bots riding vehicles, whose samples report the vehicle's origin and ground state. `playerPos` now prints `vehicle=` (game), and `all-stock-maps` leaves riding samples out: 11/11 PASS, slipgate 5/5. On six maps both bots spend most of the 45 s window in vehicles, so the on-foot check there rests on 4–9 samples per bot.
+- slipgate failed AAS area validity intermittently at the default rate (2 of 4 runs on 2026-09-25: 67.1%, 74.1%). Cause: bots riding vehicles, whose samples report the vehicle's origin and ground state. `playerPos` now prints `vehicle=` (game), and `all-stock-maps` leaves riding samples out: 11/11 PASS, slipgate 5/5. On six maps both bots spent most of the 45 s window in vehicles, so the on-foot check rested on 4–9 samples per bot, and one bad sample failed refinery (80%, 4 of 5). `all-stock-maps` now runs the bots with `bot_useVehicles 0`: 11/11 PASS with 27–84 on-foot samples per bot (96.6–100% in an AAS area).
 - Bot-behavior flakes that passed on rerun are recorded in the local `.agents/claude_session_2026-09-22/FOLLOWUPS.md`: valley-match vehicle entry and salvage AAS validity. The bot-gameplay combat flake (about 1 in 4) was the 40 s window, now 90 s.
 
 ### Not done / stubbed / known broken
@@ -172,7 +172,7 @@ Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>
 | Cross-OS client/server pair | blocked: no engine build | blocked: no engine build | blocked: needs an engine on a second OS | — | — | M3 requires one |
 | High refresh: on foot | blocked: no engine build | blocked: no engine build | map-loaded | — | — | Offline replay at caps 60/120 (held exactly) and 144/240 (display-bound at ~120 here). Key turning per second (turn-rate, headless networked client). The Vulkan client has joined a server (`client-network-join`), but nothing captures per-frame poses |
 | High refresh: vehicles | blocked: no engine build | blocked: no engine build | blocked: path unreachable (`IsFPSUnlock` proxy gate) | — | — | The sub-tick vehicle code added 2026-09-21 has never run |
-| Bots / navigation | blocked: no engine build | blocked: no engine build | map-loaded | — | — | Retail AAS on all 12 maps. Warmup traversal, soldier class only, much of it in vehicles (on six maps most of the 45 s window). ~15 Hz AI at the retail default |
+| Bots / navigation | blocked: no engine build | blocked: no engine build | map-loaded | — | — | Retail AAS on all 12 maps. Warmup traversal on foot (`bot_useVehicles 0` in `all-stock-maps` since 2026-09-25; with vehicles, bots rode for most of the window on six maps), soldier class only. ~15 Hz AI at the retail default |
 | Retail 1.5 peer rejected at connect (clean break, D7) | blocked: no engine build | blocked: no engine build | launched | — | — | Simulated peer (id/Splash Damage majors 1, 2, 10–14, 22) gets "Server uses protocol 20293.5". No real retail client tried |
 
 ### Build and dependency scripts verified

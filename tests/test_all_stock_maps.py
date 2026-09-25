@@ -33,10 +33,11 @@ For every stock map a FRESH dedicated server process is started with
               A stuck metric (longest interval with fwd/side != 0 but a 2D
               speed < 10 u/s between consecutive samples) is reported. AAS area
               validity: while grounded, alive and on foot, area > 0 in >= 90 %
-              of samples (needs the PLAYER_POS 'hp= dead= area=' suffix). A bot
-              riding a vehicle (PLAYER_POS 'vehicle=' >= 0) reports the
-              vehicle's position and ground state, where the player AAS does
-              not apply; those samples are counted separately.
+              of samples (needs the PLAYER_POS 'hp= dead= area=' suffix). The
+              bots run with bot_useVehicles 0 so they walk the whole window; a
+              sample from a bot that still rides a vehicle (PLAYER_POS
+              'vehicle=' >= 0) reports the vehicle's position and ground state,
+              where the player AAS does not apply, and is counted separately.
   f) think    'botThreadStats' at the start and end of the bot window:
               gameHz = dGameFrame / dWall must be within 27..33.5,
               thinkRatio = dBotFrames / dGameFrame is reported (and must be
@@ -314,6 +315,9 @@ def run_map(map_name: str, map_index: int, cfg: argparse.Namespace, ctx: dict) -
         "si_pure": "0",
         "bot_enable": "1",
         "bot_sleepWhenServerEmpty": "0",
+        # walk: this checks the player AAS, and on six maps bots with vehicles rode for
+        # most of the window, leaving 4-9 on-foot samples (one bad sample failed refinery)
+        "bot_useVehicles": "0",
         "g_teamSwitchDelay": "0",
         "bot_debugMapScript": "1",
         # Explicit: the game default is being changed to 0; SIM_HASH ticks give
