@@ -3,7 +3,7 @@
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
 Updated: 2026-09-25 (evening) · session/agent: Claude Code integrator session 3a9edf51 · host: mbp-m1max, macOS 27.0 (Darwin 27.0.0), arm64 (Apple M1 Max)
-Engine repo `~/openETQW`: `main` c6345bb (PR #13, merged 2026-09-25; `tools/ci/companion.ref` pins game 05fd612) · game repo `~/openETQW-game`: `main` f00f4d3 (PR #10, merged 2026-09-25) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none; upstream checked 2026-09-24)
+Engine repo `~/openETQW`: `main` d15bdea (PR #14, merged 2026-09-25; `tools/ci/companion.ref` pins game f00f4d3) · game repo `~/openETQW-game`: `main` f00f4d3 (PR #10, merged 2026-09-25) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none; upstream checked 2026-09-24)
 
 Both histories were rewritten on 2026-09-24 (`docs/provenance.md` §7). Every commit ID changed: engine 2104090 → 84a224b and 53d0172 → fef1e53; game 285eaa1 → 24f58bf and 9b3a02b → 19a709a. Engine SHAs quoted in older docs (`CHECKPOINT_STOCK_MAPS_PHASE.md`, ledger rows, earlier STATUS text) are pre-rewrite IDs. The game's historical `tools/ci/engine.ref` pins name engine commits that no longer exist.
 
@@ -68,17 +68,17 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 | openETQW / game | #10 976ab58, #11 6b53d24 / game #5 1e1aaa3, #6 5d23c81 | M5 step 3 on foot: `g_logFramePoses`, `frame-poses-join`/`-listen` with known-gap tables; the viewmodel repeat after re-prediction fixed (`PresentUnlocked`) |
 | openETQW / game | #12 a0e4535 / game #7 05fd612 | The presented sub-tick fraction no longer steps back within a tick |
 | openETQW | #13 c6345bb | Network sessions update the GUIs every frame (none did) |
+| openETQW | #14 d15bdea | M5 step 5, single player: `high-refresh-determinism` compares `SIM_VIEW` across caps in full precision; one weapon-log divergence after entering the vehicle is allowed in its measured shape (45–59 ticks from tick 92) until plan step 6 |
 | game | #8 ea14841, #9 54d18d8, #10 f00f4d3 | `SIM_VIEW`: per-tick view state for the replay, with the vehicle view's last returned axis, in full precision |
 
 ### Open and pending
-- **Engine PR #14** (`m5/sim-view`): M5 step 5, single player: `high-refresh-determinism` compares `SIM_VIEW` across caps. All review threads answered. Game PR #10 (`SIM_VIEW` in full precision, `%.9g`) merged as f00f4d3 and is pinned. At full precision the known weapon-log divergence covers 55–56 ticks, outside the first 25–45-tick bound, so PR #10's suite failed that one test (27/28); the bound now follows the measured shape (45–59 ticks from tick 92). Codex re-review pending.
 - **Pushed, no PR yet.** None has passed the full suite yet. Game `fix/target-1.5-data` (17905b1, a5af70b) and engine `feat/retail-install-check` (ff66385, 0b3386c, 9f3b4d6) were adversarially reviewed (13 confirmed findings, all fixed in game a5af70b and engine 9f3b4d6). Game 8ab8457, engine `fix/target-1.5-data` and game `feat/install-licenses` have not been reviewed yet; this docs update was fact-checked (36 corrections applied):
   - game `fix/target-1.5-data` (17905b1, a5af70b, 8ab8457): the SDK script-event signatures back for the 1.5 scripts (ledger 050), the DVD-only stubs removed, `validClasses` read with `GetBool` (B10), and a data-free `events.script` check in `check_event_handlers.py`. On the 1.5 data: 26 of 28 (Demonstrated).
-  - engine `fix/target-1.5-data` (5a5b672, on `m5/sim-view`): the tests for the 1.5 data (the two remaining failures were test markers), the B9 criterion in `all-stock-maps`, spawn counts read from the paks. Its ledger and STATUS updates follow once this docs update merges.
+  - engine `fix/target-1.5-data` (9575b21, on PR #14's head): the tests for the 1.5 data (the two remaining failures were test markers), the B9 criterion in `all-stock-maps`, spawn counts read from the paks. Its ledger and STATUS updates follow once this docs update merges.
   - engine `feat/retail-install-check` (ff66385, 0b3386c, 9f3b4d6): openQ4's retail-install check (A7, `fs_validateOfficialPaks`), licence texts in the engine's install set (A3), meson tests `retail-install-check` and `install-licenses`.
   - game `feat/install-licenses` (9eba2d9, 9a5f751; on 54d18d8): licence texts in the game's install set and CI artifact, plus the game README/CONTRIBUTING licensing docs.
   - engine `docs/owner-decisions-0925b`: this docs update.
-- **Merge order:** PR #14 (after game #10); game `fix/target-1.5-data` with engine `fix/target-1.5-data` (companion bump, tests, ledger); then `feat/retail-install-check` with game `feat/install-licenses` (the check refuses the DVD set, and on the 1.5 data only the fixed game passes).
+- **Merge order:** game `fix/target-1.5-data` with engine `fix/target-1.5-data` (companion bump, tests, ledger); then `feat/retail-install-check` with game `feat/install-licenses` (the check refuses the DVD set, and on the 1.5 data only the fixed game passes).
 
 ### Found this session
 - **The data was not 1.5.** `~/etqw_data` held the unpatched English DVD paks, so every result before 2026-09-25 14:49 ran the SDK 1.5 game code on 1.0 scripts. The 1.5 paks were added from the official Linux 1.5 client installer on the owner's drive. On them, `main` fails 20 of 28 tests: PR #1's "retail" script-event signatures had been fitted to the DVD scripts, and the harness counts the reconcile warnings as failures (details under Demonstrated and ledger 050).
@@ -359,13 +359,12 @@ None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline
 ## Next steps (7 or fewer, ordered)
 | # | Step | Host / OS needed | Depends on | Acceptance test |
 |---|---|---|---|---|
-| 1 | Merge engine PR #14 (M5 step 5; game #10 is merged and pinned): Codex clean | macOS arm64 | none | `high-refresh-determinism` passes at full precision |
-| 2 | Target 1.5: game `fix/target-1.5-data` PR, then an engine companion bump with ledger 047/050/030/022/013/052, the DVD-fact tests, the B9 criterion in `all-stock-maps`, the per-map table re-run on 1.5, and `KNOWN_VIEW_LEAK` confirmed on the fixed game | macOS arm64 | step 1 (the engine branch is on `m5/sim-view`; `KNOWN_VIEW_LEAK` is in PR #14's test) | Full suite on the 1.5 data: 28/28 |
-| 3 | Release gate 6 safeguards: engine `feat/retail-install-check` with game `feat/install-licenses` (rebased on 54d18d8); readme, CONTRIBUTING, ledger 035/052 and this file updated when they merge | macOS arm64 | step 2 (the check refuses the DVD set; only the fixed game passes on 1.5) | Full suite on 1.5 plus `retail-install-check` and `install-licenses` |
-| 4 | M5 in the order of `docs/m5-plan.md`: the D1 test change (the reach bounds become reports), then steps 6–15 and 17 | macOS arm64 | D10's default for steps 13–14 | Each step's test (see the plan) |
-| 5 | Windows x64 cross-compile with mingw-w64 (C12); then a Linux sysroot | macOS arm64 (cross) | none | The engine configures and compiles for Windows x64 |
-| 6 | Provenance and license records: post-split files and openQ4 donor commits in the manifest, SPDX lines, the minizip relabel (release gate 3) | any | none | Manifest covers every tracked file; game `check_spdx.py` passes |
-| 7 | M4 gameplay-driven tests: classes, damage and kills, deployable delivery, stopwatch and campaign transitions | macOS arm64 | step 2 | New meson tests pass on the 1.5 data |
+| 1 | Target 1.5: game `fix/target-1.5-data` PR, then an engine companion bump with ledger 047/050/030/022/013/052, the DVD-fact tests, the B9 criterion in `all-stock-maps`, the per-map table re-run on 1.5, and `KNOWN_VIEW_LEAK` confirmed on the fixed game | macOS arm64 | none (PR #14 merged) | Full suite on the 1.5 data: 28/28 |
+| 2 | Release gate 6 safeguards: engine `feat/retail-install-check` with game `feat/install-licenses` (rebased on 54d18d8); readme, CONTRIBUTING, ledger 035/052 and this file updated when they merge | macOS arm64 | step 1 (the check refuses the DVD set; only the fixed game passes on 1.5) | Full suite on 1.5 plus `retail-install-check` and `install-licenses` |
+| 3 | M5 in the order of `docs/m5-plan.md`: the D1 test change (the reach bounds become reports), then steps 6–15 and 17 | macOS arm64 | D10's default for steps 13–14 | Each step's test (see the plan) |
+| 4 | Windows x64 cross-compile with mingw-w64 (C12); then a Linux sysroot | macOS arm64 (cross) | none | The engine configures and compiles for Windows x64 |
+| 5 | Provenance and license records: post-split files and openQ4 donor commits in the manifest, SPDX lines, the minizip relabel (release gate 3) | any | none | Manifest covers every tracked file; game `check_spdx.py` passes |
+| 6 | M4 gameplay-driven tests: classes, damage and kills, deployable delivery, stopwatch and campaign transitions | macOS arm64 | step 1 | New meson tests pass on the 1.5 data |
 
 ## Inputs needed from the owner
 - Optional: `Loaded pk4 ... with checksum` lines from other-language editions (`pak000`–`pak004`), so the retail-install check can accept them.
