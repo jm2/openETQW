@@ -2,7 +2,7 @@
 
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
-Updated: 2026-09-24 · session/agent: Claude Code integrator session 3a9edf51 · host: mbp-m1max, macOS 27.0 (Darwin 27.0.0), arm64 (Apple M1 Max)
+Updated: 2026-09-25 · session/agent: Claude Code integrator session 3a9edf51 · host: mbp-m1max, macOS 27.0 (Darwin 27.0.0), arm64 (Apple M1 Max)
 Engine repo `~/openETQW`: `main` c1e6424 (PR #2, the audit follow-ups, merged 2026-09-24) · game repo `~/openETQW-game`: `main` b5c3345 (PR #2) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none; upstream checked 2026-09-24)
 
 Both histories were rewritten on 2026-09-24 (see "This session"). Every commit ID changed: engine 2104090 → 84a224b and 53d0172 → fef1e53; game 285eaa1 → 24f58bf and 9b3a02b → 19a709a. Engine SHAs quoted in older docs (`CHECKPOINT_STOCK_MAPS_PHASE.md`, ledger rows, earlier STATUS text) are pre-rewrite IDs. The game's historical `tools/ci/engine.ref` pins name engine commits that no longer exist.
@@ -80,7 +80,11 @@ All rows: host mbp-m1max, macOS 27 arm64, Apple Clang 21, debug build, retail da
 | Unit tests exercise the engine's usercmd codec | unit-tested | as above, fix tree | meson `usercmd-delta`, `usercmd-history` | OK in suite 18. These are self-consistency tests (the engine's encoder against its own decoder), not fidelity tests |
 | Seat swap works; the bot moves itself back | map-loaded (Valley) | as above | Integrator's instrumentation (scratch); `valley-match` now asserts `SWAP_SEAT` | The swap reports seat 1 in the same frame. The bot's own vehicle AI (`becomeDriver`: a bot alone in a gunner seat takes the empty driver seat) then returns it to seat 0. Not a seat bug. `bot_pause` cannot be changed in multiplayer |
 | All 11 stock maps on the dedicated server | map-loaded (warmup only) | as above, suite 17 | meson `all-stock-maps` | 11/11 PASS in suites 17 and 18. The table below has suite 17's values; its JSON was overwritten by later runs (`build/meson-logs/all-stock-maps.json` always holds the latest run) |
-| OpenETQW network play | map-loaded | as above, suite 17 | meson `multiclient-gameplay` (+`-latency`), `remote-client-map-change` (+`-latency`, `-loss`), `userinfo` (+`-loss`) | All OK. Dedicated server plus two headless clients (the dedicated binary with `+connect`). One-way movement: 404.93 u seen by the peer (398.17 u at 80 ms + 0–40 ms jitter, 5% loss). Map change at 0%, 10% loss + 60 ms + 0–40 ms, and 20% loss |
+| OpenETQW network play | map-loaded | as above, suite 17 | meson `multiclient-gameplay` (+`-latency`), `remote-client-map-change` (+`-latency`, `-loss`), `userinfo` (+`-loss`) | All OK. Dedicated server plus two headless clients (the dedicated binary with `+connect`). One-way movement (suite 17; both ways since 2026-09-25, next rows): 404.93 u seen by the peer (398.17 u at 80 ms + 0–40 ms jitter, 5% loss). Map change at 0%, 10% loss + 60 ms + 0–40 ms, and 20% loss |
+| Full retail-data suite, M3 tests branch (26 tests) | map-loaded (highest level any test in it reaches) | as above; `test/m3-network` before the review fixes, engine binaries of `main` c1e6424 | `ETQW_DATA_PATH=… meson test -C build --no-rebuild -j 1` (2026-09-25) | 25/26 OK. `all-stock-maps` failed on slipgate (Strogg AAS area validity 67.1% < 90%); three reruns of slipgate alone: pass, pass, fail (74.1%). The Strogg samples outside an area look like a bot riding a vehicle (hundreds of units per sample, up to z 3600, 'grounded'); a fix that leaves riding samples out is being prepared. Not caused by this branch (tests and docs only) |
+| Each client sees the other walk; reconnect, client restart, map restart | map-loaded (valley) | as above; the reviewed `test/m3-network` tests | meson `multiclient-gameplay` (+`-latency`), `reconnect-restart` | Both ways: 414.68 u and 320.76 u seen by the peer, ending within 0.04 u of the server (same at 80 + 0–40 ms, 5% loss). `reconnect`: new game init, same slot, both see each other. Killed client: the new process got slot 2 while dead slot 0 timed out (`net_serverClientTimeout` 20), 2 slots in use. `serverMapRestart`: both respawned, snapshots continued, positions within 0.03 u. Logs: the session scratchpad (not kept) |
+| 10 minutes at 2% loss and 20–60 ms delay without a disconnect | map-loaded (valley) | as above; the reviewed `lossy-session` | meson `lossy-session` (suite `soak`) | 33 checks: each client's copy within 0.04 u of the server; 33 walks, each seen by the other client moving 170–305 u; longest snapshot gap 0.24 s; no drop; 2 slots in game at the end; all exit 0. An earlier version (walks not checked) also passed, twice |
+| The Vulkan client on a network | map-loaded (valley) | as above, MoltenVK | meson `client-network-join`, `client-network-listen` | Join: each client saw the other walk (423.14 u, 320.76 u). Listen host (`+spawnServer`): the peer saw the host walk 423.14 u; the host moved the peer's player 320.76 u from its usercmds. 1,248–1,428 frames presented with world draws; no Vulkan error markers. What the client draws of remote players is not checked |
 | Vulkan client loads and renders stock maps | map-loaded | as above, MoltenVK, suite 17 | meson `client-lifecycle`, `campaign-client-maps`, `vulkan-shadows` | 5 maps (valley, outskirts, ark, canyon, refinery) in `+devmap` sessions. Evidence is backend draw counters only; 0 skinned and 0 GUI draws |
 | Render-cap replay determinism | map-loaded (offline `+devmap`, one player) | as above, suite 17 | meson `high-refresh-determinism` | Same hashes at caps 60/120/144/240, but presented frames were 387/645/647/647, so caps above ~120 did not take effect here (cause unverified) |
 | History purge scan | inspected | as above | Integrator scans (session scratchpad): every blob in every ref hashed against the retail data (raw, LF and CRLF forms); same-named text files compared line by line; binaries/resources checked against the Doom 3 GPL, dhewm3, RBDOOM-3-BFG, DOOM-3-BFG and openQ4 trees; name/content sweep for disassembly, IDA databases, PDBs and captures | One retail file found (the splash bitmap) and purged. The 204 files in `src/compiledscript/scripts/` (202 `.script`, 2 `.include`) are SDK text media, not retail content: 195 distinct script blobs in the game history (194 in the engine history) are byte-identical to the SDK 1.5 installer's Game Text Media copies; the others are small edits and jmarshall's rework of `main.script` (`docs/provenance.md` §2.2) |
@@ -110,6 +114,7 @@ Notes on the per-map results:
 - The entity check proves parsing, not spawning: every map entity counts as spawned or not spawned. Each nonzero "not spawned" count is a `Class idPathCorner not found` failure: 11 entities on 6 maps.
 - canyon GDF's area figure rests on 7 grounded samples of 86.
 - 30 Hz bot AI (`bot_threadMinFrameDelay 0`) passed 11/11 once, on 2026-09-22 with an older binary. A later delay-0 run failed slipgate (AAS area validity 88.6% < 90%). Not rerun since.
+- slipgate also fails AAS area validity intermittently at the default rate (2 of 4 runs on 2026-09-25: 67.1%, 74.1%). The failing samples look like a Strogg bot riding a vehicle, which `playerPos` does not report; see the evidence table.
 - Bot-behavior flakes that passed on rerun are recorded in the local `.agents/claude_session_2026-09-22/FOLLOWUPS.md`: valley-match vehicle entry and salvage AAS validity. The bot-gameplay combat flake (about 1 in 4) was the 40 s window, now 90 s.
 
 ### Not done / stubbed / known broken
@@ -117,8 +122,8 @@ Notes on the per-map results:
 - **Windows engine link gaps (inspected).** SystemBootstrap's `idSysLocal` lacks 23 virtual methods that only the POSIX `src/sys/sys_local.cpp` implements (DLL_*, FPU_*, GetClockTicks, callstack, DebugPrintf and others). `Sys_InitInput` and `Sys_ShutdownInput` (`Common.cpp:1298`, `:1408`; defined in `src/sys/win32/win_input.cpp`) and `Sys_ShowSplashScreen` (`Common.cpp:1282`; defined in `src/sys/win32/splashscreen.cpp`) come from files that are not in the Windows source list. The Windows network layer (`SystemBootstrap.cpp`) has no loss or latency simulation.
 - **No build or dependency scripts.** `scripts/deps/*` and `scripts/build.*` do not exist in either repo. The only dependency installer is `tools/ci/linux_deps.sh` (CI-only, apt).
 - **No retail data discovery.** No platform probes common retail install locations. Linux and Windows `Sys_DefaultBasePath` return the current directory. `fs_basepath` works and is what the tests use.
-- **The graphical client has never connected to a server.** Every network client in the tests is the headless dedicated binary, which skips client-side work (`DoClientSideStuff()` false) and uses the headless render world.
-- **The listen server has never run.** `+devmap` starts no async server. `idAsyncServer::RunFrame` never calls `ClientUpdateView`, so a listen host would draw a stepped view.
+- **The Vulkan client on a network is tested only by automation (2026-09-25).** It joined a dedicated server and hosted a listen server (`+spawnServer`; `+devmap` starts no async server), each with one headless peer, and moved under `clientMove`. Nobody has played it, and nothing checks what it draws of remote players.
+- **The listen host's view is expected to be stepped.** `idAsyncServer::RunFrame` never calls `ClientUpdateView`, so a listen host would draw remote players at the tick rate (M5).
 - **High-refresh gaps (openETQW-game):**
   - Remote-entity interpolation producer compiled out: `src/game/Entity.cpp:1736` (`#if 0 // jmarshall - unlock fps`).
   - The vehicle sub-tick path is unreachable: `idPlayer::IsFPSUnlock` returns false with a proxy (`src/game/Player.cpp:8794`).
@@ -159,14 +164,14 @@ Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>
 | idLib + game module build | compiled (hosted CI, Ubuntu 24.04: GCC 13.3, Clang 18.1.3) | compiled (hosted CI, windows-2025 runner: MSVC 19.51) | compiled (local) | compiled (hosted CI) | compiled (hosted CI, GCC cross from x64) | CI last green at game 9a929f6 (pre-rewrite ID), before the last game commits. CI resolves `GetGameAPI` after loading the module (not the arm64 cross build) and runs no unit tests. The Windows runner is not Windows 11. The Linux runner is Ubuntu, not Arch, Fedora or Debian |
 | Engine build | blocked: never configured (no host, no CI) | blocked: never configured (no host, no CI); link gaps at inspection | compiled | — | — | macOS x64 and Linux ARM64 engine CI legs exist but skip. A docstring in `tools/ci/dedicated_server_smoke.py` claims a Rosetta x86_64 run; no log supports it |
 | Dedicated server launch (headless) | blocked: no engine build | blocked: no engine build | map-loaded | — | — | macOS: on a Mac with GPU and display. Stdin console commands and exit 0 |
-| Client launch (graphics) | blocked: no engine build | blocked: no engine build | map-loaded | — | — | SDL3 + Vulkan via MoltenVK. `+devmap` sessions only |
+| Client launch (graphics) | blocked: no engine build | blocked: no engine build | map-loaded | — | — | SDL3 + Vulkan via MoltenVK. `+devmap` sessions, and since 2026-09-25 a network join and a listen host (`client-network-*`) |
 | Asset-free unit tests | blocked: no engine build | blocked: no engine build | unit-tested | — | — | bitmsg, usercmd-delta, struct-layout, usercmd-history, zero-sdk. The codec tests are self-consistency tests |
 | Stock map: server | blocked: no engine build | blocked: no engine build | map-loaded | — | — | 11 stock maps + Valley, warmup. One Valley match with forced objectives |
 | Stock map: client | blocked: no engine build | blocked: no engine build | map-loaded | — | — | valley, outskirts, ark, canyon, refinery. Draw counters only |
-| OpenETQW MP: dedicated | blocked: no engine build | blocked: no engine build | map-loaded | — | — | Loopback, one host. Up to 2 headless clients + 1 bot. Movement checked one way |
-| OpenETQW MP: listen server | blocked: no engine build | blocked: no engine build | inspected | — | — | Never run. The old "map-loaded" came from `+devmap`, which starts no async server |
+| OpenETQW MP: dedicated | blocked: no engine build | blocked: no engine build | map-loaded | — | — | Loopback, one host. Up to 2 clients (headless, or the Vulkan client and a headless one) + 1 bot. Movement checked both ways; reconnect, client restart, map restart, 10-minute lossy session |
+| OpenETQW MP: listen server | blocked: no engine build | blocked: no engine build | map-loaded | — | — | The Vulkan client with `+spawnServer` (`+devmap` starts no async server) and one headless peer (2026-09-25): the peer sees the host walk, and the host moves the peer's player. What the host draws of remote players is not checked and is expected to be stepped (no `ClientUpdateView`) |
 | Cross-OS client/server pair | blocked: no engine build | blocked: no engine build | blocked: needs an engine on a second OS | — | — | M3 requires one |
-| High refresh: on foot | blocked: no engine build | blocked: no engine build | map-loaded | — | — | Offline replay at 60 and ~120 fps. Key turning per second (turn-rate, headless networked client). No networked graphical client, no per-frame capture |
+| High refresh: on foot | blocked: no engine build | blocked: no engine build | map-loaded | — | — | Offline replay at 60 and ~120 fps. Key turning per second (turn-rate, headless networked client). The Vulkan client has joined a server (`client-network-join`), but nothing captures per-frame poses |
 | High refresh: vehicles | blocked: no engine build | blocked: no engine build | blocked: path unreachable (`IsFPSUnlock` proxy gate) | — | — | The sub-tick vehicle code added 2026-09-21 has never run |
 | Bots / navigation | blocked: no engine build | blocked: no engine build | map-loaded | — | — | Retail AAS on all 12 maps. Warmup traversal, soldier class only. ~15 Hz AI at the retail default |
 | Retail 1.5 peer rejected at connect (clean break, D7) | blocked: no engine build | blocked: no engine build | launched | — | — | Simulated peer (id/Splash Damage majors 1, 2, 10–14, 22) gets "Server uses protocol 20293.5". No real retail client tried |
@@ -209,26 +214,24 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
 - Server: all 11 stock maps and Valley load on the dedicated server with map scripts and retail AAS, and bots move (map-loaded, warmup only).
 - Client: the Vulkan client renders 5 maps, backed by draw counters only.
 - Gaps:
-  - Spawn, movement and collision are not asserted in the graphical client.
+  - In the graphical client, spawn and movement are asserted only by the network tests (`client-network-*`, 2026-09-25), from the server's and the peer's side; collision is not asserted.
   - The skipped-chunk list was incomplete: portal data is discarded, the client portal API is stubbed, and the headless render world is stubbed. Ledger 013 records them as of today's docs pass; their gameplay effects are not measured.
 
-**M3 (OpenETQW multiplayer): partial; one Mac, loopback, headless clients.**
+**M3 (OpenETQW multiplayer): partial; one Mac, loopback; the cross-OS pair is missing.**
 - Shown (map-loaded):
   - A dedicated server and two headless clients connect, spawn on opposite teams and replicate positions.
-  - Movement replicates, checked in one direction.
+  - Movement replicates in both directions: each client sees the other walk, and its copy ends within 2 units of the server's position once the walker is at rest (2026-09-25).
+  - Reconnect: a client's `reconnect` gets a new game init, it spawns again and both clients see each other; a killed client replaced by a new process gets a new slot while the dead one times out (`net_serverClientTimeout`); `serverMapRestart` with both clients connected respawns both, and they see each other (`reconnect-restart`, 2026-09-25).
+  - A 10-minute session at 2% loss each way and 20–60 ms delay (40 ± 20 ms, order kept) completed without a disconnect: 33 replication checks within 0.04 units, 33 walks each seen by the other client, longest snapshot gap 0.24 s (`lossy-session`, final version, 2026-09-25; the evidence table has the details).
+  - The Vulkan client joined a dedicated server, with a headless peer: each client saw the other walk (`client-network-join`, 2026-09-25). It also hosted a listen server: the peer saw the host walk, and the host moved the peer's player from its usercmds (`client-network-listen`). The client presented frames and drew the world in both. Neither involved a human at the controls; movement came from `clientMove`.
   - Remote clients follow map changes, also at 10% loss with 60 ms + 0–40 ms latency and at 20% loss.
   - The two-client test also passes at 80 ms + 0–40 ms latency with 5% loss.
   - User info reaches both clients.
   - The server registers a client's attack and its release; this assertion was added today.
 - Not tested:
   - peer-observed weapon fire (a headless peer cannot observe it);
-  - movement seen in the other direction;
-  - reconnect;
-  - map restart with remote clients;
-  - the 10-minute session at 2% loss and ±20 ms jitter;
-  - the listen server;
-  - the graphical client on a network;
-  - a cross-OS pair.
+  - a cross-OS pair (no second OS host);
+  - the Vulkan client with a human at the controls, and the listen host's view of remote players over time (M5).
 - Loss and jitter simulation is POSIX-only and keeps packet order, so reordering is never tested.
 
 **M4 (full match): mostly not met.**
@@ -332,10 +335,9 @@ None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline
 |---|---|---|---|---|
 | 1 | Provenance and license records (today's corrections are merged: compiledscript relabel, import method, full exception registry). Write decision records in `docs/decisions/` for each SDK exception. Add post-split files and openQ4 donor commits to the manifest; add SPDX lines | any | owner approval for exceptions | Manifest covers every tracked file; game `python3 tools/ci/check_spdx.py` passes; the registry matches ninja deps |
 | 2 | Linux x86_64 and Windows 11 engine builds. Close the Windows link gaps; run the M1 dedicated checklist with retail data | Linux x86_64 and Windows 11 hosts, or a private runner | owner input | Engine compiles on both; dedicated server loads a stock map, takes console commands, exits 0 |
-| 3 | M3 tests: movement in both directions, reconnect, map restart with remote clients, 10-minute 2% loss / ±20 ms session, graphical client joining a dedicated server, a listen-server run | macOS arm64 | none | New meson tests pass |
-| 4 | M5 groundwork: `docs/frame-path.md`; the `Entity::Present` producer; listen-host `ClientUpdateView`; a decision on the vehicle proxy gate; implement or remove the dead `com_unlock_*` CVars; per-frame pose capture | macOS arm64 | none | Frame-path doc exists; a capture test shows remote-entity poses changing on every rendered frame |
-| 5 | Retail-install check that still allows the asset-free CI smoke (release gate 6) | any | owner decision on the design | Engine refuses to run without a full retail install; `tools/ci/dedicated_server_smoke.py` still passes |
-| 6 | M4 gameplay-driven tests: classes, damage and kills, deployable delivery, stopwatch and campaign transitions | macOS arm64 | none | New meson tests pass on the tested maps |
+| 3 | M5 groundwork: `docs/frame-path.md`; the `Entity::Present` producer; listen-host `ClientUpdateView`; a decision on the vehicle proxy gate; implement or remove the dead `com_unlock_*` CVars; per-frame pose capture | macOS arm64 | none | Frame-path doc exists; a capture test shows remote-entity poses changing on every rendered frame |
+| 4 | Retail-install check that still allows the asset-free CI smoke (release gate 6) | any | owner decision on the design | Engine refuses to run without a full retail install; `tools/ci/dedicated_server_smoke.py` still passes |
+| 5 | M4 gameplay-driven tests: classes, damage and kills, deployable delivery, stopwatch and campaign transitions | macOS arm64 | none | New meson tests pass on the tested maps |
 
 ## Inputs needed from the owner
 - A Linux x86_64 host (Arch, Fedora or Debian) and a Windows 11 x64 host, each with the retail 1.5 paks. A private or self-hosted runner, or restored Actions minutes, would also do. Needed for M0 (configure on the other OSes), M1 and the cross-OS pair in M3.
