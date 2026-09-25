@@ -145,11 +145,7 @@ def test_vulkan_shadows_lifecycle() -> None:
         except queue.Empty:
             pass
 
-        # Fallback: if map loaded and 15s elapsed, mark game as running
-        if game_running_time is None and map_loaded and map_load_time is not None:
-            if time.time() - map_load_time > 15.0:
-                print("  [CLIENT] Valley map loaded and active for >15s")
-                game_running_time = time.time()
+        # the player must actually spawn (is_active_marker): a loaded map alone is not enough
 
         # Once game is actively running with shadows enabled, let it render for 6 seconds
         if game_running_time is not None and not sigterm_sent:

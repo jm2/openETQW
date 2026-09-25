@@ -99,8 +99,6 @@ def run_map(client, data, map_name, render_seconds, log_path, team="gdf", at=Non
                 map_seen = time.time()
             if active is None and any(m in line for m in ACTIVE_MARKERS):
                 active = time.time()
-        if active is None and map_seen is not None and time.time() - map_seen > 25.0:
-            active = time.time()  # fallback: map loaded and running for a while
         if at and active is not None and not moved and time.time() - active >= 2.0:
             # devmap enables cheats: move the view next to a shadow-casting light
             try:
