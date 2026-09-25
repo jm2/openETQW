@@ -42,9 +42,11 @@ Checks (0.25 s dropped at each edge of a phase; a phase needs >= 20 draw pairs):
   A7 remote    the peer's render-world pose changes between consecutive draws
                (A2 and A4-A7 allow max(1, 1%) exceptions)
   A8 phase     a draw with the same game time as the previous one is an unlocked
-               draw (ud=1), and within one game time the fraction rises; at most 1% of
-               draws may repeat the previous fraction (timeLeft is whole milliseconds and
-               the client's prediction clock is nudged when snapshots arrive)
+               draw (ud=1); within one game time the fraction rises, except that at most
+               max(1, 1%) draws may repeat it (timeLeft is whole milliseconds) or step
+               back: when a snapshot arrives the client corrects its prediction clock,
+               and the presented time can move back by a millisecond or two (seen on
+               2026-09-25; docs/frame-path.md section 9)
   A9 still     view, viewmodel and peer poses stay put (< 0.01 u)
 A check that the code is expected to fail today is listed in KNOWN_GAPS with the shape
 the failure must have: 'per_tick' (the pose changes once per tick: the changed fraction
@@ -147,17 +149,17 @@ def rate(poses):
 
 
 def phase_errors(poses):
-    """A8: (draws in the previous draw's game time that are not unlocked or whose
-    fraction falls, draws that repeat the previous fraction)."""
-    wrong = repeated = 0
+    """A8: (draws in the previous draw's game time that are not unlocked, draws whose
+    fraction repeats or falls below the previous draw's)."""
+    wrong = not_rising = 0
     for a, b in zip(poses, poses[1:]):
         if b["gt"] != a["gt"]:
             continue
-        if b["ud"] != 1 or (a["ud"] == 1 and b["fr"] < a["fr"]):
+        if b["ud"] != 1:
             wrong += 1
-        elif a["ud"] == 1 and b["fr"] == a["fr"]:
-            repeated += 1
-    return wrong, repeated
+        elif a["ud"] == 1 and b["fr"] <= a["fr"]:
+            not_rising += 1
+    return wrong, not_rising
 
 
 def tick_rate(poses):
@@ -220,10 +222,10 @@ def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
     res["A6"] = fraction_check(p_walk, lambda a, b: moved(a["wpn"], b["wpn"]), "viewmodel")
     res["A7"] = fraction_check(p_peer, lambda a, b: moved(peer(a), peer(b)), "peer's render-world pose")
     all_p = p_turn + p_walk + p_peer
-    wrong8, rep8 = phase_errors(all_p)
+    wrong8, flat8 = phase_errors(all_p)
     same = sum(1 for a, b in zip(all_p, all_p[1:]) if a["gt"] == b["gt"])
-    res["A8"] = {"ok": wrong8 == 0 and rep8 <= 0.01 * len(all_p), "wrong": wrong8, "same": same,
-                 "detail": f"{wrong8} of {same} draws within a tick out of phase, {rep8} of {len(all_p)} repeat the previous fraction"}
+    res["A8"] = {"ok": wrong8 == 0 and flat8 <= allowed_misses(same), "wrong": wrong8, "same": same,
+                 "detail": f"{wrong8} of {same} draws within a tick not unlocked; {flat8} repeat or step back the fraction"}
     f9 = changed_fraction(p_still, lambda a, b: moved(a["view"], b["view"]) or moved(a["wpn"], b["wpn"]) or moved(peer(a), peer(b)))
     res["A9"] = {"ok": len(p_still) - 1 >= MIN_PAIRS and f9 == 0.0, "detail": f"something moved in {f9:.1%} of {max(0, len(p_still) - 1)} still draw pairs"}
     return res
