@@ -47,10 +47,12 @@ Checks (0.25 s dropped at each edge of a phase; a phase needs >= 20 draw pairs):
                back: when a snapshot arrives the client corrects its prediction clock,
                and the presented time can move back by a millisecond or two (seen on
                2026-09-25; docs/frame-path.md section 9)
-  A9 still     view, viewmodel and peer poses stay put (< 0.05 u: a standing player's
-               physics can still settle by about 0.01 u a tick), and the view angles
-               do not turn (< 0.01 degrees; the viewmodel's angles are left out: its
-               idle sway turns it by about 0.01 degrees a draw)
+  A9 still     view, viewmodel and peer poses stay put: between consecutive draws
+               < 0.05 u (a standing player's physics can still settle by about 0.01 u
+               a tick) and the view angles < 0.01 degrees; over the whole phase each
+               position stays within 0.1 u of where it started and the view angles
+               within 0.05 degrees, so slow drift is caught too (the viewmodel's
+               angles are left out: its idle sway turns it by about 0.01 degrees a draw)
 A check that the code is expected to fail today is listed in KNOWN_GAPS with the shape
 the failure must have: 'per_tick' (the pose changes once per tick: it changes on the
 draw pairs that cross a tick and on no others, with max(1, 5%) of the pairs allowed to
@@ -253,7 +255,20 @@ def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
     f9 = changed_fraction(p_still, lambda a, b: moved(a["view"], b["view"], STILL_EPS) or moved(a["wpn"], b["wpn"], STILL_EPS)
                           or rotated(a["view"], b["view"])
                           or moved(peer(a), peer(b), STILL_EPS))
-    res["A9"] = {"ok": len(p_still) - 1 >= MIN_PAIRS and f9 == 0.0, "detail": f"something moved in {f9:.1%} of {max(0, len(p_still) - 1)} still draw pairs"}
+    def spread(get, angular=False):
+        """The largest difference from the first draw's value over the phase."""
+        vals = [v for p in p_still if (v := get(p)) is not None]
+        if len(vals) < 2:
+            return 0.0
+        if angular:
+            return max(abs((x - y + 180.0) % 360.0 - 180.0) for v in vals for x, y in zip(v[3:6], vals[0][3:6]))
+        return max(abs(x - y) for v in vals for x, y in zip(v[:3], vals[0][:3]))
+    drift = {"view": spread(lambda p: p["view"]), "viewmodel": spread(lambda p: p["wpn"]), "peer": spread(peer),
+             "view angles": spread(lambda p: p["view"], angular=True)}
+    drift_ok = all(v <= 0.1 for k, v in drift.items() if k != "view angles") and drift["view angles"] <= 0.05
+    res["A9"] = {"ok": len(p_still) - 1 >= MIN_PAIRS and f9 == 0.0 and drift_ok,
+                 "detail": f"something moved in {f9:.1%} of {max(0, len(p_still) - 1)} still draw pairs; drift over the phase: "
+                           + ", ".join(f"{k} {v:.3f}" for k, v in drift.items())}
     return res
 
 
