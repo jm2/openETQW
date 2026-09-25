@@ -20,7 +20,8 @@ M5 is done when:
    - It also fixed the pacer, which ran a 60 cap at 58–59 fps because macOS wakes sleeps about 2 ms late.
    - **Decision D1:** when the host cannot reach a cap (this Mac tops out at about 120 fps in a window, the display's rate), should the test fail or report the cap as unreachable? *Recommendation:* report it as unreachable with the measured ceiling, and fail only below 0.9 × min(cap, ceiling). A test that always fails on this Mac gates nothing.
 
-3. **Per-frame pose capture (game + engine tests).** On foot done (2026-09-25): `g_logFramePoses` and `frame-poses-join`/`-listen` at caps 60/120/240, with a negative control. The first run confirmed every predicted gap and found one more: the network client's viewmodel repeats on about a fifth of draws (`docs/frame-path.md` §9, criterion 3). Still to do: vehicle seats (D2) and a devmap variant.
+3. **Per-frame pose capture (game + engine tests).** On foot done (2026-09-25): `g_logFramePoses` and `frame-poses-join`/`-listen` at caps 60/120/240, with a negative control. The first run confirmed every predicted gap and found one more: the network client's viewmodel repeats on about a fifth of draws, because `Present()` returns early while `isNewFrame` is false after a snapshot re-runs prediction (`docs/frame-path.md` §9, criterion 3). Each known gap is checked against its predicted shape. Still to do: vehicle seats (D2) and a devmap variant.
+   - Next (no decision needed): let the unlock presentation paths (`ClientUpdateView`'s weapon, and later the `interpolateEntities` consumer) push the render entity even when `isNewFrame` is false. The `frame-poses-join` A6 gap must then turn into a pass.
    - Add a CVar `g_logFramePoses` that prints one `FRAME_POSE` line per main-view draw, just before `RenderScene` in `idPlayerView::SingleView`. It logs:
      - the view origin and angles;
      - the viewmodel origin;

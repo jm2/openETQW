@@ -20,30 +20,43 @@ are that phase's draws (the engine runs one stdin line per frame, before it draw
   turn       the observer turns (+left)
   walk       the observer walks forward, then back (clientMove)
   peerwalk   the headless peer walks forward, then back
-An uncapped segment (com_maxFPS 0) measures the host's ceiling first, and a negative
-control repeats turn and peerwalk with g_unlock_updateAngles, g_unlock_updateViewpos
-and g_unlock_interpolateMoving off, where the change-every-frame checks must fail.
+An uncapped segment (com_maxFPS 0) measures the host's ceiling first. A negative
+control (join only) repeats turn and the observer's walk with g_unlock_updateAngles,
+g_unlock_updateViewpos and g_unlock_interpolateMoving off: the camera checks (A4, A5)
+must fail there, which shows they can. The remote-player detector (A7) gets its proof
+when the Entity::Present producer is restored and A7 stops being a known gap.
 
-Checks (0.25 s dropped at each edge of a phase):
-  A1 rate      from the draw timestamps: <= 1.03 x cap; >= 0.98 x cap when the cap is
-               <= 0.9 x the ceiling, else >= 0.9 x min(cap, ceiling)
+Checks (0.25 s dropped at each edge of a phase; a phase needs >= 20 draw pairs):
+  A0 capture   the viewmodel (still, walk) and the peer (still, peerwalk) have a pose in
+               >= 99% of draws, so a missing pose never passes as "did not move"
+  A1 rate      from the draw timestamps, in every phase: <= 1.03 x cap; >= 0.98 x cap
+               when the cap is <= 0.9 x the ceiling (the pacer sets the rate), else
+               >= 0.85 x the ceiling (the host does, and scenes differ in cost from the
+               still scene the ceiling was measured on)
   A2 ticks     within each phase, game time advances 1.00 +/- 0.05 s per wall-clock
-               second and >= 99% of its steps between draws are one tick (33 ms): no
-               tick goes undrawn
-  A4 turn      the view yaw changes between >= 99% of consecutive draws
-  A5 walk      the view origin changes between >= 99% of consecutive draws
-  A6 viewmodel the viewmodel pose changes between >= 99% of consecutive draws (walk)
-  A7 remote    the peer's drawn pose changes between >= 99% of consecutive draws
+               second and its steps between draws are one tick (33 ms): no tick goes
+               undrawn
+  A4 turn      the view yaw changes between consecutive draws
+  A5 walk      the view origin changes between consecutive draws
+  A6 viewmodel the viewmodel pose changes between consecutive draws (walk)
+  A7 remote    the peer's render-world pose changes between consecutive draws
+               (A2 and A4-A7 allow max(1, 1%) exceptions)
   A8 phase     a draw with the same game time as the previous one is an unlocked
                draw (ud=1), and within one game time the fraction rises; at most 1% of
                draws may repeat the previous fraction (timeLeft is whole milliseconds and
                the client's prediction clock is nudged when snapshots arrive)
   A9 still     view, viewmodel and peer poses stay put (< 0.01 u)
-A check that the code is expected to fail today is listed in KNOWN_GAPS. The entries
-marked 'predicted' were written from the code before the test was first run
-(docs/frame-path.md section 9); the ones marked 'found' were not predicted and showed up
-in the first run. A known gap that passes fails the test too, so the table is updated
-when the code is fixed.
+A check that the code is expected to fail today is listed in KNOWN_GAPS with the shape
+the failure must have: 'per_tick' (the pose changes once per tick: the changed fraction
+is within 0.05 of the fraction of draw pairs that cross a tick), 'band' (the changed
+fraction stays in a range) or 'never_unlocked' (no draw between ticks is unlocked). A
+gap outside its shape fails as "gap changed shape", and a gap that passes fails too, so
+the table is updated when the code changes. Entries marked 'predicted' were written from
+the code before the test was first run (docs/frame-path.md section 9); 'found' ones
+showed up in the first run.
+
+--replay-log <observer log> evaluates a saved observer log (FRAME_POSE lines and the
+FP_BEGIN/FP_END markers) without running anything.
 
 The Vulkan client opens a window (it must stay visible) and runs from the repository
 root. Exit 77 when ETQW_DATA_PATH is unset/invalid or a binary is missing.
@@ -77,15 +90,19 @@ ANG_EPS = 0.001       # degrees
 KNOWN_GAPS = {
     # predicted: the Entity::Present producer is compiled out (#if 0, jmarshall): remote
     # players are drawn where the last tick left them
-    ("join", "A7"),
+    ("join", "A7"): ("per_tick",),
     # predicted: the listen host never calls ClientUpdateView, so every draw between
-    # ticks repeats the tick's pose; and it reads view input once per tick
-    ("listen", "A4"), ("listen", "A5"), ("listen", "A6"), ("listen", "A7"), ("listen", "A8"),
-    # found (first run, 2026-09-25): on a network client the viewmodel's drawn pose
-    # repeats on about a quarter of the unlocked draws within a tick (16-25% of all draw
-    # pairs while walking); cause not yet known
-    ("join", "A6"),
+    # ticks repeats the tick's pose, and it reads view input once per tick
+    ("listen", "A4"): ("per_tick",), ("listen", "A5"): ("per_tick",),
+    ("listen", "A6"): ("per_tick",), ("listen", "A7"): ("per_tick",),
+    ("listen", "A8"): ("never_unlocked",),
+    # found (first run, 2026-09-25), cause found by review: when a snapshot arrives on a
+    # draw between ticks the client re-runs prediction with isNewFrame false, so the
+    # weapon's Present() in ClientUpdateView returns early (game Entity.cpp) and the
+    # viewmodel stays put until the next tick (16-25% of draw pairs while walking)
+    ("join", "A6"): ("band", 0.70, 0.95),
 }
+MIN_PAIRS = 20
 
 
 def parse_pose(line):
@@ -152,6 +169,121 @@ def tick_rate(poses):
     return ratio, (sum(1 for s in steps if s == 33) / len(steps)) if steps else 0.0
 
 
+def allowed_misses(n):
+    return max(1, int(0.01 * n))
+
+
+def fraction_check(poses, key, what):
+    """(changed fraction, crossing fraction, ok, detail) for a change-every-draw check."""
+    pairs = list(zip(poses, poses[1:]))
+    changed = sum(1 for a, b in pairs if key(a, b))
+    crossing = sum(1 for a, b in pairs if a["gt"] != b["gt"])
+    n = len(pairs)
+    f = changed / n if n else 0.0
+    ok = n >= MIN_PAIRS and n - changed <= allowed_misses(n)
+    return {"ok": ok, "f": f, "tick": crossing / n if n else 0.0,
+            "detail": f"{what} changed in {f:.1%} of {n} draw pairs ({crossing / n if n else 0:.1%} cross a tick)"}
+
+
+def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
+    """The A0-A9 results for one cap's phases."""
+    def peer(p):
+        return (p["clients"].get(slot) or {}).get("pose")
+    res = {}
+    phases = {"turn": p_turn, "walk": p_walk, "peerwalk": p_peer}
+    short = [f"{k} ({max(0, len(v) - 1)})" for k, v in {"still": p_still, **phases}.items() if len(v) - 1 < MIN_PAIRS]
+    wpn_have = [p["wpn"] is not None for p in p_still + p_walk]
+    peer_have = [peer(p) is not None for p in p_still + p_peer]
+    have = min(sum(wpn_have) / max(1, len(wpn_have)), sum(peer_have) / max(1, len(peer_have)))
+    res["A0"] = {"ok": not short and have >= 0.99,
+                 "detail": f"viewmodel present in {sum(wpn_have)}/{len(wpn_have)}, peer in {sum(peer_have)}/{len(peer_have)} draws"
+                           + (f"; too few draw pairs in {', '.join(short)}" if short else "")}
+    paced = cap <= 0.9 * ceiling
+    lo = 0.98 * cap if paced else 0.85 * ceiling
+    rates = {k: rate(v) for k, v in phases.items()}
+    worst = min(rates, key=rates.get)
+    res["A1"] = {"ok": all(lo <= r <= 1.03 * cap for r in rates.values()),
+                 "detail": ", ".join(f"{k} {r:.1f}" for k, r in rates.items())
+                           + f" fps (cap {cap}, need {lo:.1f}..{1.03 * cap:.1f}, ceiling {ceiling:.1f}; lowest: {worst})"}
+    ratios, misses, steps = [], 0, 0
+    for p in phases.values():
+        ratio, _ = tick_rate(p)
+        ratios.append(ratio)
+        s = [b["gt"] - a["gt"] for a, b in zip(p, p[1:]) if b["gt"] != a["gt"]]
+        steps += len(s)
+        misses = max(misses, sum(1 for d in s if d != 33) - allowed_misses(len(s)))
+    worst_ratio = max(ratios, key=lambda r: abs(r - 1.0))
+    res["A2"] = {"ok": abs(worst_ratio - 1.0) <= 0.05 and misses <= 0,
+                 "detail": f"game time runs at {worst_ratio:.3f} x wall time; steps other than one tick beyond the allowance: {max(0, misses)} ({steps} steps)"}
+    res["A4"] = fraction_check(p_turn, lambda a, b: abs(a["view"][4] - b["view"][4]) > ANG_EPS, "view yaw")
+    res["A5"] = fraction_check(p_walk, lambda a, b: moved(a["view"], b["view"]), "view origin")
+    res["A6"] = fraction_check(p_walk, lambda a, b: moved(a["wpn"], b["wpn"]), "viewmodel")
+    res["A7"] = fraction_check(p_peer, lambda a, b: moved(peer(a), peer(b)), "peer's render-world pose")
+    all_p = p_turn + p_walk + p_peer
+    wrong8, rep8 = phase_errors(all_p)
+    same = sum(1 for a, b in zip(all_p, all_p[1:]) if a["gt"] == b["gt"])
+    res["A8"] = {"ok": wrong8 == 0 and rep8 <= 0.01 * len(all_p), "wrong": wrong8, "same": same,
+                 "detail": f"{wrong8} of {same} draws within a tick out of phase, {rep8} of {len(all_p)} repeat the previous fraction"}
+    f9 = changed_fraction(p_still, lambda a, b: moved(a["view"], b["view"]) or moved(a["wpn"], b["wpn"]) or moved(peer(a), peer(b)))
+    res["A9"] = {"ok": len(p_still) - 1 >= MIN_PAIRS and f9 == 0.0, "detail": f"something moved in {f9:.1%} of {max(0, len(p_still) - 1)} still draw pairs"}
+    return res
+
+
+def judge(mode, results):
+    """Print the table; return the failures (unexpected fails, gaps that changed shape
+    or went away)."""
+    failures = []
+    print(f"\n{'cap':>4} {'check':<5} {'result':<18} detail")
+    for (cap, check), r in sorted(results.items()):
+        gap = KNOWN_GAPS.get((mode, check))
+        if gap is None:
+            verdict = "pass" if r["ok"] else "FAIL"
+            if not r["ok"]:
+                failures.append(f"cap {cap} {check}: {r['detail']}")
+        elif r["ok"]:
+            verdict = "UNEXPECTED PASS"
+            failures.append(f"cap {cap} {check} passes but is a known gap for {mode}: update KNOWN_GAPS ({r['detail']})")
+        else:
+            if gap[0] == "per_tick":
+                shaped = abs(r["f"] - r["tick"]) <= 0.05
+            elif gap[0] == "band":
+                shaped = gap[1] <= r["f"] <= gap[2]
+            else:  # never_unlocked
+                shaped = r["same"] > 0 and r["wrong"] >= 0.95 * r["same"]
+            verdict = "known gap" if shaped else "GAP CHANGED SHAPE"
+            if not shaped:
+                failures.append(f"cap {cap} {check}: the known gap is no longer {gap}: {r['detail']}")
+        print(f"{cap:>4} {check:<5} {verdict:<18} {r['detail']}")
+    return failures
+
+
+def replay(path, mode, slot):
+    """Evaluate a saved observer log."""
+    lines = open(path, errors="replace").read().splitlines()
+
+    def seg(name, cap):
+        b = [i for i, ln in enumerate(lines) if ln.strip() == f"FP_BEGIN {name} {cap}"]
+        e = [i for i, ln in enumerate(lines) if ln.strip() == f"FP_END {name} {cap}"]
+        if not b or not e:
+            return []
+        poses = [p for ln in lines[b[0]:e[0]] if (p := parse_pose(ln))]
+        if len(poses) < 3:
+            return poses
+        t0, t1 = poses[0]["us"] + EDGE_S * 1e6, poses[-1]["us"] - EDGE_S * 1e6
+        return [p for p in poses if t0 <= p["us"] <= t1]
+    ceiling = rate(seg("calibrate", 0))
+    caps = sorted({int(ln.split()[2]) for ln in lines if ln.startswith("FP_BEGIN still ")})
+    results = {}
+    for cap in caps:
+        for check, res in evaluate(cap, ceiling, slot, seg("still", cap), seg("turn", cap), seg("walk", cap), seg("peerwalk", cap)).items():
+            results[(cap, check)] = res
+    print(f"[replay {mode}] uncapped: {ceiling:.1f} fps")
+    failures = judge(mode, results)
+    for f in failures:
+        print(f"  - {f}")
+    return 1 if failures else 0
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--observer", choices=("join", "listen"))
@@ -162,7 +294,11 @@ def main(argv):
     ap.add_argument("--caps", default="60,120,240")
     ap.add_argument("--phase-seconds", type=float, default=2.0)
     ap.add_argument("--log-dir")
+    ap.add_argument("--replay-log", help="evaluate a saved observer log instead of running (with --observer)")
+    ap.add_argument("--peer-slot", type=int, default=1, help="the peer's client number in --replay-log")
     args = ap.parse_args(argv)
+    if args.replay_log:
+        return replay(args.replay_log, args.observer or "join", args.peer_slot)
 
     try:
         ded = h.find_ded_binary(args.ded_binary)
@@ -265,30 +401,8 @@ def main(argv):
             p_turn = phase("turn", cap, turn, args.phase_seconds)
             p_walk = phase("walk", cap, walk_proc(obs), args.phase_seconds)
             p_peer = phase("peerwalk", cap, walk_proc(peer), args.phase_seconds)
-            all_p = p_turn + p_walk + p_peer
-            r = sum(rate(p) for p in (p_turn, p_walk, p_peer)) / 3  # phases are separate time spans
-            need = 0.98 * cap if cap <= 0.9 * ceiling else 0.9 * min(cap, ceiling)
-            results[(cap, "A1")] = (r <= 1.03 * cap and r >= need, f"{r:.1f} fps (cap {cap}, need {need:.1f}, ceiling {ceiling:.1f})")
-            tick_stats = [tick_rate(p) for p in (p_turn, p_walk, p_peer)]
-            worst_ratio = max(tick_stats, key=lambda t: abs(t[0] - 1.0))[0]
-            worst_steps = min(t[1] for t in tick_stats)
-            results[(cap, "A2")] = (abs(worst_ratio - 1.0) <= 0.05 and worst_steps >= 0.99,
-                                    f"game time runs at {worst_ratio:.3f} x wall time; {worst_steps:.1%} of game-time steps are one tick")
-            f4 = changed_fraction(p_turn, lambda a, b: abs(a["view"][4] - b["view"][4]) > ANG_EPS)
-            results[(cap, "A4")] = (f4 >= CHANGED, f"view yaw changed in {f4:.1%} of {len(p_turn) - 1} draw pairs")
-            f5 = changed_fraction(p_walk, lambda a, b: moved(a["view"], b["view"]))
-            results[(cap, "A5")] = (f5 >= CHANGED, f"view origin changed in {f5:.1%} of {len(p_walk) - 1} draw pairs")
-            f6 = changed_fraction(p_walk, lambda a, b: moved(a["wpn"], b["wpn"]))
-            results[(cap, "A6")] = (f6 >= CHANGED, f"viewmodel changed in {f6:.1%} of {len(p_walk) - 1} draw pairs")
-            f7 = changed_fraction(p_peer, lambda a, b: moved((a["clients"].get(slot) or {}).get("pose"),
-                                                             (b["clients"].get(slot) or {}).get("pose")))
-            results[(cap, "A7")] = (f7 >= CHANGED, f"peer's drawn pose changed in {f7:.1%} of {len(p_peer) - 1} draw pairs")
-            wrong8, rep8 = phase_errors(all_p)
-            results[(cap, "A8")] = (wrong8 == 0 and rep8 <= 0.01 * len(all_p),
-                                    f"{wrong8} draws out of phase, {rep8} of {len(all_p)} repeat the previous fraction")
-            f9 = changed_fraction(p_still, lambda a, b: moved(a["view"], b["view"]) or moved(a["wpn"], b["wpn"])
-                                  or moved((a["clients"].get(slot) or {}).get("pose"), (b["clients"].get(slot) or {}).get("pose")))
-            results[(cap, "A9")] = (f9 == 0.0, f"something moved in {f9:.1%} of still draw pairs")
+            for check, res in evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer).items():
+                results[(cap, check)] = res
 
         # negative control: with the unlock updates off, the change-every-frame checks must fail
         cap = caps[0]
@@ -323,20 +437,7 @@ def main(argv):
     if not failures and any(c != 0 for c in codes.values()):
         failures.append(f"quit exit codes: {codes}")
 
-    print(f"\n{'cap':>4} {'check':<5} {'result':<18} detail")
-    for (cap, check), (ok, detail) in sorted(results.items()):
-        known = (mode, check) in KNOWN_GAPS
-        if ok and known:
-            verdict = "UNEXPECTED PASS"
-            failures.append(f"cap {cap} {check} passes but is listed in KNOWN_GAPS for {mode}: remove it ({detail})")
-        elif ok:
-            verdict = "pass"
-        elif known:
-            verdict = "known gap"
-        else:
-            verdict = "FAIL"
-            failures.append(f"cap {cap} {check}: {detail}")
-        print(f"{cap:>4} {check:<5} {verdict:<18} {detail}")
+    failures += judge(mode, results)
 
     if failures:
         print("\nFAILURES:")
