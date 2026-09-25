@@ -321,9 +321,12 @@ def main(argv):
     def log(name):
         return (log_dir / f"{mode}-{name}.log") if log_dir else None
 
-    # both players on GDF: team balancing would refuse the second one
-    game = {"si_rules": "sdGameRulesObjective", "si_pure": "0", "g_teamSwitchDelay": "0", "si_teamForceBalance": "0"}
-    view_cvars = {"g_logFramePoses": "4", "com_unlockFPS": "1", "r_swapInterval": "0",
+    # both players on GDF: team balancing would refuse the second one. g_logFramePoses is a
+    # cheat (it logs other players' positions whatever their visibility): the server allows
+    # cheats, and the observer sets it once connected, when it has the server's net_allowCheats
+    game = {"si_rules": "sdGameRulesObjective", "si_pure": "0", "g_teamSwitchDelay": "0", "si_teamForceBalance": "0",
+            "net_allowCheats": "1"}
+    view_cvars = {"com_unlockFPS": "1", "r_swapInterval": "0",
                   "in_yawSpeed": "90", "in_angleSpeedKey": "1"}
     if mode == "join":
         srv = h.DedicatedServer(ded, data, args.map, args.port, log_path=log("server"), cvars=game)
@@ -389,6 +392,10 @@ def main(argv):
         connect(srv, peer, mode)
         spawn(srv, peer, "gdf")
         slot = peer.slot
+        mark = obs.mark()
+        obs.send("set g_logFramePoses 4")
+        if not obs.wait_for(lambda s: s.startswith("FRAME_POSE:"), 10.0, mark):
+            raise Failed("no FRAME_POSE lines after 'set g_logFramePoses 4' (a cheat: are cheats allowed?)")
 
         # the host's ceiling: uncapped, still
         obs.send("set com_maxFPS 0")
