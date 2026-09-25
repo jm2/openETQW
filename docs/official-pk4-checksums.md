@@ -1,6 +1,6 @@
 # Official pk4 checksums
 
-The engine refuses to start unless `base/` holds the retail ET:QW data patched to 1.5, with each required pak unmodified (`src/framework/FileSystem.cpp`, `officialPk4s` and `ValidateRequiredOfficialPaks`). This is openQ4's check (engine commit `b37b1456`, `src/framework/FileSystem.cpp`), ported with ET:QW's paks. The owner chose it on 2026-09-25 ("exactly how openQ4 does"). It is one of the two safeguards that go with accepting the SDK EULA risk (`docs/provenance.md` §6).
+The engine refuses to start unless `base/` holds the retail ET:QW data patched to 1.5, with each required pak unmodified (`src/framework/FileSystem.cpp`, `officialPk4s` and `ValidateRequiredOfficialPaks`). This is openQ4's check (engine commit `b37b1456`, `src/framework/FileSystem.cpp`), ported with ET:QW's paks. The owner chose it on 2026-09-25 ("exactly how openQ4 does"). It is one of the two safeguards the owner attached to accepting the SDK EULA risk the way openQ4 does (2026-09-25); the other is shipping the licence texts with every package.
 
 ## What is compared
 

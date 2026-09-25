@@ -206,8 +206,9 @@ def run_bot_gameplay_test():
     if not BINARY_PATH.is_file():
         print(f"[SKIP] Dedicated engine binary not found at {BINARY_PATH}. Skipping test (exit code 77).")
         return 77
-    if not DATA_PATH.is_dir() or not (DATA_PATH / "base").is_dir() or not (DATA_PATH / "base" / "pak000.pk4").is_file():
-        print(f"[SKIP] ETQW retail data not found or incomplete at {DATA_PATH}. Skipping bot gameplay test (exit code 77).")
+    # the engine refuses to start without pak000-pak008 (the retail data patched to 1.5)
+    if not DATA_PATH.is_dir() or h.missing_required_paks(DATA_PATH):
+        print(f"[SKIP] ETQW retail data not found or incomplete at {DATA_PATH} (missing: {', '.join(h.missing_required_paks(DATA_PATH)) or 'the directory'}). Skipping bot gameplay test (exit code 77).")
         return 77
 
     output_queue = queue.Queue()

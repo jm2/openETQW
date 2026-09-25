@@ -2728,8 +2728,8 @@ alone would not reveal.
 ===============
 */
 void idFileSystemLocal::PrintContentSearchDiagnostics( void ) {
-	const char *roots[ 5 ];
-	const char *rootNames[ 5 ];
+	const char *roots[ 4 ];
+	const char *rootNames[ 4 ];
 	idStrList	found;
 	idStr		osPath;
 	int			i, k;
@@ -2738,13 +2738,13 @@ void idFileSystemLocal::PrintContentSearchDiagnostics( void ) {
 	roots[ 1 ] = fs_savepath.GetString();	rootNames[ 1 ] = "fs_savepath";
 	roots[ 2 ] = fs_cdpath.GetString();		rootNames[ 2 ] = "fs_cdpath";
 	roots[ 3 ] = fs_devpath.GetString();	rootNames[ 3 ] = "fs_devpath";
-	roots[ 4 ] = fs_userpath.GetString();	rootNames[ 4 ] = "fs_userpath";
 
 	common->Printf( "----- content search diagnostics -----\n" );
 	common->Printf( "fs_game      = '%s'\n", fs_game.GetString() );
 	common->Printf( "fs_game_base = '%s'\n", fs_game_base.GetString() );
 
-	for ( i = 0; i < 5; i++ ) {
+	// the roots SetupGameDirectories searches
+	for ( i = 0; i < 4; i++ ) {
 		if ( roots[ i ] == NULL || roots[ i ][ 0 ] == '\0' ) {
 			common->Printf( "%s = <unset>\n", rootNames[ i ] );
 			continue;
@@ -2766,8 +2766,9 @@ void idFileSystemLocal::PrintContentSearchDiagnostics( void ) {
 		osPath.StripTrailing( '\\' );
 
 		found.Clear();
+		// -1 means no directory on POSIX, but also an empty one on Windows
 		if ( ListOSFiles( osPath, ".pk4", found ) == -1 ) {
-			common->Printf( "   %s: directory not found (note: paths are case sensitive on Linux)\n", osPath.c_str() );
+			common->Printf( "   %s: no pk4 files, or no such directory (note: paths are case sensitive on Linux)\n", osPath.c_str() );
 			continue;
 		}
 

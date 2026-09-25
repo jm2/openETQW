@@ -332,8 +332,9 @@ def main() -> int:
             print(f"[SKIP] Neither {CLIENT_BIN} nor {DED_BIN} exists. Skipping test.")
             return 77  # Meson skip code
 
-    if not (DATA_PATH / "base" / "pak000.pk4").is_file():
-        print(f"[SKIP] Retail assets not found at {DATA_PATH / 'base' / 'pak000.pk4'}. Skipping test.")
+    missing = h.missing_required_paks(DATA_PATH)
+    if missing:
+        print(f"[SKIP] Retail 1.5 data incomplete at {DATA_PATH / 'base'} (missing: {', '.join(missing)}). Skipping test.")
         return 77  # Meson skip code
 
     rates = [60, 120, 144, 240, 0]  # 0 = uncapped: this host's ceiling

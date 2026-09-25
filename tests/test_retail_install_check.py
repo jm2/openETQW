@@ -17,11 +17,14 @@ it needs no retail data:
 3. The empty base/ with `+set fs_validateOfficialPaks 0`: no retail-install
    error; the file system starts.
 
+Usage: test_retail_install_check.py [--ded-binary PATH] (meson passes the binary
+this build directory produced).
 Exit status: 0 pass, 1 fail, 77 skip (no dedicated server binary).
 """
 
 from __future__ import annotations
 
+import argparse
 import subprocess
 import sys
 import tempfile
@@ -55,8 +58,11 @@ def fake_pak(path: Path) -> None:
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser(description="the retail-install check on synthetic data")
+    ap.add_argument("--ded-binary", help="dedicated server binary (default: $OPENETQW_DED_BINARY, then build/)")
+    args = ap.parse_args()
     try:
-        ded = h.find_ded_binary()
+        ded = h.find_ded_binary(args.ded_binary)
     except h.SkipTest as e:
         print(f"[SKIP] {e}")
         return h.EXIT_SKIP

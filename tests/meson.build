@@ -176,10 +176,14 @@ endif
 #    script exits 77 = SKIP). The binary is the one this build dir produces.
 if build_dedicated
   # the retail-install check (fs_validateOfficialPaks) on synthetic data: needs no retail data
+  retail_install_check_ded = meson.project_build_root() / engine_ded_binary_name
+  if host_system == 'windows'
+    retail_install_check_ded += '.exe'
+  endif
   test(
     'retail-install-check',
     py,
-    args: [meson.project_source_root() / 'tests' / 'test_retail_install_check.py'],
+    args: [meson.project_source_root() / 'tests' / 'test_retail_install_check.py', '--ded-binary', retail_install_check_ded],
     workdir: meson.project_source_root(),
     suite: 'unit',
     timeout: 120,
