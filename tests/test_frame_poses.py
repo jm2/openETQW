@@ -48,7 +48,9 @@ Checks (0.25 s dropped at each edge of a phase; a phase needs >= 20 draw pairs):
                and the presented time can move back by a millisecond or two (seen on
                2026-09-25; docs/frame-path.md section 9)
   A9 still     view, viewmodel and peer poses stay put (< 0.05 u: a standing player's
-               physics can still settle by about 0.01 u a tick)
+               physics can still settle by about 0.01 u a tick), and the view angles
+               do not turn (< 0.01 degrees; the viewmodel's angles are left out: its
+               idle sway turns it by about 0.01 degrees a draw)
 A check that the code is expected to fail today is listed in KNOWN_GAPS with the shape
 the failure must have: 'per_tick' (the pose changes once per tick: it changes on the
 draw pairs that cross a tick and on no others, with max(1, 5%) of the pairs allowed to
@@ -143,6 +145,14 @@ def changed_fraction(poses, key):
 
 def moved(a, b, eps=POS_EPS):
     return a is not None and b is not None and max(abs(x - y) for x, y in zip(a[:3], b[:3])) > eps
+
+
+def rotated(a, b, eps=0.01):
+    """Whether the pitch/yaw/roll of two poses (components 3-5) differ by more than eps
+    degrees, angles compared modulo 360."""
+    if a is None or b is None or len(a) < 6 or len(b) < 6:
+        return False
+    return max(abs((x - y + 180.0) % 360.0 - 180.0) for x, y in zip(a[3:6], b[3:6])) > eps
 
 
 def rate(poses):
@@ -241,6 +251,7 @@ def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
     res["A8"] = {"ok": wrong8 == 0 and flat8 <= allowed_misses(same), "wrong": wrong8, "same": same,
                  "detail": f"{wrong8} of {same} draws within a tick not unlocked; {flat8} repeat or step back the fraction"}
     f9 = changed_fraction(p_still, lambda a, b: moved(a["view"], b["view"], STILL_EPS) or moved(a["wpn"], b["wpn"], STILL_EPS)
+                          or rotated(a["view"], b["view"])
                           or moved(peer(a), peer(b), STILL_EPS))
     res["A9"] = {"ok": len(p_still) - 1 >= MIN_PAIRS and f9 == 0.0, "detail": f"something moved in {f9:.1%} of {max(0, len(p_still) - 1)} still draw pairs"}
     return res
