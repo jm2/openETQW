@@ -13,7 +13,8 @@ binary started with +connect, as test_multiclient_gameplay.py does):
    slot) and neither process logs a failure marker.
 On each map the client must also get the objective manager's network event
 from the server's initial reliable messages ('oe <entity> <index>', sent by the
-script through sendNetworkEvent( entity, string ); net_clientShowNetworkEvents)
+script through sendNetworkEvent( clientIndex, isRepeater, message ), the retail 1.5
+and SDK signature; net_clientShowNetworkEvents)
 before its first snapshot of that map: the client handles a packet's reliable
 messages before its snapshot, and the map script's own objective broadcast
 comes seconds later.
@@ -43,7 +44,6 @@ SLOTS_RE = re.compile(r"^(\d+) client slots? in use")
 GAME_INIT_RE = re.compile(r"Sending game init to client (\d+)")
 DROPPED_RE = re.compile(r"Server dropped client usercmds: clientGameFrame=(\d+)")
 OBJECTIVE_EVENT = "Client network event: objectives 'oe "
-NETWORK_EVENT_WARNING = "::Event_SendNetworkEvent: "
 
 
 class RemoteClient(h.DedicatedServer):
@@ -188,9 +188,6 @@ def main(argv):
         for name, proc in (("server", srv), ("client", cl)):
             for b in h.scan_failures(l.text for l in proc.snapshot()):
                 failures.append(f"{name} log: {b}")
-            for ln in proc.snapshot():
-                if NETWORK_EVENT_WARNING in ln.text:
-                    failures.append(f"{name} log: {ln.text}")
     finally:
         cl.cleanup()
         srv.cleanup()

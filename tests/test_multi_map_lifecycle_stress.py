@@ -123,11 +123,11 @@ def test_multi_map_cycling() -> dict:
     reader.start()
 
     stages = [
-        {"name": "quarry", "expected_ents": "...414 entities spawned", "is_initial": True},
-        {"name": "outskirts", "expected_ents": "...863 entities spawned", "is_initial": False},
-        {"name": "ark", "expected_ents": "...898 entities spawned", "is_initial": False},
-        {"name": "canyon", "expected_ents": "...849 entities spawned", "is_initial": False},
-        {"name": "quarry_reentry", "map_cmd": "quarry", "expected_ents": "...414 entities spawned", "is_initial": False},
+        {"name": "quarry", "expected_ents": h.spawn_line(DATA_PATH, "quarry"), "is_initial": True},
+        {"name": "outskirts", "expected_ents": h.spawn_line(DATA_PATH, "outskirts"), "is_initial": False},
+        {"name": "ark", "expected_ents": h.spawn_line(DATA_PATH, "ark"), "is_initial": False},
+        {"name": "canyon", "expected_ents": h.spawn_line(DATA_PATH, "canyon"), "is_initial": False},
+        {"name": "quarry_reentry", "map_cmd": "quarry", "expected_ents": h.spawn_line(DATA_PATH, "quarry"), "is_initial": False},
     ]
 
     stage_results = []

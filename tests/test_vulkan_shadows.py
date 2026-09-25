@@ -32,6 +32,13 @@ import etqw_harness as h
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = h.env_data_path()
+
+def is_active_marker(line: str) -> bool:
+    """The player is in the game: the game's spawn line for a non-spectator, or (on the
+    unpatched DVD scripts only) a script debug print."""
+    return ("spawned at" in line and "spectating 0" in line) or any(
+        m in line for m in ("parachute::Idle", "weaponRestored", "RespawnWaves_"))
+
 def _find_client_binary() -> Path:
     candidates = [
         REPO_ROOT / "build" / "openETQW-client_arm64",
@@ -125,11 +132,11 @@ def test_vulkan_shadows_lifecycle() -> None:
                 print(f"  [VULKAN] {line}")
             elif "Vulkan interaction pipeline created" in line or "worldInteractionPipeline" in line:
                 print(f"  [VULKAN] {line}")
-            elif "Loading map: maps/valley.world" in line:
+            elif "Loading map: maps/valley.world" in line or line.startswith("Map: maps/valley.world"):
                 print(f"  [CLIENT] {line}")
                 map_loaded = True
                 map_load_time = time.time()
-            elif "parachute::Idle" in line or "weaponRestored" in line or "RespawnWaves_" in line:
+            elif is_active_marker(line):
                 if game_running_time is None:
                     print(f"  [CLIENT] Player active in Valley: {line}")
                     game_running_time = time.time()
@@ -169,6 +176,10 @@ def test_vulkan_shadows_lifecycle() -> None:
     if exit_code != 0:
         print("\n--- Final lines before failure ---")
         print("\n".join(output_lines[-50:]))
+        if not sigterm_sent:
+            proc.kill()
+            proc.wait(timeout=10.0)
+            raise TimeoutError(f"the player never became active in Valley within 90 s (map loaded: {map_loaded})")
         raise RuntimeError(f"Client exited with non-zero exit code {exit_code} after SIGTERM")
 
     full_output = "\n".join(output_lines)

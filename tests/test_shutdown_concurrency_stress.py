@@ -322,7 +322,8 @@ def run_burst_cycling_outskirts(cycles: int = 10, base_port: int = 27860) -> dic
 
         try:
             proc.wait(timeout=10.0)
-            passed = (proc.returncode == 0) and (ents > 500)
+            # every map entity spawns on the 1.5 data (owner decision B9: all accounted for)
+            passed = (proc.returncode == 0) and h.spawn_line(DATA_PATH, "outskirts") == f"...{ents} entities spawned"
         except Exception:
             proc.kill()
             proc.wait()

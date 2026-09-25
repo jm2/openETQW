@@ -267,7 +267,8 @@ def main():
     print("===============================================================")
 
     # Retail data comes from ETQW_DATA_PATH only; every base/pak*.pk4 is
-    # searched (area22/ark/canyon live in pak000, the rest in pak004).
+    # searched (on the DVD data area22/ark/canyon live in pak000 and the rest in pak004;
+    # the 1.5 patch overrides several in pak005).
     from etqw_harness import PakIndex, SkipTest, resolve_data_path
     try:
         paks = PakIndex(resolve_data_path())
