@@ -13,12 +13,11 @@ Validates:
    identical SIM_VIEW lines: state each tick produces that later ticks read back and that
    a render frame could write into (the view angles after UpdateViewAngles, the tick's
    logged view origin and weapon offset and orientation, the vehicle's last pushed pose;
-   docs/frame-path.md section 6.9). One divergence is known and allowed (KNOWN_VIEW_LEAK):
-   from the tick the replay enters the vehicle, the logged weapon pose (wlog) can
-   differ between caps whose render frames fall at different fractions of a tick (144
-   against 60/120/240), because the render frames of the entering tick still run the
-   on-foot unlock path and write the weapon's render entity, which the vehicle ticks then
-   log. Any other SIM_VIEW difference fails.
+   docs/frame-path.md section 6.9). One divergence is known and allowed in a bounded
+   shape (KNOWN_VIEW_LEAK): after the replay enters the vehicle, the logged weapon pose
+   (wlog) can differ between schedules, because the render frames of the entering tick
+   still run the on-foot unlock path and write the weapon's render entity, which the
+   vehicle ticks then log. Any other SIM_VIEW difference fails.
 3. Identical player/vehicle coordinates, velocities, health, objective state, and serviced event counts.
 4. The frame rate each schedule reached during play, from the engine's once-a-second
    FRAME_TIMING lines (com_logFrameTiming 1; windows with >= 25 game ticks), taken from the
@@ -97,9 +96,13 @@ SIM_HASH_RE = re.compile(
 
 
 SIM_VIEW_RE = re.compile(r"SIM_VIEW: tick=(\d+) (.*)$")
-# found 2026-09-25 (docs/frame-path.md section 9): wlog may differ from the replay's
-# enterVehicle tick on; nothing else may
-KNOWN_VIEW_LEAK = {"field": "wlog", "from_tick": 91}
+# found 2026-09-25 (docs/frame-path.md section 9): in about two runs of three, wlog
+# differs from the tick after the replay's enterVehicle (91) on, between any schedule
+# and the 60 Hz one; observed on 31-40 of the 58 ticks 92-149, lasting to the end of
+# the replay in some runs. Allowed only in that shape: the wlog field alone, a weapon
+# pose on both sides, from tick 92, on at most 45 ticks per schedule. Nothing else may
+# differ.
+KNOWN_VIEW_LEAK = {"field": "wlog", "from_tick": 92, "to_tick": 149, "max_ticks": 45}
 
 FRAME_TIMING_RE = re.compile(
     r"FRAME_TIMING: window_ms=([\d.]+) frames=(\d+) ticks=(\d+) cap=(-?\d+)"
@@ -457,6 +460,7 @@ def main() -> int:
         return dict(re.findall(r"(\w+)=(\([^)]*\)|\S+)", line or ""))
 
     view_mismatches, known = [], 0
+    known_span: dict[int, list[int]] = {}
     for fps in rates[1:]:
         for tick, line in views[rates[0]].items():
             other = views[fps].get(tick)
@@ -464,12 +468,20 @@ def main() -> int:
                 continue
             a, b = fields_of(line), fields_of(other)
             differing = sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k))
-            if differing == [KNOWN_VIEW_LEAK["field"]] and tick >= KNOWN_VIEW_LEAK["from_tick"]:
+            field = KNOWN_VIEW_LEAK["field"]
+            if (differing == [field] and KNOWN_VIEW_LEAK["from_tick"] <= tick <= KNOWN_VIEW_LEAK["to_tick"]
+                    and a.get(field, "-").startswith("(") and b.get(field, "-").startswith("(")):
                 known += 1
+                known_span.setdefault(fps, []).append(tick)
                 continue
             view_mismatches.append(f"tick {tick} ({', '.join(differing)}): {cap_label(rates[0])} {line} | {cap_label(fps)} {other}")
     print(f"  {len(views[rates[0]])} ticks per schedule; {len(view_mismatches)} unexpected differences,"
           f" {known} known (the weapon log after entering the vehicle)")
+    for fps, ticks in sorted(known_span.items()):
+        print(f"    known: {cap_label(fps)} against {cap_label(rates[0])}, ticks {min(ticks)}-{max(ticks)} ({len(ticks)})")
+        if len(ticks) > KNOWN_VIEW_LEAK["max_ticks"]:
+            view_mismatches.append(f"{cap_label(fps)}: the known weapon-log divergence covers {len(ticks)} ticks"
+                                   f" (more than the {KNOWN_VIEW_LEAK['max_ticks']} observed)")
     for m in view_mismatches[:10]:
         print(f"  [FAIL] {m}")
     assert not view_mismatches, f"render-frame state leaked into {len(view_mismatches)} tick(s) (SIM_VIEW)"
