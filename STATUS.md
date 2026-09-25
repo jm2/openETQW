@@ -22,8 +22,9 @@ From the owner, 2026-09-25, answers to the open-question list (the letters and n
 - B10 bot `validClasses`: do what retail 1.5 does. Retail 1.5 reads it as a bool in all three game modules (`docs/specs/retail-1.5-reference.md`), so `GetBool` is restored (game `fix/target-1.5-data`, not merged yet).
 - C11 data: everything targets the retail data patched to 1.5: `pak000`–`pak008` (the required set) plus the edition's language paks (here `zpak_english000`–`003`); the unpatched DVD set alone is not supported.
 - C12 other OSes: no Linux or Windows retail-data automation. Do what is possible without retail data (for example a Windows cross-compile); the owner tests retail data on other OSes by hand.
-- M5 plan D1–D10: all decided (`docs/m5-plan.md`). D10's CVar default is drafted off (retail 1.5 behaviour) and waits for the owner's confirmation.
+- M5 plan D1–D10: all decided (`docs/m5-plan.md`). D10 (asked again with context): vehicles feel "as modern/responsive as possible without breaking game physics": the seat view is on by default and grows to every seat as each is made safe, and moving vehicles further off the tick rate is to be explored.
 - F16: the merged branches were deleted (13 engine, 8 game).
+- Charter §11: the retail-install check is the engine's alone, as in openQ4 ("mirroring openQ4 here sounds reasonable"); the local charter now says so, and release gate 6 names engine packages too.
 Environment corrections vs. SESSION_BRIEF: the only host is macOS arm64; there is no Linux or Windows host. GitHub Actions minutes for private repositories ran out on 2026-09-24, so hosted CI does not run. Local checks, local independent reviews and CodeRabbit (about one review an hour) replace it (`CONTRIBUTING.md`). Merge gates are a convention; the free plan has no branch protection.
 
 ## Toolchain and commands (this session)
@@ -155,7 +156,7 @@ Notes on the per-map results:
 - **The listen host's view is stepped** (measured by `frame-poses-listen`): camera, viewmodel and remote players change once per tick, because `idAsyncServer::RunFrame` never calls `ClientUpdateView` (M5 plan step 7).
 - **High-refresh gaps (openETQW-game):**
   - Remote-entity interpolation producer compiled out: `src/game/Entity.cpp:1736` (`#if 0 // jmarshall - unlock fps`).
-  - Vehicle seats draw at the tick rate: `idPlayer::IsFPSUnlock` returns false with a proxy (`src/game/Player.cpp:8794`), as retail 1.5 does (M5 plan D2). OpenETQW's vehicle sub-tick code still runs on the render frames of the tick in which a player enters, and through `GetAORView` (AoR, antilag), where it writes presentation values into tick state (plan step 6). D10 adds an opt-in seat view (steps 13–14).
+  - Vehicle seats draw at the tick rate: `idPlayer::IsFPSUnlock` returns false with a proxy (`src/game/Player.cpp:8794`), as retail 1.5 does (M5 plan D2). OpenETQW's vehicle sub-tick code still runs on the render frames of the tick in which a player enters, and through `GetAORView` (AoR, antilag), where it writes presentation values into tick state (plan step 6). D10 adds a seat view, on by default (steps 13–14).
   - `com_unlock_avgFrames`, `com_unlock_safetyMargin` and `com_unlock_timingMethod` are registered (`src/framework/Common.cpp:80–85`) and read nowhere (D9: remove them, plan step 12).
   - Other per-frame effects of late view-angle sampling that the audit listed (the mouse smoothing history, `game->UsercommandCallback`) were not reviewed (2026-09-24 audit).
 - **Silent engine no-ops** in `src/framework/async/NetworkSystem.cpp`:
@@ -200,7 +201,7 @@ Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>
 | OpenETQW MP: listen server | blocked: no engine build | blocked: no engine build | map-loaded | — | — | The Vulkan client with `+spawnServer` (`+devmap` starts no async server) and one headless peer (2026-09-25): the peer sees the host walk, and the host moves the peer's player. What the host draws is stepped, measured by `frame-poses-listen`: camera, viewmodel and remote players change once per tick (no `ClientUpdateView`) |
 | Cross-OS client/server pair | blocked: no engine build | blocked: no engine build | blocked: needs an engine on a second OS | — | — | M3 requires one |
 | High refresh: on foot | blocked: no engine build | blocked: no engine build | map-loaded | — | — | Offline replay at caps 60/120 (held exactly) and 144/240 (display-bound at ~120 here). Key turning per second (turn-rate, headless networked client). Per-frame poses are captured on foot (`frame-poses-join`/`-listen`, caps 60/120/240) |
-| High refresh: vehicles | blocked: no engine build | blocked: no engine build | blocked: `IsFPSUnlock` refuses any proxy, as retail 1.5 does (D2) | — | — | Seats draw at the tick rate. OpenETQW's vehicle sub-tick code runs only on the entering tick's render frames and via AoR, where it leaks (plan step 6); the opt-in seat view is plan steps 13–14 (D10) |
+| High refresh: vehicles | blocked: no engine build | blocked: no engine build | blocked: `IsFPSUnlock` refuses any proxy, as retail 1.5 does (D2) | — | — | Seats draw at the tick rate. OpenETQW's vehicle sub-tick code runs only on the entering tick's render frames and via AoR, where it leaks (plan step 6); the seat view, on by default, is plan steps 13–14 (D10) |
 | Bots / navigation | blocked: no engine build | blocked: no engine build | map-loaded (DVD data) | — | — | Retail AAS on all 12 maps. Warmup traversal on foot (`bot_useVehicles 0` in `all-stock-maps` since 2026-09-25; with vehicles, bots rode for most of the window on six maps), soldier class only. ~15 Hz AI at the retail default |
 | Retail 1.5 peer rejected at connect (clean break, D7) | blocked: no engine build | blocked: no engine build | launched | — | — | Simulated peer (id/Splash Damage majors 1, 2, 10–14, 22) gets "Server uses protocol 20293.5". No real retail client tried |
 
@@ -277,7 +278,7 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
 - What the Vulkan client draws is now captured per frame (`g_logFramePoses`, meson `frame-poses-join`/`-listen`, 2026-09-25, on foot, caps 60/120/240): on a network client the camera changes on every draw, remote players only once per tick (the `Entity::Present` producer is off) and, since the `PresentUnlocked` fix, the viewmodel changes on every draw (before it, it repeated on about a fifth of draws: after a snapshot re-ran prediction, `isNewFrame` was false and the weapon's `Present()` returned early); on a listen host camera, viewmodel and remote players all change only once per tick.
 - Frame rate is now measured during play (`com_logFrameTiming`, 2026-09-25): caps 60 and 120 are held exactly (16.67 and 8.33 ms frames) after a pacer fix; caps 144 and 240 run at about 120 because presentation waits for this host's 120 Hz display. Every replay schedule has one ~410–540 ms stall right after spawn: first-use material and render-program loading (with debug dumps), not pacing.
 - The 2026-09-24 turn-rate fix removed one render-rate dependence of authoritative state (key turning).
-- `docs/frame-path.md` (2026-09-25) traces one host frame in each mode, from code; its pacing section (§7.1, §7.5, §7.6) also has the frame rates measured with `com_logFrameTiming`. `docs/m5-plan.md` orders the remaining work in 17 steps; the owner made its ten decisions (D1–D10) on 2026-09-25, and D10's CVar default waits for confirmation.
+- `docs/frame-path.md` (2026-09-25) traces one host frame in each mode, from code; its pacing section (§7.1, §7.5, §7.6) also has the frame rates measured with `com_logFrameTiming`. `docs/m5-plan.md` orders the remaining work in 17 steps; the owner made its ten decisions (D1–D10) on 2026-09-25; D10's seat view is on by default.
 - Open (details and file:line in `docs/frame-path.md` §9):
   - the `Entity::Present` producer (compiled out by jmarshall; SDK code);
   - the vehicle proxy gate;
@@ -361,7 +362,7 @@ None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline
 |---|---|---|---|---|
 | 1 | Target 1.5: game `fix/target-1.5-data` PR, then an engine companion bump with ledger 047/050/030/022/013/052, the DVD-fact tests, the B9 criterion in `all-stock-maps`, the per-map table re-run on 1.5, and `KNOWN_VIEW_LEAK` confirmed on the fixed game | macOS arm64 | none (PR #14 merged) | Full suite on the 1.5 data: 28/28 |
 | 2 | Release gate 6 safeguards: engine `feat/retail-install-check` with game `feat/install-licenses` (rebased on 54d18d8); readme, CONTRIBUTING, ledger 035/052 and this file updated when they merge | macOS arm64 | step 1 (the check refuses the DVD set; only the fixed game passes on 1.5) | Full suite on 1.5 plus `retail-install-check` and `install-licenses` |
-| 3 | M5 in the order of `docs/m5-plan.md`: the D1 test change (the reach bounds become reports), then steps 6–15 and 17 | macOS arm64 | D10's default for steps 13–14 | Each step's test (see the plan) |
+| 3 | M5 in the order of `docs/m5-plan.md`: the D1 test change (the reach bounds become reports), then steps 6–15 and 17 | macOS arm64 | none | Each step's test (see the plan) |
 | 4 | Windows x64 cross-compile with mingw-w64 (C12); then a Linux sysroot | macOS arm64 (cross) | none | The engine configures and compiles for Windows x64 |
 | 5 | Provenance and license records: post-split files and openQ4 donor commits in the manifest, SPDX lines, the minizip relabel (release gate 3) | any | none | Manifest covers every tracked file; game `check_spdx.py` passes |
 | 6 | M4 gameplay-driven tests: classes, damage and kills, deployable delivery, stopwatch and campaign transitions | macOS arm64 | step 1 | New meson tests pass on the 1.5 data |
@@ -372,5 +373,4 @@ None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline
 - Manual retail-data runs on Linux and Windows, once builds exist (C12).
 
 ## Questions for the owner
-- M5 plan D10: should the allow-listed vehicle-seat view default to on for the ground-vehicle driver seat (the original recommendation; a ledgered deviation, since retail 1.5 has no seat view) or off (drafted; retail behaviour)? The one-seat checks run with it on either way.
-- Proposed charter wording: CHARTER §11 asks that "the game module and engine refuse to run without a full retail ETQW installation's data (no demo or test data)". As decided (A7, openQ4's design), only the engine checks; openQ4's game module has no check either. Change the charter to say "the engine"?
+- None open.
