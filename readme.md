@@ -32,7 +32,7 @@ This follows openQ4: retail 1.5 network compatibility is not a goal. Retail 1.5 
 
 ## Status
 
-As of 2026-09-24, every engine build and every runtime result comes from one host: macOS arm64 (Apple Silicon, Apple Clang 21, debug builds). The game module alone also compiled in hosted CI on Linux, Windows and macOS x64 before the Actions minutes ran out. On that host the dedicated server loads every stock map with its scripts and navigation, and bots move. The Vulkan client (through MoltenVK) has rendered five maps, checked by draw counters rather than images. A dedicated server has hosted two headless clients over loopback. The engine has not yet been configured or compiled on Linux or Windows, and the graphical client has never connected to a server. [`STATUS.md`](STATUS.md) has the evidence levels, the exact commands and the open items.
+As of 2026-09-24, every engine build and every runtime result comes from one host: macOS arm64 (Apple Silicon, Apple Clang 21, debug builds). The game module alone also compiled in hosted CI on Linux, Windows and macOS x64 before the Actions minutes ran out. On that host the dedicated server loads every stock map with its scripts and navigation, and bots move. The Vulkan client (through MoltenVK) has rendered five maps, checked by draw counters rather than images. A dedicated server has hosted two clients over loopback, through a reconnect, a map restart and a 10-minute lossy session, and the Vulkan client has joined a dedicated server and hosted a listen server (automated tests, 2026-09-25). The engine has not yet been configured or compiled on Linux or Windows. [`STATUS.md`](STATUS.md) has the evidence levels, the exact commands and the open items.
 
 ## Build on macOS
 
@@ -69,6 +69,8 @@ meson test -C build --suite unit
 # Full suite with retail data. It starts real servers and clients on fixed
 # UDP ports, so run one test at a time and one suite per host.
 ETQW_DATA_PATH=/path/to/etqw meson test -C build -j 1
+# the same without the 10-minute soak (lossy-session)
+ETQW_DATA_PATH=/path/to/etqw meson test -C build -j 1 --no-suite soak
 ```
 
 `ETQW_DATA_PATH` is the directory that contains `base/pak000.pk4`. Without it, every retail-data test exits 77 and Meson reports it as skipped.

@@ -117,8 +117,8 @@ Notes on the per-map results:
 - **Windows engine link gaps (inspected).** SystemBootstrap's `idSysLocal` lacks 23 virtual methods that only the POSIX `src/sys/sys_local.cpp` implements (DLL_*, FPU_*, GetClockTicks, callstack, DebugPrintf and others). `Sys_InitInput` and `Sys_ShutdownInput` (`Common.cpp:1298`, `:1408`; defined in `src/sys/win32/win_input.cpp`) and `Sys_ShowSplashScreen` (`Common.cpp:1282`; defined in `src/sys/win32/splashscreen.cpp`) come from files that are not in the Windows source list. The Windows network layer (`SystemBootstrap.cpp`) has no loss or latency simulation.
 - **No build or dependency scripts.** `scripts/deps/*` and `scripts/build.*` do not exist in either repo. The only dependency installer is `tools/ci/linux_deps.sh` (CI-only, apt).
 - **No retail data discovery.** No platform probes common retail install locations. Linux and Windows `Sys_DefaultBasePath` return the current directory. `fs_basepath` works and is what the tests use.
-- **The graphical client has never connected to a server.** Every network client in the tests is the headless dedicated binary, which skips client-side work (`DoClientSideStuff()` false) and uses the headless render world.
-- **The listen server has never run.** `+devmap` starts no async server. `idAsyncServer::RunFrame` never calls `ClientUpdateView`, so a listen host would draw a stepped view.
+- **The Vulkan client on a network is tested only by automation (2026-09-25).** It joined a dedicated server and hosted a listen server (`+spawnServer`; `+devmap` starts no async server), each with one headless peer, and moved under `clientMove`. Nobody has played it, and nothing checks what it draws of remote players.
+- **The listen host's view is expected to be stepped.** `idAsyncServer::RunFrame` never calls `ClientUpdateView`, so a listen host would draw remote players at the tick rate (M5).
 - **High-refresh gaps (openETQW-game):**
   - Remote-entity interpolation producer compiled out: `src/game/Entity.cpp:1736` (`#if 0 // jmarshall - unlock fps`).
   - The vehicle sub-tick path is unreachable: `idPlayer::IsFPSUnlock` returns false with a proxy (`src/game/Player.cpp:8794`).
@@ -159,12 +159,12 @@ Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>
 | idLib + game module build | compiled (hosted CI, Ubuntu 24.04: GCC 13.3, Clang 18.1.3) | compiled (hosted CI, windows-2025 runner: MSVC 19.51) | compiled (local) | compiled (hosted CI) | compiled (hosted CI, GCC cross from x64) | CI last green at game 9a929f6 (pre-rewrite ID), before the last game commits. CI resolves `GetGameAPI` after loading the module (not the arm64 cross build) and runs no unit tests. The Windows runner is not Windows 11. The Linux runner is Ubuntu, not Arch, Fedora or Debian |
 | Engine build | blocked: never configured (no host, no CI) | blocked: never configured (no host, no CI); link gaps at inspection | compiled | — | — | macOS x64 and Linux ARM64 engine CI legs exist but skip. A docstring in `tools/ci/dedicated_server_smoke.py` claims a Rosetta x86_64 run; no log supports it |
 | Dedicated server launch (headless) | blocked: no engine build | blocked: no engine build | map-loaded | — | — | macOS: on a Mac with GPU and display. Stdin console commands and exit 0 |
-| Client launch (graphics) | blocked: no engine build | blocked: no engine build | map-loaded | — | — | SDL3 + Vulkan via MoltenVK. `+devmap` sessions only |
+| Client launch (graphics) | blocked: no engine build | blocked: no engine build | map-loaded | — | — | SDL3 + Vulkan via MoltenVK. `+devmap` sessions, and since 2026-09-25 a network join and a listen host (`client-network-*`) |
 | Asset-free unit tests | blocked: no engine build | blocked: no engine build | unit-tested | — | — | bitmsg, usercmd-delta, struct-layout, usercmd-history, zero-sdk. The codec tests are self-consistency tests |
 | Stock map: server | blocked: no engine build | blocked: no engine build | map-loaded | — | — | 11 stock maps + Valley, warmup. One Valley match with forced objectives |
 | Stock map: client | blocked: no engine build | blocked: no engine build | map-loaded | — | — | valley, outskirts, ark, canyon, refinery. Draw counters only |
-| OpenETQW MP: dedicated | blocked: no engine build | blocked: no engine build | map-loaded | — | — | Loopback, one host. Up to 2 headless clients + 1 bot. Movement checked one way |
-| OpenETQW MP: listen server | blocked: no engine build | blocked: no engine build | inspected | — | — | Never run. The old "map-loaded" came from `+devmap`, which starts no async server |
+| OpenETQW MP: dedicated | blocked: no engine build | blocked: no engine build | map-loaded | — | — | Loopback, one host. Up to 2 clients (headless, or the Vulkan client and a headless one) + 1 bot. Movement checked both ways; reconnect, client restart, map restart, 10-minute lossy session |
+| OpenETQW MP: listen server | blocked: no engine build | blocked: no engine build | map-loaded | — | — | The Vulkan client with `+spawnServer` (`+devmap` starts no async server) and one headless peer, movement both ways (2026-09-25). The host's view of remote players is expected to be stepped (no `ClientUpdateView`) |
 | Cross-OS client/server pair | blocked: no engine build | blocked: no engine build | blocked: needs an engine on a second OS | — | — | M3 requires one |
 | High refresh: on foot | blocked: no engine build | blocked: no engine build | map-loaded | — | — | Offline replay at 60 and ~120 fps. Key turning per second (turn-rate, headless networked client). No networked graphical client, no per-frame capture |
 | High refresh: vehicles | blocked: no engine build | blocked: no engine build | blocked: path unreachable (`IsFPSUnlock` proxy gate) | — | — | The sub-tick vehicle code added 2026-09-21 has never run |
@@ -212,23 +212,21 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
   - Spawn, movement and collision are not asserted in the graphical client.
   - The skipped-chunk list was incomplete: portal data is discarded, the client portal API is stubbed, and the headless render world is stubbed. Ledger 013 records them as of today's docs pass; their gameplay effects are not measured.
 
-**M3 (OpenETQW multiplayer): partial; one Mac, loopback, headless clients.**
+**M3 (OpenETQW multiplayer): partial; one Mac, loopback; the cross-OS pair is missing.**
 - Shown (map-loaded):
   - A dedicated server and two headless clients connect, spawn on opposite teams and replicate positions.
-  - Movement replicates, checked in one direction.
+  - Movement replicates in both directions: each client sees the other walk, and its copy ends within 2 units of the server's position once the walker is at rest (2026-09-25).
+  - Reconnect: a client's `reconnect` gets a new game init, it spawns again and both clients see each other; a killed client replaced by a new process gets a new slot while the dead one times out (`net_serverClientTimeout`); `serverMapRestart` with both clients connected respawns both, and they see each other (`reconnect-restart`, 2026-09-25).
+  - A 10-minute session at 2% loss each way and 20–60 ms delay (40 ± 20 ms, order kept) completed without a disconnect: 35 of 35 replication checks within 2 units, longest snapshot gap 0.30 s (`lossy-session`, 2026-09-25).
+  - The Vulkan client joined a dedicated server and hosted a listen server, each with a headless peer: both players saw each other walk, and the client presented 1,248–1,428 frames with world draws (`client-network-join`, `client-network-listen`, 2026-09-25). Neither involved a human at the controls; movement came from `clientMove`.
   - Remote clients follow map changes, also at 10% loss with 60 ms + 0–40 ms latency and at 20% loss.
   - The two-client test also passes at 80 ms + 0–40 ms latency with 5% loss.
   - User info reaches both clients.
   - The server registers a client's attack and its release; this assertion was added today.
 - Not tested:
   - peer-observed weapon fire (a headless peer cannot observe it);
-  - movement seen in the other direction;
-  - reconnect;
-  - map restart with remote clients;
-  - the 10-minute session at 2% loss and ±20 ms jitter;
-  - the listen server;
-  - the graphical client on a network;
-  - a cross-OS pair.
+  - a cross-OS pair (no second OS host);
+  - the Vulkan client with a human at the controls, and the listen host's view of remote players over time (M5).
 - Loss and jitter simulation is POSIX-only and keeps packet order, so reordering is never tested.
 
 **M4 (full match): mostly not met.**
@@ -332,10 +330,9 @@ None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline
 |---|---|---|---|---|
 | 1 | Provenance and license records (today's corrections are merged: compiledscript relabel, import method, full exception registry). Write decision records in `docs/decisions/` for each SDK exception. Add post-split files and openQ4 donor commits to the manifest; add SPDX lines | any | owner approval for exceptions | Manifest covers every tracked file; game `python3 tools/ci/check_spdx.py` passes; the registry matches ninja deps |
 | 2 | Linux x86_64 and Windows 11 engine builds. Close the Windows link gaps; run the M1 dedicated checklist with retail data | Linux x86_64 and Windows 11 hosts, or a private runner | owner input | Engine compiles on both; dedicated server loads a stock map, takes console commands, exits 0 |
-| 3 | M3 tests: movement in both directions, reconnect, map restart with remote clients, 10-minute 2% loss / ±20 ms session, graphical client joining a dedicated server, a listen-server run | macOS arm64 | none | New meson tests pass |
-| 4 | M5 groundwork: `docs/frame-path.md`; the `Entity::Present` producer; listen-host `ClientUpdateView`; a decision on the vehicle proxy gate; implement or remove the dead `com_unlock_*` CVars; per-frame pose capture | macOS arm64 | none | Frame-path doc exists; a capture test shows remote-entity poses changing on every rendered frame |
-| 5 | Retail-install check that still allows the asset-free CI smoke (release gate 6) | any | owner decision on the design | Engine refuses to run without a full retail install; `tools/ci/dedicated_server_smoke.py` still passes |
-| 6 | M4 gameplay-driven tests: classes, damage and kills, deployable delivery, stopwatch and campaign transitions | macOS arm64 | none | New meson tests pass on the tested maps |
+| 3 | M5 groundwork: `docs/frame-path.md`; the `Entity::Present` producer; listen-host `ClientUpdateView`; a decision on the vehicle proxy gate; implement or remove the dead `com_unlock_*` CVars; per-frame pose capture | macOS arm64 | none | Frame-path doc exists; a capture test shows remote-entity poses changing on every rendered frame |
+| 4 | Retail-install check that still allows the asset-free CI smoke (release gate 6) | any | owner decision on the design | Engine refuses to run without a full retail install; `tools/ci/dedicated_server_smoke.py` still passes |
+| 5 | M4 gameplay-driven tests: classes, damage and kills, deployable delivery, stopwatch and campaign transitions | macOS arm64 | none | New meson tests pass on the tested maps |
 
 ## Inputs needed from the owner
 - A Linux x86_64 host (Arch, Fedora or Debian) and a Windows 11 x64 host, each with the retail 1.5 paks. A private or self-hosted runner, or restored Actions minutes, would also do. Needed for M0 (configure on the other OSes), M1 and the cross-OS pair in M3.

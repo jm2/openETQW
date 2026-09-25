@@ -5,7 +5,7 @@
 > All engine evidence in this ledger comes from one host: macOS arm64, Apple Clang 21, debug builds. The engine has never been configured or compiled on Linux or Windows; only the game module was also compiled elsewhere, in hosted CI (rows 033 to 035).
 
 ## Network directions (after D7)
-1. **OpenETQW client ↔ OpenETQW server (dedicated/listen)**: the goal (M3). Tested so far on one Mac over loopback, with a dedicated server and headless clients; the graphical client has never connected to a server.
+1. **OpenETQW client ↔ OpenETQW server (dedicated/listen)**: the goal (M3). Tested so far on one Mac over loopback: a dedicated server with headless clients or the Vulkan client, and a listen server hosted by the Vulkan client with a headless peer (2026-09-25).
 2. **OpenETQW clients on different OSes ↔ OpenETQW server**: goal (M3), untested
 3. **Retail 1.5 client or server ↔ OpenETQW**: not supported (D7; dropped 2026-09-25). A connect announcing a retail protocol is refused with "Server uses protocol 20293.5" (tested with a raw UDP peer, not a retail client; row 036).
 
