@@ -112,13 +112,14 @@ _TRIPLE = rf"\({_NUM},{_NUM},{_NUM}\)"
 SIM_VIEW_FIELDS_RE = re.compile(
     rf"view=(\d+) ang={_TRIPLE} olog={_TRIPLE} wlog=(\({_NUM}(?:,{_NUM}){{5}}\)|-)"
     rf" vpush=({_TRIPLE}) vpang={_TRIPLE} vret=({_TRIPLE}|-)")
-# found 2026-09-25 (docs/frame-path.md section 9): in about two runs of three, wlog
-# differs from the tick after the replay's enterVehicle (91) on, between any schedule
-# and the 60 Hz one; observed on 31-40 of the 58 ticks 92-149, lasting to the end of
-# the replay in some runs. Allowed only in that shape: the wlog field alone, a weapon
-# pose on both sides, starting at tick 92, on 25-45 ticks per schedule. Nothing else
-# may differ.
-KNOWN_VIEW_LEAK = {"field": "wlog", "from_tick": 92, "to_tick": 149, "min_ticks": 25, "max_ticks": 45}
+# found 2026-09-25 (docs/frame-path.md section 9): in some runs wlog differs from the
+# tick after the replay's enterVehicle (91) to the end of the replay, between one
+# schedule and the 60 Hz one. At full precision (game PR #10) it covers 55-56 of the 59
+# ticks 92-150 when it appears (7 of 10 runs, DVD and 1.5 data); two decimals had hidden
+# the smaller differences (31-40 ticks visible). Allowed only in that shape: the wlog
+# field alone, a weapon pose on both sides, starting at tick 92, on 45-59 ticks per
+# schedule. Nothing else may differ.
+KNOWN_VIEW_LEAK = {"field": "wlog", "from_tick": 92, "to_tick": 150, "min_ticks": 45, "max_ticks": 59}
 
 FRAME_TIMING_RE = re.compile(
     r"FRAME_TIMING: window_ms=([\d.]+) frames=(\d+) ticks=(\d+) cap=(-?\d+)"
@@ -527,7 +528,7 @@ def main() -> int:
     for fps, ticks in sorted(known_span.items()):
         print(f"    known: {cap_label(fps)} against {cap_label(rates[0])}, ticks {min(ticks)}-{max(ticks)} ({len(ticks)})")
         # the observed shape: it starts on the tick after entering the vehicle and covers
-        # 31-40 ticks; a divergence that starts later or is much smaller or larger is new
+        # 55-56 ticks at full precision; a divergence that starts later or is much smaller is new
         if (min(ticks) != KNOWN_VIEW_LEAK["from_tick"]
                 or not KNOWN_VIEW_LEAK["min_ticks"] <= len(ticks) <= KNOWN_VIEW_LEAK["max_ticks"]):
             view_mismatches.append(f"{cap_label(fps)}: a weapon-log divergence on ticks {min(ticks)}-{max(ticks)}"
