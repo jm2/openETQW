@@ -105,7 +105,9 @@ SIM_VIEW_RE = re.compile(r"SIM_VIEW: tick=(\d+) (.*)$")
 # schedule cannot pass as "identical". Without a view player EmitSimView prints only
 # "view=-1", but the replay's local player is the view player from tick 1, so every
 # replay tick must carry the full record.
-_NUM = r"-?\d+\.\d{2}"
+# values are printed in full precision (%.9g), so no difference hides in rounding;
+# nan and inf do not match
+_NUM = r"-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?"
 _TRIPLE = rf"\({_NUM},{_NUM},{_NUM}\)"
 SIM_VIEW_FIELDS_RE = re.compile(
     rf"view=(\d+) ang={_TRIPLE} olog={_TRIPLE} wlog=(\({_NUM}(?:,{_NUM}){{5}}\)|-)"
@@ -496,7 +498,7 @@ def main() -> int:
     parsed = [SIM_VIEW_FIELDS_RE.fullmatch(v) for v in views[rates[0]].values()]
     if not any(m.group(2) != "-" for m in parsed):
         raise AssertionError("SIM_VIEW never logged a weapon pose")
-    if not any(m.group(3) != "(0.00,0.00,0.00)" for m in parsed):
+    if not any(float(x) != 0.0 for m in parsed for x in m.group(3)[1:-1].split(",")):
         raise AssertionError("SIM_VIEW never logged a vehicle pose")
     if not any(m.group(4) != "-" for m in parsed):
         raise AssertionError("SIM_VIEW never logged a vehicle view axis")
