@@ -332,6 +332,7 @@ void idSessionLocal::Frame() {
 		const bool renderOnlyFrame = tics == 0;
 		while ( tics-- > 0 && mapSpawned ) {
 			RunGameTic();
+			++com_frameTicks;
 		}
 
 		// The old async server called ClientUpdateView between fixed game tics.

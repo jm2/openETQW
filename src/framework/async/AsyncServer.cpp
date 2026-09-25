@@ -452,6 +452,7 @@ void idAsyncServer::RunFrame() {
 		++gameFrame;
 		gameTime += USERCMD_MSEC;
 		gameTimeResidual -= USERCMD_MSEC;
+		++com_frameTicks;
 	}
 
 	for ( int i = 0; i < MAX_ASYNC_CLIENTS; ++i ) {

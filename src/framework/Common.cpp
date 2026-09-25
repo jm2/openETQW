@@ -11,9 +11,11 @@
 #include <execinfo.h>	// backtrace() in FatalError
 #include <unistd.h>
 #endif
+#include <algorithm>
 #include <chrono>
 #include <mutex>
 #include <thread>
+#include <vector>
 #include "precompiled.h"
 #include "AdManager.h"
 #include "GraphManager.h"
@@ -85,6 +87,11 @@ idCVar com_maxFPS( "com_maxFPS", "60", CVAR_INTEGER | CVAR_SYSTEM | CVAR_ARCHIVE
 	"maximum frames per second presented (0 = unlimited / VSync-only)" );
 idCVar com_unlock_maxFPS( "com_unlock_maxFPS", "60", CVAR_INTEGER | CVAR_SYSTEM | CVAR_NOCHEAT,
 	"maximum FPS unlock will try to reach (only works in timing methods 1 & 2) - zero = no limit" );
+idCVar com_logFrameTiming( "com_logFrameTiming", "0", CVAR_BOOL | CVAR_SYSTEM | CVAR_NOCHEAT,
+	"print a FRAME_TIMING line every second: frames, game ticks and the distribution of frame intervals and frame work times" );
+
+int com_frameTicks = 0;
+
 idCVar com_forceGenericSIMD( "com_forceGenericSIMD", "0", CVAR_BOOL | CVAR_SYSTEM | CVAR_NOCHEAT, "force generic SIMD" );
 idCVar com_developer( "developer", "0", CVAR_BOOL | CVAR_SYSTEM | CVAR_NOCHEAT, "developer mode" );
 idCVar com_allowConsole( "com_allowConsole", "0", CVAR_BOOL | CVAR_SYSTEM | CVAR_NOCHEAT, "allow console toggling" );
@@ -947,10 +954,86 @@ int Com_GetGameTimeLeft() {
 	return USERCMD_MSEC - elapsedInTic;
 }
 
+/*
+==================
+FrameTimingLog
+
+com_logFrameTiming: every host frame adds its interval (from the end of the previous
+frame's pacing to the end of its own) and its work time (from its start to the pacing
+wait). Once a second one line reports how many frames and game ticks that second had and
+the distribution of both times, so a test can tell the frame rate it got during play from
+the cap it asked for.
+==================
+*/
+namespace {
+
+uint64_t MonotonicUsec() {
+	return static_cast< uint64_t >( std::chrono::duration_cast< std::chrono::microseconds >(
+		std::chrono::steady_clock::now().time_since_epoch() ).count() );
+}
+
+class FrameTimingLog {
+public:
+	void	AddFrame( uint64_t frameStartUsec, uint64_t workEndUsec, uint64_t frameEndUsec, int ticks, int cap );
+	void	Reset() { windowStartUsec = 0; lastFrameEndUsec = 0; intervals.clear(); works.clear(); windowTicks = 0; }
+
+private:
+	static float	PercentileMs( std::vector< uint32_t >& usec, float p );
+
+	uint64_t				windowStartUsec = 0;
+	uint64_t				lastFrameEndUsec = 0;
+	std::vector< uint32_t >	intervals;
+	std::vector< uint32_t >	works;
+	int						windowTicks = 0;
+};
+
+float FrameTimingLog::PercentileMs( std::vector< uint32_t >& usec, float p ) {
+	if ( usec.empty() ) {
+		return 0.0f;
+	}
+	const size_t index = std::min( usec.size() - 1, static_cast< size_t >( p * static_cast< float >( usec.size() - 1 ) + 0.5f ) );
+	std::nth_element( usec.begin(), usec.begin() + index, usec.end() );
+	return static_cast< float >( usec[ index ] ) * 0.001f;
+}
+
+void FrameTimingLog::AddFrame( uint64_t frameStartUsec, uint64_t workEndUsec, uint64_t frameEndUsec, int ticks, int cap ) {
+	if ( windowStartUsec == 0 ) {
+		// the first frame only opens the window: it has no previous frame end
+		windowStartUsec = frameEndUsec;
+		lastFrameEndUsec = frameEndUsec;
+		return;
+	}
+	intervals.push_back( static_cast< uint32_t >( std::min< uint64_t >( frameEndUsec - lastFrameEndUsec, UINT32_MAX ) ) );
+	works.push_back( static_cast< uint32_t >( std::min< uint64_t >( workEndUsec - frameStartUsec, UINT32_MAX ) ) );
+	windowTicks += ticks;
+	lastFrameEndUsec = frameEndUsec;
+
+	const uint64_t windowUsec = frameEndUsec - windowStartUsec;
+	if ( windowUsec < 1000000 ) {
+		return;
+	}
+	const int frames = static_cast< int >( intervals.size() );
+	common->Printf( "FRAME_TIMING: window_ms=%.1f frames=%d ticks=%d cap=%d"
+		" dt_p50=%.2f dt_p95=%.2f dt_p99=%.2f dt_max=%.2f work_p50=%.2f work_p95=%.2f work_max=%.2f\n",
+		static_cast< float >( windowUsec ) * 0.001f, frames, windowTicks, cap,
+		PercentileMs( intervals, 0.5f ), PercentileMs( intervals, 0.95f ), PercentileMs( intervals, 0.99f ), PercentileMs( intervals, 1.0f ),
+		PercentileMs( works, 0.5f ), PercentileMs( works, 0.95f ), PercentileMs( works, 1.0f ) );
+	windowStartUsec = frameEndUsec;
+	intervals.clear();
+	works.clear();
+	windowTicks = 0;
+}
+
+FrameTimingLog frameTimingLog;
+
+}	// namespace
+
 void idCommonLocal::Frame() {
 	if ( !com_fullyInitialized || com_shuttingDown ) {
 		return;
 	}
+	const uint64_t frameStartUsec = MonotonicUsec();
+	com_frameTicks = 0;
 	try {
 		Sys_FPU_EnableExceptions( 0 );
 		Sys_GenerateEvents();
@@ -1002,14 +1085,12 @@ void idCommonLocal::Frame() {
 
 		// Frame pacing using monotonic microsecond timing
 		static uint64_t lastFrameUsec = 0;
+		const uint64_t workEndUsec = MonotonicUsec();
 		const int maxFPS = com_maxFPS.GetInteger() > 0 ? com_maxFPS.GetInteger() : com_unlock_maxFPS.GetInteger();
 		if ( maxFPS > 0 ) {
 			const uint64_t targetFrameUsec = 1000000ull / static_cast< uint64_t >( maxFPS );
-			const auto monotonicUsec = []() {
-				return static_cast< uint64_t >( std::chrono::duration_cast< std::chrono::microseconds >(
-					std::chrono::steady_clock::now().time_since_epoch() ).count() );
-			};
-			uint64_t nowUsec = monotonicUsec();
+			const auto monotonicUsec = MonotonicUsec;
+			uint64_t nowUsec = workEndUsec;
 			if ( lastFrameUsec != 0 && nowUsec > lastFrameUsec ) {
 				uint64_t elapsedUsec = nowUsec - lastFrameUsec;
 				if ( elapsedUsec < targetFrameUsec ) {
@@ -1020,10 +1101,20 @@ void idCommonLocal::Frame() {
 						std::this_thread::sleep_for( std::chrono::microseconds( waitUsec ) );
 						nowUsec = monotonicUsec();
 					} else {
-						// a client sleeps until about 1.5 ms before the frame is due, then
-						// spins for exact high-refresh pacing (sleep can overshoot by a ms)
-						if ( waitUsec > 2000 ) {
-							std::this_thread::sleep_for( std::chrono::microseconds( waitUsec - 1500 ) );
+						// A client sleeps until shortly before the frame is due, then spins for exact
+						// high-refresh pacing. How late a sleep wakes depends on the OS: macOS wakes
+						// about 2 ms late (with the 1.5 ms margin used before, a 60 fps cap ran at
+						// 58 fps), so the spin margin follows the lateness measured on recent sleeps:
+						// it rises to a late wake at once and decays over about a hundred frames.
+						static uint64_t sleepLatenessUsec = 2000;
+						const uint64_t spinUsec = std::min< uint64_t >( sleepLatenessUsec + 500, 6000 );
+						if ( waitUsec > spinUsec ) {
+							const uint64_t sleepUsec = waitUsec - spinUsec;
+							const uint64_t sleepStartUsec = monotonicUsec();
+							std::this_thread::sleep_for( std::chrono::microseconds( sleepUsec ) );
+							const uint64_t sleptUsec = monotonicUsec() - sleepStartUsec;
+							const uint64_t latenessUsec = sleptUsec > sleepUsec ? sleptUsec - sleepUsec : 0;
+							sleepLatenessUsec = std::max( latenessUsec, sleepLatenessUsec - sleepLatenessUsec / 64 );
 						}
 						do {
 							nowUsec = monotonicUsec();
@@ -1034,6 +1125,13 @@ void idCommonLocal::Frame() {
 			lastFrameUsec = nowUsec;
 		} else {
 			lastFrameUsec = 0;
+		}
+
+		if ( com_logFrameTiming.GetBool() ) {
+			frameTimingLog.AddFrame( frameStartUsec, workEndUsec, MonotonicUsec(), com_frameTicks, maxFPS );
+		} else if ( com_logFrameTiming.IsModified() ) {
+			com_logFrameTiming.ClearModified();
+			frameTimingLog.Reset();
 		}
 	} catch ( idException& ) {
 	}

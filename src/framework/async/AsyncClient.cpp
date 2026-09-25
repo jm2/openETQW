@@ -336,6 +336,7 @@ void idAsyncClient::RunFrame() {
 			++gameFrame;
 			gameTime += USERCMD_MSEC;
 			gameTimeResidual -= USERCMD_MSEC;
+			++com_frameTicks;
 		}
 		if ( predictedGameFrame < gameFrame - MAX_USERCMD_BACKUP + 1 ) {
 			predictedGameFrame = gameFrame - MAX_USERCMD_BACKUP + 1;
