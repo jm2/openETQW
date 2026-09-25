@@ -2,7 +2,7 @@
 
 > This document classifies every file imported from the upstream baseline (`~/etqw` at commit `f2b655c992b47e0eaca7c178b0dae490abc1544e`) and the ETQW 1.5 SDK, details the two-repository partition under Owner Decision D5, and keeps the Tracked Exceptions Registry for SDK code that the engine build uses (CHARTER §11).
 >
-> Updated 2026-09-25: the owner's decisions on the SDK exceptions and the EULA risk (§4, §6; `docs/decisions/0001`, `0002`), the scripts compared with the 1.5 data (§2.2), the 1.5 paks scanned (§7). Updated 2026-09-24: `src/compiledscript` reclassified as SDK (§2.2), exceptions registry corrected (§4), open items (§6), history purge (§7). Current `main`: engine `c6345bb`, game `54d18d8`. This document records facts and open questions; it draws no legal conclusions (CHARTER §11).
+> Updated 2026-09-25: the owner's decisions on the SDK exceptions and the EULA risk (§4, §6; `docs/decisions/0001`, `0002`), the scripts compared with the 1.5 data (§2.2), the 1.5 paks scanned (§7). Updated 2026-09-24: `src/compiledscript` reclassified as SDK (§2.2), exceptions registry corrected (§4), open items (§6), history purge (§7). Inspected at engine `main` `d15bdea` and game `main` `f00f4d3`. This document records facts and open questions; it draws no legal conclusions (CHARTER §11).
 
 ---
 
