@@ -105,11 +105,18 @@ def check_mutual(srv, a, b, step):
             raise Failed(f"[{step}] {observer.name}'s copy of client {target.slot} is {err:.2f} units off")
 
 
-def settle(srv, client_num):
+def settle(srv, client_num, timeout=5.0):
     """Wait until the server has the player at rest (it slides for about half a
-    second after a stop), then for a few more snapshots to reach the clients."""
-    deadline = time.monotonic() + 5.0
-    while time.monotonic() < deadline and math.hypot(*player_pos(srv, client_num)["vel"]) >= 1.0:
+    second after a stop), then for a few more snapshots to reach the clients.
+    A player still moving after timeout seconds fails the test (a stop that never
+    took effect)."""
+    deadline = time.monotonic() + timeout
+    while True:
+        speed = math.hypot(*player_pos(srv, client_num)["vel"])
+        if speed < 1.0:
+            break
+        if time.monotonic() >= deadline:
+            raise Failed(f"client {client_num} is still moving at {speed:.1f} u/s {timeout:.0f} s after it was told to stop")
         time.sleep(0.25)
     time.sleep(0.5)
 
