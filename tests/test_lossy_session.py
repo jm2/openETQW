@@ -8,13 +8,14 @@ with every process dropping --drop % (default 2) of its outgoing packets and
 delaying each received packet by --latency plus 0..--jitter ms (defaults 20
 and 40: 40 ms +/- 20 ms; order is kept, so packets are never reordered).
 
-Both clients spawn on opposite teams. Every --interval seconds one of them
-(alternately) walks forward or back for a second, and when both players are
-at rest and alive each client's copy of the other must be within 2 units of
-the server's. A player who is dead or back in limbo (the match moving from
-warmup to game on respawns everyone) is spawned again. Throughout, and at
-the end:
-- the server drops no client and both slots stay in use;
+Both clients spawn on opposite teams. Every --interval seconds each
+client's copy of the other must be within 2 units of the server's (both at
+rest), and then one of them (alternately) walks forward or back for a second:
+the other client must see it move >= 50 units and end within 2 units of the
+server's position. A player who is dead or back in limbo (the match moving
+from warmup to game on respawns everyone) is spawned again. Throughout, and
+at the end:
+- the server drops no client and both slots stay in use (not zombies);
 - each client keeps receiving snapshots: no gap longer than --max-gap seconds;
 - no process logs a failure marker (etqw_harness.scan_failures);
 - all three processes exit 0 on 'quit'.
@@ -30,14 +31,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import etqw_harness as h  # noqa: E402
 from test_reconnect_restart import (  # noqa: E402
-    TOLERANCE, Failed, check_mutual, connect, player_pos, slots_in_use, spawn)
+    Failed, check_mutual, check_walk, connect, player_pos, slots_in_use, spawn)
 from test_remote_client_map_change import READY, SNAPSHOT_RE, RemoteClient  # noqa: E402
 
 
 def snapshot_gaps(cl, start):
-    """Seconds between consecutive received snapshots from line index start."""
+    """(longest pause between received snapshots from line index start, counting the
+    time since the last one; number received). No snapshot at all is an endless pause."""
     times = [ln.t for ln in cl.snapshot(start) if SNAPSHOT_RE.search(ln.text)]
-    return max((b - a for a, b in zip(times, times[1:])), default=0.0), len(times)
+    if not times:
+        return float("inf"), 0
+    return max([b - a for a, b in zip(times, times[1:])] + [time.monotonic() - times[-1]]), len(times)
 
 
 def alive(p):
@@ -99,11 +103,7 @@ def main(argv):
         client_start = {cl.name: cl.mark() for cl in clients}
         print(f"session: {args.minutes} min, drop {args.drop}%, delay {args.latency}..{args.latency + args.jitter} ms")
 
-        end = time.monotonic() + args.minutes * 60.0
-        n = 0
-        while time.monotonic() < end:
-            time.sleep(args.interval)
-            n += 1
+        def connection_check():
             dropped = [ln.text for ln in srv.snapshot(session_start) if " dropped: " in ln.text]
             if dropped:
                 raise Failed(f"the server dropped a client: {dropped[0]}")
@@ -113,6 +113,13 @@ def main(argv):
                 gap, count = snapshot_gaps(cl, client_start[cl.name])
                 if gap > args.max_gap:
                     raise Failed(f"{cl.name} went {gap:.1f} s without a snapshot")
+
+        end = time.monotonic() + args.minutes * 60.0
+        n = 0
+        while time.monotonic() < end:
+            time.sleep(args.interval)
+            n += 1
+            connection_check()
             for cl in clients:
                 if not alive(player_pos(srv, cl.slot)):
                     print(f"[{n}] client {cl.slot} is dead or in limbo; spawning again")
@@ -121,23 +128,20 @@ def main(argv):
             check_mutual(srv, a, b, f"check {n}")
             stats["checks"] += 1
             mover = clients[n % 2]
-            mover.send(f"clientMove {127 if (n // 2) % 2 == 0 else -127} 0 0")
-            time.sleep(1.0)
-            mover.send("clientMove 0 0 0")
+            # alternately forward and back, so the players stay near their spawns
+            check_walk(srv, mover, clients[(n + 1) % 2], f"walk {n}", fwd=127 if (n // 2) % 2 == 0 else -127, seconds=1.0)
             stats["walks"] += 1
             elapsed = args.minutes * 60.0 - (end - time.monotonic())
             gaps = ", ".join(f"{cl.name} {snapshot_gaps(cl, client_start[cl.name])[1]} snapshots"
                              f" (longest gap {snapshot_gaps(cl, client_start[cl.name])[0]:.2f} s)" for cl in clients)
             print(f"[{n}] {elapsed / 60.0:.1f} min: {gaps}")
 
-        used = slots_in_use(srv, 2)
-        print(f"end: server slots in use {used}; {stats}")
+        connection_check()
+        check_mutual(srv, a, b, "end")
+        used = slots_in_use(srv)
+        print(f"end: server slots in use (not zombies) {used}; {stats}")
         if used != [2]:
             raise Failed(f"server status says {used} client slots in use at the end (expected [2])")
-        for cl in clients:
-            p = player_pos(cl, cl.slot)
-            if p is None:
-                raise Failed(f"{cl.name} cannot report its own player")
     except Failed as e:
         failures.append(str(e))
     finally:

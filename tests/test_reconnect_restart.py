@@ -30,15 +30,16 @@ binary is missing.
 
 import argparse
 import math
+import re
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import etqw_harness as h  # noqa: E402
-from test_remote_client_map_change import (  # noqa: E402
-    GAME_INIT_RE, READY, SLOTS_RE, RemoteClient, snapshots)
+from test_remote_client_map_change import GAME_INIT_RE, READY, RemoteClient, snapshots  # noqa: E402
 
+SLOT_LINE_RE = re.compile(r"^slot\s+(\d+):\s+(\w+)\s")  # 'status': slot N: <state> human|bot '<name>'
 TOLERANCE = 2.0          # units between a client's copy of a player and the server's
 MIN_DISPLACEMENT = 50.0  # units a walking player must be seen to move
 MIN_SNAPSHOTS = 5
@@ -90,6 +91,8 @@ def spawn(srv, cl, team, timeout=30.0, mark=None):
 
 def check_mutual(srv, a, b, step):
     for observer, target in ((a, b), (b, a)):
+        if observer is srv:
+            continue  # a listen host's view of a player is the server's own state
         settle(srv, target.slot)
         want = player_pos(srv, target.slot)["org"]
         seen = player_pos(observer, target.slot)["org"]
@@ -108,15 +111,24 @@ def settle(srv, client_num):
     time.sleep(0.5)
 
 
-def check_walk(srv, mover, observer, step):
+def check_walk(srv, mover, observer, step, fwd=127, seconds=1.5):
+    """The mover walks (clientMove fwd) for a while; the observer's copy of it must
+    have moved >= MIN_DISPLACEMENT and, once it is at rest, be within TOLERANCE of
+    the server's. When the observer is the server itself (a listen host), only the
+    displacement is checked: it shows the server applied the mover's usercmds."""
     before = player_pos(observer, mover.slot)["org"]
-    mover.send("clientMove 127 0 0")
-    time.sleep(1.5)
+    mover.send(f"clientMove {fwd} 0 0")
+    time.sleep(seconds)
     mover.send("clientMove 0 0 0")
     settle(srv, mover.slot)
     seen = player_pos(observer, mover.slot)["org"]
-    want = player_pos(srv, mover.slot)["org"]
     moved = h.dist2d(before, seen)
+    if observer is srv:
+        print(f"[{step}] the server moved client {mover.slot} {moved:.2f} units from its usercmds")
+        if moved < MIN_DISPLACEMENT:
+            raise Failed(f"[{step}] the server moved client {mover.slot} only {moved:.2f} < {MIN_DISPLACEMENT} units")
+        return
+    want = player_pos(srv, mover.slot)["org"]
     lag = h.dist2d(seen, want)
     print(f"[{step}] {observer.name} saw client {mover.slot} walk {moved:.2f} units; {lag:.2f} from the server's position")
     if moved < MIN_DISPLACEMENT:
@@ -126,12 +138,15 @@ def check_walk(srv, mover, observer, step):
 
 
 def slots_in_use(srv, expect=None, timeout=15.0):
-    """The server's 'status' slot count. With expect, poll until it is [expect]:
-    a dropped slot stays listed as a zombie for net_serverZombieTimeout (5 s)."""
+    """[number of client slots in 'status' that are not zombies]; None when status
+    printed no slot table. A dropped slot stays listed as a zombie for
+    net_serverZombieTimeout (5 s) and is not counted. With expect, poll until the
+    count is [expect]."""
     deadline = time.monotonic() + timeout
     while True:
-        lines = srv.command("status") or []
-        used = [int(m.group(1)) for ln in lines if (m := SLOTS_RE.match(ln.text))]
+        lines = srv.command("status")
+        states = [m.group(2) for ln in (lines or []) if (m := SLOT_LINE_RE.match(ln.text))]
+        used = [sum(1 for s in states if s != "zombie")] if lines else None
         if expect is None or used == [expect] or time.monotonic() >= deadline:
             return used
         time.sleep(0.5)
@@ -147,6 +162,7 @@ def connect(srv, cl, what):
     cl.slot = int(hit[2].group(1))
     got = wait_snapshots(cl, 0)
     print(f"[{what}] {cl.name} is client {cl.slot}; snapshots from {got[0]}")
+    return hit[0]
 
 
 def main(argv):
@@ -158,7 +174,8 @@ def main(argv):
     ap.add_argument("--drop", type=int, default=0, help="percentage of outgoing packets each process drops")
     ap.add_argument("--latency", type=int, default=0, help="ms added to every received packet")
     ap.add_argument("--jitter", type=int, default=0, help="up to this many more ms per packet (order kept)")
-    ap.add_argument("--client-timeout", type=int, default=10, help="the server's net_serverClientTimeout (s)")
+    ap.add_argument("--client-timeout", type=int, default=20,
+                    help="the server's net_serverClientTimeout (s); the restarted client must connect within it")
     args = ap.parse_args(argv)
 
     try:
@@ -230,15 +247,19 @@ def main(argv):
         retired.append(("client_a (killed)", a))
         a = client("ClientA", args.port + 1, "client_a2")
         procs[1] = ("client_a2", a)
-        connect(srv, a, "restart")
-        if a.slot == dead_slot:
-            raise Failed(f"restart: the new client got the dead client's slot {dead_slot} before it timed out")
+        joined = connect(srv, a, "restart")
         timed_out = srv.wait_for(lambda s: s.strip() == f"client {dead_slot} dropped: timed out",
                                  args.client_timeout + 15.0, mark)
         used = slots_in_use(srv, 2)
         print(f"[restart] new slot {a.slot}; dead slot {dead_slot} timed out: {bool(timed_out)}; server slots in use: {used}")
         if not timed_out:
             raise Failed(f"restart: the dead client's slot {dead_slot} never timed out")
+        if a.slot == dead_slot:
+            # the dead slot is free for this address once it has timed out
+            if joined < timed_out[0]:
+                raise Failed(f"restart: the new client got slot {dead_slot} while the dead client still held it")
+            raise Failed(f"restart: the new client connected only after the dead slot timed out"
+                         f" ({args.client_timeout} s); raise --client-timeout")
         if used != [2]:
             raise Failed(f"restart: server status says {used} client slots in use (expected [2])")
         spawn(srv, a, "gdf")

@@ -10,11 +10,14 @@
 --mode listen: the Vulkan client hosts the map (+spawnServer, a listen
   server; its own player is client 0) and joins GDF; a headless remote
   client connects and joins Strogg. The remote client's copy of the host's
-  player matches the host's, it sees the host walk, and the host sees it
-  walk.
+  player matches the host's and it sees the host walk; the remote client
+  walks and the host (the server) moves its player >= 50 units. The host's
+  own view of the remote player is the server's state, so nothing here checks
+  what the host draws of it.
 In both modes every process exits 0 on 'quit', no log has a failure marker
-(etqw_harness.scan_failures), and the Vulkan client presented frames and drew
-the world (the counters its backend prints at shutdown).
+(etqw_harness.scan_failures; for the Vulkan client also the Vulkan error
+markers campaign-client-maps uses), and the Vulkan client presented frames and
+drew the world (the counters its backend prints at shutdown).
 
 The Vulkan client opens a window and runs from the repository root (it finds
 vkprogs/ there). Exit 77 when ETQW_DATA_PATH is unset/invalid or a binary is
@@ -27,7 +30,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import etqw_harness as h  # noqa: E402
-from test_campaign_client_maps import METRICS_RE, find_client  # noqa: E402
+from test_campaign_client_maps import BAD_MARKERS, METRICS_RE, find_client  # noqa: E402
 from test_reconnect_restart import Failed, check_mutual, check_walk, connect, spawn  # noqa: E402
 from test_remote_client_map_change import READY, RemoteClient  # noqa: E402
 
@@ -64,7 +67,7 @@ def render_counters(proc):
 
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--mode", choices=("join", "listen"), required=True)
+    ap.add_argument("--mode", choices=("join", "listen"), help="required (checked after the skip checks)")
     ap.add_argument("--ded-binary")
     ap.add_argument("--client-binary")
     ap.add_argument("--map", default="valley")
@@ -79,6 +82,8 @@ def main(argv):
     except h.SkipTest as e:
         print(f"[SKIP] {e}")
         return 77
+    if args.mode is None:
+        ap.error("--mode is required")
     h.install_signal_handlers()
     log_dir = Path(args.log_dir) if args.log_dir else None
     if log_dir:
@@ -135,6 +140,10 @@ def main(argv):
         for name, proc in procs:
             for f in h.scan_failures(ln.text for ln in proc.snapshot()):
                 failures.append(f"{name} log line {f['line']}: {f['text']}")
+            if proc is gfx:
+                for i, ln in enumerate(proc.snapshot()):
+                    if any(m in ln.text for m in BAD_MARKERS):
+                        failures.append(f"{name} log line {i + 1}: {ln.text}")
             proc.cleanup()
     counters = render_counters(gfx)
     print(f"quit exit codes: {codes}; Vulkan counters: {counters}")
@@ -148,8 +157,11 @@ def main(argv):
         for f in failures:
             print(f"  - {f}")
         return 1
-    what = "joined a dedicated server" if args.mode == "join" else "hosted a listen server"
-    print(f"\nPASS: the Vulkan client {what}; both players saw each other walk")
+    if args.mode == "join":
+        print("\nPASS: the Vulkan client joined a dedicated server; both clients saw each other walk")
+    else:
+        print("\nPASS: the Vulkan client hosted a listen server; the remote client saw the host walk,"
+              " and the host moved the remote player")
     return 0
 
 
