@@ -21,6 +21,6 @@ The game repository is id's ET:QW 1.5 SDK code, and the SDK EULA is the only per
   - a pak counts only when its parent directory is `base`;
   - the retail dedicated-server download's server-only paks are refused;
   - installs without the 1.5 patch are refused until the patch paks are added.
-- The game module has no check of its own, as in openQ4. CHARTER §11 asks that "the game module and engine" refuse to run without the data; the owner is asked whether to change that wording (`STATUS.md`, Questions).
+- The game module has no check of its own, as in openQ4. The owner confirmed this on 2026-09-25 ("mirroring openQ4 here sounds reasonable"), and CHARTER §11 now names the engine's check instead of "the game module and engine".
 - Licence texts: the engine's install set carries the GPL, the SDK EULA (text and RTF) and the notices of the compiled-in third-party code; the game's install set and CI artifact carry `LICENSE` and the EULA. They are built on `feat/retail-install-check` and game `feat/install-licenses`, neither merged yet.
 - The check confirms that unmodified retail files are present, not that the user owns the game. That is the openQ4 precedent the owner accepted.

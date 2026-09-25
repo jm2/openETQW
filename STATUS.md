@@ -24,6 +24,7 @@ From the owner, 2026-09-25, answers to the open-question list (the letters and n
 - C12 other OSes: no Linux or Windows retail-data automation. Do what is possible without retail data (for example a Windows cross-compile); the owner tests retail data on other OSes by hand.
 - M5 plan D1–D10: all decided (`docs/m5-plan.md`). D10's CVar default is drafted off (retail 1.5 behaviour) and waits for the owner's confirmation.
 - F16: the merged branches were deleted (13 engine, 8 game).
+- Charter §11: the retail-install check is the engine's alone, as in openQ4 ("mirroring openQ4 here sounds reasonable"); the local charter now says so, and release gate 6 names engine packages too.
 Environment corrections vs. SESSION_BRIEF: the only host is macOS arm64; there is no Linux or Windows host. GitHub Actions minutes for private repositories ran out on 2026-09-24, so hosted CI does not run. Local checks, local independent reviews and CodeRabbit (about one review an hour) replace it (`CONTRIBUTING.md`). Merge gates are a convention; the free plan has no branch protection.
 
 ## Toolchain and commands (this session)
@@ -373,4 +374,3 @@ None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline
 
 ## Questions for the owner
 - M5 plan D10: should the allow-listed vehicle-seat view default to on for the ground-vehicle driver seat (the original recommendation; a ledgered deviation, since retail 1.5 has no seat view) or off (drafted; retail behaviour)? The one-seat checks run with it on either way.
-- Proposed charter wording: CHARTER §11 asks that "the game module and engine refuse to run without a full retail ETQW installation's data (no demo or test data)". As decided (A7, openQ4's design), only the engine checks; openQ4's game module has no check either. Change the charter to say "the engine"?
