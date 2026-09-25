@@ -548,6 +548,8 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
         "+set", "fs_basepath", str(base_root),
         "+set", "fs_savepath", str(save_root),
         "+set", "fs_game", "base",
+        # synthetic data: turn off the retail-install check (tests/test_retail_install_check.py covers it)
+        "+set", "fs_validateOfficialPaks", "0",
         "+set", "sys_skipThreadPrio", "1",
         "+set", "net_port", str(port),
     ]
