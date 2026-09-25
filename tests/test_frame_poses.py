@@ -33,9 +33,9 @@ Checks (0.25 s dropped at each edge of a phase; a phase needs >= 20 draw pairs):
                when the cap is <= 0.9 x the ceiling (the pacer sets the rate), else
                >= 0.85 x the ceiling (the host does, and scenes differ in cost from the
                still scene the ceiling was measured on)
-  A2 ticks     within each phase, game time advances 1.00 +/- 0.05 s per wall-clock
-               second and its steps between draws are one tick (33 ms): no tick goes
-               undrawn
+  A2 ticks     within each phase, game time advances 1.00 s per wall-clock second,
+               +/- 0.05 plus one tick (33 ms) over the phase's length, and its steps
+               between draws are one tick: no tick goes undrawn
   A4 turn      the view yaw changes between consecutive draws
   A5 walk      the view origin changes between consecutive draws
   A6 viewmodel the viewmodel pose changes between consecutive draws (walk)
@@ -47,10 +47,12 @@ Checks (0.25 s dropped at each edge of a phase; a phase needs >= 20 draw pairs):
                back: when a snapshot arrives the client corrects its prediction clock,
                and the presented time can move back by a millisecond or two (seen on
                2026-09-25; docs/frame-path.md section 9)
-  A9 still     view, viewmodel and peer poses stay put (< 0.01 u)
+  A9 still     view, viewmodel and peer poses stay put (< 0.05 u: a standing player's
+               physics can still settle by about 0.01 u a tick)
 A check that the code is expected to fail today is listed in KNOWN_GAPS with the shape
-the failure must have: 'per_tick' (the pose changes once per tick: the changed fraction
-is within 0.05 of the fraction of draw pairs that cross a tick), 'band' (the changed
+the failure must have: 'per_tick' (the pose changes once per tick: it changes on the
+draw pairs that cross a tick and on no others, with max(1, 5%) of the pairs allowed to
+disagree), 'band' (the changed
 fraction stays in a range) or 'never_unlocked' (no draw between ticks is unlocked). A
 gap outside its shape fails as "gap changed shape", and a gap that passes fails too, so
 the table is updated when the code changes. Entries marked 'predicted' were written from
@@ -85,6 +87,7 @@ CLIENT_RE = re.compile(r" c(\d+)=([^:\s]+):aor=(-?\d+):hid=(\d):veh=(-?\d+)")
 EDGE_S = 0.25
 CHANGED = 0.99        # A4-A7: the fraction of draw pairs that must show a change
 POS_EPS = 0.01        # units
+STILL_EPS = 0.05      # units: a standing player can still settle by about 0.01 u a tick
 ANG_EPS = 0.001       # degrees
 
 # Checks the current code fails, from docs/frame-path.md (section 9) and the M5 plan,
@@ -178,12 +181,15 @@ def allowed_misses(n):
 def fraction_check(poses, key, what):
     """(changed fraction, crossing fraction, ok, detail) for a change-every-draw check."""
     pairs = list(zip(poses, poses[1:]))
-    changed = sum(1 for a, b in pairs if key(a, b))
-    crossing = sum(1 for a, b in pairs if a["gt"] != b["gt"])
+    flags = [(bool(key(a, b)), a["gt"] != b["gt"]) for a, b in pairs]
+    changed = sum(1 for c, _ in flags if c)
+    crossing = sum(1 for _, x in flags if x)
     n = len(pairs)
     f = changed / n if n else 0.0
     ok = n >= MIN_PAIRS and n - changed <= allowed_misses(n)
-    return {"ok": ok, "f": f, "tick": crossing / n if n else 0.0,
+    # pairs where the pose changed without crossing a tick, or crossed a tick without changing
+    misaligned = sum(1 for c, x in flags if c != x)
+    return {"ok": ok, "f": f, "tick": crossing / n if n else 0.0, "n": n, "misaligned": misaligned,
             "detail": f"{what} changed in {f:.1%} of {n} draw pairs ({crossing / n if n else 0:.1%} cross a tick)"}
 
 
@@ -202,21 +208,29 @@ def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
                            + (f"; too few draw pairs in {', '.join(short)}" if short else "")}
     paced = cap <= 0.9 * ceiling
     lo = 0.98 * cap if paced else 0.85 * ceiling
-    rates = {k: rate(v) for k, v in phases.items()}
+    timed = {"still": p_still, **phases}  # A1 and A2 cover every phase
+    rates = {k: rate(v) for k, v in timed.items()}
     worst = min(rates, key=rates.get)
     res["A1"] = {"ok": all(lo <= r <= 1.03 * cap for r in rates.values()),
                  "detail": ", ".join(f"{k} {r:.1f}" for k, r in rates.items())
                            + f" fps (cap {cap}, need {lo:.1f}..{1.03 * cap:.1f}, ceiling {ceiling:.1f}; lowest: {worst})"}
     ratios, misses, steps = [], 0, 0
-    for p in phases.values():
+    ratio_bad = []
+    for name, p in timed.items():
         ratio, _ = tick_rate(p)
         ratios.append(ratio)
+        seconds = (p[-1]["us"] - p[0]["us"]) / 1e6 if len(p) > 1 else 0.0
+        # game time moves in 33 ms steps: allow one step over the phase's length
+        if seconds <= 0 or abs(ratio - 1.0) > 0.05 + 0.033 / seconds:
+            ratio_bad.append(f"{name} {ratio:.3f}")
         s = [b["gt"] - a["gt"] for a, b in zip(p, p[1:]) if b["gt"] != a["gt"]]
         steps += len(s)
         misses = max(misses, sum(1 for d in s if d != 33) - allowed_misses(len(s)))
     worst_ratio = max(ratios, key=lambda r: abs(r - 1.0))
-    res["A2"] = {"ok": abs(worst_ratio - 1.0) <= 0.05 and misses <= 0,
-                 "detail": f"game time runs at {worst_ratio:.3f} x wall time; steps other than one tick beyond the allowance: {max(0, misses)} ({steps} steps)"}
+    res["A2"] = {"ok": not ratio_bad and misses <= 0,
+                 "detail": f"game time runs at {worst_ratio:.3f} x wall time at worst"
+                           + (f" (out of bounds: {', '.join(ratio_bad)})" if ratio_bad else "")
+                           + f"; steps other than one tick beyond the allowance: {max(0, misses)} ({steps} steps)"}
     res["A4"] = fraction_check(p_turn, lambda a, b: abs(a["view"][4] - b["view"][4]) > ANG_EPS, "view yaw")
     res["A5"] = fraction_check(p_walk, lambda a, b: moved(a["view"], b["view"]), "view origin")
     res["A6"] = fraction_check(p_walk, lambda a, b: moved(a["wpn"], b["wpn"]), "viewmodel")
@@ -226,7 +240,8 @@ def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
     same = sum(1 for a, b in zip(all_p, all_p[1:]) if a["gt"] == b["gt"])
     res["A8"] = {"ok": wrong8 == 0 and flat8 <= allowed_misses(same), "wrong": wrong8, "same": same,
                  "detail": f"{wrong8} of {same} draws within a tick not unlocked; {flat8} repeat or step back the fraction"}
-    f9 = changed_fraction(p_still, lambda a, b: moved(a["view"], b["view"]) or moved(a["wpn"], b["wpn"]) or moved(peer(a), peer(b)))
+    f9 = changed_fraction(p_still, lambda a, b: moved(a["view"], b["view"], STILL_EPS) or moved(a["wpn"], b["wpn"], STILL_EPS)
+                          or moved(peer(a), peer(b), STILL_EPS))
     res["A9"] = {"ok": len(p_still) - 1 >= MIN_PAIRS and f9 == 0.0, "detail": f"something moved in {f9:.1%} of {max(0, len(p_still) - 1)} still draw pairs"}
     return res
 
@@ -247,7 +262,7 @@ def judge(mode, results):
             failures.append(f"cap {cap} {check} passes but is a known gap for {mode}: update KNOWN_GAPS ({r['detail']})")
         else:
             if gap[0] == "per_tick":
-                shaped = abs(r["f"] - r["tick"]) <= 0.05
+                shaped = r["misaligned"] <= max(1, int(0.05 * r["n"]))
             elif gap[0] == "band":
                 shaped = gap[1] <= r["f"] <= gap[2]
             else:  # never_unlocked
@@ -406,7 +421,7 @@ def main(argv):
         for cap in caps:
             obs.send(f"set com_maxFPS {cap}")
             time.sleep(1.5)
-            p_still = phase("still", cap, still, args.phase_seconds / 2)
+            p_still = phase("still", cap, still, args.phase_seconds)
             p_turn = phase("turn", cap, turn, args.phase_seconds)
             p_walk = phase("walk", cap, walk_proc(obs), args.phase_seconds)
             p_peer = phase("peerwalk", cap, walk_proc(peer), args.phase_seconds)
@@ -422,12 +437,13 @@ def main(argv):
         # (phase names without '-': the console splits tokens there)
         n_turn = phase("controlturn", cap, turn, args.phase_seconds)
         n_walk = phase("controlwalk", cap, walk_proc(obs), args.phase_seconds)
-        c4 = changed_fraction(n_turn, lambda a, b: abs(a["view"][4] - b["view"][4]) > ANG_EPS)
-        c5 = changed_fraction(n_walk, lambda a, b: moved(a["view"], b["view"]))
-        print(f"[{mode}] negative control at cap {cap}: view yaw changed in {c4:.1%}, view origin in {c5:.1%} of draw pairs")
-        if mode == "join" and (c4 >= CHANGED or c5 >= CHANGED):
-            failures.append(f"negative control: with the unlock updates off the camera still changed on every draw"
-                            f" (yaw {c4:.1%}, origin {c5:.1%}); the A4/A5 detectors prove nothing")
+        # the same detectors as A4 and A5: each must fail here
+        c4 = fraction_check(n_turn, lambda a, b: abs(a["view"][4] - b["view"][4]) > ANG_EPS, "view yaw")
+        c5 = fraction_check(n_walk, lambda a, b: moved(a["view"], b["view"]), "view origin")
+        print(f"[{mode}] negative control at cap {cap}: {c4['detail']}; {c5['detail']}")
+        if mode == "join" and (c4["ok"] or c5["ok"] or c4["n"] < MIN_PAIRS or c5["n"] < MIN_PAIRS):
+            failures.append(f"negative control: with the unlock updates off the A4/A5 detectors did not fail"
+                            f" ({c4['detail']}; {c5['detail']})")
     except Failed as e:
         failures.append(str(e))
     finally:
