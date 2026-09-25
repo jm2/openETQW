@@ -12,7 +12,7 @@ Written 2026-09-25 against engine main 85879e3 and game main d8e5b3d; the engine
   - game repo: `game repo: src/...:N`, relative to the openETQW-game root;
   - pristine ETQW SDK 1.5 source: `SDK: <path>:N`, relative to `.agents/upstreams/etqw_sdk_comparison/sdk/source/` (a local, untracked reference);
   - Doom 3 GPL source: `Doom 3: neo/...:N`, at `HEAD` of `.agents/upstreams/id-Software_DOOM-3.git`;
-  - retail data: `pak000: <path>:N`, a file inside `base/pak000.pk4`.
+  - retail data: `pakNNN: <path>:N`, the pak that supplies the file in the 1.5 data set (for example `pak008`, which overrides the DVD `pak000` copy of most scripts).
 - `STATUS.md`, the charter, jmarshall's tree and build logs are named without line numbers.
 - The SDK ships the game module and the engine headers only, so engine `.cpp` files have no SDK counterpart.
 - "jmarshall" is the reconstruction both repos were split from (commit f2b655c). "OE" marks an OpenETQW change.
@@ -468,13 +468,13 @@ These paths let a render frame change what the next tick, a snapshot or AoR code
   - Status: plausible, not run. The single-player replay cannot reach it: `SIM_VIEW` compares `lastReturnedAxis` (`vret`), but this route runs at snapshot time on a network client, so only a network-client replay would catch it.
 - **SDK-original: `ClientUpdateView` writes `p->renderView`** (`game repo: src/game/Game_local.cpp:6070`, `game repo: src/game/Game_local.cpp:6083`, `game repo: src/game/Game_local.cpp:6092`).
   - In `idPlayer::Think`, `UpdateScript()` (`game repo: src/game/Player.cpp:6793`) runs before `CalculateView()` (`game repo: src/game/Player.cpp:6803-6804`, only without a proxy). The script events `getRenderViewAngles` and `getViewOrigin` read `renderView` (`game repo: src/game/Player.cpp:9165-9177`). A script that runs in `UpdateScript` therefore reads the last render frame's view.
-  - Two retail uses that look relevant are not affected today: `weapon_mounted::Fire` (`pak000: script/deployables/mount.script:305-306`) and `vehicle_weapon_stroybomb::Fire` (`pak000: script/vehicles/weapons/stroybomb.script:44`). Both run while the player has a proxy.
-    - A mount seats its user with `user.enter( self )` (`pak000: script/deployables/mount.script:552`), which ends in `SetProxyEntity` (`game repo: src/game/Player.cpp:11324-11328`; `game repo: src/game/ScriptEntity.cpp:652`).
+  - Two retail uses that look relevant are not affected today: `weapon_mounted::Fire` (`pak008: script/deployables/mount.script:305-306`) and `vehicle_weapon_stroybomb::Fire` (`pak008: script/vehicles/weapons/stroybomb.script:44`). Both run while the player has a proxy.
+    - A mount seats its user with `user.enter( self )` (`pak008: script/deployables/mount.script:556`), which ends in `SetProxyEntity` (`game repo: src/game/Player.cpp:11324-11328`; `game repo: src/game/ScriptEntity.cpp:652`).
     - The stroybomb's user rides a transport.
     - With a proxy, `IsFPSUnlock` is false (`game repo: src/game/Player.cpp:8794-8796`), so `ClientUpdateView` returns before it writes `p->renderView` (`game repo: src/game/Game_local.cpp:5962-5964`). These scripts read the tick view, in the SDK and today.
     - The exception is the render-only frames of the tick in which the player entered, because `canUnlockFrames` is latched at the start of each tick (`game repo: src/game/Game_local.cpp:5251-5256`) *(inferred)*.
     - They become relevant if the proxy gate is lifted for such a seat.
-  - On-foot scripts read these events too, for example `pak000: script/weapons/lightningpistol.script:295`, `pak000: script/player/player_context.script:818` and `pak000: script/items/landmine.script:157`. Whether any of them runs before `CalculateView` in a tick was not checked. Weapon updates run after it (`game repo: src/game/Player.cpp:6842`).
+  - On-foot scripts read these events too, for example `pak008: script/weapons/lightningpistol.script:298`, `pak008: script/player/player_context.script:855` and `pak008: script/items/landmine.script:157`. Whether any of them runs before `CalculateView` in a tick was not checked. Weapon updates run after it (`game repo: src/game/Player.cpp:6842`).
 - **If the producer returns on an authoritative host** *(inferred)*.
   - It would rewrite `renderEntity.origin` and `lastPushedOrigin` of server entities during the tick.
   - Server code reads `renderEntity.origin`: bot vehicle steering (`game repo: src/game/botai/Bot.cpp:1825` and others) and `idPlayer::CheckTargetCanLock` (`game repo: src/game/Player.cpp:2802`). The latter runs on the server through `UpdateTargetLock` (`game repo: src/game/Player.cpp:2852`, called at `game repo: src/game/Player.cpp:6807-6810`).
@@ -519,7 +519,7 @@ These paths let a render frame change what the next tick, a snapshot or AoR code
 | `com_unlock_maxFPS` | 60, NOCHEAT (`src/framework/Common.cpp:88-89`) | `src/framework/Common.cpp:1074-1089` (mirrored) | none | Help text: "only works in timing methods 1 & 2". `pak000: visuals.cfg:27` sets 120; `pak000: gizm.cfg:81` sets 0 |
 
 - **Provenance.** All five `com_unlock*` CVars and their help texts are in jmarshall's `src/framework/Common.cpp` (`/Users/jmulesa/etqw`).
-- **Retail semantics** are known only from these help strings and from the community and developer cfgs at the root of pak000. Whether the retail GUIs reference any of these CVars is unverified: the GUIs ship compiled as `.guib` files (under `generated/declb/guis/`), and a string search of them finds no CVar names at all, not even common ones such as `r_mode`. Among text files, only root-level `.cfg` files mention `com_unlock`.
+- **Retail semantics** are known from these help strings, from the community and developer cfgs at the root of pak000, and (since 2026-09-25) from the retail 1.5 engine's defaults (`docs/specs/retail-1.5-reference.md` §4); how its timing methods scheduled frames was not traced. Whether the retail GUIs reference any of these CVars is unverified: the GUIs ship compiled as `.guib` files (under `generated/declb/guis/`), and a string search of them finds no CVar names at all, not even common ones such as `r_mode`. Among text files, only root-level `.cfg` files mention `com_unlock`.
 - **Mirroring** (`src/framework/Common.cpp:1073-1084`). Each frame one value wins:
   1. If `com_maxFPS` was modified, it wins.
   2. Otherwise, a modified `com_unlock_maxFPS` wins.
@@ -564,7 +564,7 @@ These paths let a render frame change what the next tick, a snapshot or AoR code
 
 **Cause: presentation waits for the display (measured 2026-09-25).** With `com_logFrameTiming 1` (§7.6), uncapped play and caps 144 and 240 all run at about 120 fps, and each frame's *work* (from the start of the frame to the pacer, which includes `BeginFrame`'s fence wait and image acquire and `EndFrame`'s present) takes the whole 8.3 ms. The pacer never waits. The same client at cap 120 does its work in about 7.7 ms and waits the rest, and at cap 60 in about 3.8 ms. So on this host a windowed IMMEDIATE-mode swapchain is paced by the 120 Hz display. The other explanation considered, the frame's own CPU or GPU cost, does not fit: at cap 120 the same frames finish their work in 7.7 ms with two frames in flight. Which call blocks (the fence wait or the acquire) and whether fullscreen, a 60 Hz panel setting or MoltenVK settings change it was not measured; `r_showmetrics 1` (`src/renderer/RendererMetrics.cpp:18`) times both scopes (`src/renderer/VulkanBackend.cpp:5233`, `src/renderer/VulkanBackend.cpp:5206`).
 
-**Consequence for M5.** Caps 144 and 240 cannot be reached here in a window. `high-refresh-determinism` now reports them as unreachable rather than failing (M5 plan decision D1 is still the owner's), and still requires every schedule's per-tick state to match.
+**Consequence for M5.** Caps 144 and 240 cannot be reached here in a window. `high-refresh-determinism` now reports them as unreachable rather than failing (M5 plan decision D1, 2026-09-25: reaching a cap is reported, not tested), and still requires every schedule's per-tick state to match.
 
 **The ~0.4–0.5 s stall is first-use loading after spawn (measured 2026-09-25).** Every replay schedule has one frame of about 410–540 ms. With `com_logFrameTiming 1` and `SIM_HASH` ticks in one log, it falls between replay ticks 1 and 20, while the player parachutes in and the map comes into view: the client loads materials and render programs on first use, prints a multi-line stage dump for materials with defaulted textures, and writes shader dumps to `renderprogs/shaderdump/` under the save path. Whether it counts as 'play' in `high-refresh-determinism` depends on where the one-second windows fall. It is a load hitch, not pacing; precaching at map load and quieter debug output would remove it (not done).
 
@@ -584,7 +584,7 @@ These paths let a render frame change what the next tick, a snapshot or AoR code
 - The network client and server block in `GetPacketBlocking` until a tick is due (`Doom 3: neo/framework/async/AsyncClient.cpp:1794-1807`; `Doom 3: neo/framework/async/AsyncServer.cpp:2401-2416`). Every mode therefore renders once per tick.
 - There is no `ClientUpdateView` and there are no unlock CVars. The multiplayer branch of `Frame` calls `session->GuiFrameEvents()` (`Doom 3: neo/framework/Common.cpp:2461`).
 
-**Retail ETQW** (known only from the SDK headers and game code)
+**Retail ETQW** (from the SDK headers and game code, and since 2026-09-25 the retail 1.5 game module: `docs/specs/retail-1.5-reference.md` §3)
 - Ticks at 30 Hz (`SDK: framework/UsercmdGen.h:15-16`).
 - `ClientUpdateView` with `timeLeft` (`SDK: game/Game.h:173-174`).
 - Unlock logic on the authoritative side as well as on clients (`SDK: game/Game_local.cpp:4222-4231`; `SDK: game/Game_network.cpp:3628-3638`).
@@ -629,7 +629,7 @@ Remaining stepped paths must be listed rather than claimed as interpolated, and 
   - network client (join): the camera turns and moves on every draw (A4, A5: 99.8–100% of draw pairs) and every draw between ticks is unlocked (A8). The fraction rises within a tick. Until 2026-09-25 it stepped back on about 1 draw in 500–700: right after a snapshot arrives the client corrects its prediction clock (§4.2), and the presented time moved back by a millisecond or two (for example 0.24 → 0.18 of a tick). The game now holds the fraction at the tick's last presented value instead (`unlock.lastFraction`), so such a draw repeats the pose rather than moving back. Remote players change only once per tick (A7: 50.5% of draw pairs at 60 fps, 25.2% at 120 and 240), as predicted from §6.6. **Not predicted, and fixed the same day:** the viewmodel's drawn pose repeated on about a fifth of draw pairs while walking (A6: 79–82%). When a snapshot arrives on a draw between ticks, the client re-runs prediction with `isNewFrame` false, so the weapon's `Present()` in `ClientUpdateView` returned early (`game repo: src/game/Entity.cpp:1727-1729`) and the viewmodel stayed where it was until the next tick. `ClientUpdateView` now presents through `idGameLocal::PresentUnlocked`, which sets `isNewFrame` for that call only (the weapon and the `interpolateEntities` consumer); the viewmodel then changes on 100% of draw pairs at caps 60/120/240.
   - listen host: camera, viewmodel and remote players all change only once per tick (the changed fraction equals the fraction of draw pairs that cross a tick: 50–51% at 60, 25–28% at 120 and 240), and no draw between ticks is unlocked (A8), as predicted from §4.3.
   - with `g_unlock_updateAngles`, `g_unlock_updateViewpos` and `g_unlock_interpolateMoving` off, the network client's camera also changes on only 51% of draw pairs at 60 fps: the checks can fail.
-  - Vehicle seats are not captured yet (owner decision D2).
+  - Vehicle seats are not captured yet. Retail 1.5 has no per-frame seat view (M5 plan D2); the one-seat capture will use the opt-in seat view of plan step 13 (D10).
 - Vehicle seats are blocked by the proxy gate (§6.3), and the OE vehicle branch has the defects listed in §6.8.
 - Interpolation is origin-only. The axis and skeletal animation step at 30 Hz (§6.6).
 
@@ -661,14 +661,18 @@ Remaining stepped paths must be listed rather than claimed as interpolated, and 
 
 ## 10. Open questions
 
+- **Answered on 2026-09-25** (`docs/m5-plan.md`, `docs/specs/retail-1.5-reference.md`):
+  - What counts as a pose: the entity origin, as retail 1.5 does, and the viewmodel's origin and axis; no skeletal joints (D2).
+  - Tick frames: draw them at their real sub-tick fraction, not with a tick-aligned scheduler (D7).
+  - `com_unlockFPS 0` draws once per tick (D8).
+  - The `isNewFrame` gate did freeze the network client's viewmodel after a snapshot (about a fifth of draw pairs repeated, measured by `frame-poses-join`). `PresentUnlocked` fixed it for the viewmodel and for the `interpolateEntities` consumer.
+  - The remote-entity producer is to be restored (D5, plan step 8): retail 1.5 runs it.
 - **Remote-entity producer.**
-  - Why did jmarshall disable it? No reason is recorded.
+  - Why did jmarshall disable it? No reason is recorded; D5 restores it anyway.
   - Which retail entityDefs set `option_unlock_interpolate`? The defs are binary `.defb` files, and a string grep found nothing.
   - Does the parachute's list handling (`game repo: src/game/misc/Parachute.cpp:232-243`) interact badly with zeroed history?
-- **Does the `isNewFrame` gate really freeze** interpolated entities and the viewmodel after a snapshot on a frame with no tick? A per-frame capture on a network client would settle it.
-- **What counts as a "pose" for M5?** Origin only (the SDK design), orientation too, or skeletal joints as well?
-- **Tick frames.** Should frames that ran a tick also call `ClientUpdateView`, with `timeLeft` taken from the post-tick residual? The alternative is a tick-aligned scheduler, as retail timing methods 1 and 2 describe. Either way, the per-cycle reference capture (`game repo: src/game/Game_local.cpp:5987-6022`) assumes a preceding base draw and needs review.
+  - After a snapshot on a draw with no tick, re-prediction clears `interpolateEntities` (`game repo: src/game/Game_network.cpp:3803`). The producer does not refill it while `isNewFrame` is false (`game repo: src/game/Entity.cpp:1727-1729`), so `PresentUnlocked` has nothing to present. Do interpolated entities freeze for the rest of that tick once step 8 restores the producer (§9, criterion 2)? A capture after step 8 would settle it.
+- **Tick frames (plan step 10).** The per-cycle reference capture (`game repo: src/game/Game_local.cpp:5987-6022`) assumes a preceding base draw (§6.5, item 3). It needs review once frames that ran a tick call `ClientUpdateView`.
 - **Render-only input samples.** Should they skip the game callbacks (`GetDirectUsercmd( false )`), or take only the view angles, so that buttons and impulses stay tick-bound as CHARTER §7.5 requires? What does a render-only sample then need from `MouseMove`'s game clamps?
-- **Should `com_unlockFPS 0` lock rendering to the tick rate**, as the pak000 cfg comment says?
 - **Client ordering.** `ClientPrediction` (`src/framework/async/AsyncClient.cpp:344-348`) runs before `ProcessReliableServerMessages` (`src/framework/async/AsyncClient.cpp:349`) in the same frame. Reliable messages in each packet are already processed before that packet's snapshot (`src/framework/async/AsyncClient.cpp:811`). Is the second call intended, and what can it still find?
 - **Seat and camera switches.** The `originlog` resets on seat switch and camera cycle copy `player->renderView.vieworg`, which may still be the pre-switch view (`game repo: src/game/vehicles/Transport.cpp:2832-2837`, `game repo: src/game/vehicles/TransportExtras.cpp:442-445`, `game repo: src/game/vehicles/VehicleView.cpp:267-270`). Nothing resets `originlog` on vehicle exit, respawn or teleport, and that gap is SDK behaviour.

@@ -2,10 +2,10 @@
 
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
-Updated: 2026-09-25 · session/agent: Claude Code integrator session 3a9edf51 · host: mbp-m1max, macOS 27.0 (Darwin 27.0.0), arm64 (Apple M1 Max)
-Engine repo `~/openETQW`: `main` c1e6424 (PR #2, the audit follow-ups, merged 2026-09-24) · game repo `~/openETQW-game`: `main` b5c3345 (PR #2) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none; upstream checked 2026-09-24)
+Updated: 2026-09-25 (evening) · session/agent: Claude Code integrator session 3a9edf51 · host: mbp-m1max, macOS 27.0 (Darwin 27.0.0), arm64 (Apple M1 Max)
+Engine repo `~/openETQW`: `main` d15bdea (PR #14, merged 2026-09-25; `tools/ci/companion.ref` pins game f00f4d3) · game repo `~/openETQW-game`: `main` f00f4d3 (PR #10, merged 2026-09-25) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none; upstream checked 2026-09-24)
 
-Both histories were rewritten on 2026-09-24 (see "This session"). Every commit ID changed: engine 2104090 → 84a224b and 53d0172 → fef1e53; game 285eaa1 → 24f58bf and 9b3a02b → 19a709a. Engine SHAs quoted in older docs (`CHECKPOINT_STOCK_MAPS_PHASE.md`, ledger rows, earlier STATUS text) are pre-rewrite IDs. The game's historical `tools/ci/engine.ref` pins name engine commits that no longer exist.
+Both histories were rewritten on 2026-09-24 (`docs/provenance.md` §7). Every commit ID changed: engine 2104090 → 84a224b and 53d0172 → fef1e53; game 285eaa1 → 24f58bf and 9b3a02b → 19a709a. Engine SHAs quoted in older docs (`CHECKPOINT_STOCK_MAPS_PHASE.md`, ledger rows, earlier STATUS text) are pre-rewrite IDs. The game's historical `tools/ci/engine.ref` pins name engine commits that no longer exist.
 
 **Integrator role:** held by Claude Code integrator session 3a9edf51 on mbp-m1max
 
@@ -13,6 +13,17 @@ Both histories were rewritten on 2026-09-24 (see "This session"). Every commit I
 D1 public source and binaries · D2 all RE methods · D3 hard fork · D4 macOS / Windows 11 / Arch / Fedora / Debian, inputs on request · D5 two repos: GPL-3.0-or-later engine; SDK license + MIT game · D6 Meson · D7 clean network break from retail 1.5 (2026-09-22; deferred 2026-09-24; **dropped 2026-09-25**: OpenETQW does not aim for retail 1.5 network compatibility, matching openQ4; retail 1.5 data stays required and supported)
 Also from the owner, 2026-09-24: both repositories stay private; the history rewrite to purge retail content was authorized ("If retail content got accidentally uploaded rewrite the history to purge it").
 From the owner, 2026-09-25: retail 1.5 network compatibility is dropped (D7); the jmarshall remediation is deferred; removing GitHub's leftover `refs/pull/1/head` is deferred until the repositories are recreated, which the owner expects to do; the SDK files in the engine's imported root commits stay in history unless that violates the GPL, which the GPL text does not appear to say (`docs/provenance.md` §6).
+From the owner, 2026-09-25, answers to the open-question list (the letters and numbers are that list's; "M5 plan D1–D10" are `docs/m5-plan.md`'s decisions, not the charter's D1–D7 above):
+- A3 SDK EULA §2 scope: accept the risk as openQ4 does, with two safeguards: a retail-install check, and the licence texts in every package.
+- A6 SDK code in the engine build (`libidLib.a`, `DeclType.cpp`, `BitMsg.cpp` for the unit tests, the 189 staged headers and `BuildDefines.inc`): approved as tracked exceptions, on openQ4's precedent; no rewrite (`docs/decisions/0001-sdk-code-in-the-engine-build.md`).
+- A7 retail-install check: "exactly how openQ4 does" (`docs/decisions/0002-sdk-eula-risk-and-retail-install-check.md`).
+- B8 bot think rate: keep the retail default (about 15 Hz decisions, `bot_threadMinFrameDelay 1`); the criterion means the bot thread keeps up with the 30 Hz server.
+- B9 quarry's 415 entities: the ">500 entities per map" criterion becomes "every entity in each map file is accounted for".
+- B10 bot `validClasses`: do what retail 1.5 does. Retail 1.5 reads it as a bool in all three game modules (`docs/specs/retail-1.5-reference.md`), so `GetBool` is restored (game `fix/target-1.5-data`, not merged yet).
+- C11 data: everything targets the retail data patched to 1.5: `pak000`–`pak008` (the required set) plus the edition's language paks (here `zpak_english000`–`003`); the unpatched DVD set alone is not supported.
+- C12 other OSes: no Linux or Windows retail-data automation. Do what is possible without retail data (for example a Windows cross-compile); the owner tests retail data on other OSes by hand.
+- M5 plan D1–D10: all decided (`docs/m5-plan.md`). D10's CVar default is drafted off (retail 1.5 behaviour) and waits for the owner's confirmation.
+- F16: the merged branches were deleted (13 engine, 8 game).
 Environment corrections vs. SESSION_BRIEF: the only host is macOS arm64; there is no Linux or Windows host. GitHub Actions minutes for private repositories ran out on 2026-09-24, so hosted CI does not run. Local checks, local independent reviews and CodeRabbit (about one review an hour) replace it (`CONTRIBUTING.md`). Merge gates are a convention; the free plan has no branch protection.
 
 ## Toolchain and commands (this session)
@@ -30,48 +41,60 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
   - The engine `meson setup` options are the ones recorded in `build/meson-private/cmd_line.txt`. `build_engine` and `build_dedicated` default to `false`, so a plain `meson setup build` builds no engine binary.
   - The game build directory was configured with plain `meson setup build` (default options, per its `meson-private/cmd_line.txt`).
   - Engine configure fails unless `../openETQW-game/build/libidLib.a` already exists, so a fresh checkout builds the game first. Configure also runs `stage_game.py` itself.
-  - `ETQW_DATA_PATH` is the retail install root holding `base/pak000.pk4`. Here it holds the English DVD data (`pak000`–`pak004`, `zpak_english000`; their MD5s match the DVD list in the official ETQW 1.5 Linux README) without the 1.5 patch paks (`pak005`–`pak008`, `zpak_english001`–`003`). Without it every retail-data test exits 77 (skip).
+  - `ETQW_DATA_PATH` is the retail install root holding `base/`. Here it holds the retail data patched to 1.5: `pak000`–`pak004` and `zpak_english000` (their MD5s match the DVD list in the official ETQW 1.5 Linux README) plus `pak005`–`pak008` and `zpak_english001`–`003`, added on 2026-09-25 from the official Linux 1.5 client installer (byte-identical). Results recorded before 2026-09-25 14:49 come from the DVD paks alone. Without it every retail-data test exits 77 (skip).
   - The full suite uses fixed UDP ports: one suite at a time per host.
-- Never run: any Linux or Windows command (native or cross), `scripts/deps/*`, `scripts/build.*` (neither exists).
+- Never run: `scripts/deps/*`, `scripts/build.*` (neither exists). A Windows x64 cross-compile with mingw-w64 (`tools/cross/windows-x86_64.txt`) is allowed (owner C12, 2026-09-25); nothing built for Linux or Windows can run here (no Wine, no Docker), and retail-data testing on those OSes is manual, by the owner.
 
 ## This session
 
+2026-09-25. The 2026-09-24 session (PR #1/#2 merges, the history purge, the charter audit and its fixes) is in git history and those PR descriptions.
+
 **Plan, and why it advances the engine:**
-- Merge the stock-maps and network work (PR #1 in both repos) after the final reviews.
-- Purge retail content from both repositories' history, with the owner's authorization.
-- Audit every charter milestone against code, logs and CI: 5 assessors, each checked by a challenger.
-- Fix the small, verifiable code defects the audit found:
-  - frame-rate-dependent key and controller turning, whose angles reached the server (M5, fairness);
-  - the dedicated server's busy-wait (§7.3; ledger 009);
-  - the connect check order that could hide the protocol message from retail peers (§7.4);
-  - tests that passed without checking anything.
-- Explain the seat-swap report.
-- Rewrite this file to match the evidence. The previous STATUS.md overclaimed dedicated MP, the listen server, the release gate, build scripts and the Linux/Windows cells.
+- M3: finish the single-Mac network items (movement both ways, reconnect and restart, a lossy soak, the Vulkan client as a network client and a listen host).
+- M5: measure first (`docs/frame-path.md`, `docs/m5-plan.md`): frame timing, per-frame pose capture, a per-tick view-state replay; fix what the measurements find.
+- Get the owner's answers to the open questions, then act on them: target the retail 1.5 data, match retail 1.5 behaviour where asked, build the release-gate safeguards.
+- Keep the docs matched to the evidence (a docs audit found 54 gaps; this update works through them, and the feature PRs close the rest as they merge).
 
-The turn-rate fix removes a render-rate dependence from authoritative commands. The unit tests now exercise the engine's own usercmd codec.
+### Merged on 2026-09-25
+| Repo | PR (merge) | What |
+|---|---|---|
+| openETQW | #3 ff39170 | STATUS refresh after the audit follow-ups |
+| openETQW / game | #4 84ad1bb / game #3 7f0e275 | Owner decisions of 2026-09-25 (morning): D7 dropped, deferrals; the data found to be the unpatched DVD set |
+| openETQW | #5 a6dbde0 | M3 tests: movement both ways, `reconnect-restart`, the 10-minute `lossy-session` soak, `client-network-join`/`-listen` |
+| openETQW / game | #6 85879e3 / game #4 d8e5b3d | `all-stock-maps` leaves vehicle riders out of the AAS check (slipgate flake); `playerPos` prints `vehicle=` |
+| openETQW | #7 c5b73a6 | `docs/frame-path.md` (one host frame, traced from code) and `docs/m5-plan.md` |
+| openETQW | #8 e8aca6c | M5 step 2: `com_logFrameTiming`, adaptive pacer margin (a 60 cap ran at 58–59 fps); the ~120 fps ceiling is the 120 Hz display |
+| openETQW | #9 5cc280c | `all-stock-maps` bots walk (`bot_useVehicles 0`) so the AAS check has samples |
+| openETQW / game | #10 976ab58, #11 6b53d24 / game #5 1e1aaa3, #6 5d23c81 | M5 step 3 on foot: `g_logFramePoses`, `frame-poses-join`/`-listen` with known-gap tables; the viewmodel repeat after re-prediction fixed (`PresentUnlocked`) |
+| openETQW / game | #12 a0e4535 / game #7 05fd612 | The presented sub-tick fraction no longer steps back within a tick |
+| openETQW | #13 c6345bb | Network sessions update the GUIs every frame (none did) |
+| openETQW | #14 d15bdea | M5 step 5, single player: `high-refresh-determinism` compares `SIM_VIEW` across caps in full precision; one weapon-log divergence after entering the vehicle is allowed in its measured shape (45–59 ticks from tick 92) until plan step 6 |
+| game | #8 ea14841, #9 54d18d8, #10 f00f4d3 | `SIM_VIEW`: per-tick view state for the replay, with the vehicle view's last returned axis, in full precision |
 
-### Changed
-| Repo | Files / symbols | What | Why | Reuse / provenance |
-|---|---|---|---|---|
-| both | whole history (git filter-repo); `main` and `wip/stock-maps-m2-checkpoint` force-pushed with `--force-with-lease` | `src/sys/win32/rc/res/etqw_splash.bmp` removed from every commit | It is ET:QW cover art with the game logo: retail content, not in the SDK installer or the Doom 3 lineage | Owner-authorized 2026-09-24. `companion.ref` pins were remapped through the engine history |
-| openETQW | `src/sys/win32/rc/etqw.rc` (PR #2) | No longer references the bitmap | The file is gone. `Sys_ShowSplashScreen` shows nothing without it | — |
-| openETQW | `src/framework/UsercmdGen.cpp`: `TurnTimeScale`, `AdjustAngles`, `MakeCurrent`; new `+left/-left/+right/-right` (PR #2) | Key and controller turning are scaled by the real time since the previous `MakeCurrent`, clamped to 4 ticks. The timestamp is file-scope, so the class keeps its 32-bit PDB layout. After the game callback only the angles the game changed are copied back (the old per-call `ANGLE2SHORT` round trip truncated small steps) | `GetDirectUsercmd` also runs on every render-only frame (late view-angle sampling). Each call added a whole tick of turning, so the turn rate grew with the frame rate, and those angles went into the commands the server simulates | New code. The old per-call `com_timescale` correction is gone; it is not needed |
-| openETQW-game | `src/game/gamesys/SysCmds.cpp` `Cmd_PlayerPos_f` (PR #2) | `playerPos` prints `yaw=`, the yaw of the player's latest usercmd | Lets the server-side test read turning | Game repo, SDK-licensed file (debug output only) |
-| openETQW-game | `tools/ci/engine.ref` (PR #2) | Pins engine 84a224b | The old pin named a pre-rewrite commit | — |
-| openETQW | `src/framework/Common.cpp` `idCommonLocal::Frame` (PR #2) | A dedicated binary (server, or headless client) sleeps the whole remaining frame time. Graphical clients keep the ~1.5 ms spin tail for exact high-refresh pacing | Charter §7.3: a dedicated server never busy-spins. Ledger row 009 claimed this before it was true | New code |
-| openETQW | `src/framework/async/AsyncServer.cpp` `ProcessConnectMessage` (PR #2) | The protocol field is read and checked first, before the length, challenge and checksum checks | A peer whose challenge this server never issued, or whose connect message is shorter than the OpenETQW layout, got "Bad challenge" or silence instead of the protocol message | Doom 3 GPL order (protocol first) |
-| openETQW | new `src/framework/async/UsercmdCodec.cpp/.h`; `AsyncNetwork.cpp/.h`; `tools/build/meson_sources.py`; `tests/UserCmdDeltaTest.cpp`, `tests/test_usercmd_history.cpp`, `tests/meson.build` (PR #2) | `Net_WriteUserCmdDelta`, `Net_ReadUserCmdDelta`, `Net_DuplicateUsercmd` and `MAX_USERCMD_DUPLICATION` moved out of `AsyncNetwork.cpp` unchanged; `idAsyncNetwork` forwards to them. `usercmd-delta` and `usercmd-history` now compile and call the engine's code | The tests used pasted copies. The delta test's copy of `DuplicateUsercmd` lacked the duplication clamp | Moved engine code, unchanged |
-| openETQW | `tests/test_multiclient_gameplay.py`, `test_valley_match.py`, `test_bot_gameplay.py`, `etqw_harness.py`, new `tests/test_turn_rate.py`, `tests/test_protocol_clean_break.py`, `tests/meson.build` (PR #2) | The weapon step asserts that the server registers the attack (`atk_cmd=1`, `atk: 1`) and the release (`atk_cmd=0`). The three gameplay tests scan all process output with `etqw_harness.scan_failures`. valley-match asserts the `SWAP_SEAT` line. `test_bot_gameplay.py`: the combat window grows from 40 s to 90 s (the two bots met after 13.5–42.8 s in 8 runs, past 40 s in about one run in four); the loop still stops as soon as every criterion is met. New meson test `turn-rate`. Protocol test adds two retail connects: one with a challenge the server never issued, one holding only the protocol field | The weapon step printed PASSED without checking anything. Three gameplay tests never scanned logs. Seat-swap report (see Demonstrated). bot-gameplay failed in suite 18 when the bots had not met within 40 s | New test code |
-| openETQW | 20 `#include`s in `src/renderer`, `src/renderer/megatexture`, `src/decllib`, `src/bse`, `src/framework` (and the unbuilt megatexture compiler); new `tools/ci/check_include_case.py` (compiler search order from `build/compile_commands.json`), run in CI script smoke and listed as a local gate | The includes now match the files' letter case (`megatexture.h`, `declManager.h`, …). Four `src/decllib` files now name the GPL `../framework/Decl*.h` they have always compiled against | They built only because macOS ignores case: a Linux build would have failed, or compiled four decl files against the SDK `decllib/decl*.h` instead. Found during the docs pass and the code review | New check |
-| both | PR #1, merged earlier today (now 84a224b / 24f58bf) | Retail script event signatures (`sendNetworkEvent`, `broadcastToolTip`, `setPlayerPickupRequestTime`, objective `OnWriteInitialReliableMessages`). Five handler/definition mismatches (`teamSuicideIfNotNearAction`, `disableAASAreaInLocation`, `enable/disableRouteGroup`, client `bindToJoint`). Game `tools/ci/check_event_handlers.py`. Reconcile warning as a harness failure marker (ledger 050). Command capture, posix_net latency queue, terminal restore, macOS bundle validation, smoke script fixes. CI pushes build only `main` | Stock-maps phase and network review follow-ups | See the PR descriptions and ledger 050 |
-| openETQW | `STATUS.md` (PR #2) | Rewritten against the charter audit | It was stale and overclaimed | — |
-| both | Docs pass (merged in PR #2, fact-checked by two independent checkers): engine `readme.md`, game `README.md` (new), `CONTRIBUTING.md` and PR templates in both repos, `docs/compat-ledger.md` (header, rows 003, 008, 009, 013, 014, 026, 027, 028, 029, 033, 034, 035, 036, 045, 050, new 051), `docs/provenance.md`, `docs/provenance-manifest.json`, `walkthrough.md`, `CHECKPOINT_STOCK_MAPS_PHASE.md`, game `tools/ci/spdx_allowlist.txt` and `check_spdx.py` wording | README text on the repo split, the SDK license and the retail-data requirement. Merge gates without hosted CI. History-rewrite notes. Provenance relabels, import method and the full SDK exception registry (Release gates 2 and 3) | Audit findings: release gates 3 and 4; stale process docs | — |
+### Open and pending
+- **Pushed, no PR yet.** None has passed the full suite yet. Game `fix/target-1.5-data` (17905b1, a5af70b) and engine `feat/retail-install-check` (ff66385, 0b3386c, 9f3b4d6) were adversarially reviewed (13 confirmed findings, all fixed in game a5af70b and engine 9f3b4d6). Game 8ab8457, engine `fix/target-1.5-data` and game `feat/install-licenses` have not been reviewed yet; this docs update was fact-checked (36 corrections applied):
+  - game `fix/target-1.5-data` (17905b1, a5af70b, 8ab8457): the SDK script-event signatures back for the 1.5 scripts (ledger 050), the DVD-only stubs removed, `validClasses` read with `GetBool` (B10), and a data-free `events.script` check in `check_event_handlers.py`. On the 1.5 data: 26 of 28 (Demonstrated).
+  - engine `fix/target-1.5-data` (9575b21, on PR #14's head): the tests for the 1.5 data (the two remaining failures were test markers), the B9 criterion in `all-stock-maps`, spawn counts read from the paks. Its ledger and STATUS updates follow once this docs update merges.
+  - engine `feat/retail-install-check` (ff66385, 0b3386c, 9f3b4d6): openQ4's retail-install check (A7, `fs_validateOfficialPaks`), licence texts in the engine's install set (A3), meson tests `retail-install-check` and `install-licenses`.
+  - game `feat/install-licenses` (9eba2d9, 9a5f751; on 54d18d8): licence texts in the game's install set and CI artifact, plus the game README/CONTRIBUTING licensing docs.
+  - engine `docs/owner-decisions-0925b`: this docs update.
+- **Merge order:** game `fix/target-1.5-data` with engine `fix/target-1.5-data` (companion bump, tests, ledger); then `feat/retail-install-check` with game `feat/install-licenses` (the check refuses the DVD set, and on the 1.5 data only the fixed game passes).
+
+### Found this session
+- **The data was not 1.5.** `~/etqw_data` held the unpatched English DVD paks, so every result before 2026-09-25 14:49 ran the SDK 1.5 game code on 1.0 scripts. The 1.5 paks were added from the official Linux 1.5 client installer on the owner's drive. On them, `main` fails 20 of 28 tests: PR #1's "retail" script-event signatures had been fitted to the DVD scripts, and the harness counts the reconcile warnings as failures (details under Demonstrated and ledger 050).
+- **Retail 1.5 behaviour is now readable.** The same installer holds the retail 1.5 game modules; the macOS one keeps its symbols. `docs/specs/retail-1.5-reference.md` records what was read, with addresses: `validClasses` is a bool (B10), no vehicle seat gets per-frame views and remote entities interpolate by origin only (M5 plan D2), render frames reach tick state only through side channels (D4), the `Entity::Present` producer is active (D5), the retail CVar defaults, and the 1.5 script-event signatures.
+- **M5 measurements** (Demonstrated): caps 60 and 120 held exactly after the pacer fix; the ~120 fps ceiling is the display; the network client's viewmodel repeated on a fifth of draws (fixed); no GUI updated in network sessions (fixed); the replay's view state matches at every cap except one bounded weapon-log divergence after entering a vehicle (PR #14; plan step 6 fixes it).
+- **Kept outside the repositories** (gitignored `~/openETQW/.agents/`): the research notes and scripts (`research-2026-09-25/`), the docs audit, the branch-review findings, and the verified pre-purge backup bundles (`backups-2026-09-24-prepurge/`; they contain the purged bitmap and must never be pushed).
 
 ### Demonstrated
-All rows: host mbp-m1max, macOS 27 arm64, Apple Clang 21, debug build, retail data at `$HOME/etqw_data`: the English DVD paks without the 1.5 patch paks (found 2026-09-25; every result below comes from the SDK 1.5 game code on that unpatched data). Network tests use loopback (127.0.0.1) only.
+All rows: host mbp-m1max, macOS 27 arm64, Apple Clang 21, debug build, retail data at `$HOME/etqw_data`. Rows before 2026-09-25 14:49 ran on the English DVD paks alone (the SDK 1.5 game code on 1.0 scripts and maps); the rows marked **1.5 data** ran with `pak005`–`pak008` and `zpak_english001`–`003` added. Network tests use loopback (127.0.0.1) only.
 
 | Claim | Evidence level | Host / OS / arch / compiler | Command | Result (log path) |
 |---|---|---|---|---|
+| Full suite, `main` binaries, DVD data (28 tests) | map-loaded (highest level any test in it reaches) | as above; engine `main` c6345bb with game ea14841, then game 54d18d8 (`vret`) | `ETQW_DATA_PATH=… meson test -C build --no-rebuild -j 1` (2026-09-25; the second run used a DVD-only view of the data) | 28/28 OK both times |
+| Full suite, `main` binaries, **1.5 data** (28 tests) | map-loaded | as above; engine c6345bb (test tree of `m5/sim-view` 32f4cb1), game ea14841 | as above, 2026-09-25 14:49 | 8 OK, 20 FAIL: client-lifecycle, vulkan-shadows, all-stock-maps, turn-rate, inprocess-map-change, remote-client-map-change (+`-latency`, `-loss`), multiclient-gameplay (+`-latency`), userinfo (+`-loss`), reconnect-restart, lossy-session, client-network-join/-listen, frame-poses-join/-listen, bot-gameplay, valley-match. Cause, in the logs: `script event 'sendNetworkEvent' ( fbs ) in script/events.script does not match its native definition ( Es )` and the same for `broadcastToolTip`, which the harness counts as failures (ledger 050). high-refresh-determinism passed. Also in inprocess-map-change: `sdVehiclePart::AddSurface` "Invalid Surface" warnings, as on the DVD data (not new with 1.5) |
+| Full suite, **1.5 data**, game `fix/target-1.5-data` | map-loaded | as above; engine c6345bb binaries (test tree of `m5/sim-view`), game a5af70b | as above, 2026-09-25 16:58 | 26 OK, 2 FAIL. No reconcile warnings. all-stock-maps 11/11 on the 1.5 maps, with every map entity spawned (the DVD data left 11 path corners unspawned) and ark's and volcano's new counts (897, 1332). client-lifecycle and vulkan-shadows waited out their 90 s: their "player active" marker was a debug print that only the DVD scripts make (`parachute::Idle`), and their map marker is never printed. Fixed in the tests on engine `fix/target-1.5-data` (5a5b672), not yet re-run. An earlier run of this row loaded the old module: the engine loads `game_arm64.dylib` from its own directory first, not from `fs_basepath`. |
+| Replay on the **1.5 data** | map-loaded (offline `+devmap`) | as above; game ea14841 to 54d18d8 | meson `high-refresh-determinism` (five runs, 2026-09-25) | Pass, 5/5. The known weapon-log divergence after entering the vehicle appeared in 3 of 5 runs, always in its allowed shape: from tick 92, 31–37 ticks, any cap against 60 Hz (on the DVD data about 2 runs in 3, 31–40 ticks) |
 | Full retail-data suite, fix branch (22 tests) | map-loaded (highest level any test in it reaches) | as above; the `fix/audit-followups` trees, merged as engine c1e6424 and game b5c3345 | `ETQW_DATA_PATH=… meson test -C build -j 1` (suites 18 and 19) | Suite 18: 21/22 OK; bot-gameplay failed (the bots had not met within the 40 s window). A/B of the old and new dedicated pacing at 40 s: 1/6 and 2/6 failures, server tick rate 30.3 Hz either way, so not a pacing regression. With the 90 s window: 8/8 solo runs passed (first combat after 13.5–42.8 s). Suite 19 (before the code review's fixes): 22/22 OK. Suite 20, final tree: 22/22 OK (2026-09-24, 0 script-event mismatch warnings; `build/meson-logs/testlog.txt` holds this run) |
 | Full retail-data suite, before the fix branch (21 tests) | map-loaded (highest level any test in it reaches) | as above; binaries built 12:26 from the uncommitted tree later committed as fef1e53 / 19a709a. Trees are identical to `main` 84a224b / 24f58bf. This is inferred from file times; the binaries carry no commit stamp | `ETQW_DATA_PATH=… meson test -C build -j 1` (suite 17, 2026-09-24 12:27–12:46 EDT) | 21/21 OK. `build/meson-logs/testlog.txt` has been overwritten by suite 18 |
 | Key turning no longer depends on frame rate | map-loaded (quarry; dedicated server + one headless client) | as above, fix tree | `tests/test_turn_rate.py` (meson `turn-rate`), `in_yawspeed 20`, `in_anglespeedkey 1` | 19.6 °/s at a 30 fps cap, 19.3 °/s at 240 fps. With the old code restored: 122 °/s at 240 fps (the test failed, as intended). After the review found the per-call `ANGLE2SHORT` truncation (direction-dependent rate at small steps) and it was fixed: 19.9–20.1 °/s for +left at 30 and 240 fps and +right at 240 fps, 10% tolerance, three runs. Under meson the test writes its logs to `build/meson-logs/turn-rate/`. Controller turning uses the same scale but is untested |
@@ -92,7 +115,7 @@ All rows: host mbp-m1max, macOS 27 arm64, Apple Clang 21, debug build, retail da
 
 Evidence levels: inspected < configured < compiled < unit-tested < launched < map-loaded < match-tested
 
-**Per-map results** (suite 17, `all-stock-maps`: a fresh dedicated server per map, 45 s bot window, one GDF and one Strogg soldier bot):
+**Per-map results** (suite 17, `all-stock-maps`: a fresh dedicated server per map, 45 s bot window, one GDF and one Strogg soldier bot). **DVD data**. The 1.5-data run (all-stock-maps 11/11, in the Demonstrated row "Full suite, **1.5 data**, game `fix/target-1.5-data`") is not copied into this table yet; it replaces this table when the 1.5 fix merges. On the 1.5 data ark's and volcano's entity counts, the AAS of ark, canyon, quarry and valley and the .nav graphs of area22, ark, island, sewer and valley differ, and volcano ships a .nav (`docs/specs/retail-1.5-reference.md`, §5):
 
 | Map | Entities spawned + not spawned / retail | Player AAS areas / reach | Vehicle AAS areas / reach | .nav nodes | Bot max per-life displacement GDF / Strogg (u) | Bot samples in a valid AAS area GDF / Strogg | Longest stuck (s) | Server tick (Hz) |
 |---|---|---|---|---|---|---|---|---|
@@ -106,12 +129,12 @@ Evidence levels: inspected < configured < compiled < unit-tested < launched < ma
 | salvage | 923 + 0 / 923 | 9577 / 45289 | 4364 / 16667 | 23 | 6595 / 11031 | 100% / 100% | 0.0 | 30.3 |
 | sewer | 874 + 0 / 874 | 6089 / 30667 | 4432 / 17006 | 58 | 15005 / 10989 | 100% / 100% | 0.52 | 30.27 |
 | slipgate | 1252 + 6 / 1258 | 17005 / 82193 | 7067 / 28580 | 174 | 12137 / 14203 | 100% / 100% | 0.53 | 30.26 |
-| volcano | 1335 + 1 / 1336 | 7641 / 36818 | 3928 / 15838 | none (no retail .nav) | 4330 / 7727 | 100% / 100% | 0.0 | 30.29 |
+| volcano | 1335 + 1 / 1336 | 7641 / 36818 | 3928 / 15838 | none on the DVD data (1.5 ships one, 14 nodes) | 4330 / 7727 | 100% / 100% | 0.0 | 30.29 |
 
 Notes on the per-map results:
 - AAS and .nav counts equal the retail file headers on every map.
 - The game stays in warmup (state 1) for the whole run. No bot death was seen, though ark's Strogg bot shows 2 lives (unexplained).
-- The bot AI thinks on every second game frame (ratio 0.5, about 15 Hz, the retail default).
+- The bot AI thinks on every second game frame (ratio 0.5, about 15 Hz, the retail default, which the owner kept: B8).
 - The entity check proves parsing, not spawning: every map entity counts as spawned or not spawned. Each nonzero "not spawned" count is a `Class idPathCorner not found` failure: 11 entities on 6 maps.
 - canyon GDF's area figure rests on 7 grounded samples of 86.
 - 30 Hz bot AI (`bot_threadMinFrameDelay 0`) passed 11/11 once, on 2026-09-22 with an older binary. A later delay-0 run failed slipgate (AAS area validity 88.6% < 90%). Not rerun since.
@@ -119,17 +142,22 @@ Notes on the per-map results:
 - Bot-behavior flakes that passed on rerun are recorded in the local `.agents/claude_session_2026-09-22/FOLLOWUPS.md`: valley-match vehicle entry and salvage AAS validity. The bot-gameplay combat flake (about 1 in 4) was the 40 s window, now 90 s.
 
 ### Not done / stubbed / known broken
-- **No Linux or Windows engine.** The engine has never been configured or compiled on Linux or Windows: there is no host, Actions minutes are out, and the engine CI legs skip while `openETQW-game` is private. Those legs are also `experimental: true` with `continue-on-error` (`.github/workflows/ci.yml:164`).
-- **Windows engine link gaps (inspected).** SystemBootstrap's `idSysLocal` lacks 23 virtual methods that only the POSIX `src/sys/sys_local.cpp` implements (DLL_*, FPU_*, GetClockTicks, callstack, DebugPrintf and others). `Sys_InitInput` and `Sys_ShutdownInput` (`Common.cpp:1400`, `:1510`; defined in `src/sys/win32/win_input.cpp`) and `Sys_ShowSplashScreen` (`Common.cpp:1384`; defined in `src/sys/win32/splashscreen.cpp`) come from files that are not in the Windows source list. The Windows network layer (`SystemBootstrap.cpp`) has no loss or latency simulation.
+- **`main` fails on the 1.5 data it targets** (20 of 28; ledger 050). The fix is game `fix/target-1.5-data`, then an engine companion bump.
+- **Tests with DVD facts.** `test_remote_client_map_change.py` (its docstring states the DVD signature; its `NETWORK_EVENT_WARNING` check stops firing once the fix lands); the unregistered stress scripts `test_multi_map_lifecycle_stress.py` (ark "898 entities spawned"), `test_map_cycling_stress.py`, `test_adversarial_same_map_rapid_cycling.py`, `test_pawn_physics_empirical.py` (opens `pak004` directly) and the `test_aas_stress.py` comment. `all-stock-maps` still gates on ">500 entities" with a quarry exception (B9 replaces it). Update them in the 1.5 companion-bump PR.
+- **`sys.setShaderParm` does nothing** on `main`, on any data: `sdSysCallBridge` remaps it to an empty handler. Removed on game `fix/target-1.5-data`.
+- **Cleanups.** The idParser skip of `jointOffset(...)` (game `src/idlib/text/Parser.cpp`, OpenETQW commit d9ba1db) matches no script or decl in either data set; remove it. `ReconcileEventsWithScript` could become warn-only (optional).
+- **First runs on 1.5 to watch.** Five script callbacks that only the 1.5 scripts define (`GetSpectateEntity`, `OnDeployableDeployed`, `OnNetworkTracer`, `OnNewTask`, `OnSendingVoice`) and 48 events that only 1.5 declares now run. Retail ran the scripts as compiled-script modules; OpenETQW interprets them. Differences not examined.
+- **No Linux or Windows engine.** The engine has never been configured or compiled on Linux or Windows: there is no host (owner C12: none planned), Actions minutes are out, and the engine CI legs skip while `openETQW-game` is private. Next: a Windows x64 cross-compile with mingw-w64 (`tools/cross/windows-x86_64.txt`); Linux needs a sysroot (no Docker here). Those legs are also `experimental: true` with `continue-on-error` (`.github/workflows/ci.yml:164`).
+- **Windows engine link gaps (inspected).** SystemBootstrap's `idSysLocal` lacks 23 virtual methods that only the POSIX `src/sys/sys_local.cpp` implements (DLL_*, FPU_*, GetClockTicks, callstack, DebugPrintf and others). `Sys_InitInput` and `Sys_ShutdownInput` (`Common.cpp:1400`, `:1510`; defined in `src/sys/win32/win_input.cpp`) and `Sys_ShowSplashScreen` (`Common.cpp:1384`; defined in `src/sys/win32/splashscreen.cpp`) come from files that are not in the Windows source list. The Windows network layer (`SystemBootstrap.cpp`) has no loss or latency simulation. `Sys_Error` in `SystemBootstrap.cpp` opens a message box, which would stall a dedicated server's fatal error (and `retail-install-check`) on Windows.
 - **No build or dependency scripts.** `scripts/deps/*` and `scripts/build.*` do not exist in either repo. The only dependency installer is `tools/ci/linux_deps.sh` (CI-only, apt).
 - **No retail data discovery.** No platform probes common retail install locations. Linux and Windows `Sys_DefaultBasePath` return the current directory. `fs_basepath` works and is what the tests use.
-- **The Vulkan client on a network is tested only by automation (2026-09-25).** It joined a dedicated server and hosted a listen server (`+spawnServer`; `+devmap` starts no async server), each with one headless peer, and moved under `clientMove`. Nobody has played it, and nothing checks what it draws of remote players.
-- **The listen host's view is expected to be stepped.** `idAsyncServer::RunFrame` never calls `ClientUpdateView`, so a listen host would draw remote players at the tick rate (M5).
+- **The Vulkan client on a network is tested only by automation (2026-09-25).** It joined a dedicated server and hosted a listen server (`+spawnServer`; `+devmap` starts no async server), each with one headless peer, and moved under `clientMove`. Nobody has played it. `frame-poses-join` captures what it draws: remote players change once per tick (plan step 8).
+- **The listen host's view is stepped** (measured by `frame-poses-listen`): camera, viewmodel and remote players change once per tick, because `idAsyncServer::RunFrame` never calls `ClientUpdateView` (M5 plan step 7).
 - **High-refresh gaps (openETQW-game):**
   - Remote-entity interpolation producer compiled out: `src/game/Entity.cpp:1736` (`#if 0 // jmarshall - unlock fps`).
-  - The vehicle sub-tick path is unreachable: `idPlayer::IsFPSUnlock` returns false with a proxy (`src/game/Player.cpp:8794`).
-  - `com_unlock_avgFrames`, `com_unlock_safetyMargin` and `com_unlock_timingMethod` are registered (`src/framework/Common.cpp:80–85`) and read nowhere.
-  - Other per-frame effects of late view-angle sampling that the audit listed (the mouse smoothing history, `game->UsercommandCallback`) were not reviewed today.
+  - Vehicle seats draw at the tick rate: `idPlayer::IsFPSUnlock` returns false with a proxy (`src/game/Player.cpp:8794`), as retail 1.5 does (M5 plan D2). OpenETQW's vehicle sub-tick code still runs on the render frames of the tick in which a player enters, and through `GetAORView` (AoR, antilag), where it writes presentation values into tick state (plan step 6). D10 adds an opt-in seat view (steps 13–14).
+  - `com_unlock_avgFrames`, `com_unlock_safetyMargin` and `com_unlock_timingMethod` are registered (`src/framework/Common.cpp:80–85`) and read nowhere (D9: remove them, plan step 12).
+  - Other per-frame effects of late view-angle sampling that the audit listed (the mouse smoothing history, `game->UsercommandCallback`) were not reviewed (2026-09-24 audit).
 - **Silent engine no-ops** in `src/framework/async/NetworkSystem.cpp`:
   - `ServerGetClientNetId` (:245);
   - `ServerKickClient` (:255), empty, so kicks the game requests do nothing;
@@ -143,16 +171,16 @@ Notes on the per-map results:
   - Headless render world: `src/sys/stub/headless_stubs.cpp`. One area, and traces never hit.
   - The dedicated server therefore gets no render-model combat hits (players while dead, prone or leaning use render-model combat models). `RadiusPush` ignores walls there. `RadiusDamage` uses collision traces and is not affected.
   - Game PVS falls back to "all areas visible".
-  - Ledger row 013 records all of this as of today's docs pass (at 84a224b it did not).
-- **Skipped map chunks:** ledger 013 records `shadowModel` and `mapEnvBounds` (every stock map has both), the discarded portal data and the headless render world (today's docs pass; at 84a224b it named valley only).
+  - Ledger row 013 records all of this since the 2026-09-24 docs pass (at 84a224b it did not).
+- **Skipped map chunks:** ledger 013 records `shadowModel` and `mapEnvBounds` (every stock map has both), the discarded portal data and the headless render world (the 2026-09-24 docs pass; at 84a224b it named valley only).
 - **Untriaged warnings.**
   - `salvage.script(338)`: "Event call on a NULL object", after `func_door_gdf_rail_1` is not found.
-  - `sdVehiclePart::AddSurface`: "Invalid Surface", on the headless server.
+  - `sdVehiclePart::AddSurface`: "Invalid Surface", on the headless server (inprocess-map-change and all-stock-maps), on the DVD and the 1.5 data alike; not new with 1.5.
   - Client logs: renderprog parse and "cannot upload ARB" warnings.
 - **Navigation data checks.** The AAS map CRC is never compared. The .nav loader does not bounds-check node links (`BotAI_Navigation.cpp` `LoadNodes`). The AAS loader reads packed disk structs raw, with no layout assertions (`AASFile_local.cpp`).
 - **Vulkan.** Validation layers are not installed on the host. The backend has no screenshot or image capture.
 - **macOS dedicated binary** links the AppKit, Metal, OpenGL and related frameworks (`ded_deps` in `meson.build`). It has never run on a host without a GPU or display.
-- **Retail-install check.** The retail-install requirement (EULA §2 mitigation) is not enforced anywhere.
+- **Retail-install check.** Not enforced on `main`. Built on engine `feat/retail-install-check` (openQ4's check, `fs_validateOfficialPaks`; A7), not merged.
 - **Leftover CMake.** Engine `src/CMakeLists.txt` and game `src/compiledscript/CMakeLists.txt` are still tracked.
 - **Include letter case in the Radiant editor.** `src/tools/radiant` (Windows-only MFC, not built by Meson) has about 80 includes whose case does not match the file; `check_include_case.py` excludes it.
 
@@ -162,18 +190,18 @@ Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>
 | Capability | Linux x86_64 | Windows 11 x64 | macOS arm64 | macOS x86_64 | Linux arm64 | Notes |
 |---|---|---|---|---|---|---|
 | idLib + game module build | compiled (hosted CI, Ubuntu 24.04: GCC 13.3, Clang 18.1.3) | compiled (hosted CI, windows-2025 runner: MSVC 19.51) | compiled (local) | compiled (hosted CI) | compiled (hosted CI, GCC cross from x64) | CI last green at game 9a929f6 (pre-rewrite ID), before the last game commits. CI resolves `GetGameAPI` after loading the module (not the arm64 cross build) and runs no unit tests. The Windows runner is not Windows 11. The Linux runner is Ubuntu, not Arch, Fedora or Debian |
-| Engine build | blocked: never configured (no host, no CI) | blocked: never configured (no host, no CI); link gaps at inspection | compiled | — | — | macOS x64 and Linux ARM64 engine CI legs exist but skip. A docstring in `tools/ci/dedicated_server_smoke.py` claims a Rosetta x86_64 run; no log supports it |
+| Engine build | blocked: never configured (no host, no CI) | blocked: never configured (no host, no CI); link gaps at inspection; a mingw-w64 cross-compile is next (C12) | compiled | — | — | macOS x64 and Linux ARM64 engine CI legs exist but skip. A docstring in `tools/ci/dedicated_server_smoke.py` claims a Rosetta x86_64 run; no log supports it |
 | Dedicated server launch (headless) | blocked: no engine build | blocked: no engine build | map-loaded | — | — | macOS: on a Mac with GPU and display. Stdin console commands and exit 0 |
 | Client launch (graphics) | blocked: no engine build | blocked: no engine build | map-loaded | — | — | SDL3 + Vulkan via MoltenVK. `+devmap` sessions, and since 2026-09-25 a network join and a listen host (`client-network-*`) |
 | Asset-free unit tests | blocked: no engine build | blocked: no engine build | unit-tested | — | — | bitmsg, usercmd-delta, struct-layout, usercmd-history, zero-sdk. The codec tests are self-consistency tests |
 | Stock map: server | blocked: no engine build | blocked: no engine build | map-loaded | — | — | 11 stock maps + Valley, warmup. One Valley match with forced objectives |
 | Stock map: client | blocked: no engine build | blocked: no engine build | map-loaded | — | — | valley, outskirts, ark, canyon, refinery. Draw counters only |
 | OpenETQW MP: dedicated | blocked: no engine build | blocked: no engine build | map-loaded | — | — | Loopback, one host. Up to 2 clients (headless, or the Vulkan client and a headless one) + 1 bot. Movement checked both ways; reconnect, client restart, map restart, 10-minute lossy session |
-| OpenETQW MP: listen server | blocked: no engine build | blocked: no engine build | map-loaded | — | — | The Vulkan client with `+spawnServer` (`+devmap` starts no async server) and one headless peer (2026-09-25): the peer sees the host walk, and the host moves the peer's player. What the host draws of remote players is not checked and is expected to be stepped (no `ClientUpdateView`) |
+| OpenETQW MP: listen server | blocked: no engine build | blocked: no engine build | map-loaded | — | — | The Vulkan client with `+spawnServer` (`+devmap` starts no async server) and one headless peer (2026-09-25): the peer sees the host walk, and the host moves the peer's player. What the host draws is stepped, measured by `frame-poses-listen`: camera, viewmodel and remote players change once per tick (no `ClientUpdateView`) |
 | Cross-OS client/server pair | blocked: no engine build | blocked: no engine build | blocked: needs an engine on a second OS | — | — | M3 requires one |
-| High refresh: on foot | blocked: no engine build | blocked: no engine build | map-loaded | — | — | Offline replay at caps 60/120 (held exactly) and 144/240 (display-bound at ~120 here). Key turning per second (turn-rate, headless networked client). The Vulkan client has joined a server (`client-network-join`), but nothing captures per-frame poses |
-| High refresh: vehicles | blocked: no engine build | blocked: no engine build | blocked: path unreachable (`IsFPSUnlock` proxy gate) | — | — | The sub-tick vehicle code added 2026-09-21 has never run |
-| Bots / navigation | blocked: no engine build | blocked: no engine build | map-loaded | — | — | Retail AAS on all 12 maps. Warmup traversal on foot (`bot_useVehicles 0` in `all-stock-maps` since 2026-09-25; with vehicles, bots rode for most of the window on six maps), soldier class only. ~15 Hz AI at the retail default |
+| High refresh: on foot | blocked: no engine build | blocked: no engine build | map-loaded | — | — | Offline replay at caps 60/120 (held exactly) and 144/240 (display-bound at ~120 here). Key turning per second (turn-rate, headless networked client). Per-frame poses are captured on foot (`frame-poses-join`/`-listen`, caps 60/120/240) |
+| High refresh: vehicles | blocked: no engine build | blocked: no engine build | blocked: `IsFPSUnlock` refuses any proxy, as retail 1.5 does (D2) | — | — | Seats draw at the tick rate. OpenETQW's vehicle sub-tick code runs only on the entering tick's render frames and via AoR, where it leaks (plan step 6); the opt-in seat view is plan steps 13–14 (D10) |
+| Bots / navigation | blocked: no engine build | blocked: no engine build | map-loaded (DVD data) | — | — | Retail AAS on all 12 maps. Warmup traversal on foot (`bot_useVehicles 0` in `all-stock-maps` since 2026-09-25; with vehicles, bots rode for most of the window on six maps), soldier class only. ~15 Hz AI at the retail default |
 | Retail 1.5 peer rejected at connect (clean break, D7) | blocked: no engine build | blocked: no engine build | launched | — | — | Simulated peer (id/Splash Damage majors 1, 2, 10–14, 22) gets "Server uses protocol 20293.5". No real retail client tried |
 
 ### Build and dependency scripts verified
@@ -197,7 +225,7 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
 - Gaps:
   - The engine was never configured on Linux or Windows; M0 needs the other two OSes to at least configure.
   - At 84a224b, `docs/provenance.md` does not state the import method. The docs pass (PR #2) adds it.
-  - SDK code in the engine build is under-registered (see Release gate 2), and there are no decision records (`docs/decisions/` does not exist).
+  - SDK code in the engine build: registered (`docs/provenance.md` §4) and approved as exceptions on 2026-09-25 (`docs/decisions/0001-sdk-code-in-the-engine-build.md`).
   - Provenance labels are wrong at 84a224b for the compiledscript tree (SDK, labeled MIT), and two minizip entries are stale (`.cpp` → `.c`). The docs pass (PR #2) corrects both (Release gate 3).
   - openQ4-derived files (`URLPolicy.h`, `macosx_common.h`, `macosx_sys.h`, `macosx_local.h`, `macosx_compat.mm`, `macosx_misc.mm`) have no donor commit and no SPDX line.
   - At 84a224b the codec unit tests were not labeled as self-consistency tests; ledger rows 003/014 and this file now label them.
@@ -215,7 +243,7 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
 - Client: the Vulkan client renders 5 maps, backed by draw counters only.
 - Gaps:
   - In the graphical client, spawn and movement are asserted only by the network tests (`client-network-*`, 2026-09-25), from the server's and the peer's side; collision is not asserted.
-  - The skipped-chunk list was incomplete: portal data is discarded, the client portal API is stubbed, and the headless render world is stubbed. Ledger 013 records them as of today's docs pass; their gameplay effects are not measured.
+  - The skipped-chunk list was incomplete: portal data is discarded, the client portal API is stubbed, and the headless render world is stubbed. Ledger 013 records them since the 2026-09-24 docs pass; their gameplay effects are not measured.
 
 **M3 (OpenETQW multiplayer): partial; one Mac, loopback; the cross-OS pair is missing.**
 - Shown (map-loaded):
@@ -227,11 +255,11 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
   - Remote clients follow map changes, also at 10% loss with 60 ms + 0–40 ms latency and at 20% loss.
   - The two-client test also passes at 80 ms + 0–40 ms latency with 5% loss.
   - User info reaches both clients.
-  - The server registers a client's attack and its release; this assertion was added today.
+  - The server registers a client's attack and its release (asserted since 2026-09-24).
 - Not tested:
   - peer-observed weapon fire (a headless peer cannot observe it);
   - a cross-OS pair (no second OS host);
-  - the Vulkan client with a human at the controls, and the listen host's view of remote players over time (M5).
+  - the Vulkan client with a human at the controls.
 - Loss and jitter simulation is POSIX-only and keeps packet order, so reordering is never tested.
 
 **M4 (full match): mostly not met.**
@@ -248,18 +276,18 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
 - In network games (client or listen host) no GUI updated: the engine never called the per-frame GUI update outside single player (0 updates in 5 s of play). Fixed 2026-09-25; `client-network-*` require it (60 updates/s at cap 60).
 - What the Vulkan client draws is now captured per frame (`g_logFramePoses`, meson `frame-poses-join`/`-listen`, 2026-09-25, on foot, caps 60/120/240): on a network client the camera changes on every draw, remote players only once per tick (the `Entity::Present` producer is off) and, since the `PresentUnlocked` fix, the viewmodel changes on every draw (before it, it repeated on about a fifth of draws: after a snapshot re-ran prediction, `isNewFrame` was false and the weapon's `Present()` returned early); on a listen host camera, viewmodel and remote players all change only once per tick.
 - Frame rate is now measured during play (`com_logFrameTiming`, 2026-09-25): caps 60 and 120 are held exactly (16.67 and 8.33 ms frames) after a pacer fix; caps 144 and 240 run at about 120 because presentation waits for this host's 120 Hz display. Every replay schedule has one ~410–540 ms stall right after spawn: first-use material and render-program loading (with debug dumps), not pacing.
-- Today's turn-rate fix removed one render-rate dependence of authoritative state (key turning).
-- `docs/frame-path.md` (2026-09-25) traces one host frame in each mode, from code; its pacing section (§7.1, §7.5, §7.6) also has the frame rates measured with `com_logFrameTiming`. `docs/m5-plan.md` orders the remaining work in 16 steps, with ten owner decisions (D1–D10).
+- The 2026-09-24 turn-rate fix removed one render-rate dependence of authoritative state (key turning).
+- `docs/frame-path.md` (2026-09-25) traces one host frame in each mode, from code; its pacing section (§7.1, §7.5, §7.6) also has the frame rates measured with `com_logFrameTiming`. `docs/m5-plan.md` orders the remaining work in 17 steps; the owner made its ten decisions (D1–D10) on 2026-09-25, and D10's CVar default waits for confirmation.
 - Open (details and file:line in `docs/frame-path.md` §9):
   - the `Entity::Present` producer (compiled out by jmarshall; SDK code);
   - the vehicle proxy gate;
   - the listen host: no `ClientUpdateView`, and it samples view input only once per tick, so its camera turns at 30 Hz;
   - OpenETQW's vehicle-view interpolation writes presentation values into state the next tick reads (`unlockedDraw` stays set until the next tick or snapshot);
   - tick frames are drawn at the tick boundary (a 30 Hz judder at any cap);
-  - a mixed-cap live session, per-frame pose capture, a cap change during play;
-  - `com_unlockFPS` is ignored, and `com_unlock_avgFrames`/`safetyMargin`/`timingMethod` do nothing.
+  - a mixed-cap live session and a cap change during play;
+  - `com_unlockFPS` is ignored, and `com_unlock_avgFrames`/`safetyMargin`/`timingMethod` do nothing (D9: remove them).
 
-**M7 (public release): not met.** None of the six release-gate items is cleared (next section). Also missing:
+**M7 (public release): not met.** None of the six release-gate items is cleared yet. Item 2's SDK exceptions are approved (A6), and the item clears for the engine binaries when the licence install (`feat/retail-install-check` 0b3386c) merges (next section). Also missing:
 - packages and packaging scripts;
 - a release workflow;
 - `docs/platform-matrix.md`;
@@ -274,42 +302,36 @@ Both repositories are private and have no releases.
    - A local byte-level audit (2026-09-22, gitignored `.agents/claude_session_2026-09-22/JMARSHALL_PROVENANCE_AUDIT.md`) found about 135 compiled engine files (about 54.7k lines) that are jmarshall-authored, and 57 game files that are SDK files with his edits. Both histories start from his commits.
    - Some engine sources carry Hex-Rays/IDA-style markers. They are his reconstructed code (the `retail_RE` provenance tier), not raw decompiler output, and fall under the same open question.
    - Remediation deferred by the owner (2026-09-25). This gate stays blocking until it is resolved.
-2. **SDK-licensed code linked into engine binaries: not cleared.**
-   - At 84a224b, `docs/provenance.md` registers only 7 staged headers (`Game.h`, `NetworkSystem.h`, `UsercmdGen.h`, `BuildDefines.h`, `BuildDefines.inc`, `BotAI_Debug.h`, `Bot_Common.h`).
-   - Not registered at 84a224b:
-     - the game repo's SDK idLib (`libidLib.a`, 72 objects), linked into the client, the dedicated server and the unit tests;
-     - the staged SDK `src/decllib/DeclType.cpp`, compiled into both;
-     - the rest of the staged SDK files the build reads: 192 distinct files (193 path spellings in the ninja deps, because `declManager.h` was also included as `DeclManager.h`);
-     - the staged SDK `BitMsg.cpp`, compiled into three unit tests.
-   - Today's docs pass rewrites the registry (`docs/provenance.md` §4) to list all of this (merged in PR #2).
-   - There are no decision records and no owner approvals.
-   - Engine HEAD contains no SDK files, but engine history does, through jmarshall's root commits. The owner left that history in place (2026-09-25). Before publishing, SDK EULA §5 (the EULA must accompany each copy) still has to be handled for those commits (`docs/provenance.md` §6).
+2. **SDK-licensed code linked into engine binaries: not cleared; exceptions approved by the owner (2026-09-25).**
+   - The engine links the game repo's SDK idLib (`libidLib.a`, 72 objects) and compiles the staged SDK `DeclType.cpp`, 189 staged SDK headers and `BuildDefines.inc`; three unit tests also compile the SDK `BitMsg.cpp`. `docs/provenance.md` §4 lists them (E1–E4).
+   - The owner approved them as tracked exceptions on openQ4's precedent (A6; `docs/decisions/0001-sdk-code-in-the-engine-build.md`). Condition: every engine package carries the SDK EULA as well as the GPL (built on `feat/retail-install-check` 0b3386c, not merged). The item is cleared for the engine binaries once that merges.
+   - Still open before publishing: engine history holds SDK files through jmarshall's root commits (the owner left them in place); SDK EULA §5 (the EULA must accompany each copy) still has to be handled for those commits (`docs/provenance.md` §6).
 3. **`docs/provenance.md` coverage: not cleared.**
-   - At 84a224b, `docs/provenance-manifest.json` classified 5,275 imported files; after today's edit (splash entry dropped) it classifies 5,274.
+   - At 84a224b, `docs/provenance-manifest.json` classified 5,275 imported files; after the 2026-09-24 edit (splash entry dropped) it classifies 5,274.
    - About 103 engine files and 29 game files added after the split are not in it.
    - At 84a224b / 24f58bf, the manifest and the game's `tools/ci/spdx_allowlist.txt` label the 204 files in `src/compiledscript/scripts/` (202 `.script`, 2 `.include`) and 13 compiledscript runtime files (217 in all) Reconstruction_original/MIT. They are SDK files (`LicenseRef-ETQW-SDK`).
-   - Today's docs pass is correcting this. The manifest relabels 217 compiledscript files as SDK, drops the purged splash entry and fixes the two minizip entries. The allowlist is updated to match (merged in PR #2).
+   - The 2026-09-24 docs pass corrected this. The manifest relabels 217 compiledscript files as SDK, drops the purged splash entry and fixes the two minizip entries. The allowlist is updated to match (merged in PR #2).
    - jmarshall files are labeled GPL-3.0-or-later although their license is the open question.
    - Other defects are listed under M0.
 4. **LICENSE and README explain the split and the retail-data requirement: not cleared.**
    - At the audit, the engine `readme.md` was jmarshall's two lines, the game repo had no README, and the engine `LICENSE` did not mention the split. The game `LICENSE` explains the SDK EULA/MIT split and the retail requirement.
-   - Today's docs pass drafted an engine `readme.md` and a game `README.md` covering these points. They are merged in PR #2 and await owner review.
+   - The 2026-09-24 docs pass drafted an engine `readme.md` and a game `README.md` covering these points. They are merged in PR #2 and await owner review.
 5. **No retail binaries, PDBs, raw RE output, captures or assets in either repo's history: not cleared.**
-   - The one retail file found, the splash bitmap, was purged from both repos' history on 2026-09-24 (`main` and `wip/stock-maps-m2-checkpoint` force-pushed).
+   - The one retail file found, the splash bitmap, was purged from both repos' history on 2026-09-24 (`main` and `wip/stock-maps-m2-checkpoint` force-pushed). On 2026-09-25 the 1.5 patch paks (4,531 files) were scanned the same way: the only matches are the SDK script text in `src/compiledscript/scripts/` (`docs/provenance.md` §7).
    - GitHub still keeps `refs/pull/1/head` in each repo, pointing at the old commits (engine 53d0172, game 9b3a02b), whose history still contains it. Removing them needs GitHub Support or recreating the repositories. The owner deferred this on 2026-09-25 and expects to recreate the repositories; check that the old refs are gone when that happens.
-   - Local backup bundles of the pre-purge repos exist outside the repos (session scratchpad).
+   - Local backup bundles of the pre-purge repos (verified) are kept outside the repositories, in the gitignored `~/openETQW/.agents/backups-2026-09-24-prepurge/`. They hold the purged bitmap and must never be pushed.
    - No `.exe`, `.pdb`, `.pk4` or capture files and no raw decompiler output were found.
    - Third-party binary blobs remain: `src/openal/lib/openal32.lib`, `eaxguid.lib` (2 copies) and zlib contrib `.obj` files. They are not retail content, but they are unreviewed restricted dependencies (§11).
 6. **SDK EULA with the game repo and every package; retail-install check enforced; nothing sold: not cleared.**
+   - The owner accepted the EULA §2 risk as openQ4 does (A3, 2026-09-25), with two safeguards (`docs/decisions/0002-sdk-eula-risk-and-retail-install-check.md`):
+     - the retail-install check, openQ4's design (A7): built on engine `feat/retail-install-check`, not merged;
+     - the licence texts in every package: the engine and game install sets carry them on `feat/retail-install-check` (0b3386c, checked by meson `install-licenses`) and game `feat/install-licenses`, not merged.
    - The EULA ships verbatim in the game repo (`legal/EULA SDK ETQW.rtf`, `EULA_SDK_ETQW.txt`).
-   - No packages exist.
-   - The game's `meson install` and the past CI artifacts carry no EULA.
-   - The retail-install requirement is not enforced.
-   - Nothing is sold.
+   - No packages exist. Nothing is sold.
 
 ## Compatibility record
-- **Module ABI:** `GAME_API_VERSION` is 8 (1008 with `SD_PUBLIC_TOOLS`), in openETQW-game `src/game/Game.h:467–471`. The engine checks it at load (`Common.cpp:1286`). The previous STATUS said 1, which was wrong. No interface change today. `struct-layout` asserts `gameImport_t` 192 bytes and `gameExport_t` 24 bytes on arm64 (unit-tested).
-- **Serialized/asset format changes:** none today. The usercmd codec moved to `UsercmdCodec.cpp` unchanged.
+- **Module ABI:** `GAME_API_VERSION` is 8 (1008 with `SD_PUBLIC_TOOLS`), in openETQW-game `src/game/Game.h:467–471`. The engine checks it at load (`Common.cpp:1286`). The previous STATUS said 1, which was wrong. No interface change on 2026-09-24 or 2026-09-25. `struct-layout` asserts `gameImport_t` 192 bytes and `gameExport_t` 24 bytes on arm64 (unit-tested).
+- **Serialized/asset format changes:** none. The usercmd codec moved to `UsercmdCodec.cpp` unchanged (2026-09-24).
 - **Wire protocol id and OpenETQW-only deviations:** major `0x4F45` ('OE' = 20293), minor 5 (`src/framework/async/AsyncNetwork.h`):
   - minor 1: 16-bit channel framing, acked baselines;
   - minor 2: reliable game init;
@@ -317,18 +339,19 @@ Both repositories are private and have no releases.
   - minor 4: streamed snapshots with APPLYSNAPSHOT;
   - minor 5: client prediction in usercmd messages.
 
-  Retail 1.5 peers are refused at connect with "Server uses protocol 20293.5". As of today (PR #2), the protocol is checked first. That assumes a retail connect starts with the protocol field, as Doom 3's does; no real retail client has been tried.
+  Retail 1.5 peers are refused at connect with "Server uses protocol 20293.5". Since PR #2 (2026-09-24), the protocol is checked first. That assumes a retail connect starts with the protocol field, as Doom 3's does; no real retail client has been tried.
 - **Retail 1.5 network compatibility:** dropped (owner decision, 2026-09-25, matching openQ4). It is not claimed. Retail 1.5 data is required and supported.
 - **Protocol id coverage:** game-side codecs (snapshots, user info, network events) are outside the protocol id. The game's `ServerAllowClient` has no version check, so minor bumps are kept by convention only.
-- **Ledger rows (`docs/compat-ledger.md`) this work bears on** (updated in today's docs pass):
-  - 050: added in PR #1, merged today.
-  - 009: dedicated pacing. Its "no busy-spin" claim was wrong until today's change; the row now describes the `std::chrono` sleep, the client spin tail and the 1.5% → 1.1% measurement.
+- **Ledger rows (`docs/compat-ledger.md`) this work bears on:**
+  - 050: added in PR #1 (2026-09-24). Its "retail" signatures were the 1.0 DVD scripts'; retail 1.5 uses the SDK ones, which game `fix/target-1.5-data` restores (pending).
+  - 047: `validClasses` read as retail 1.5 reads it, `GetBool` (B10; pending the same branch). 030: resolved by the 1.5 data. 040: B8. 052 (new): the data target is retail 1.5.
+  - 009: dedicated pacing (2026-09-24: no busy-spin; the client margin is adaptive since 2026-09-25).
   - 036: clean break. The rejection is now checked before the challenge. D7 was deferred on 2026-09-24 and dropped on 2026-09-25.
   - 014: the 16-bit wire parity claim is withdrawn; the usercmd tests now compile the engine codec and are labeled self-consistency tests.
   - 051 (new): turn rate, connect check order, seat-swap finding.
   - 008: aim/camera; relevant to the turn-rate fix.
-  - 028 and 029: the audit found overclaims (stale pacing description; the vehicle smoothing is unreachable).
-- **Protocol version bumped (incompatible wire change)?** No. Today's changes alter no bytes on the wire. A connect message holding only the protocol field now gets a print instead of silence; that is server behavior, not format.
+  - 028 and 029: the audit found overclaims (stale pacing description; vehicle smoothing that never ran). The 029 finding was corrected on 2026-09-25: the vehicle sub-tick code runs on the render frames of the tick in which a player enters a vehicle, and through `GetAORView` (AoR, antilag), where it writes into tick state (plan step 6).
+- **Protocol version bumped (incompatible wire change)?** No. No change on 2026-09-24 or 2026-09-25 alters bytes on the wire. A connect message holding only the protocol field now gets a print instead of silence; that is server behavior, not format.
 
 ## Baseline observations delta
 None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline/observations-etqw-f2b655c.json` is unchanged.
@@ -336,21 +359,18 @@ None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline
 ## Next steps (7 or fewer, ordered)
 | # | Step | Host / OS needed | Depends on | Acceptance test |
 |---|---|---|---|---|
-| 1 | Provenance and license records (today's corrections are merged: compiledscript relabel, import method, full exception registry). Write decision records in `docs/decisions/` for each SDK exception. Add post-split files and openQ4 donor commits to the manifest; add SPDX lines | any | owner approval for exceptions | Manifest covers every tracked file; game `python3 tools/ci/check_spdx.py` passes; the registry matches ninja deps |
-| 2 | Linux x86_64 and Windows 11 engine builds. Close the Windows link gaps; run the M1 dedicated checklist with retail data | Linux x86_64 and Windows 11 hosts, or a private runner | owner input | Engine compiles on both; dedicated server loads a stock map, takes console commands, exits 0 |
-| 3 | M5 groundwork, in the order of `docs/m5-plan.md`: frame timing and per-frame pose capture first (steps 2–3, no owner decision), then the presentation-leak fixes, the listen host, the `Entity::Present` producer and the vehicle gate as the owner decides D1–D10 | macOS arm64 | D1–D10 for the later steps | Each step's meson test (see the plan); the capture test shows remote-entity poses changing on every rendered frame |
-| 4 | Retail-install check that still allows the asset-free CI smoke (release gate 6) | any | owner decision on the design | Engine refuses to run without a full retail install; `tools/ci/dedicated_server_smoke.py` still passes |
-| 5 | M4 gameplay-driven tests: classes, damage and kills, deployable delivery, stopwatch and campaign transitions | macOS arm64 | none | New meson tests pass on the tested maps |
+| 1 | Target 1.5: game `fix/target-1.5-data` PR, then an engine companion bump with ledger 047/050/030/022/013/052, the DVD-fact tests, the B9 criterion in `all-stock-maps`, the per-map table re-run on 1.5, and `KNOWN_VIEW_LEAK` confirmed on the fixed game | macOS arm64 | none (PR #14 merged) | Full suite on the 1.5 data: 28/28 |
+| 2 | Release gate 6 safeguards: engine `feat/retail-install-check` with game `feat/install-licenses` (rebased on 54d18d8); readme, CONTRIBUTING, ledger 035/052 and this file updated when they merge | macOS arm64 | step 1 (the check refuses the DVD set; only the fixed game passes on 1.5) | Full suite on 1.5 plus `retail-install-check` and `install-licenses` |
+| 3 | M5 in the order of `docs/m5-plan.md`: the D1 test change (the reach bounds become reports), then steps 6–15 and 17 | macOS arm64 | D10's default for steps 13–14 | Each step's test (see the plan) |
+| 4 | Windows x64 cross-compile with mingw-w64 (C12); then a Linux sysroot | macOS arm64 (cross) | none | The engine configures and compiles for Windows x64 |
+| 5 | Provenance and license records: post-split files and openQ4 donor commits in the manifest, SPDX lines, the minizip relabel (release gate 3) | any | none | Manifest covers every tracked file; game `check_spdx.py` passes |
+| 6 | M4 gameplay-driven tests: classes, damage and kills, deployable delivery, stopwatch and campaign transitions | macOS arm64 | step 1 | New meson tests pass on the 1.5 data |
 
 ## Inputs needed from the owner
-- A Linux x86_64 host (Arch, Fedora or Debian) and a Windows 11 x64 host, each with the retail 1.5 paks. A private or self-hosted runner, or restored Actions minutes, would also do. Needed for M0 (configure on the other OSes), M1 and the cross-OS pair in M3.
-- The ET:QW 1.5 patch data: `pak005`–`pak008.pk4` and `zpak_english001`–`003.pk4` (from the official 1.5 patch or a full 1.5 client install). The local data is the unpatched DVD set, so the SDK 1.5 game code has only ever run on pre-1.5 scripts and assets; some of the retail script mismatches the game now reconciles may come from that.
-- Optional: a retail ET:QW 1.5 client binary (Linux or Windows), used locally as a behavior reference. It would confirm what a real retail client sees at connect; the current test uses a simulated peer.
+- Optional: `Loaded pk4 ... with checksum` lines from other-language editions (`pak000`–`pak004`), so the retail-install check can accept them.
+- For information (A7/C11 as built): `pak005`–`pak008` are required, where openQ4 leaves its patch paks optional, so an install without the 1.5 patch (including the Steam data package examined, which has no `pak005`–`pak008`) is refused until the patch paks are added; the retail dedicated-server download's server-only paks are refused too.
+- Manual retail-data runs on Linux and Windows, once builds exist (C12).
 
 ## Questions for the owner
-- SDK EULA scope (EULA §2): does it cover a module built for OpenETQW?
-- SDK code in engine binaries: approve `libidLib.a`, `DeclType.cpp` and the staged headers as exceptions, or replace them (for example with a Doom 3 GPL idLib)?
-- Retail-install check: which design? It must still allow the asset-free CI smoke.
-- 30 Hz criterion: should bots think at a true 30 Hz (`bot_threadMinFrameDelay 0`)? The retail default is about 15 Hz.
-- quarry: accept 415 retail entities against the ">500 entities per map" criterion?
-- Ledger 047: keep reading bot `validClasses` as a bitmask, or restore the retail `GetBool`?
+- M5 plan D10: should the allow-listed vehicle-seat view default to on for the ground-vehicle driver seat (the original recommendation; a ledgered deviation, since retail 1.5 has no seat view) or off (drafted; retail behaviour)? The one-seat checks run with it on either way.
+- Proposed charter wording: CHARTER §11 asks that "the game module and engine refuse to run without a full retail ETQW installation's data (no demo or test data)". As decided (A7, openQ4's design), only the engine checks; openQ4's game module has no check either. Change the charter to say "the engine"?

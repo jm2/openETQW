@@ -2,7 +2,7 @@
 
 This document walks through the bot AI and navigation bring-up on Valley: reproduction steps, commands, and console logs.
 
-> **Status (2026-09-24).** This walkthrough was written on 2026-09-21. Its console outputs were recorded then, on macOS arm64 (Apple Clang, debug build), and several no longer match the current code; the notes below say where. The charter audit of 2026-09-24 rates M4 mostly not met: one Valley objective match with objectives, vehicles and deployables forced from the console, soldier class only, no damage or kill observed, and no campaign or stopwatch transitions. The engine has not been built on Linux or Windows. Current status: `STATUS.md`.
+> **Status (2026-09-25).** This walkthrough was written on 2026-09-21. Its console outputs were recorded then, on the unpatched DVD data (OpenETQW now targets 1.5, where valley's AAS is 9,379 areas / 47,595 reachabilities and 6,367 / 25,981, and `valley.nav` has 183 nodes), on macOS arm64 (Apple Clang, debug build), and several no longer match the current code; the notes below say where. The charter audit of 2026-09-24 rates M4 mostly not met: one Valley objective match with objectives, vehicles and deployables forced from the console, soldier class only, no damage or kill observed, and no campaign or stopwatch transitions. The engine has not been built on Linux or Windows. Current status: `STATUS.md`.
 
 ---
 
@@ -30,7 +30,7 @@ This walkthrough covers the bot AI and navigation mesh bring-up on stock map Val
 
 5. **Automated Verification & Zero-SDK Check**:
    - Automated integration test `tests/test_bot_gameplay.py`, registered in the top-level `meson.build` as `bot-gameplay`. It now measures the server tick rate from `SIM_HASH` lines and, since 2026-09-24, fails on failure markers in the server output (`etqw_harness.scan_failures`).
-   - The Meson suite had 7 tests when this was written; it now has 22 (5 unit, 17 integration). The last complete retail-data run before the `fix/audit-followups` changes passed 21/21 (2026-09-24, macOS arm64). See `STATUS.md` for the latest run.
+   - The Meson suite had 7 tests when this was written; it now has 28 (5 unit, 23 that need retail data). See `STATUS.md` for the latest runs.
    - No SDK-licensed files are tracked in the engine repository (`zero-sdk` test). The engine binaries still link SDK code from the game repository (`docs/provenance.md` §4).
 
 ---
@@ -133,7 +133,7 @@ ETQW_DATA_PATH=/path/to/etqw meson test -C build -j 1 --verbose   # full suite w
 
 The tests use fixed UDP ports, so run one suite at a time on a host (`CONTRIBUTING.md`).
 
-**Output recorded on 2026-09-21**, when the suite had 7 tests (it has 22 now; see `STATUS.md` for the latest run):
+**Output recorded on 2026-09-21**, when the suite had 7 tests (it has 28 now; see `STATUS.md` for the latest run):
 ```text
 1/7 openETQW / bitmsg                  OK              0.04s
 2/7 openETQW / usercmd-delta           OK              0.04s
