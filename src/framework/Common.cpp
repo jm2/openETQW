@@ -1062,8 +1062,15 @@ void idCommonLocal::Frame() {
 		if ( session != NULL ) {
 			if ( !idAsyncNetwork::IsActive() ) {
 				session->Frame();
-			} else if ( networkSystem != NULL && networkSystem->IsDedicated() && renderSystem != NULL ) {
-				renderSystem->SyncRenderSystem();
+			} else if ( networkSystem != NULL && networkSystem->IsDedicated() ) {
+				if ( renderSystem != NULL ) {
+					renderSystem->SyncRenderSystem();
+				}
+			} else {
+				// a network client or listen host: advance the GUIs (HUD, menus, world GUIs)
+				// once per frame, as single player's idSessionLocal::Frame does and Doom 3's
+				// multiplayer frame did; without it no GUI updated during a network game
+				session->GuiFrameEvents( false );
 			}
 			session->UpdateScreen( false );
 		}
