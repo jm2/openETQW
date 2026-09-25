@@ -9,7 +9,11 @@ zero simulation drift or physics divergence on stock map Valley (maps/valley.wor
 Validates:
 1. Fixed tick-indexed command stream replayed at caps 60, 120, 144 and 240 and uncapped
    (com_maxFPS 0, which also measures this host's frame-rate ceiling).
-2. Bit-for-bit identical CRC32 simulation hashes (SIM_HASH) across all schedules.
+2. Bit-for-bit identical CRC32 simulation hashes (SIM_HASH) across all schedules, and
+   identical SIM_VIEW lines: state each tick produces that later ticks read back and that
+   a render frame could write into (the view angles after UpdateViewAngles, the tick's
+   logged view origin and weapon offset, the vehicle's last pushed pose;
+   docs/frame-path.md section 6.9).
 3. Identical player/vehicle coordinates, velocities, health, objective state, and serviced event counts.
 4. The frame rate each schedule reached during play, from the engine's once-a-second
    FRAME_TIMING lines (com_logFrameTiming 1; windows with >= 25 game ticks), taken from the
@@ -86,6 +90,8 @@ SIM_HASH_RE = re.compile(
     r"ev=(\d+)"
 )
 
+
+SIM_VIEW_RE = re.compile(r"SIM_VIEW: tick=(\d+) (.*)$")
 
 FRAME_TIMING_RE = re.compile(
     r"FRAME_TIMING: window_ms=([\d.]+) frames=(\d+) ticks=(\d+) cap=(-?\d+)"
@@ -262,6 +268,11 @@ def run_determinism_schedule(
     return sim_hashes, vulkan_frames, output_lines
 
 
+def sim_views(lines: list[str]) -> dict[int, str]:
+    """tick -> the SIM_VIEW fields (game builds from 2026-09-25)."""
+    return {int(m.group(1)): m.group(2).strip() for ln in lines if (m := SIM_VIEW_RE.search(ln))}
+
+
 def main() -> int:
     print("=================================================================")
     print(" OpenETQW High-Refresh Simulation Determinism Replay Test")
@@ -288,6 +299,7 @@ def main() -> int:
     results: dict[int, dict[int, SimHashEntry]] = {}
     frames: dict[int, int] = {}
     timing: dict[int, dict | None] = {}
+    schedule_lines: dict[int, list[str]] = {}
 
     test_start = time.time()
 
@@ -301,6 +313,7 @@ def main() -> int:
         results[fps] = sim_hashes
         frames[fps] = presented_frames
         timing[fps] = play_timing(lines)
+        schedule_lines[fps] = lines
 
     print("\n=================================================================")
     print(" Cross-Schedule Determinism & Bit-for-Bit Identity Verification")
@@ -418,6 +431,21 @@ def main() -> int:
     print(f"[SUMMARY] Total mismatches detected: {mismatches}")
 
     assert mismatches == 0, f"Determinism failure: {mismatches} state mismatches detected across render schedules!"
+
+    print("\n--- Tick-produced view state (SIM_VIEW) across schedules ---")
+    views = {fps: sim_views(schedule_lines[fps]) for fps in rates}
+    if not views[rates[0]]:
+        raise AssertionError("no SIM_VIEW lines: the game build predates them")
+    view_mismatches = []
+    for fps in rates[1:]:
+        for tick, fields in views[rates[0]].items():
+            other = views[fps].get(tick)
+            if other != fields:
+                view_mismatches.append(f"tick {tick}: {cap_label(rates[0])} {fields} | {cap_label(fps)} {other}")
+    print(f"  {len(views[rates[0]])} ticks per schedule; {len(view_mismatches)} differ")
+    for m in view_mismatches[:10]:
+        print(f"  [FAIL] {m}")
+    assert not view_mismatches, f"render-frame state leaked into {len(view_mismatches)} tick(s) (SIM_VIEW)"
     assert not rate_failures, f"Frame rate failures: {rate_failures}"
 
     print("\n[PASSED] 100% BIT-FOR-BIT IDENTICAL SIMULATION AT CAPS 60, 120, 144, 240 AND UNCAPPED; FRAME RATES WITHIN BOUNDS.")
