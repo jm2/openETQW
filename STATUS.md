@@ -19,7 +19,7 @@ From the owner, 2026-09-25, answers to the open-question list (the letters and n
 - A7 retail-install check: "exactly how openQ4 does" (`docs/decisions/0002-sdk-eula-risk-and-retail-install-check.md`).
 - B8 bot think rate: keep the retail default (about 15 Hz decisions, `bot_threadMinFrameDelay 1`); the criterion means the bot thread keeps up with the 30 Hz server.
 - B9 quarry's 415 entities: the ">500 entities per map" criterion becomes "every entity in each map file is accounted for".
-- B10 bot `validClasses`: do what retail 1.5 does. Retail 1.5 reads it as a bool in all three game modules (`docs/specs/retail-1.5-reference.md`), so `GetBool` is restored (game `fix/target-1.5-data`, not merged yet).
+- B10 bot `validClasses`: do what retail 1.5 does. Retail 1.5 reads it as a bool in all three game modules (`docs/specs/retail-1.5-reference.md`), so `GetBool` is restored (game PR #11).
 - C11 data: everything targets the retail data patched to 1.5: `pak000`–`pak008` (the required set) plus the edition's language paks (here `zpak_english000`–`003`); the unpatched DVD set alone is not supported.
 - C12 other OSes: no Linux or Windows retail-data automation. Do what is possible without retail data (for example a Windows cross-compile); the owner tests retail data on other OSes by hand.
 - M5 plan D1–D10: all decided (`docs/m5-plan.md`). D10 (asked again with context): vehicles feel "as modern/responsive as possible without breaking game physics": the seat view is on by default and grows to every seat as each is made safe, and moving vehicles further off the tick rate is to be explored.
@@ -71,18 +71,16 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 | openETQW | #13 c6345bb | Network sessions update the GUIs every frame (none did) |
 | openETQW | #14 d15bdea | M5 step 5, single player: `high-refresh-determinism` compares `SIM_VIEW` across caps in full precision; one weapon-log divergence after entering the vehicle is allowed in its measured shape (45–59 ticks from tick 92) until plan step 6 |
 | game | #8 ea14841, #9 54d18d8, #10 f00f4d3 | `SIM_VIEW`: per-tick view state for the replay, with the vehicle view's last returned axis, in full precision |
+| game / openETQW | #11 / this PR | Target the retail 1.5 data: the SDK script-event signatures back, `validClasses` read as retail 1.5 reads it (B10), a data-free `events.script` check; the engine tests for the 1.5 data and B9 |
 
 ### Open and pending
-- **Pushed, no PR yet.** None has passed the full suite yet. Game `fix/target-1.5-data` (17905b1, a5af70b) and engine `feat/retail-install-check` (ff66385, 0b3386c, 9f3b4d6) were adversarially reviewed (13 confirmed findings, all fixed in game a5af70b and engine 9f3b4d6). Game 8ab8457, engine `fix/target-1.5-data` and game `feat/install-licenses` have not been reviewed yet; this docs update was fact-checked (36 corrections applied):
-  - game `fix/target-1.5-data` (17905b1, a5af70b, 8ab8457): the SDK script-event signatures back for the 1.5 scripts (ledger 050), the DVD-only stubs removed, `validClasses` read with `GetBool` (B10), and a data-free `events.script` check in `check_event_handlers.py`. On the 1.5 data: 26 of 28 (Demonstrated).
-  - engine `fix/target-1.5-data` (9575b21, on PR #14's head): the tests for the 1.5 data (the two remaining failures were test markers), the B9 criterion in `all-stock-maps`, spawn counts read from the paks. Its ledger and STATUS updates follow once this docs update merges.
+- **Pushed, no PR yet.** Engine `feat/retail-install-check` was adversarially reviewed (its 7 confirmed findings fixed in 9f3b4d6); game `feat/install-licenses` was not. Neither has passed the full suite yet:
   - engine `feat/retail-install-check` (ff66385, 0b3386c, 9f3b4d6): openQ4's retail-install check (A7, `fs_validateOfficialPaks`), licence texts in the engine's install set (A3), meson tests `retail-install-check` and `install-licenses`.
   - game `feat/install-licenses` (9eba2d9, 9a5f751; on 54d18d8): licence texts in the game's install set and CI artifact, plus the game README/CONTRIBUTING licensing docs.
-  - engine `docs/owner-decisions-0925b`: this docs update.
-- **Merge order:** game `fix/target-1.5-data` with engine `fix/target-1.5-data` (companion bump, tests, ledger); then `feat/retail-install-check` with game `feat/install-licenses` (the check refuses the DVD set, and on the 1.5 data only the fixed game passes).
+- **Merge order:** `feat/retail-install-check` with game `feat/install-licenses`, now that the 1.5 fix has merged (the check refuses the DVD set).
 
 ### Found this session
-- **The data was not 1.5.** `~/etqw_data` held the unpatched English DVD paks, so every result before 2026-09-25 14:49 ran the SDK 1.5 game code on 1.0 scripts. The 1.5 paks were added from the official Linux 1.5 client installer on the owner's drive. On them, `main` fails 20 of 28 tests: PR #1's "retail" script-event signatures had been fitted to the DVD scripts, and the harness counts the reconcile warnings as failures (details under Demonstrated and ledger 050).
+- **The data was not 1.5.** `~/etqw_data` held the unpatched English DVD paks, so every result before 2026-09-25 14:49 ran the SDK 1.5 game code on 1.0 scripts. The 1.5 paks were added from the official Linux 1.5 client installer on the owner's drive. On them, `main` failed 20 of 28 tests: PR #1's "retail" script-event signatures had been fitted to the DVD scripts, and the harness counts the reconcile warnings as failures (details under Demonstrated and ledger 050). With game PR #11 and this engine PR, the full suite passes on the 1.5 data (28/28).
 - **Retail 1.5 behaviour is now readable.** The same installer holds the retail 1.5 game modules; the macOS one keeps its symbols. `docs/specs/retail-1.5-reference.md` records what was read, with addresses: `validClasses` is a bool (B10), no vehicle seat gets per-frame views and remote entities interpolate by origin only (M5 plan D2), render frames reach tick state only through side channels (D4), the `Entity::Present` producer is active (D5), the retail CVar defaults, and the 1.5 script-event signatures.
 - **M5 measurements** (Demonstrated): caps 60 and 120 held exactly after the pacer fix; the ~120 fps ceiling is the display; the network client's viewmodel repeated on a fifth of draws (fixed); no GUI updated in network sessions (fixed); the replay's view state matches at every cap except one bounded weapon-log divergence after entering a vehicle (PR #14; plan step 6 fixes it).
 - **Kept outside the repositories** (gitignored `~/openETQW/.agents/`): the research notes and scripts (`research-2026-09-25/`), the docs audit, the branch-review findings, and the verified pre-purge backup bundles (`backups-2026-09-24-prepurge/`; they contain the purged bitmap and must never be pushed).
@@ -95,6 +93,7 @@ All rows: host mbp-m1max, macOS 27 arm64, Apple Clang 21, debug build, retail da
 | Full suite, `main` binaries, DVD data (28 tests) | map-loaded (highest level any test in it reaches) | as above; engine `main` c6345bb with game ea14841, then game 54d18d8 (`vret`) | `ETQW_DATA_PATH=… meson test -C build --no-rebuild -j 1` (2026-09-25; the second run used a DVD-only view of the data) | 28/28 OK both times |
 | Full suite, `main` binaries, **1.5 data** (28 tests) | map-loaded | as above; engine c6345bb (test tree of `m5/sim-view` 32f4cb1), game ea14841 | as above, 2026-09-25 14:49 | 8 OK, 20 FAIL: client-lifecycle, vulkan-shadows, all-stock-maps, turn-rate, inprocess-map-change, remote-client-map-change (+`-latency`, `-loss`), multiclient-gameplay (+`-latency`), userinfo (+`-loss`), reconnect-restart, lossy-session, client-network-join/-listen, frame-poses-join/-listen, bot-gameplay, valley-match. Cause, in the logs: `script event 'sendNetworkEvent' ( fbs ) in script/events.script does not match its native definition ( Es )` and the same for `broadcastToolTip`, which the harness counts as failures (ledger 050). high-refresh-determinism passed. Also in inprocess-map-change: `sdVehiclePart::AddSurface` "Invalid Surface" warnings, as on the DVD data (not new with 1.5) |
 | Full suite, **1.5 data**, game `fix/target-1.5-data` | map-loaded | as above; engine c6345bb binaries (test tree of `m5/sim-view`), game a5af70b | as above, 2026-09-25 16:58 | 26 OK, 2 FAIL. No reconcile warnings. all-stock-maps 11/11 on the 1.5 maps, with every map entity spawned (the DVD data left 11 path corners unspawned) and ark's and volcano's new counts (897, 1332). client-lifecycle and vulkan-shadows waited out their 90 s: their "player active" marker was a debug print that only the DVD scripts make (`parachute::Idle`), and their map marker is never printed. Fixed in the tests on engine `fix/target-1.5-data` (5a5b672), not yet re-run. An earlier run of this row loaded the old module: the engine loads `game_arm64.dylib` from its own directory first, not from `fs_basepath`. |
+| Full suite, **1.5 data**, both `fix/target-1.5-data` branches | map-loaded | as above; engine `fix/target-1.5-data` 9575b21 (the tests for 1.5) with game 358b2aa | as above, 2026-09-25 18:30 | **28/28 OK.** all-stock-maps 11/11 (table below), campaign-client-maps 4/4, client-lifecycle and vulkan-shadows pass with the new markers, the replay passed with the known divergence in its allowed shape (56 ticks from tick 92) |
 | Replay on the **1.5 data** | map-loaded (offline `+devmap`) | as above; game ea14841 to 54d18d8 | meson `high-refresh-determinism` (five runs, 2026-09-25) | Pass, 5/5. The known weapon-log divergence after entering the vehicle appeared in 3 of 5 runs, always in its allowed shape: from tick 92, 31–37 ticks, any cap against 60 Hz (on the DVD data about 2 runs in 3, 31–40 ticks) |
 | Full retail-data suite, fix branch (22 tests) | map-loaded (highest level any test in it reaches) | as above; the `fix/audit-followups` trees, merged as engine c1e6424 and game b5c3345 | `ETQW_DATA_PATH=… meson test -C build -j 1` (suites 18 and 19) | Suite 18: 21/22 OK; bot-gameplay failed (the bots had not met within the 40 s window). A/B of the old and new dedicated pacing at 40 s: 1/6 and 2/6 failures, server tick rate 30.3 Hz either way, so not a pacing regression. With the 90 s window: 8/8 solo runs passed (first combat after 13.5–42.8 s). Suite 19 (before the code review's fixes): 22/22 OK. Suite 20, final tree: 22/22 OK (2026-09-24, 0 script-event mismatch warnings; `build/meson-logs/testlog.txt` holds this run) |
 | Full retail-data suite, before the fix branch (21 tests) | map-loaded (highest level any test in it reaches) | as above; binaries built 12:26 from the uncommitted tree later committed as fef1e53 / 19a709a. Trees are identical to `main` 84a224b / 24f58bf. This is inferred from file times; the binaries carry no commit stamp | `ETQW_DATA_PATH=… meson test -C build -j 1` (suite 17, 2026-09-24 12:27–12:46 EDT) | 21/21 OK. `build/meson-logs/testlog.txt` has been overwritten by suite 18 |
@@ -116,36 +115,33 @@ All rows: host mbp-m1max, macOS 27 arm64, Apple Clang 21, debug build, retail da
 
 Evidence levels: inspected < configured < compiled < unit-tested < launched < map-loaded < match-tested
 
-**Per-map results** (suite 17, `all-stock-maps`: a fresh dedicated server per map, 45 s bot window, one GDF and one Strogg soldier bot). **DVD data**. The 1.5-data run (all-stock-maps 11/11, in the Demonstrated row "Full suite, **1.5 data**, game `fix/target-1.5-data`") is not copied into this table yet; it replaces this table when the 1.5 fix merges. On the 1.5 data ark's and volcano's entity counts, the AAS of ark, canyon, quarry and valley and the .nav graphs of area22, ark, island, sewer and valley differ, and volcano ships a .nav (`docs/specs/retail-1.5-reference.md`, §5):
+**Per-map results** (`all-stock-maps` on the **1.5 data** with game `fix/target-1.5-data`, 2026-09-25 18:30: a fresh dedicated server per map, 45 s bot window, one GDF and one Strogg soldier bot, bots on foot). Every map entity now spawns (the DVD data left 11 path corners unspawned on 6 maps), and ark and volcano have the 1.5 entity counts. The DVD-data table (suite 17) is in git history.
 
 | Map | Entities spawned + not spawned / retail | Player AAS areas / reach | Vehicle AAS areas / reach | .nav nodes | Bot max per-life displacement GDF / Strogg (u) | Bot samples in a valid AAS area GDF / Strogg | Longest stuck (s) | Server tick (Hz) |
 |---|---|---|---|---|---|---|---|---|
-| area22 | 1063 + 1 / 1064 | 9390 / 56197 | 8352 / 40156 | 83 | 3729 / 13899 | 100% / 100% | 0.0 | 30.26 |
-| ark | 898 + 1 / 899 | 7339 / 39233 | 4506 / 20237 | 71 | 8016 / 10610 | 98.0% / 100% | 0.0 | 30.25 |
-| canyon | 849 + 0 / 849 | 10640 / 53226 | 8349 / 33140 | 182 | 7700 / 10890 | 100% / 100% | 0.51 | 30.25 |
-| island | 723 + 0 / 723 | 8779 / 42963 | 6598 / 26500 | 50 | 9364 / 4336 | 100% / 98.7% | 0.0 | 30.29 |
-| outskirts | 863 + 0 / 863 | 12203 / 64909 | 6045 / 25580 | 159 | 12431 / 5766 | 100% / 100% | 0.0 | 30.25 |
-| quarry | 414 + 1 / 415 | 8878 / 45901 | 5419 / 22337 | 91 | 2380 / 11177 | 100% / 95.3% | 0.53 | 30.27 |
-| refinery | 935 + 1 / 936 | 9564 / 52214 | 5489 / 25487 | 129 | 11380 / 5540 | 100% / 100% | 0.52 | 30.24 |
-| salvage | 923 + 0 / 923 | 9577 / 45289 | 4364 / 16667 | 23 | 6595 / 11031 | 100% / 100% | 0.0 | 30.3 |
-| sewer | 874 + 0 / 874 | 6089 / 30667 | 4432 / 17006 | 58 | 15005 / 10989 | 100% / 100% | 0.52 | 30.27 |
-| slipgate | 1252 + 6 / 1258 | 17005 / 82193 | 7067 / 28580 | 174 | 12137 / 14203 | 100% / 100% | 0.53 | 30.26 |
-| volcano | 1335 + 1 / 1336 | 7641 / 36818 | 3928 / 15838 | none on the DVD data (1.5 ships one, 14 nodes) | 4330 / 7727 | 100% / 100% | 0.0 | 30.29 |
+| area22 | 1064 + 0 / 1064 | 9390 / 56197 | 8352 / 40156 | 93 | 3722 / 14202 | 100% / 100% | 0.0 | 30.29 |
+| ark | 897 + 0 / 897 | 7207 / 38159 | 4489 / 20305 | 72 | 7540 / 11598 | 100% / 100% | 0.0 | 30.28 |
+| canyon | 849 + 0 / 849 | 10673 / 53160 | 8349 / 33140 | 182 | 12079 / 16230 | 100% / 100% | 0.52 | 30.29 |
+| island | 723 + 0 / 723 | 8779 / 42963 | 6598 / 26500 | 68 | 12070 / 4364 | 100% / 100% | 0.0 | 30.3 |
+| outskirts | 863 + 0 / 863 | 12203 / 64909 | 6045 / 25580 | 159 | 11297 / 5134 | 100% / 100% | 0.0 | 30.28 |
+| quarry | 415 + 0 / 415 | 8848 / 45839 | 5417 / 22084 | 91 | 4844 / 12544 | 96.3% / 100% | 0.0 | 30.3 |
+| refinery | 936 + 0 / 936 | 9564 / 52214 | 5489 / 25487 | 129 | 9963 / 8336 | 100% / 100% | 3.15 | 30.28 |
+| salvage | 923 + 0 / 923 | 9577 / 45289 | 4364 / 16667 | 23 | 8020 / 9358 | 98.2% / 100% | 0.0 | 30.28 |
+| sewer | 874 + 0 / 874 | 6089 / 30667 | 4432 / 17006 | 58 | 12597 / 11128 | 100% / 100% | 0.0 | 30.29 |
+| slipgate | 1258 + 0 / 1258 | 17005 / 82193 | 7067 / 28580 | 174 | 14411 / 10914 | 95.7% / 97.8% | 0.0 | 30.29 |
+| volcano | 1332 + 0 / 1332 | 7641 / 36818 | 3928 / 15838 | 14 | 4280 / 7434 | 98.5% / 100% | 0.0 | 30.31 |
 
 Notes on the per-map results:
-- AAS and .nav counts equal the retail file headers on every map.
+- AAS and .nav counts equal the retail file headers on every map (1.5 files where the patch overrides them).
 - The game stays in warmup (state 1) for the whole run. No bot death was seen, though ark's Strogg bot shows 2 lives (unexplained).
 - The bot AI thinks on every second game frame (ratio 0.5, about 15 Hz, the retail default, which the owner kept: B8).
-- The entity check proves parsing, not spawning: every map entity counts as spawned or not spawned. Each nonzero "not spawned" count is a `Class idPathCorner not found` failure: 11 entities on 6 maps.
+- The entity check proves parsing, not spawning: every map entity counts as spawned or not spawned. On the DVD data, 11 entities on 6 maps were `Class idPathCorner not found` failures; on the 1.5 data none is.
 - canyon GDF's area figure rests on 7 grounded samples of 86.
 - 30 Hz bot AI (`bot_threadMinFrameDelay 0`) passed 11/11 once, on 2026-09-22 with an older binary. A later delay-0 run failed slipgate (AAS area validity 88.6% < 90%). Not rerun since.
 - slipgate failed AAS area validity intermittently at the default rate (2 of 4 runs on 2026-09-25: 67.1%, 74.1%). Cause: bots riding vehicles, whose samples report the vehicle's origin and ground state. `playerPos` now prints `vehicle=` (game), and `all-stock-maps` leaves riding samples out: 11/11 PASS, slipgate 5/5. On six maps both bots spent most of the 45 s window in vehicles, so the on-foot check rested on 4–9 samples per bot, and one bad sample failed refinery (80%, 4 of 5). `all-stock-maps` now runs the bots with `bot_useVehicles 0`: 11/11 PASS with 27–84 on-foot samples per bot (96.6–100% in an AAS area).
 - Bot-behavior flakes that passed on rerun are recorded in the local `.agents/claude_session_2026-09-22/FOLLOWUPS.md`: valley-match vehicle entry and salvage AAS validity. The bot-gameplay combat flake (about 1 in 4) was the 40 s window, now 90 s.
 
 ### Not done / stubbed / known broken
-- **`main` fails on the 1.5 data it targets** (20 of 28; ledger 050). The fix is game `fix/target-1.5-data`, then an engine companion bump.
-- **Tests with DVD facts.** `test_remote_client_map_change.py` (its docstring states the DVD signature; its `NETWORK_EVENT_WARNING` check stops firing once the fix lands); the unregistered stress scripts `test_multi_map_lifecycle_stress.py` (ark "898 entities spawned"), `test_map_cycling_stress.py`, `test_adversarial_same_map_rapid_cycling.py`, `test_pawn_physics_empirical.py` (opens `pak004` directly) and the `test_aas_stress.py` comment. `all-stock-maps` still gates on ">500 entities" with a quarry exception (B9 replaces it). Update them in the 1.5 companion-bump PR.
-- **`sys.setShaderParm` does nothing** on `main`, on any data: `sdSysCallBridge` remaps it to an empty handler. Removed on game `fix/target-1.5-data`.
 - **Cleanups.** The idParser skip of `jointOffset(...)` (game `src/idlib/text/Parser.cpp`, OpenETQW commit d9ba1db) matches no script or decl in either data set; remove it. `ReconcileEventsWithScript` could become warn-only (optional).
 - **First runs on 1.5 to watch.** Five script callbacks that only the 1.5 scripts define (`GetSpectateEntity`, `OnDeployableDeployed`, `OnNetworkTracer`, `OnNewTask`, `OnSendingVoice`) and 48 events that only 1.5 declares now run. Retail ran the scripts as compiled-script modules; OpenETQW interprets them. Differences not examined.
 - **No Linux or Windows engine.** The engine has never been configured or compiled on Linux or Windows: there is no host (owner C12: none planned), Actions minutes are out, and the engine CI legs skip while `openETQW-game` is private. Next: a Windows x64 cross-compile with mingw-w64 (`tools/cross/windows-x86_64.txt`); Linux needs a sysroot (no Docker here). Those legs are also `experimental: true` with `continue-on-error` (`.github/workflows/ci.yml:164`).
@@ -360,12 +356,11 @@ None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline
 ## Next steps (7 or fewer, ordered)
 | # | Step | Host / OS needed | Depends on | Acceptance test |
 |---|---|---|---|---|
-| 1 | Target 1.5: game `fix/target-1.5-data` PR, then an engine companion bump with ledger 047/050/030/022/013/052, the DVD-fact tests, the B9 criterion in `all-stock-maps`, the per-map table re-run on 1.5, and `KNOWN_VIEW_LEAK` confirmed on the fixed game | macOS arm64 | none (PR #14 merged) | Full suite on the 1.5 data: 28/28 |
-| 2 | Release gate 6 safeguards: engine `feat/retail-install-check` with game `feat/install-licenses` (rebased on 54d18d8); readme, CONTRIBUTING, ledger 035/052 and this file updated when they merge | macOS arm64 | step 1 (the check refuses the DVD set; only the fixed game passes on 1.5) | Full suite on 1.5 plus `retail-install-check` and `install-licenses` |
-| 3 | M5 in the order of `docs/m5-plan.md`: the D1 test change (the reach bounds become reports), then steps 6–15 and 17 | macOS arm64 | none | Each step's test (see the plan) |
-| 4 | Windows x64 cross-compile with mingw-w64 (C12); then a Linux sysroot | macOS arm64 (cross) | none | The engine configures and compiles for Windows x64 |
-| 5 | Provenance and license records: post-split files and openQ4 donor commits in the manifest, SPDX lines, the minizip relabel (release gate 3) | any | none | Manifest covers every tracked file; game `check_spdx.py` passes |
-| 6 | M4 gameplay-driven tests: classes, damage and kills, deployable delivery, stopwatch and campaign transitions | macOS arm64 | step 1 | New meson tests pass on the 1.5 data |
+| 1 | Release gate 6 safeguards: engine `feat/retail-install-check` with game `feat/install-licenses` (rebased on 54d18d8); readme, CONTRIBUTING, ledger 035/052 and this file updated when they merge | macOS arm64 | none (the 1.5 fix has merged) | Full suite on 1.5 plus `retail-install-check` and `install-licenses` |
+| 2 | M5 in the order of `docs/m5-plan.md`: the D1 test change (the reach bounds become reports), then steps 6–15 and 17 | macOS arm64 | none | Each step's test (see the plan) |
+| 3 | Windows x64 cross-compile with mingw-w64 (C12); then a Linux sysroot | macOS arm64 (cross) | none | The engine configures and compiles for Windows x64 |
+| 4 | Provenance and license records: post-split files and openQ4 donor commits in the manifest, SPDX lines, the minizip relabel (release gate 3) | any | none | Manifest covers every tracked file; game `check_spdx.py` passes |
+| 5 | M4 gameplay-driven tests: classes, damage and kills, deployable delivery, stopwatch and campaign transitions | macOS arm64 | none | New meson tests pass on the 1.5 data |
 
 ## Inputs needed from the owner
 - Optional: `Loaded pk4 ... with checksum` lines from other-language editions (`pak000`–`pak004`), so the retail-install check can accept them.
