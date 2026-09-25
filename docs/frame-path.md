@@ -665,12 +665,14 @@ Remaining stepped paths must be listed rather than claimed as interpolated, and 
   - What counts as a pose: the entity origin, as retail 1.5 does, and the viewmodel's origin and axis; no skeletal joints (D2).
   - Tick frames: draw them at their real sub-tick fraction, not with a tick-aligned scheduler (D7).
   - `com_unlockFPS 0` draws once per tick (D8).
-  - The `isNewFrame` gate did freeze the network client's viewmodel after a snapshot (on about a fifth of draws, measured by `frame-poses-join`); `PresentUnlocked` fixed it.
+  - The `isNewFrame` gate did freeze the network client's viewmodel after a snapshot (about a fifth of draw pairs repeated, measured by `frame-poses-join`). `PresentUnlocked` fixed it for the viewmodel and for the `interpolateEntities` consumer.
   - The remote-entity producer is to be restored (D5, plan step 8): retail 1.5 runs it.
 - **Remote-entity producer.**
   - Why did jmarshall disable it? No reason is recorded; D5 restores it anyway.
   - Which retail entityDefs set `option_unlock_interpolate`? The defs are binary `.defb` files, and a string grep found nothing.
   - Does the parachute's list handling (`game repo: src/game/misc/Parachute.cpp:232-243`) interact badly with zeroed history?
+  - After a snapshot on a draw with no tick, re-prediction clears `interpolateEntities` (`game repo: src/game/Game_network.cpp:3803`). The producer does not refill it while `isNewFrame` is false (`game repo: src/game/Entity.cpp:1727-1729`), so `PresentUnlocked` has nothing to present. Do interpolated entities freeze for the rest of that tick once step 8 restores the producer (§9, criterion 2)? A capture after step 8 would settle it.
+- **Tick frames (plan step 10).** The per-cycle reference capture (`game repo: src/game/Game_local.cpp:5987-6022`) assumes a preceding base draw (§6.5, item 3). It needs review once frames that ran a tick call `ClientUpdateView`.
 - **Render-only input samples.** Should they skip the game callbacks (`GetDirectUsercmd( false )`), or take only the view angles, so that buttons and impulses stay tick-bound as CHARTER §7.5 requires? What does a render-only sample then need from `MouseMove`'s game clamps?
 - **Client ordering.** `ClientPrediction` (`src/framework/async/AsyncClient.cpp:344-348`) runs before `ProcessReliableServerMessages` (`src/framework/async/AsyncClient.cpp:349`) in the same frame. Reliable messages in each packet are already processed before that packet's snapshot (`src/framework/async/AsyncClient.cpp:811`). Is the second call intended, and what can it still find?
 - **Seat and camera switches.** The `originlog` resets on seat switch and camera cycle copy `player->renderView.vieworg`, which may still be the pre-switch view (`game repo: src/game/vehicles/Transport.cpp:2832-2837`, `game repo: src/game/vehicles/TransportExtras.cpp:442-445`, `game repo: src/game/vehicles/VehicleView.cpp:267-270`). Nothing resets `originlog` on vehicle exit, respawn or teleport, and that gap is SDK behaviour.

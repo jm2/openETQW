@@ -72,11 +72,11 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 
 ### Open and pending
 - **Engine PR #14** (`m5/sim-view`): M5 step 5, single player: `high-refresh-determinism` compares `SIM_VIEW` across caps. All review threads answered. It waits for **game PR #10** (`SIM_VIEW` in full precision, `%.9g`; Codex found no issues, its full suite is running), then a companion pin bump and a Codex re-review.
-- **Pushed, no PR yet.** Each was adversarially reviewed (13 confirmed findings, all fixed) but has not passed the full suite yet:
+- **Pushed, no PR yet.** None has passed the full suite yet. Game `fix/target-1.5-data` (17905b1, a5af70b) and engine `feat/retail-install-check` (ff66385, 0b3386c, 9f3b4d6) were adversarially reviewed (13 confirmed findings, all fixed in game a5af70b and engine 9f3b4d6). Game 8ab8457, engine `fix/target-1.5-data` and game `feat/install-licenses` have not been reviewed yet; this docs update was fact-checked (36 corrections applied):
   - game `fix/target-1.5-data` (17905b1, a5af70b, 8ab8457): the SDK script-event signatures back for the 1.5 scripts (ledger 050), the DVD-only stubs removed, `validClasses` read with `GetBool` (B10), and a data-free `events.script` check in `check_event_handlers.py`. On the 1.5 data: 26 of 28 (Demonstrated).
   - engine `fix/target-1.5-data` (5a5b672, on `m5/sim-view`): the tests for the 1.5 data (the two remaining failures were test markers), the B9 criterion in `all-stock-maps`, spawn counts read from the paks. Its ledger and STATUS updates follow once this docs update merges.
   - engine `feat/retail-install-check` (ff66385, 0b3386c, 9f3b4d6): openQ4's retail-install check (A7, `fs_validateOfficialPaks`), licence texts in the engine's install set (A3), meson tests `retail-install-check` and `install-licenses`.
-  - game `feat/install-licenses` (9fcb910): licence texts in the game's install set and CI artifact; to be rebased on 54d18d8.
+  - game `feat/install-licenses` (9eba2d9, 9a5f751; on 54d18d8): licence texts in the game's install set and CI artifact, plus the game README/CONTRIBUTING licensing docs.
   - engine `docs/owner-decisions-0925b`: this docs update.
 - **Merge order:** PR #14 (after game #10); game `fix/target-1.5-data` with engine `fix/target-1.5-data` (companion bump, tests, ledger); then `feat/retail-install-check` with game `feat/install-licenses` (the check refuses the DVD set, and on the 1.5 data only the fixed game passes).
 
@@ -92,8 +92,8 @@ All rows: host mbp-m1max, macOS 27 arm64, Apple Clang 21, debug build, retail da
 | Claim | Evidence level | Host / OS / arch / compiler | Command | Result (log path) |
 |---|---|---|---|---|
 | Full suite, `main` binaries, DVD data (28 tests) | map-loaded (highest level any test in it reaches) | as above; engine `main` c6345bb with game ea14841, then game 54d18d8 (`vret`) | `ETQW_DATA_PATH=… meson test -C build --no-rebuild -j 1` (2026-09-25; the second run used a DVD-only view of the data) | 28/28 OK both times |
-| Full suite, `main` binaries, **1.5 data** (28 tests) | map-loaded | as above; engine c6345bb (test tree of `m5/sim-view` 32f4cb1), game ea14841 | as above, 2026-09-25 14:49 | 8 OK, 20 FAIL: client-lifecycle, vulkan-shadows, all-stock-maps, turn-rate, inprocess-map-change, remote-client-map-change (+`-latency`, `-loss`), multiclient-gameplay (+`-latency`), userinfo (+`-loss`), reconnect-restart, lossy-session, client-network-join/-listen, frame-poses-join/-listen, bot-gameplay, valley-match. Cause, in the logs: `script event 'sendNetworkEvent' ( fbs ) in script/events.script does not match its native definition ( Es )` and the same for `broadcastToolTip`, which the harness counts as failures (ledger 050). high-refresh-determinism passed. Also in inprocess-map-change: `sdVehiclePart::AddSurface` "Invalid Surface" warnings (not known whether new with 1.5) |
-| Full suite, **1.5 data**, game `fix/target-1.5-data` | map-loaded | as above; engine c6345bb binaries (test tree of `m5/sim-view`), game a5af70b | as above, 2026-09-25 18:32 | 26 OK, 2 FAIL. No reconcile warnings. all-stock-maps 11/11 on the 1.5 maps, with every map entity spawned (the DVD data left 11 path corners unspawned) and ark's and volcano's new counts (897, 1332). client-lifecycle and vulkan-shadows waited out their 90 s: their "player active" marker was a debug print that only the DVD scripts make (`parachute::Idle`), and their map marker is never printed. Fixed in the tests on engine `fix/target-1.5-data` (5a5b672), not yet re-run. An earlier run of this row loaded the old module: the engine loads `game_arm64.dylib` from its own directory first, not from `fs_basepath`. |
+| Full suite, `main` binaries, **1.5 data** (28 tests) | map-loaded | as above; engine c6345bb (test tree of `m5/sim-view` 32f4cb1), game ea14841 | as above, 2026-09-25 14:49 | 8 OK, 20 FAIL: client-lifecycle, vulkan-shadows, all-stock-maps, turn-rate, inprocess-map-change, remote-client-map-change (+`-latency`, `-loss`), multiclient-gameplay (+`-latency`), userinfo (+`-loss`), reconnect-restart, lossy-session, client-network-join/-listen, frame-poses-join/-listen, bot-gameplay, valley-match. Cause, in the logs: `script event 'sendNetworkEvent' ( fbs ) in script/events.script does not match its native definition ( Es )` and the same for `broadcastToolTip`, which the harness counts as failures (ledger 050). high-refresh-determinism passed. Also in inprocess-map-change: `sdVehiclePart::AddSurface` "Invalid Surface" warnings, as on the DVD data (not new with 1.5) |
+| Full suite, **1.5 data**, game `fix/target-1.5-data` | map-loaded | as above; engine c6345bb binaries (test tree of `m5/sim-view`), game a5af70b | as above, 2026-09-25 16:58 | 26 OK, 2 FAIL. No reconcile warnings. all-stock-maps 11/11 on the 1.5 maps, with every map entity spawned (the DVD data left 11 path corners unspawned) and ark's and volcano's new counts (897, 1332). client-lifecycle and vulkan-shadows waited out their 90 s: their "player active" marker was a debug print that only the DVD scripts make (`parachute::Idle`), and their map marker is never printed. Fixed in the tests on engine `fix/target-1.5-data` (5a5b672), not yet re-run. An earlier run of this row loaded the old module: the engine loads `game_arm64.dylib` from its own directory first, not from `fs_basepath`. |
 | Replay on the **1.5 data** | map-loaded (offline `+devmap`) | as above; game ea14841 to 54d18d8 | meson `high-refresh-determinism` (five runs, 2026-09-25) | Pass, 5/5. The known weapon-log divergence after entering the vehicle appeared in 3 of 5 runs, always in its allowed shape: from tick 92, 31–37 ticks, any cap against 60 Hz (on the DVD data about 2 runs in 3, 31–40 ticks) |
 | Full retail-data suite, fix branch (22 tests) | map-loaded (highest level any test in it reaches) | as above; the `fix/audit-followups` trees, merged as engine c1e6424 and game b5c3345 | `ETQW_DATA_PATH=… meson test -C build -j 1` (suites 18 and 19) | Suite 18: 21/22 OK; bot-gameplay failed (the bots had not met within the 40 s window). A/B of the old and new dedicated pacing at 40 s: 1/6 and 2/6 failures, server tick rate 30.3 Hz either way, so not a pacing regression. With the 90 s window: 8/8 solo runs passed (first combat after 13.5–42.8 s). Suite 19 (before the code review's fixes): 22/22 OK. Suite 20, final tree: 22/22 OK (2026-09-24, 0 script-event mismatch warnings; `build/meson-logs/testlog.txt` holds this run) |
 | Full retail-data suite, before the fix branch (21 tests) | map-loaded (highest level any test in it reaches) | as above; binaries built 12:26 from the uncommitted tree later committed as fef1e53 / 19a709a. Trees are identical to `main` 84a224b / 24f58bf. This is inferred from file times; the binaries carry no commit stamp | `ETQW_DATA_PATH=… meson test -C build -j 1` (suite 17, 2026-09-24 12:27–12:46 EDT) | 21/21 OK. `build/meson-logs/testlog.txt` has been overwritten by suite 18 |
@@ -115,7 +115,7 @@ All rows: host mbp-m1max, macOS 27 arm64, Apple Clang 21, debug build, retail da
 
 Evidence levels: inspected < configured < compiled < unit-tested < launched < map-loaded < match-tested
 
-**Per-map results** (suite 17, `all-stock-maps`: a fresh dedicated server per map, 45 s bot window, one GDF and one Strogg soldier bot). **DVD data**; not yet re-run on the 1.5 data, where ark's and volcano's entity counts, the AAS of ark, canyon, quarry and valley and five .nav graphs differ, and volcano ships a .nav (`docs/specs/retail-1.5-reference.md`, §5):
+**Per-map results** (suite 17, `all-stock-maps`: a fresh dedicated server per map, 45 s bot window, one GDF and one Strogg soldier bot). **DVD data**. The 1.5-data run (all-stock-maps 11/11, in the Demonstrated row "Full suite, **1.5 data**, game `fix/target-1.5-data`") is not copied into this table yet; it replaces this table when the 1.5 fix merges. On the 1.5 data ark's and volcano's entity counts, the AAS of ark, canyon, quarry and valley and the .nav graphs of area22, ark, island, sewer and valley differ, and volcano ships a .nav (`docs/specs/retail-1.5-reference.md`, §5):
 
 | Map | Entities spawned + not spawned / retail | Player AAS areas / reach | Vehicle AAS areas / reach | .nav nodes | Bot max per-life displacement GDF / Strogg (u) | Bot samples in a valid AAS area GDF / Strogg | Longest stuck (s) | Server tick (Hz) |
 |---|---|---|---|---|---|---|---|---|
@@ -175,7 +175,7 @@ Notes on the per-map results:
 - **Skipped map chunks:** ledger 013 records `shadowModel` and `mapEnvBounds` (every stock map has both), the discarded portal data and the headless render world (the 2026-09-24 docs pass; at 84a224b it named valley only).
 - **Untriaged warnings.**
   - `salvage.script(338)`: "Event call on a NULL object", after `func_door_gdf_rail_1` is not found.
-  - `sdVehiclePart::AddSurface`: "Invalid Surface", on the headless server, and on the 1.5 data in inprocess-map-change (not known whether new with 1.5).
+  - `sdVehiclePart::AddSurface`: "Invalid Surface", on the headless server (inprocess-map-change and all-stock-maps), on the DVD and the 1.5 data alike; not new with 1.5.
   - Client logs: renderprog parse and "cannot upload ARB" warnings.
 - **Navigation data checks.** The AAS map CRC is never compared. The .nav loader does not bounds-check node links (`BotAI_Navigation.cpp` `LoadNodes`). The AAS loader reads packed disk structs raw, with no layout assertions (`AASFile_local.cpp`).
 - **Vulkan.** Validation layers are not installed on the host. The backend has no screenshot or image capture.
@@ -287,7 +287,7 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
   - a mixed-cap live session and a cap change during play;
   - `com_unlockFPS` is ignored, and `com_unlock_avgFrames`/`safetyMargin`/`timingMethod` do nothing (D9: remove them).
 
-**M7 (public release): not met.** Of the six release-gate items only item 2 is cleared (next section). Also missing:
+**M7 (public release): not met.** None of the six release-gate items is cleared yet. Item 2's SDK exceptions are approved (A6), and the item clears for the engine binaries when the licence install (`feat/retail-install-check` 0b3386c) merges (next section). Also missing:
 - packages and packaging scripts;
 - a release workflow;
 - `docs/platform-matrix.md`;
@@ -302,9 +302,9 @@ Both repositories are private and have no releases.
    - A local byte-level audit (2026-09-22, gitignored `.agents/claude_session_2026-09-22/JMARSHALL_PROVENANCE_AUDIT.md`) found about 135 compiled engine files (about 54.7k lines) that are jmarshall-authored, and 57 game files that are SDK files with his edits. Both histories start from his commits.
    - Some engine sources carry Hex-Rays/IDA-style markers. They are his reconstructed code (the `retail_RE` provenance tier), not raw decompiler output, and fall under the same open question.
    - Remediation deferred by the owner (2026-09-25). This gate stays blocking until it is resolved.
-2. **SDK-licensed code linked into engine binaries: cleared for the engine binaries (owner, 2026-09-25).**
+2. **SDK-licensed code linked into engine binaries: not cleared; exceptions approved by the owner (2026-09-25).**
    - The engine links the game repo's SDK idLib (`libidLib.a`, 72 objects) and compiles the staged SDK `DeclType.cpp`, 189 staged SDK headers and `BuildDefines.inc`; three unit tests also compile the SDK `BitMsg.cpp`. `docs/provenance.md` §4 lists them (E1–E4).
-   - The owner approved them as tracked exceptions on openQ4's precedent (A6; `docs/decisions/0001-sdk-code-in-the-engine-build.md`). Condition: every engine package carries the SDK EULA as well as the GPL (built on `feat/retail-install-check` 0b3386c, not merged).
+   - The owner approved them as tracked exceptions on openQ4's precedent (A6; `docs/decisions/0001-sdk-code-in-the-engine-build.md`). Condition: every engine package carries the SDK EULA as well as the GPL (built on `feat/retail-install-check` 0b3386c, not merged). The item is cleared for the engine binaries once that merges.
    - Still open before publishing: engine history holds SDK files through jmarshall's root commits (the owner left them in place); SDK EULA §5 (the EULA must accompany each copy) still has to be handled for those commits (`docs/provenance.md` §6).
 3. **`docs/provenance.md` coverage: not cleared.**
    - At 84a224b, `docs/provenance-manifest.json` classified 5,275 imported files; after the 2026-09-24 edit (splash entry dropped) it classifies 5,274.
@@ -350,7 +350,7 @@ Both repositories are private and have no releases.
   - 014: the 16-bit wire parity claim is withdrawn; the usercmd tests now compile the engine codec and are labeled self-consistency tests.
   - 051 (new): turn rate, connect check order, seat-swap finding.
   - 008: aim/camera; relevant to the turn-rate fix.
-  - 028 and 029: the audit found overclaims (stale pacing description; the vehicle smoothing is unreachable).
+  - 028 and 029: the audit found overclaims (stale pacing description; vehicle smoothing that never ran). The 029 finding was corrected on 2026-09-25: the vehicle sub-tick code runs on the render frames of the tick in which a player enters a vehicle, and through `GetAORView` (AoR, antilag), where it writes into tick state (plan step 6).
 - **Protocol version bumped (incompatible wire change)?** No. No change on 2026-09-24 or 2026-09-25 alters bytes on the wire. A connect message holding only the protocol field now gets a print instead of silence; that is server behavior, not format.
 
 ## Baseline observations delta
@@ -360,7 +360,7 @@ None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline
 | # | Step | Host / OS needed | Depends on | Acceptance test |
 |---|---|---|---|---|
 | 1 | Merge engine PR #14 (M5 step 5) after game PR #10 (full-precision `SIM_VIEW`): pin bump, Codex clean | macOS arm64 | game #10 | `high-refresh-determinism` passes at full precision |
-| 2 | Target 1.5: game `fix/target-1.5-data` PR, then an engine companion bump with ledger 047/050/030/022/013/052, the DVD-fact tests, the B9 criterion in `all-stock-maps`, the per-map table re-run on 1.5, and `KNOWN_VIEW_LEAK` confirmed on the fixed game | macOS arm64 | none | Full suite on the 1.5 data: 28/28 |
+| 2 | Target 1.5: game `fix/target-1.5-data` PR, then an engine companion bump with ledger 047/050/030/022/013/052, the DVD-fact tests, the B9 criterion in `all-stock-maps`, the per-map table re-run on 1.5, and `KNOWN_VIEW_LEAK` confirmed on the fixed game | macOS arm64 | step 1 (the engine branch is on `m5/sim-view`; `KNOWN_VIEW_LEAK` is in PR #14's test) | Full suite on the 1.5 data: 28/28 |
 | 3 | Release gate 6 safeguards: engine `feat/retail-install-check` with game `feat/install-licenses` (rebased on 54d18d8); readme, CONTRIBUTING, ledger 035/052 and this file updated when they merge | macOS arm64 | step 2 (the check refuses the DVD set; only the fixed game passes on 1.5) | Full suite on 1.5 plus `retail-install-check` and `install-licenses` |
 | 4 | M5 in the order of `docs/m5-plan.md`: the D1 test change (the reach bounds become reports), then steps 6–15 and 17 | macOS arm64 | D10's default for steps 13–14 | Each step's test (see the plan) |
 | 5 | Windows x64 cross-compile with mingw-w64 (C12); then a Linux sysroot | macOS arm64 (cross) | none | The engine configures and compiles for Windows x64 |
@@ -374,4 +374,4 @@ None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline
 
 ## Questions for the owner
 - M5 plan D10: should the allow-listed vehicle-seat view default to on for the ground-vehicle driver seat (the original recommendation; a ledgered deviation, since retail 1.5 has no seat view) or off (drafted; retail behaviour)? The one-seat checks run with it on either way.
-- Proposed charter wording: CHARTER §11 asks that "the game module and engine refuse to run without a full retail installation". As decided (A7, openQ4's design), only the engine checks; openQ4's game module has no check either. Change the charter to say "the engine"?
+- Proposed charter wording: CHARTER §11 asks that "the game module and engine refuse to run without a full retail ETQW installation's data (no demo or test data)". As decided (A7, openQ4's design), only the engine checks; openQ4's game module has no check either. Change the charter to say "the engine"?

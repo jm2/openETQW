@@ -6,7 +6,7 @@
 
 ## Context
 
-The engine is GPL-3.0-or-later, and its repository holds no SDK files (the `zero-sdk` test). Its binaries are still built with SDK code from `openETQW-game`:
+The engine is GPL-3.0-or-later, and its repository tracks no SDK files at HEAD (the `zero-sdk` test); its imported root commits still hold the SDK tree (see Consequences). Its binaries are still built with SDK code from `openETQW-game`:
 
 - **E1** the SDK idLib, `libidLib.a` (72 objects), linked into both engine binaries and the unit tests;
 - **E2** the SDK `src/decllib/DeclType.cpp`, staged and compiled into both binaries;
@@ -21,7 +21,7 @@ openQ4 reached the same place without saying so. Its engine repository compiles 
 
 E1–E4 are approved as tracked exceptions. No code is replaced; `DeclType.cpp` is not rewritten.
 
-Unlike openQ4, OpenETQW states the exceptions openly and keeps each file's own licence text. Nothing is relabelled GPL (CHARTER §11).
+Unlike openQ4, OpenETQW states the exceptions openly and keeps each file's own licence text; no E1–E4 file is relabelled GPL (CHARTER §11). The one known GPL label on SDK content, from commit `1223dc5` (the SDK's two revision numbers, now in `src/framework/EngineVersion.cpp`), is recorded in `docs/provenance.md` §6.
 
 ## Consequences
 
