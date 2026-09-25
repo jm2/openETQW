@@ -39,10 +39,14 @@ M5 is done when:
 
 ## Keep presentation out of simulation
 
-5. **Replay hash covers presentation leaks (game + tests).**
-   - At the start of each tick, add to `SIM_HASH`: the local player's `renderView` origin and angles, the first-person view, the weapon origin and the vehicle's `lastPushed*`.
-   - Add a listen-host replay variant.
-   - The test compares these fields across caps; it does not require them to be zero, because vehicle binds and prone offsets make render and physics origins differ legitimately.
+5. **The replay hash covers the state render frames could leak into (game + tests).**
+   - At the end of each tick, add to `SIM_HASH` values that tick code produces and later reads:
+     - the local player's view angles after `UpdateViewAngles`;
+     - the tick pose logs (`originlog` and the weapon logs);
+     - the vehicle's `lastPushedOrigin`/`lastPushedAxis` and `lastReturnedAxis`;
+     - the AoR view results.
+   - Do not hash presentation buffers (`renderView`, the first-person view, the weapon's render pose). Between ticks they are legitimately at a different sub-tick fraction at each cap, so comparing them would fail even with no leak.
+   - Add a listen-host replay variant. The test compares these fields across caps.
 
 6. **Game: no presentation values in tick, snapshot or AoR state.**
    - Revert the OpenETQW `!fullUpdate && unlockedDraw` interpolation in the vehicle views to SDK code: `sdSmoothVehicleView`, and the base and free-pivot `sdDampedVehicleView`. Move the interpolation into read-only helpers for step 14.
