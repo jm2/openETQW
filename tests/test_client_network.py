@@ -14,6 +14,10 @@
   walks and the host (the server) moves its player >= 50 units. The host's
   own view of the remote player is the server's state, so nothing here checks
   what the host draws of it.
+In both modes the Vulkan client's GUIs (HUD, menus, world GUIs) must update about
+once per frame during play: with g_guiSpeeds 1 (a cheat; the server allows cheats) its
+GUI manager prints one line per update, and 3 s of play need >= 40 of them a second at
+the default 60 fps cap (until 2026-09-25 a network session never updated its GUIs).
 In both modes every process exits 0 on 'quit', no log has a failure marker
 (etqw_harness.scan_failures; for the Vulkan client also the Vulkan error
 markers campaign-client-maps uses), and the Vulkan client presented frames and
@@ -26,6 +30,7 @@ missing.
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -55,6 +60,25 @@ class VulkanClient(h.DedicatedServer):
         if self.listen_map:
             return args + ["+spawnServer", self.listen_map]
         return args + ["+connect", self.connect_to]
+
+
+def check_gui_updates(gfx, what, seconds=3.0, min_per_second=40.0):
+    """The Vulkan client's GUI manager updates about once per frame (g_guiSpeeds 1
+    prints one 'numguis:' line per update)."""
+    mark = gfx.mark()
+    gfx.send("set g_guiSpeeds 1")
+    time.sleep(seconds)
+    gfx.send("set g_guiSpeeds 0")
+    gfx.sync()
+    lines = gfx.snapshot(mark)
+    refused = [ln.text for ln in lines if "g_guiSpeeds cannot be changed" in ln.text]
+    updates = sum(1 for ln in lines if ln.text.startswith("numguis:"))
+    print(f"[{what}] GUI updates on the Vulkan client: {updates} in {seconds:.0f} s ({updates / seconds:.0f}/s)")
+    if refused:
+        raise Failed(f"{what}: g_guiSpeeds was refused ({refused[0]}); the server must allow cheats")
+    if updates < min_per_second * seconds:
+        raise Failed(f"{what}: the Vulkan client updated its GUIs {updates} times in {seconds:.0f} s"
+                     f" (need >= {min_per_second:.0f}/s)")
 
 
 def render_counters(proc):
@@ -92,7 +116,8 @@ def main(argv):
     def log(name):
         return (log_dir / f"{args.mode}-{name}.log") if log_dir else None
 
-    game = {"si_rules": "sdGameRulesObjective", "si_pure": "0", "g_teamSwitchDelay": "0"}
+    # net_allowCheats: g_guiSpeeds (the GUI update count below) is a cheat
+    game = {"si_rules": "sdGameRulesObjective", "si_pure": "0", "g_teamSwitchDelay": "0", "net_allowCheats": "1"}
     if args.mode == "join":
         srv = h.DedicatedServer(ded, data, args.map, args.port, log_path=log("server"), cvars=game)
         srv.name = "SERVER"
@@ -131,6 +156,7 @@ def main(argv):
         check_mutual(srv, gfx, remote, args.mode)
         check_walk(srv, gfx, remote, args.mode)
         check_walk(srv, remote, gfx, args.mode)
+        check_gui_updates(gfx, args.mode)
     except Failed as e:
         failures.append(str(e))
     finally:
