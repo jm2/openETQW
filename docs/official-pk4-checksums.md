@@ -39,6 +39,7 @@ Evidence (2026-09-25):
 - **Language warning:** a client without a retail dialogue archive (`zpak_<language>000.pk4`: english, french, german, italian, polish, russian or spanish) prints a warning. The 1.5 patch's 2 KB `zpak_korean000.pk4` holds no dialogue, so it does not count.
 - **Retail game modules:** `game000.pk4`–`game002.pk4` in `base/` (the 1.5 patch's Windows, macOS and Linux game modules) are skipped with "Ignoring unneeded game binary pk4". OpenETQW cannot load them.
 - Not ported: openQ4's checks of its own runtime paks (`baseoq4`), which OpenETQW does not have.
+- As in openQ4, the game module has no check of its own; the owner confirmed this on 2026-09-25, and CHARTER §11 names the engine's check.
 
 ## Turning it off
 
