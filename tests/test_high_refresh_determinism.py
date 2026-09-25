@@ -12,14 +12,16 @@ Validates:
 2. Bit-for-bit identical CRC32 simulation hashes (SIM_HASH) across all schedules, and
    identical SIM_VIEW lines: state each tick produces that later ticks read back and that
    a render frame could write into (the view angles after UpdateViewAngles, the tick's
-   logged view origin and weapon offset and orientation, the vehicle's last pushed pose;
-   docs/frame-path.md section 6.9). One divergence is known and allowed in a bounded
+   logged view origin and weapon offset and orientation, the vehicle's last pushed pose and
+   the axis its view last returned; docs/frame-path.md section 6.9). One divergence is
+   known and allowed in a bounded
    shape (KNOWN_VIEW_LEAK): after the replay enters the vehicle, the logged weapon pose
    (wlog) can differ between schedules, because the render frames of the entering tick
    still run the on-foot unlock path and write the weapon's render entity, which the
    vehicle ticks then log. Any other SIM_VIEW difference fails. Every schedule must print
-   SIM_VIEW on every SIM_HASH tick, each line with every field and finite values, and the
-   replay must log a view player, a weapon pose and a vehicle pose on some tick.
+   SIM_HASH and SIM_VIEW exactly once per tick, on the same ticks, each SIM_VIEW line with
+   every field and finite values, and the replay must log a view player, a weapon pose, a
+   vehicle pose and a vehicle view axis on some tick.
 3. Identical player/vehicle coordinates, velocities, health, objective state, and serviced event counts.
 4. The frame rate each schedule reached during play, from the engine's once-a-second
    FRAME_TIMING lines (com_logFrameTiming 1; windows with >= 25 game ticks), taken from the
@@ -38,6 +40,7 @@ Validates:
 from __future__ import annotations
 
 import atexit
+import collections
 import dataclasses
 import os
 import queue
@@ -104,7 +107,7 @@ _NUM = r"-?\d+\.\d{2}"
 _TRIPLE = rf"\({_NUM},{_NUM},{_NUM}\)"
 SIM_VIEW_FIELDS_RE = re.compile(
     rf"view=(\d+) ang={_TRIPLE} olog={_TRIPLE} wlog=(\({_NUM}(?:,{_NUM}){{5}}\)|-)"
-    rf" vpush=({_TRIPLE}) vpang={_TRIPLE}")
+    rf" vpush=({_TRIPLE}) vpang={_TRIPLE} vret=({_TRIPLE}|-)")
 SIM_VIEW_NO_VIEWER = "view=-1"
 # found 2026-09-25 (docs/frame-path.md section 9): in about two runs of three, wlog
 # differs from the tick after the replay's enterVehicle (91) on, between any schedule
@@ -267,6 +270,11 @@ def run_determinism_schedule(
 
     exit_code = proc.poll()
     full_output = "\n".join(output_lines)
+    # a tick printed twice would be collapsed into one entry above, hiding the first
+    counts = collections.Counter(int(m.group(1)) for ln in output_lines if (m := SIM_HASH_RE.search(ln)))
+    repeated = sorted(t for t, c in counts.items() if c > 1)
+    if repeated:
+        raise RuntimeError(f"Schedule {cap_label(fps)} printed SIM_HASH more than once for ticks {repeated[:10]}")
 
     frames_match = re.search(r"Vulkan frames presented:\s*(\d+)", full_output)
     if frames_match:
@@ -292,9 +300,14 @@ def run_determinism_schedule(
     return sim_hashes, vulkan_frames, output_lines
 
 
-def sim_views(lines: list[str]) -> dict[int, str]:
-    """tick -> the SIM_VIEW fields (game builds from 2026-09-25)."""
-    return {int(m.group(1)): m.group(2).strip() for ln in lines if (m := SIM_VIEW_RE.search(ln))}
+def sim_views(lines: list[str], label: str) -> dict[int, str]:
+    """tick -> the SIM_VIEW fields (game builds from 2026-09-25); a tick printed twice fails."""
+    records = [(int(m.group(1)), m.group(2).strip()) for ln in lines if (m := SIM_VIEW_RE.search(ln))]
+    counts = collections.Counter(t for t, _ in records)
+    repeated = sorted(t for t, c in counts.items() if c > 1)
+    if repeated:
+        raise AssertionError(f"{label}: SIM_VIEW printed more than once for ticks {repeated[:10]}")
+    return dict(records)
 
 
 def main() -> int:
@@ -457,7 +470,7 @@ def main() -> int:
     assert mismatches == 0, f"Determinism failure: {mismatches} state mismatches detected across render schedules!"
 
     print("\n--- Tick-produced view state (SIM_VIEW) across schedules ---")
-    views = {fps: sim_views(schedule_lines[fps]) for fps in rates}
+    views = {fps: sim_views(schedule_lines[fps], cap_label(fps)) for fps in rates}
     if not views[rates[0]]:
         raise AssertionError("no SIM_VIEW lines: the game build predates them")
     # every simulated tick must have its SIM_VIEW line, in every schedule, or the
@@ -477,8 +490,8 @@ def main() -> int:
         if bad:
             raise AssertionError(f"{cap_label(fps)}: {len(bad)} SIM_VIEW line(s) lack a field or a finite value"
                                  f" (first, tick {bad[0]}: {views[fps][bad[0]]})")
-    # the replay must exercise each part: a view player, a logged weapon pose, and a
-    # vehicle pose (it rides a vehicle on ticks 92-114)
+    # the replay must exercise each part: a view player, a logged weapon pose, a vehicle
+    # pose and a vehicle view axis (it rides a vehicle on ticks 92-114)
     parsed = [m for v in views[rates[0]].values() if (m := SIM_VIEW_FIELDS_RE.fullmatch(v))]
     if not parsed:
         raise AssertionError("SIM_VIEW never had a view player")
@@ -486,6 +499,8 @@ def main() -> int:
         raise AssertionError("SIM_VIEW never logged a weapon pose")
     if not any(m.group(3) != "(0.00,0.00,0.00)" for m in parsed):
         raise AssertionError("SIM_VIEW never logged a vehicle pose")
+    if not any(m.group(4) != "-" for m in parsed):
+        raise AssertionError("SIM_VIEW never logged a vehicle view axis")
 
     def fields_of(line):
         return dict(re.findall(r"(\w+)=(\([^)]*\)|\S+)", line or ""))
