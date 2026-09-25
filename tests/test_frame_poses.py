@@ -108,11 +108,6 @@ KNOWN_GAPS = {
     ("listen", "A4"): ("per_tick",), ("listen", "A5"): ("per_tick",),
     ("listen", "A6"): ("per_tick",), ("listen", "A7"): ("per_tick",),
     ("listen", "A8"): ("never_unlocked",),
-    # found (first run, 2026-09-25), cause found by review: when a snapshot arrives on a
-    # draw between ticks the client re-runs prediction with isNewFrame false, so the
-    # weapon's Present() in ClientUpdateView returns early (game Entity.cpp) and the
-    # viewmodel stays put until the next tick (16-25% of draw pairs while walking)
-    ("join", "A6"): ("band", 0.70, 0.95),
 }
 MIN_PAIRS = 20
 
