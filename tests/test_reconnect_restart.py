@@ -264,7 +264,7 @@ def main(argv):
                 raise Failed(f"restart: endpoint replacement left the new client in slot {a.slot} (dead slot {dead_slot})")
         elif a.slot == dead_slot:
             # the dead slot is free for this address once it has timed out
-            if joined < timed_out[0]:
+            if joined < gone[0]:
                 raise Failed(f"restart: the new client got slot {dead_slot} while the dead client still held it")
             raise Failed(f"restart: the new client connected only after the dead slot timed out"
                          f" ({args.client_timeout} s); raise --client-timeout")
