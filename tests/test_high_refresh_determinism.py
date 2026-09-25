@@ -17,7 +17,9 @@ Validates:
    shape (KNOWN_VIEW_LEAK): after the replay enters the vehicle, the logged weapon pose
    (wlog) can differ between schedules, because the render frames of the entering tick
    still run the on-foot unlock path and write the weapon's render entity, which the
-   vehicle ticks then log. Any other SIM_VIEW difference fails.
+   vehicle ticks then log. Any other SIM_VIEW difference fails. Every schedule must print
+   SIM_VIEW on every SIM_HASH tick, each line with every field and finite values, and the
+   replay must log a view player, a weapon pose and a vehicle pose on some tick.
 3. Identical player/vehicle coordinates, velocities, health, objective state, and serviced event counts.
 4. The frame rate each schedule reached during play, from the engine's once-a-second
    FRAME_TIMING lines (com_logFrameTiming 1; windows with >= 25 game ticks), taken from the
@@ -96,6 +98,14 @@ SIM_HASH_RE = re.compile(
 
 
 SIM_VIEW_RE = re.compile(r"SIM_VIEW: tick=(\d+) (.*)$")
+# every field EmitSimView prints for a view player, so a field dropped from every
+# schedule cannot pass as "identical"; without a view player the line is "view=-1"
+_NUM = r"-?\d+\.\d{2}"
+_TRIPLE = rf"\({_NUM},{_NUM},{_NUM}\)"
+SIM_VIEW_FIELDS_RE = re.compile(
+    rf"view=(\d+) ang={_TRIPLE} olog={_TRIPLE} wlog=(\({_NUM}(?:,{_NUM}){{5}}\)|-)"
+    rf" vpush=({_TRIPLE}) vpang={_TRIPLE}")
+SIM_VIEW_NO_VIEWER = "view=-1"
 # found 2026-09-25 (docs/frame-path.md section 9): in about two runs of three, wlog
 # differs from the tick after the replay's enterVehicle (91) on, between any schedule
 # and the 60 Hz one; observed on 31-40 of the 58 ticks 92-149, lasting to the end of
@@ -223,7 +233,8 @@ def run_determinism_schedule(
             continue
 
     # let the reader reach EOF first: the SIM_VIEW check needs every line of the run
-    t.join(timeout=10.0)
+    if proc.poll() is not None:
+        t.join(timeout=10.0)
     # Drain remaining output
     while True:
         try:
@@ -458,6 +469,24 @@ def main() -> int:
             raise AssertionError(f"{cap_label(fps)}: SIM_VIEW ticks do not match the SIM_HASH ticks"
                                  f" (missing {missing[:10]}{'...' if len(missing) > 10 else ''},"
                                  f" extra {extra[:10]}{'...' if len(extra) > 10 else ''})")
+    # and every line must carry every field with a finite value (or say there is no
+    # view player), or a field missing from all schedules would compare equal
+    for fps in rates:
+        bad = [t for t, v in sorted(views[fps].items())
+               if v != SIM_VIEW_NO_VIEWER and not SIM_VIEW_FIELDS_RE.fullmatch(v)]
+        if bad:
+            raise AssertionError(f"{cap_label(fps)}: {len(bad)} SIM_VIEW line(s) lack a field or a finite value"
+                                 f" (first, tick {bad[0]}: {views[fps][bad[0]]})")
+    # the replay must exercise each part: a view player, a logged weapon pose, and a
+    # vehicle pose (it rides a vehicle on ticks 92-114)
+    parsed = [m for v in views[rates[0]].values() if (m := SIM_VIEW_FIELDS_RE.fullmatch(v))]
+    if not parsed:
+        raise AssertionError("SIM_VIEW never had a view player")
+    if not any(m.group(2) != "-" for m in parsed):
+        raise AssertionError("SIM_VIEW never logged a weapon pose")
+    if not any(m.group(3) != "(0.00,0.00,0.00)" for m in parsed):
+        raise AssertionError("SIM_VIEW never logged a vehicle pose")
+
     def fields_of(line):
         return dict(re.findall(r"(\w+)=(\([^)]*\)|\S+)", line or ""))
 
