@@ -246,15 +246,15 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
 **M5 (high-refresh multiplayer): not met.**
 - Only an offline single-player replay exists (`high-refresh-determinism`). Caps above ~120 did not take effect on this host. Its hash leaves out view angles, other players and projectiles.
 - Today's turn-rate fix removed one render-rate dependence of authoritative state (key turning).
-- Open:
-  - the `Entity::Present` producer;
+- `docs/frame-path.md` (2026-09-25) traces one host frame in each mode, from code; nothing in it was measured. `docs/m5-plan.md` orders the remaining work in 16 steps, with ten owner decisions (D1–D10).
+- Open (details and file:line in `docs/frame-path.md` §9):
+  - the `Entity::Present` producer (compiled out by jmarshall; SDK code);
   - the vehicle proxy gate;
-  - `ClientUpdateView` on the listen host;
-  - a mixed-cap live session;
-  - per-frame pose capture;
-  - `docs/frame-path.md`;
-  - the dead `com_unlock_*` CVars;
-  - a cap change during play on the current code.
+  - the listen host: no `ClientUpdateView`, and it samples view input only once per tick, so its camera turns at 30 Hz;
+  - OpenETQW's vehicle-view interpolation writes presentation values into state the next tick reads (`unlockedDraw` stays set until the next tick or snapshot);
+  - tick frames are drawn at the tick boundary (a 30 Hz judder at any cap);
+  - a mixed-cap live session, per-frame pose capture, a cap change during play;
+  - `com_unlockFPS` is ignored, and `com_unlock_avgFrames`/`safetyMargin`/`timingMethod` do nothing.
 
 **M7 (public release): not met.** None of the six release-gate items is cleared (next section). Also missing:
 - packages and packaging scripts;
@@ -335,7 +335,7 @@ None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline
 |---|---|---|---|---|
 | 1 | Provenance and license records (today's corrections are merged: compiledscript relabel, import method, full exception registry). Write decision records in `docs/decisions/` for each SDK exception. Add post-split files and openQ4 donor commits to the manifest; add SPDX lines | any | owner approval for exceptions | Manifest covers every tracked file; game `python3 tools/ci/check_spdx.py` passes; the registry matches ninja deps |
 | 2 | Linux x86_64 and Windows 11 engine builds. Close the Windows link gaps; run the M1 dedicated checklist with retail data | Linux x86_64 and Windows 11 hosts, or a private runner | owner input | Engine compiles on both; dedicated server loads a stock map, takes console commands, exits 0 |
-| 3 | M5 groundwork: `docs/frame-path.md`; the `Entity::Present` producer; listen-host `ClientUpdateView`; a decision on the vehicle proxy gate; implement or remove the dead `com_unlock_*` CVars; per-frame pose capture | macOS arm64 | none | Frame-path doc exists; a capture test shows remote-entity poses changing on every rendered frame |
+| 3 | M5 groundwork, in the order of `docs/m5-plan.md`: frame timing and per-frame pose capture first (steps 2–3, no owner decision), then the presentation-leak fixes, the listen host, the `Entity::Present` producer and the vehicle gate as the owner decides D1–D10 | macOS arm64 | D1–D10 for the later steps | Each step's meson test (see the plan); the capture test shows remote-entity poses changing on every rendered frame |
 | 4 | Retail-install check that still allows the asset-free CI smoke (release gate 6) | any | owner decision on the design | Engine refuses to run without a full retail install; `tools/ci/dedicated_server_smoke.py` still passes |
 | 5 | M4 gameplay-driven tests: classes, damage and kills, deployable delivery, stopwatch and campaign transitions | macOS arm64 | none | New meson tests pass on the tested maps |
 
