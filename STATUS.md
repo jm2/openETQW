@@ -3,7 +3,7 @@
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
 Updated: 2026-09-25 (evening) · session/agent: Claude Code integrator session 3a9edf51 · host: mbp-m1max, macOS 27.0 (Darwin 27.0.0), arm64 (Apple M1 Max)
-Engine repo `~/openETQW`: `main` d15bdea (PR #14, merged 2026-09-25; `tools/ci/companion.ref` pins game f00f4d3) · game repo `~/openETQW-game`: `main` f00f4d3 (PR #10, merged 2026-09-25) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none; upstream checked 2026-09-24)
+Engine repo `~/openETQW`: `main` with PR #17 (merged 2026-09-25; `tools/ci/companion.ref` pins game 775c102) · game repo `~/openETQW-game`: `main` 775c102 (PR #11, merged 2026-09-25) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none; upstream checked 2026-09-24)
 
 Both histories were rewritten on 2026-09-24 (`docs/provenance.md` §7). Every commit ID changed: engine 2104090 → 84a224b and 53d0172 → fef1e53; game 285eaa1 → 24f58bf and 9b3a02b → 19a709a. Engine SHAs quoted in older docs (`CHECKPOINT_STOCK_MAPS_PHASE.md`, ledger rows, earlier STATUS text) are pre-rewrite IDs. The game's historical `tools/ci/engine.ref` pins name engine commits that no longer exist.
 
@@ -71,7 +71,7 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 | openETQW | #13 c6345bb | Network sessions update the GUIs every frame (none did) |
 | openETQW | #14 d15bdea | M5 step 5, single player: `high-refresh-determinism` compares `SIM_VIEW` across caps in full precision; one weapon-log divergence after entering the vehicle is allowed in its measured shape (45–59 ticks from tick 92) until plan step 6 |
 | game | #8 ea14841, #9 54d18d8, #10 f00f4d3 | `SIM_VIEW`: per-tick view state for the replay, with the vehicle view's last returned axis, in full precision |
-| game / openETQW | #11 / this PR | Target the retail 1.5 data: the SDK script-event signatures back, `validClasses` read as retail 1.5 reads it (B10), a data-free `events.script` check; the engine tests for the 1.5 data and B9 |
+| game / openETQW | #11 775c102 / #17 | Target the retail 1.5 data: the SDK script-event signatures back, `validClasses` read as retail 1.5 reads it (B10), a data-free `events.script` check; the engine tests for the 1.5 data and B9 |
 
 ### Open and pending
 - **Pushed, no PR yet.** Engine `feat/retail-install-check` was adversarially reviewed (its 7 confirmed findings fixed in 9f3b4d6); game `feat/install-licenses` was not. Neither has passed the full suite yet:
