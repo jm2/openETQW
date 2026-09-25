@@ -12,8 +12,9 @@ Milestone 1 Empirical Verification (Physics & Clip Models Focus):
    - Clip model construction: 8-sided cylinder (BuildClipModel useCylinder=true),
      bottom-quad ground check model (groundCheckModel)
 2. Retail Collision Model Integrity on Valley:
-   - pak004.pk4 contains maps/valley.cmb (binary collision geometry, ~19.7MB)
-   - pak004.pk4 contains maps/valley.entities with spawn spots:
+   - the retail paks hold maps/valley.cmb (binary collision geometry; the 1.5
+     patch's copy overrides the DVD pak004 one) and maps/valley.entities with
+     spawn spots:
      - GDF parachute spawn: torchy_info_team_gdf_spawn_45 (9126.87 -10729.53 1952)
      - Strogg ground spawn: tunnel_spawnmaster_strogg_52 (6720 -64 1608)
 3. Dedicated Server Live Runtime CVar Probe on Valley:
@@ -42,7 +43,6 @@ import subprocess
 import sys
 import threading
 import time
-import zipfile
 from pathlib import Path
 
 import etqw_harness as h
@@ -158,28 +158,21 @@ def test_phase2_retail_collision_assets():
     print(" PHASE 2: Retail Collision Asset & Valley Map Verification")
     print("=================================================================")
 
-    pak4_path = DATA_PATH / "base" / "pak004.pk4"
-    assert pak4_path.is_file(), f"pak004.pk4 not found at {pak4_path}"
+    # the pak that supplies each file (the 1.5 patch overrides the DVD pak004 copies)
+    paks = h.PakIndex(DATA_PATH)
+    for name in ("maps/valley.cmb", "maps/valley.entities"):
+        assert paks.exists(name), f"{name} not found in any base/pak*.pk4"
+        print(f"  [PASS] {name} found in {paks.which(name).name} ({len(paks.read(name)):,} bytes)")
 
-    with zipfile.ZipFile(pak4_path, 'r') as zf:
-        namelist = set(zf.namelist())
-        assert "maps/valley.cmb" in namelist, "maps/valley.cmb not found in pak004.pk4"
-        info_cmb = zf.getinfo("maps/valley.cmb")
-        print(f"  [PASS] maps/valley.cmb verified in pak004.pk4 (size: {info_cmb.file_size:,} bytes)")
+    # Verify specific spawn point coordinates in valley.entities
+    entities_data = paks.read("maps/valley.entities").decode("utf-8", errors="replace")
+    assert "torchy_info_team_gdf_spawn_45" in entities_data, "GDF spawn 45 missing in valley.entities"
+    assert "9126.87 -10729.53 1952" in entities_data, "GDF spawn coordinates missing in valley.entities"
+    print("  [PASS] GDF parachute spawn entity verified at (9126.87, -10729.53, 1952)")
 
-        assert "maps/valley.entities" in namelist, "maps/valley.entities not found in pak004.pk4"
-        info_ent = zf.getinfo("maps/valley.entities")
-        print(f"  [PASS] maps/valley.entities verified in pak004.pk4 (size: {info_ent.file_size:,} bytes)")
-
-        # Verify specific spawn point coordinates in valley.entities
-        entities_data = zf.read("maps/valley.entities").decode("utf-8", errors="replace")
-        assert "torchy_info_team_gdf_spawn_45" in entities_data, "GDF spawn 45 missing in valley.entities"
-        assert "9126.87 -10729.53 1952" in entities_data, "GDF spawn coordinates missing in valley.entities"
-        print("  [PASS] GDF parachute spawn entity verified at (9126.87, -10729.53, 1952)")
-
-        assert "tunnel_spawnmaster_strogg_52" in entities_data, "Strogg spawn 52 missing in valley.entities"
-        assert "6720 -64 1608" in entities_data, "Strogg tunnel spawn coordinates missing in valley.entities"
-        print("  [PASS] Strogg tunnel ground spawn entity verified at (6720, -64, 1608)")
+    assert "tunnel_spawnmaster_strogg_52" in entities_data, "Strogg spawn 52 missing in valley.entities"
+    assert "6720 -64 1608" in entities_data, "Strogg tunnel spawn coordinates missing in valley.entities"
+    print("  [PASS] Strogg tunnel ground spawn entity verified at (6720, -64, 1608)")
 
 
 def test_phase3_live_cvar_probes():

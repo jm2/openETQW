@@ -166,11 +166,11 @@ def test_spawn_server_desync() -> dict:
     }
 
     try:
-        if not wait_for_pattern(out_q, proc, "...414 entities spawned", timeout=15.0):
+        if not wait_for_pattern(out_q, proc, h.spawn_line(DATA_PATH, "quarry"), timeout=15.0):
             result["details"]["error"] = "Initial map 'quarry' failed to spawn"
             return result
 
-        print("[OK] Server active running 'quarry' (414 entities spawned).")
+        print(f"[OK] Server active running 'quarry' ({h.spawn_line(DATA_PATH, 'quarry').strip('.')}).")
         cmd_index = len(history)
         print("[ACTION] Issuing command 'spawnServer slipgate'...")
 
@@ -264,7 +264,7 @@ def test_inprocess_map_cycling() -> dict:
     try:
         # Stage 1: quarry
         print("[STAGE 1] Loading initial map 'quarry'...")
-        s1 = wait_for_pattern(out_q, proc, "...414 entities spawned", timeout=15.0)
+        s1 = wait_for_pattern(out_q, proc, h.spawn_line(DATA_PATH, "quarry"), timeout=15.0)
         rss1 = get_process_rss_mb(proc.pid)
         result["stages"]["1_quarry"] = s1
         result["rss_progression_mb"]["1_quarry"] = rss1
@@ -274,7 +274,7 @@ def test_inprocess_map_cycling() -> dict:
         print("[STAGE 2] Transitioning in-process to 'slipgate' via nextMap...")
         proc.stdin.write("spawnServer slipgate\nnextMap\n")
         proc.stdin.flush()
-        s2 = wait_for_pattern(out_q, proc, "...1252 entities spawned", timeout=15.0)
+        s2 = wait_for_pattern(out_q, proc, h.spawn_line(DATA_PATH, "slipgate"), timeout=15.0)
         rss2 = get_process_rss_mb(proc.pid)
         result["stages"]["2_slipgate"] = s2
         result["rss_progression_mb"]["2_slipgate"] = rss2
@@ -284,7 +284,7 @@ def test_inprocess_map_cycling() -> dict:
         print("[STAGE 3] Transitioning in-process to 'area22' via nextMap...")
         proc.stdin.write("spawnServer area22\nnextMap\n")
         proc.stdin.flush()
-        s3 = wait_for_pattern(out_q, proc, "...1063 entities spawned", timeout=15.0)
+        s3 = wait_for_pattern(out_q, proc, h.spawn_line(DATA_PATH, "area22"), timeout=15.0)
         rss3 = get_process_rss_mb(proc.pid)
         result["stages"]["3_area22"] = s3
         result["rss_progression_mb"]["3_area22"] = rss3
@@ -294,7 +294,7 @@ def test_inprocess_map_cycling() -> dict:
         print("[STAGE 4] Transitioning in-process back to 'quarry'...")
         proc.stdin.write("spawnServer quarry\nnextMap\n")
         proc.stdin.flush()
-        s4 = wait_for_pattern(out_q, proc, "...414 entities spawned", timeout=15.0)
+        s4 = wait_for_pattern(out_q, proc, h.spawn_line(DATA_PATH, "quarry"), timeout=15.0)
         rss4 = get_process_rss_mb(proc.pid)
         result["stages"]["4_quarry_reload"] = s4
         result["rss_progression_mb"]["4_quarry_reload"] = rss4
@@ -378,14 +378,14 @@ def test_repeated_server_map_restart() -> dict:
     }
 
     try:
-        if not wait_for_pattern(out_q, proc, "...414 entities spawned", timeout=15.0):
+        if not wait_for_pattern(out_q, proc, h.spawn_line(DATA_PATH, "quarry"), timeout=15.0):
             result["error"] = "Initial map spawn timed out"
             return result
 
         for i in range(5):
             proc.stdin.write("serverMapRestart\n")
             proc.stdin.flush()
-            if wait_for_pattern(out_q, proc, "...414 entities spawned", timeout=10.0):
+            if wait_for_pattern(out_q, proc, h.spawn_line(DATA_PATH, "quarry"), timeout=10.0):
                 result["iterations_completed"] += 1
                 print(f"         Iteration {i + 1}/5: SUCCESS")
             else:

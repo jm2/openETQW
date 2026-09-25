@@ -230,6 +230,20 @@ def retail_entity_count(paks: PakIndex, map_name: str) -> Optional[int]:
     return sum(1 for line in text.splitlines() if '"classname"' in line)
 
 
+_PAK_INDEXES: dict[str, "PakIndex"] = {}
+
+
+def spawn_line(data_path: Path, map_name: str) -> str:
+    """The server's '...N entities spawned' marker for a stock map on this data. N is
+    the retail entity count: on the 1.5 data every map entity spawns (the DVD data left
+    a few path corners unspawned)."""
+    key = str(Path(data_path).resolve())
+    if key not in _PAK_INDEXES:
+        _PAK_INDEXES[key] = PakIndex(data_path)
+    n = retail_entity_count(_PAK_INDEXES[key], map_name)
+    return f"...{n} entities spawned" if n is not None else " entities spawned"
+
+
 def retail_aas_counts(paks: PakIndex, map_name: str, ext: str) -> Optional[tuple[int, int]]:
     """(areas, reachabilities) parsed straight from the retail AAS file, using
     the binary parser in test_aas_stress.py. The engine's 'Loaded AAS file'

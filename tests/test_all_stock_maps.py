@@ -10,10 +10,10 @@ For every stock map a FRESH dedicated server process is started with
               after 'quit'.
   b) entities '...N entities spawned, M inhibited': N+M must equal the number
               of '"classname"' lines in the retail maps/<m>.entities (read from
-              base/pak*.pk4). N > 500 is the phase criterion; quarry's retail
-              file only defines 415 entities, which is reported as a
-              DATA_LIMITATION (owner decision) rather than a failure. Any other
-              map at or below 500 fails.
+              base/pak*.pk4). That is the criterion: the owner reworded the
+              phase's ">500 entities per map" to "every entity in each map file
+              is accounted for" on 2026-09-25 (B9; quarry's file defines 415).
+              Whether N exceeds 500 is recorded only.
   c) scripts  bot_debugMapScript 1 map-script setup prints are recorded;
               'objectiveStatus' must parse with a valid game state (rules and
               objective manager alive) at the start and end; no script runtime
@@ -84,11 +84,7 @@ UNAVAILABLE = "UNAVAILABLE"
 DATA_LIMITATION = "DATA_LIMITATION"
 INFO = "INFO"                   # recorded metric, not an assertion
 
-ENTITY_CRITERION = 500          # phase criterion: more than 500 entities spawned
-# Maps whose retail .entities file cannot satisfy the criterion. Reported, not
-# failed, and only while the engine accounts for every retail entity. The
-# owner decides how the phase treats this.
-ENTITY_DATA_LIMITATION_MAPS = {"quarry"}
+ENTITY_CRITERION = 500          # the old phase threshold, recorded only (owner decision B9)
 MIN_DISPLACEMENT = 50.0
 STUCK_SPEED = 10.0
 AREA_VALID_MIN_FRACTION = 0.90
@@ -484,15 +480,9 @@ def run_map(map_name: str, map_index: int, cfg: argparse.Namespace, ctx: dict) -
                        f"{n} spawned + {m_inh} inhibited = {n + m_inh}; retail maps/{map_name}.entities has {retail_total}"
                        + (f" ({len(passes)} spawn passes)" if len(passes) > 1 else "")
                        + (f"; mismatching passes {bad}" if bad and len(passes) > 1 else ""))
-        if n > ENTITY_CRITERION:
-            res.check("entities.over_500", PASS, f"{n} > {ENTITY_CRITERION}")
-        elif (map_name in ENTITY_DATA_LIMITATION_MAPS and retail_total is not None
-              and retail_total <= ENTITY_CRITERION and n + m_inh == retail_total):
-            res.check("entities.over_500", DATA_LIMITATION,
-                      f"{n} spawned <= {ENTITY_CRITERION}: the retail maps/{map_name}.entities defines only "
-                      f"{retail_total} entities (all accounted for); documented data limitation, owner decision")
-        else:
-            res.check("entities.over_500", FAIL, f"{n} spawned <= {ENTITY_CRITERION}")
+        # recorded only: the criterion is entities.match_retail (owner decision B9, 2026-09-25)
+        res.check("entities.over_500", INFO,
+                  f"{n} spawned {'>' if n > ENTITY_CRITERION else '<='} {ENTITY_CRITERION} (recorded only)")
 
     # ---------------- c) scripts ----------------
     debug_prints = [H.SCRIPT_DEBUG_RE.match(s).group(1) for s in lines if H.SCRIPT_DEBUG_RE.match(s)]
@@ -654,8 +644,7 @@ def summary_table(results: list[MapResult]) -> str:
         m = r.metrics
         e = m.get("entities") or {}
         ents = f"{e.get('spawned', '-')}+{e.get('inhibited', '-')}/{m.get('retail', {}).get('entities', '-')}"
-        over = next((c["status"] for c in r.checks if c["name"] == "entities.over_500"), "-")
-        over = {"PASS": "yes", "FAIL": "NO", "DATA_LIMITATION": "DATA_LIM"}.get(over, over)
+        over = {True: "yes", False: "no"}.get(e.get("over_500"), "-")
         aas = m.get("aas", {})
 
         def aas_s(ext):
@@ -812,8 +801,7 @@ def main(argv: list[str]) -> int:
     total_s = time.monotonic() - t_all
     print()
     if limits:
-        print(f" DATA_LIMITATION (not counted as failure; owner decision): {', '.join(limits)} "
-              f"(retail .entities defines <= {ENTITY_CRITERION} entities)")
+        print(f" DATA_LIMITATION (not counted as failure; owner decision): {', '.join(limits)}")
     if unavailable:
         print(f" UNAVAILABLE diagnostics ({'warnings' if cfg.allow_missing_diagnostics else 'FAILURES'}): {', '.join(unavailable)}")
     print(f" {len(ordered) - n_fail}/{len(ordered)} maps passed in {total_s:.0f}s")

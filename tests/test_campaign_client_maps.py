@@ -47,7 +47,9 @@ METRICS_RE = re.compile(r"Vulkan frames presented:\s*(\d+),\s*world draws:\s*(\d
 SHADOW_LIGHTS_RE = re.compile(r"Vulkan shadow lights:\s*(\d+) shadow-casting light views,\s*(\d+) with shadow casters")
 SPECIAL_RE = re.compile(r"special draws:\s*(\d+) depth,\s*(\d+) MegaTexture,\s*(\d+) CPU-skinned,\s*(\d+) GPU-skinned,"
                         r"\s*(\d+) sky,\s*(\d+) extra stages,\s*(\d+) water")
-ACTIVE_MARKERS = ("parachute::Idle", "weaponRestored", "RespawnWaves_")
+# the game's spawn line for a non-spectator ("Player N (...) spawned at ... spectating 0"),
+# or script debug prints that only the unpatched DVD scripts make
+ACTIVE_MARKERS = ("spectating 0", "parachute::Idle", "weaponRestored", "RespawnWaves_")
 BAD_MARKERS = ("Vulkan validation error", "VK_ERROR_", "DEVICE_LOST", "FATAL ERROR", "FATAL SIGNAL CAUGHT",
                "idMegaTexture::OpenFile: failed", "idMegaTexture::OpenFile: truncated", "idMegaTexture::OpenFile: unsupported")
 
@@ -97,8 +99,6 @@ def run_map(client, data, map_name, render_seconds, log_path, team="gdf", at=Non
                 map_seen = time.time()
             if active is None and any(m in line for m in ACTIVE_MARKERS):
                 active = time.time()
-        if active is None and map_seen is not None and time.time() - map_seen > 25.0:
-            active = time.time()  # fallback: map loaded and running for a while
         if at and active is not None and not moved and time.time() - active >= 2.0:
             # devmap enables cheats: move the view next to a shadow-casting light
             try:

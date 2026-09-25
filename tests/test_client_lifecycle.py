@@ -26,6 +26,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = h.env_data_path()
 
 
+
+def is_active_marker(line: str) -> bool:
+    """The player is in the game: the game's spawn line for a non-spectator, or (on the
+    unpatched DVD scripts only) a script debug print."""
+    return ("spawned at" in line and "spectating 0" in line) or any(
+        m in line for m in ("parachute::Idle", "weaponRestored", "RespawnWaves_"))
+
 def _find_client_binary() -> Path:
     candidates = [
         REPO_ROOT / "build" / "openETQW-client_arm64",
@@ -177,13 +184,13 @@ def test_valley_render_lifecycle() -> None:
             line = out_q.get(timeout=0.2)
             output_lines.append(line)
             # Log significant milestones
-            if "Loading map: maps/valley.world" in line:
+            if "Loading map: maps/valley.world" in line or line.startswith("Map: maps/valley.world"):
                 print(f"  [CLIENT] {line}")
                 map_loaded = True
                 map_load_time = time.time()
             elif "InitFromMegaFile:" in line:
                 print(f"  [CLIENT] {line}")
-            elif "parachute::Idle" in line or "weaponRestored" in line or "RespawnWaves_" in line:
+            elif is_active_marker(line):
                 if game_running_time is None:
                     print(f"  [CLIENT] Player spawned and game active in Valley ({line})")
                     game_running_time = time.time()
@@ -192,11 +199,7 @@ def test_valley_render_lifecycle() -> None:
         except queue.Empty:
             pass
 
-        # Fallback: if map loaded and 15s elapsed, mark game as running
-        if game_running_time is None and map_loaded and map_load_time is not None:
-            if time.time() - map_load_time > 15.0:
-                print("  [CLIENT] Valley map loaded and active for >15s")
-                game_running_time = time.time()
+        # the player must actually spawn (is_active_marker): a loaded map alone is not enough
 
         # Once player is spawned and game is running, let it render for 6 seconds
         if game_running_time is not None and not sigterm_sent:
@@ -223,6 +226,10 @@ def test_valley_render_lifecycle() -> None:
     if exit_code != 0:
         print("\n--- Final lines before failure ---")
         print("\n".join(output_lines[-50:]))
+        if not sigterm_sent:
+            proc.kill()
+            proc.wait(timeout=10.0)
+            raise TimeoutError(f"the player never became active in Valley within 90 s (map loaded: {map_loaded})")
         raise RuntimeError(f"Client exited with non-zero exit code {exit_code} after SIGTERM")
 
     full_output = "\n".join(output_lines)

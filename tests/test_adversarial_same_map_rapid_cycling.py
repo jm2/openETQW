@@ -134,19 +134,19 @@ def test_adversarial_rapid_cycling() -> dict:
 
     transitions = [
         # Initial spawn
-        {"label": "1_quarry_initial", "map": "quarry", "pattern": "...414 entities spawned", "type": "initial"},
+        {"label": "1_quarry_initial", "map": "quarry", "pattern": h.spawn_line(DATA_PATH, "quarry"), "type": "initial"},
         # Same-map reload 1
-        {"label": "2_quarry_reload_1", "map": "quarry", "pattern": "...414 entities spawned", "type": "same_map"},
+        {"label": "2_quarry_reload_1", "map": "quarry", "pattern": h.spawn_line(DATA_PATH, "quarry"), "type": "same_map"},
         # Same-map reload 2
-        {"label": "3_quarry_reload_2", "map": "quarry", "pattern": "...414 entities spawned", "type": "same_map"},
+        {"label": "3_quarry_reload_2", "map": "quarry", "pattern": h.spawn_line(DATA_PATH, "quarry"), "type": "same_map"},
         # Switch to canyon
-        {"label": "4_canyon_ping", "map": "canyon", "pattern": "...849 entities spawned", "type": "switch"},
+        {"label": "4_canyon_ping", "map": "canyon", "pattern": h.spawn_line(DATA_PATH, "canyon"), "type": "switch"},
         # Ping back to quarry
-        {"label": "5_quarry_pong", "map": "quarry", "pattern": "...414 entities spawned", "type": "ping_pong"},
+        {"label": "5_quarry_pong", "map": "quarry", "pattern": h.spawn_line(DATA_PATH, "quarry"), "type": "ping_pong"},
         # Ping back to canyon
-        {"label": "6_canyon_ping2", "map": "canyon", "pattern": "...849 entities spawned", "type": "ping_pong"},
+        {"label": "6_canyon_ping2", "map": "canyon", "pattern": h.spawn_line(DATA_PATH, "canyon"), "type": "ping_pong"},
         # Final pong back to quarry
-        {"label": "7_quarry_pong2", "map": "quarry", "pattern": "...414 entities spawned", "type": "ping_pong"},
+        {"label": "7_quarry_pong2", "map": "quarry", "pattern": h.spawn_line(DATA_PATH, "quarry"), "type": "ping_pong"},
     ]
 
     results = []

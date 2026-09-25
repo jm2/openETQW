@@ -12,7 +12,7 @@ What the retail ET:QW 1.5 game module and data do, where OpenETQW's decisions de
 
 - `idBotThreadData::LoadActions` (0xd529c) reads the `validClasses` key as a bool: the value is parsed as an integer and only "nonzero" is kept, so the stored field is 0 or 1 (the SDK's `idDict::GetBool`). The neighbouring integer keys (`deployableType`, `targetRouteID`) keep the full value, which is how the two reads are told apart. The Linux module (around 0x78a7bd) and the Windows module (around 0x104fd9cf) do the same.
 - `idBotAI::Bot_CheckForTeamGoals` (0x5b72c) tests the field against a class bit (soldier 1, medic 2, engineer 4, field ops 8, covert ops 16) at three places: camp, roam and vehicle grab. A tagged action (value 1) therefore passes only for soldiers. A disguised covert ops bot skips the check at the camp and roam sites.
-- **In retail 1.5, every bot action with a nonzero `validClasses` is soldier-only**, whatever classes the map names. OpenETQW's `main` reads it as a class bitmask (`GetInt`); game `fix/target-1.5-data` (not merged) restores `GetBool` (owner decision B10). This affects 46 tagged uses on ark, outskirts, refinery, slipgate, valley and volcano (ledger 047); objective actions never read the field.
+- **In retail 1.5, every bot action with a nonzero `validClasses` is soldier-only**, whatever classes the map names. OpenETQW reads it with `GetBool` again (owner decision B10; game PR #11); from 2026-09-22 until then it had read a class bitmask (`GetInt`). This affects 46 tagged uses on ark, outskirts, refinery, slipgate, valley and volcano (ledger 047); objective actions never read the field.
 
 ## 3. Frame unlock (M5 plan D2, D4, D5)
 
