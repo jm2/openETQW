@@ -21,8 +21,11 @@ get CI back: both stay private until the owner decides to publish.
 2. **Retail-data suite for runtime changes.** Anything touching the engine, the game or the
    network gets the full Meson suite with retail data:
    `ETQW_DATA_PATH="$HOME/etqw_data" meson test -C build -j 1` (add `--no-suite soak` to skip the 10-minute `lossy-session`)
-   (replace `$HOME/etqw_data` with the directory that contains `base/pak000.pk4`).
-   Put the result in the PR with the host, OS, architecture and commit. The tests use fixed
+   (replace `$HOME/etqw_data` with the root of a full retail ET:QW install patched to 1.5:
+   `base/` must hold `pak000`–`pak008.pk4` and `zpak_english000`–`003`; the unpatched DVD set is
+   not supported). Check that the retail-data tests ran rather than skipped: a run that skips
+   them does not meet this gate. Put the result in the PR with the host, OS, architecture,
+   commit and data set. The tests use fixed
    UDP ports, so run one suite at a time on a host.
 3. **Independent review.** Someone other than the author (a person or a separate review
    session) reads the diff and the raw test output, not only the summary.
@@ -59,7 +62,9 @@ is now `84a224b` (was `2104090`), game `main` is `24f58bf` (was `285eaa1`).
   `engine.ref` pins name engine commits that no longer exist.
 - GitHub still keeps `refs/pull/1/head` in each repository, pointing at the old history
   (engine `53d0172`, game `9b3a02b`). Removing it needs GitHub Support or new
-  repositories; that is an open owner decision.
+  repositories. The owner deferred it on 2026-09-25 and expects to recreate the repositories;
+  when that happens, check that no ref reaches the purged bitmap (release gate 5 stays open
+  until then).
 
 ## What never goes in
 - Retail game data, retail executables, PDBs, raw disassembly or decompiler output, and
