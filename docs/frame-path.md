@@ -2,7 +2,7 @@
 
 This document traces what one host frame does in each run mode, from input sampling to the sleep before the next frame: input sampling, socket servicing, command deadlines, server steps, snapshot receipt, prediction, committed-state publication, the extra-view update (`ClientUpdateView`), render submission and pacing, with time units and the meaning of the `timeLeft` residual. It is the trace that CHARTER §7.5 ("Trace before editing") asks for before any high-refresh (M5) work, and it ends with the gaps against the M5 criteria.
 
-Written 2026-09-25 against engine main 85879e3 and game main d8e5b3d; line numbers drift, re-check before relying on one.
+Written 2026-09-25 against engine main 85879e3 and game main d8e5b3d; the engine citations were remapped for the frame-timing change the same day. Line numbers drift; re-check before relying on one.
 
 **Evidence level.** Everything here was read from code. Nothing was built or run for this document, and nothing here was measured unless it says so. Statements marked *(inferred)* or *(derived)* are conclusions drawn from the code or from arithmetic that nobody has observed at runtime. Engine `src/` is identical at 84ad1bb, a6dbde0 and 85879e3; only tests, docs and the companion pin changed between them. Game `src/` differs between 7f0e275 and d8e5b3d only in `src/game/gamesys/SysCmds.cpp` (`playerPos`), which this document does not cite.
 
@@ -24,15 +24,15 @@ Written 2026-09-25 against engine main 85879e3 and game main d8e5b3d; line numbe
 |---|---|---|
 | Tick length | `USERCMD_MSEC = 1000 / USERCMD_HZ` = 33 ms (integer division), `USERCMD_HZ` = 30 | `game repo: src/framework/UsercmdGen.h:15-16`, same as `SDK: framework/UsercmdGen.h:15-16` |
 | Tick rate in wall time | 1000 / 33 ≈ 30.3 ticks per second *(derived)* | |
-| Game time per tick | +33 ms per `game->RunFrame` or `ClientPrediction` | `src/framework/Session.cpp:559`, `src/framework/async/AsyncServer.cpp:451-453`, `src/framework/async/AsyncClient.cpp:336-337`, `src/framework/async/AsyncClient.cpp:343-347` |
-| Single-player tick clock | `mainThreadTicResidual` (double, ms, scaled by `com_timescale`) and `com_ticNumber`; catch-up capped at 10 ticks | `src/framework/Common.cpp:894-930`, cap at `src/framework/Common.cpp:917-922` |
-| Client tick clock | `gameTimeResidual + clientPredictTime` (int, ms) | `src/framework/async/AsyncClient.cpp:334`, `src/framework/async/AsyncClient.cpp:881-894` |
+| Game time per tick | +33 ms per `game->RunFrame` or `ClientPrediction` | `src/framework/Session.cpp:560`, `src/framework/async/AsyncServer.cpp:451-453`, `src/framework/async/AsyncClient.cpp:336-337`, `src/framework/async/AsyncClient.cpp:344-348` |
+| Single-player tick clock | `mainThreadTicResidual` (double, ms, scaled by `com_timescale`) and `com_ticNumber`; catch-up capped at 10 ticks | `src/framework/Common.cpp:901-937`, cap at `src/framework/Common.cpp:924-929` |
+| Client tick clock | `gameTimeResidual + clientPredictTime` (int, ms) | `src/framework/async/AsyncClient.cpp:334`, `src/framework/async/AsyncClient.cpp:882-895` |
 | Server tick clock | `gameTimeResidual` (int, ms) | `src/framework/async/AsyncServer.cpp:436`, `src/framework/async/AsyncServer.h:213` |
-| Per-frame wall-time clamp | client and server add at most 100 ms per host frame (`UpdateTime( 100 )`) | `src/framework/async/AsyncClient.cpp:311`, `src/framework/async/AsyncClient.cpp:881-894`, `src/framework/async/AsyncServer.cpp:426`, `src/framework/async/AsyncServer.cpp:1645-1657` |
+| Per-frame wall-time clamp | client and server add at most 100 ms per host frame (`UpdateTime( 100 )`) | `src/framework/async/AsyncClient.cpp:311`, `src/framework/async/AsyncClient.cpp:882-895`, `src/framework/async/AsyncServer.cpp:426`, `src/framework/async/AsyncServer.cpp:1646-1658` |
 | Client prediction lead | `net_clientPrediction` 16 ms; `net_clientMaxPrediction` 1000 ms | `src/framework/async/AsyncNetwork.cpp:54-55` |
-| Frame pacer | `std::chrono::steady_clock`, µs | `src/framework/Common.cpp:1003-1037` |
+| Frame pacer | `std::chrono::steady_clock`, µs | `src/framework/Common.cpp:1086-1135` |
 | Key and controller turn scale | `steady_clock` µs since the previous usercmd build, clamped to 0-4 ticks | `src/framework/UsercmdGen.cpp:362-372` |
-| Snapshot interval | `net_serverSnapshotDelay`, default 50 ms, rounded up to the server's host-frame grid (§4.5) | `src/framework/async/AsyncNetwork.cpp:45`; checked at `src/framework/async/AsyncServer.cpp:1112` |
+| Snapshot interval | `net_serverSnapshotDelay`, default 50 ms, rounded up to the server's host-frame grid (§4.5) | `src/framework/async/AsyncNetwork.cpp:45`; checked at `src/framework/async/AsyncServer.cpp:1113` |
 
 ## 2. `timeLeft` and the sub-tick fraction
 
@@ -48,16 +48,16 @@ Two engine functions produce `timeLeft`, and both clamp the elapsed part to [1, 
 
 | Mode | Function | Residual used |
 |---|---|---|
-| Single player | `Com_GetGameTimeLeft` (`src/framework/Common.cpp:932-948`) | `mainThreadTicResidual`, measured by `Com_UpdateGameTime` at frame start (`src/framework/Common.cpp:957`) |
+| Single player | `Com_GetGameTimeLeft` (`src/framework/Common.cpp:939-955`) | `mainThreadTicResidual`, measured by `Com_UpdateGameTime` at frame start (`src/framework/Common.cpp:1040`) |
 | Network client | `idAsyncClient::GetGameTimeLeft` (`src/framework/async/AsyncClient.cpp:295-303`) | `gameTimeResidual + clientPredictTime`, the same sum the tick loop tests (`src/framework/async/AsyncClient.cpp:334`) |
 | Listen host | none | `idAsyncServer` keeps `gameTimeResidual` (`src/framework/async/AsyncServer.h:213`) and exposes it only as `GetDelay()` (`src/framework/async/AsyncServer.h:152`) |
 
 Consequences:
 - `interpFraction` takes values from 1/33 to 32/33 in steps of 1/33. The integer-ms `timeLeft` keeps successive fractions distinct only while frames are at least 1 ms apart *(derived)*.
-- The residual is read at the start of the frame (`src/framework/Common.cpp:957` in single player, `src/framework/async/AsyncClient.cpp:311` on a client), before the draw. A frame therefore shows the pose for the moment its frame began, not the moment it is presented *(inferred)*.
-- On a client, every snapshot moves the prediction clock: `clientPredictTime -= delta / PREDICTION_FAST_ADJUST ± 1`, with `PREDICTION_FAST_ADJUST` = 4 (`src/framework/async/AsyncClient.cpp:19`, `src/framework/async/AsyncClient.cpp:647-648`). The out-of-range reset in §4.2 also moves both terms. Because `timeLeft` includes `clientPredictTime`, the fraction can jump slightly when a snapshot is processed *(inferred)*.
-- The client branch of `Com_GetGameTimeLeft` (`src/framework/Common.cpp:933-935`) is unreachable. Its only caller (`src/framework/Session.cpp:343`) runs only when no async session is active (`src/framework/Session.cpp:318`).
-- `Com_GetGameTimeLeft` must not be reused on a listen host. There the client is not active, so it would return the single-player accumulator, which advances every frame (`src/framework/Common.cpp:957`) but has a different phase from the server's `gameTimeResidual`.
+- The residual is read at the start of the frame (`src/framework/Common.cpp:1040` in single player, `src/framework/async/AsyncClient.cpp:311` on a client), before the draw. A frame therefore shows the pose for the moment its frame began, not the moment it is presented *(inferred)*.
+- On a client, every snapshot moves the prediction clock: `clientPredictTime -= delta / PREDICTION_FAST_ADJUST ± 1`, with `PREDICTION_FAST_ADJUST` = 4 (`src/framework/async/AsyncClient.cpp:19`, `src/framework/async/AsyncClient.cpp:648-649`). The out-of-range reset in §4.2 also moves both terms. Because `timeLeft` includes `clientPredictTime`, the fraction can jump slightly when a snapshot is processed *(inferred)*.
+- The client branch of `Com_GetGameTimeLeft` (`src/framework/Common.cpp:940-942`) is unreachable. Its only caller (`src/framework/Session.cpp:344`) runs only when no async session is active (`src/framework/Session.cpp:318`).
+- `Com_GetGameTimeLeft` must not be reused on a listen host. There the client is not active, so it would return the single-player accumulator, which advances every frame (`src/framework/Common.cpp:1040`) but has a different phase from the server's `gameTimeResidual`.
 
 ## 3. The host loop and `idCommonLocal::Frame`
 
@@ -76,72 +76,72 @@ The meson build chooses the platform sources in `tools/build/meson_sources.py:19
 
 No meson build starts an input thread. During play the only input pump is `Sys_GenerateEvents` at the start of each frame; loads also pump it from `PacifierUpdate` (`src/framework/Session.cpp:248`).
 
-### 3.2 `idCommonLocal::Frame` (`src/framework/Common.cpp:950-1040`)
+### 3.2 `idCommonLocal::Frame` (`src/framework/Common.cpp:1031-1138`)
 
-1. **Input pump.** `Sys_GenerateEvents` (`src/framework/Common.cpp:956`). On POSIX it calls `Sys_ProcessSDLEvents`, then queues at most one stdin console line as `SE_CONSOLE` (`src/sys/posix/posix_main.cpp:625-641`). Mouse motion is queued as `SE_MOUSE`, and SDL's float `xrel`/`yrel` are truncated to int (`src/sys/sdl/sdl_events.cpp:233-235`).
-2. **Single-player clock.** `Com_UpdateGameTime` (`src/framework/Common.cpp:957`; body `src/framework/Common.cpp:894-930`) runs in every mode. Only single player uses `com_ticNumber` to run ticks, but every mode reads it:
-   - `com_frameTime = com_ticNumber * USERCMD_MSEC` (`src/framework/Common.cpp:969`) drives console timing (`src/framework/Console.cpp:730-759`, `src/framework/Console.cpp:854`, `src/framework/Console.cpp:952`, `src/framework/Console.cpp:1029`);
-   - `com_ticNumber` drives the edit-field cursor blink (`src/framework/EditField.cpp:597`), the session wipe (`src/framework/Session.cpp:625-655`) and `UsercmdInterrupt`'s buffered slot (`src/framework/UsercmdGen.cpp:654`).
-3. **Config write** every 2 s (`src/framework/Common.cpp:958-962`).
-4. **Event loop.** `RunEventLoop( true )` (`src/framework/Common.cpp:967`) runs the command buffer and dispatches events (`src/framework/EventLoop.cpp:95-129`): `idSessionLocal::ProcessEvent` → console → `game->HandleGuiEvent` → `usercmdGen->ProcessEvent` once a map is spawned (`src/framework/Session.cpp:201-216`). `ProcessEvent` adds mouse deltas to `mouseDx`/`mouseDy` and records key state (`src/framework/UsercmdGen.cpp:722-737`). The test harness relies on the engine executing one stdin line per frame (`tests/etqw_harness.py:464-465`).
-5. `com_frameTime` is set (`src/framework/Common.cpp:969`).
-6. `networkService->RunFrame()` (`src/framework/Common.cpp:970-972`), then the per-host-frame `game->RunFrame()` (`src/framework/Common.cpp:976`). That overload only services sdnet (`game repo: src/game/Game_local.cpp:9050-9060`; `SDK: game/Game_local.cpp:7898-7908`).
-7. **Network.** `idAsyncNetwork::RunFrame()` (`src/framework/Common.cpp:978`) runs `client.RunFrame()` and then `server.RunFrame()` (`src/framework/async/AsyncNetwork.cpp:180-183`).
+1. **Input pump.** `Sys_GenerateEvents` (`src/framework/Common.cpp:1039`). On POSIX it calls `Sys_ProcessSDLEvents`, then queues at most one stdin console line as `SE_CONSOLE` (`src/sys/posix/posix_main.cpp:625-641`). Mouse motion is queued as `SE_MOUSE`, and SDL's float `xrel`/`yrel` are truncated to int (`src/sys/sdl/sdl_events.cpp:233-235`).
+2. **Single-player clock.** `Com_UpdateGameTime` (`src/framework/Common.cpp:1040`; body `src/framework/Common.cpp:901-937`) runs in every mode. Only single player uses `com_ticNumber` to run ticks, but every mode reads it:
+   - `com_frameTime = com_ticNumber * USERCMD_MSEC` (`src/framework/Common.cpp:1052`) drives console timing (`src/framework/Console.cpp:730-759`, `src/framework/Console.cpp:854`, `src/framework/Console.cpp:952`, `src/framework/Console.cpp:1029`);
+   - `com_ticNumber` drives the edit-field cursor blink (`src/framework/EditField.cpp:597`), the session wipe (`src/framework/Session.cpp:626-656`) and `UsercmdInterrupt`'s buffered slot (`src/framework/UsercmdGen.cpp:654`).
+3. **Config write** every 2 s (`src/framework/Common.cpp:1041-1045`).
+4. **Event loop.** `RunEventLoop( true )` (`src/framework/Common.cpp:1050`) runs the command buffer and dispatches events (`src/framework/EventLoop.cpp:95-129`): `idSessionLocal::ProcessEvent` → console → `game->HandleGuiEvent` → `usercmdGen->ProcessEvent` once a map is spawned (`src/framework/Session.cpp:201-216`). `ProcessEvent` adds mouse deltas to `mouseDx`/`mouseDy` and records key state (`src/framework/UsercmdGen.cpp:722-737`). The test harness relies on the engine executing one stdin line per frame (`tests/etqw_harness.py:464-465`).
+5. `com_frameTime` is set (`src/framework/Common.cpp:1052`).
+6. `networkService->RunFrame()` (`src/framework/Common.cpp:1053-1055`), then the per-host-frame `game->RunFrame()` (`src/framework/Common.cpp:1059`). That overload only services sdnet (`game repo: src/game/Game_local.cpp:9050-9060`; `SDK: game/Game_local.cpp:7898-7908`).
+7. **Network.** `idAsyncNetwork::RunFrame()` (`src/framework/Common.cpp:1061`) runs `client.RunFrame()` and then `server.RunFrame()` (`src/framework/async/AsyncNetwork.cpp:180-183`).
 8. **Session and draw.**
-   - With no async session active, `session->Frame()` runs (`src/framework/Common.cpp:980-981`).
-   - With one active on a dedicated binary, `renderSystem->SyncRenderSystem()` runs instead (`src/framework/Common.cpp:982-984`).
-   - `session->UpdateScreen( false )` then always runs (`src/framework/Common.cpp:985`).
+   - With no async session active, `session->Frame()` runs (`src/framework/Common.cpp:1063-1064`).
+   - With one active on a dedicated binary, `renderSystem->SyncRenderSystem()` runs instead (`src/framework/Common.cpp:1065-1067`).
+   - `session->UpdateScreen( false )` then always runs (`src/framework/Common.cpp:1068`).
    - `UpdateScreen` (`src/framework/Session.cpp:218-232`) returns at once when `!Sys_IsWindowVisible()`. That is always the case in `ID_DEDICATED` builds, and in a client whose window is minimised (`src/sys/posix/posix_main.cpp:425-432`). Otherwise it runs `BeginFrame`, `Draw`, `EndFrame`.
    - With a map spawned, `Draw` calls `game->Draw()` (`src/framework/Session.cpp:278`), then `Draw2D` and `DrawSystemUI`.
    - The call chain is `game->Draw()` → `idPlayerView::RenderPlayerView` (`game repo: src/game/Game_local.cpp:5939-5941`, `game repo: src/game/PlayerView.cpp:857`) → `SingleView` (`game repo: src/game/PlayerView.cpp:973`) → `gameRenderWorld->RenderScene( view )` (`game repo: src/game/PlayerView.cpp:350`).
-9. `++com_frameNumber`. Then `com_maxFPS` and `com_unlock_maxFPS` are mirrored (`src/framework/Common.cpp:990-1001`) and the frame is paced (`src/framework/Common.cpp:1003-1037`); see §7.1. Pacing runs after present and before the next input pump.
+9. `++com_frameNumber`. Then `com_maxFPS` and `com_unlock_maxFPS` are mirrored (`src/framework/Common.cpp:1073-1084`) and the frame is paced (`src/framework/Common.cpp:1086-1135`); see §7.1. Pacing runs after present and before the next input pump.
 
 ## 4. Per-mode call sequences
 
 ### 4.1 Single player and `+devmap` (no async session)
 
-1. `Com_UpdateGameTime` adds wall-clock ms × `com_timescale` to `mainThreadTicResidual` and moves whole 33 ms steps into `com_ticNumber` (`src/framework/Common.cpp:894-930`).
-2. `idSessionLocal::Frame` (`src/framework/Session.cpp:309-346`):
+1. `Com_UpdateGameTime` adds wall-clock ms × `com_timescale` to `mainThreadTicResidual` and moves whole 33 ms steps into `com_ticNumber` (`src/framework/Common.cpp:901-937`).
+2. `idSessionLocal::Frame` (`src/framework/Session.cpp:309-347`):
    1. `GuiFrameEvents( false )` (`src/framework/Session.cpp:310`) → `game->GuiFrameEvents` → `uiManager->Update` (`src/framework/Session_menu.cpp:30-34`; `game repo: src/game/Game_ui.cpp:1274-1275`; `SDK: game/Game_ui.cpp:1273-1275`).
    2. `tics = latchedTicNumber - lastGameTic`, bounded to 0..10 (`src/framework/Session.cpp:319-328`).
-   3. **Server steps and command deadlines.** Each tic calls `RunGameTic` (`src/framework/Session.cpp:333-335`; body `src/framework/Session.cpp:551-561`). `RunGameTic` builds a fresh usercmd with `GetDirectUsercmd` (`src/framework/Session.cpp:554`), stores it in `mapSpawnUsercmd[0]` (`src/framework/Session.cpp:555`) and calls `game->RunFrame( cmds, USERCMD_MSEC )` (`src/framework/Session.cpp:559`).
+   3. **Server steps and command deadlines.** Each tic calls `RunGameTic` (`src/framework/Session.cpp:333-336`; body `src/framework/Session.cpp:552-562`). `RunGameTic` builds a fresh usercmd with `GetDirectUsercmd` (`src/framework/Session.cpp:555`), stores it in `mapSpawnUsercmd[0]` (`src/framework/Session.cpp:556`) and calls `game->RunFrame( cmds, USERCMD_MSEC )` (`src/framework/Session.cpp:560`).
    4. **Several tics in one frame.** Their commands are built back to back. `TurnTimeScale` returns the real time since the previous build, so the first command gets all key and controller turning since the last build and the others get almost none (`src/framework/UsercmdGen.cpp:362-372`, `src/framework/UsercmdGen.cpp:554-565`). The first command also takes all accumulated mouse motion, which `MouseMove` zeroes (`src/framework/UsercmdGen.cpp:451-452`), unless `m_smooth` is above its default of 1 (`src/framework/UsercmdGen.cpp:172`). The total turn is right, but it all lands in the first tic. A client or listen host that runs several ticks in one frame behaves the same way.
-   5. **Extra-view update.** Only when no tic ran (`renderOnlyFrame`, `src/framework/Session.cpp:332`): `GetDirectUsercmd` (`src/framework/Session.cpp:342`), then `game->ClientUpdateView( cmd, Com_GetGameTimeLeft() )` (`src/framework/Session.cpp:343`).
-3. `UpdateScreen` draws (`src/framework/Common.cpp:985`). A frame that ran a tic is a **base draw**: `ClientUpdateView` is not called, so the game draws at sub-tick fraction 0 (§6.4).
+   5. **Extra-view update.** Only when no tic ran (`renderOnlyFrame`, `src/framework/Session.cpp:332`): `GetDirectUsercmd` (`src/framework/Session.cpp:343`), then `game->ClientUpdateView( cmd, Com_GetGameTimeLeft() )` (`src/framework/Session.cpp:344`).
+3. `UpdateScreen` draws (`src/framework/Common.cpp:1068`). A frame that ran a tic is a **base draw**: `ClientUpdateView` is not called, so the game draws at sub-tick fraction 0 (§6.4).
 4. Pacing (§7.1).
 
 Provenance: `Session::Frame`, `RunGameTic` and the single-player `Com_GetGameTimeLeft` match the jmarshall baseline.
 
 ### 4.2 Network client (`idAsyncClient`)
 
-`idAsyncClient::RunFrame` (`src/framework/async/AsyncClient.cpp:305-359`):
+`idAsyncClient::RunFrame` (`src/framework/async/AsyncClient.cpp:305-360`):
 
-1. `UpdateTime( 100 )` adds wall-clock ms to `gameTimeResidual` (`src/framework/async/AsyncClient.cpp:311`; body `src/framework/async/AsyncClient.cpp:881-894`).
-2. **Socket servicing.** The `clientPort.GetPacket` loop (`src/framework/async/AsyncClient.cpp:315-320`) passes every packet to `ProcessMessage` (`src/framework/async/AsyncClient.cpp:791-813`):
-   - connectionless packets go to `ConnectionlessMessage` (`src/framework/async/AsyncClient.cpp:794-797`);
-   - packets from another server id or address, and every packet during a map change, are dropped (`src/framework/async/AsyncClient.cpp:800-805`);
-   - otherwise `channel.Process`, then `ProcessReliableServerMessages` (`src/framework/async/AsyncClient.cpp:810`), then `ProcessUnreliableServerMessage` (`src/framework/async/AsyncClient.cpp:811`; body `src/framework/async/AsyncClient.cpp:569-655`).
+1. `UpdateTime( 100 )` adds wall-clock ms to `gameTimeResidual` (`src/framework/async/AsyncClient.cpp:311`; body `src/framework/async/AsyncClient.cpp:882-895`).
+2. **Socket servicing.** The `clientPort.GetPacket` loop (`src/framework/async/AsyncClient.cpp:315-320`) passes every packet to `ProcessMessage` (`src/framework/async/AsyncClient.cpp:792-814`):
+   - connectionless packets go to `ConnectionlessMessage` (`src/framework/async/AsyncClient.cpp:795-798`);
+   - packets from another server id or address, and every packet during a map change, are dropped (`src/framework/async/AsyncClient.cpp:801-806`);
+   - otherwise `channel.Process`, then `ProcessReliableServerMessages` (`src/framework/async/AsyncClient.cpp:811`), then `ProcessUnreliableServerMessage` (`src/framework/async/AsyncClient.cpp:812`; body `src/framework/async/AsyncClient.cpp:570-656`).
    
    After the loop come `CheckTimeout` (`src/framework/async/AsyncClient.cpp:322-326`), `SetupConnection` (`src/framework/async/AsyncClient.cpp:328`) and, when a `ui_*` CVar changed, `SendUserInfoToServer` (`src/framework/async/AsyncClient.cpp:329-331`).
-3. **Snapshot receipt** (`src/framework/async/AsyncClient.cpp:576-654`):
-   - **Out-of-range reset.** If the client's `gameTime` is behind the snapshot, or more than `net_clientMaxPrediction` ahead (`src/framework/async/AsyncClient.cpp:617-618`), the client clears its own usercmds for the skipped frames, sets `gameFrame` and `gameTime` to the snapshot's, and clamps `gameTimeResidual` and `clientPredictTime` to ±`net_clientMaxPrediction` (`src/framework/async/AsyncClient.cpp:619-627`). This moves the tick clock.
-   - `game->ClientReadSnapshot` reads the snapshot (`src/framework/async/AsyncClient.cpp:632`). It becomes the delta base only when the server's `SERVER_RELIABLE_MESSAGE_APPLYSNAPSHOT` arrives (comment at `src/framework/async/AsyncClient.cpp:630-631`; handled at `src/framework/async/AsyncClient.cpp:692-700`).
+3. **Snapshot receipt** (`src/framework/async/AsyncClient.cpp:577-655`):
+   - **Out-of-range reset.** If the client's `gameTime` is behind the snapshot, or more than `net_clientMaxPrediction` ahead (`src/framework/async/AsyncClient.cpp:618-619`), the client clears its own usercmds for the skipped frames, sets `gameFrame` and `gameTime` to the snapshot's, and clamps `gameTimeResidual` and `clientPredictTime` to ±`net_clientMaxPrediction` (`src/framework/async/AsyncClient.cpp:620-628`). This moves the tick clock.
+   - `game->ClientReadSnapshot` reads the snapshot (`src/framework/async/AsyncClient.cpp:633`). It becomes the delta base only when the server's `SERVER_RELIABLE_MESSAGE_APPLYSNAPSHOT` arrives (comment at `src/framework/async/AsyncClient.cpp:631-632`; handled at `src/framework/async/AsyncClient.cpp:693-701`).
    - In the game, `ClientReadSnapshot` resets `framenum` and `time` to the snapshot and sets `isNewFrame` (`game repo: src/game/Game_network.cpp:2449-2458`), then recomputes AoR flags against the viewer (`game repo: src/game/Game_network.cpp:2563-2577`; see §6.9).
-   - On success, `predictedGameFrame = snapshotGameFrame` (`src/framework/async/AsyncClient.cpp:635`), so prediction replays from the snapshot frame. The first snapshot of a game moves the client from `CS_CONNECTED` to `CS_INGAME` and zeroes `gameTimeResidual` (`src/framework/async/AsyncClient.cpp:636-639`). The prediction clock is nudged (`src/framework/async/AsyncClient.cpp:645-648`).
-4. **Command deadlines** (in `CS_INGAME`). `startFrame = gameFrame` (`src/framework/async/AsyncClient.cpp:333`). Then, while `gameTimeResidual + clientPredictTime >= USERCMD_MSEC`: `SendUsercmdsToServer`, followed by `++gameFrame` (`src/framework/async/AsyncClient.cpp:334-339`).
-   - `SendUsercmdsToServer` builds one usercmd for the frame with `GetDirectUsercmd` (`src/framework/async/AsyncClient.cpp:501-505`).
-   - It sends only when the channel's rate limit allows (`src/framework/async/AsyncClient.cpp:507-509`), and each message carries the newest `net_clientUsercmdBackup` commands, default 5 (`src/framework/async/AsyncClient.cpp:511-515`; `src/framework/async/AsyncNetwork.cpp:56`).
-5. **Prediction.** `predictedGameFrame` is clamped to the usercmd backup (`src/framework/async/AsyncClient.cpp:340-342`), then `game->ClientPrediction` runs for every frame up to `gameFrame` (`src/framework/async/AsyncClient.cpp:343-347`).
-6. `ProcessReliableServerMessages` (`src/framework/async/AsyncClient.cpp:348`).
-7. **Extra-view update.** Only when no tick ran this frame (`gameFrame == startFrame`): `GetDirectUsercmd`, `GetGameTimeLeft`, then `game->ClientUpdateView` (`src/framework/async/AsyncClient.cpp:350-354`).
-8. In `CS_CONNECTED` (not yet in game), `SendUsercmdsToServer` builds a usercmd every frame without advancing `gameFrame`, and sends it only when the channel is ready (`src/framework/async/AsyncClient.cpp:355-358`, `src/framework/async/AsyncClient.cpp:507-509`). Each build runs the game callbacks of §5.
+   - On success, `predictedGameFrame = snapshotGameFrame` (`src/framework/async/AsyncClient.cpp:636`), so prediction replays from the snapshot frame. The first snapshot of a game moves the client from `CS_CONNECTED` to `CS_INGAME` and zeroes `gameTimeResidual` (`src/framework/async/AsyncClient.cpp:637-640`). The prediction clock is nudged (`src/framework/async/AsyncClient.cpp:646-649`).
+4. **Command deadlines** (in `CS_INGAME`). `startFrame = gameFrame` (`src/framework/async/AsyncClient.cpp:333`). Then, while `gameTimeResidual + clientPredictTime >= USERCMD_MSEC`: `SendUsercmdsToServer`, followed by `++gameFrame` (`src/framework/async/AsyncClient.cpp:334-340`).
+   - `SendUsercmdsToServer` builds one usercmd for the frame with `GetDirectUsercmd` (`src/framework/async/AsyncClient.cpp:502-506`).
+   - It sends only when the channel's rate limit allows (`src/framework/async/AsyncClient.cpp:508-510`), and each message carries the newest `net_clientUsercmdBackup` commands, default 5 (`src/framework/async/AsyncClient.cpp:512-516`; `src/framework/async/AsyncNetwork.cpp:56`).
+5. **Prediction.** `predictedGameFrame` is clamped to the usercmd backup (`src/framework/async/AsyncClient.cpp:341-343`), then `game->ClientPrediction` runs for every frame up to `gameFrame` (`src/framework/async/AsyncClient.cpp:344-348`).
+6. `ProcessReliableServerMessages` (`src/framework/async/AsyncClient.cpp:349`).
+7. **Extra-view update.** Only when no tick ran this frame (`gameFrame == startFrame`): `GetDirectUsercmd`, `GetGameTimeLeft`, then `game->ClientUpdateView` (`src/framework/async/AsyncClient.cpp:351-355`).
+8. In `CS_CONNECTED` (not yet in game), `SendUsercmdsToServer` builds a usercmd every frame without advancing `gameFrame`, and sends it only when the channel is ready (`src/framework/async/AsyncClient.cpp:356-359`, `src/framework/async/AsyncClient.cpp:508-510`). Each build runs the game callbacks of §5.
 
-`Session::Frame` is skipped (`src/framework/Common.cpp:980`), and `UpdateScreen` draws (`src/framework/Common.cpp:985`).
+`Session::Frame` is skipped (`src/framework/Common.cpp:1063`), and `UpdateScreen` draws (`src/framework/Common.cpp:1068`).
 
 Provenance: the `ClientUpdateView` call, `GetGameTimeLeft` and the client branch of `Com_GetGameTimeLeft` were added by OE in 8191cae (2026-09-21). jmarshall's `AsyncClient` has none of them.
 
 **What a client draws of remote players today.**
-- Relayed usercmds are stored per frame, up to `MAX_USERCMD_RELAY` (`src/framework/async/AsyncNetwork.h:56`; `src/framework/async/AsyncClient.cpp:380-403`). The frames after the relayed ones are cleared, so prediction duplicates the last relayed command (`src/framework/async/AsyncClient.cpp:397-403`, `src/framework/async/AsyncClient.cpp:422-430`).
+- Relayed usercmds are stored per frame, up to `MAX_USERCMD_RELAY` (`src/framework/async/AsyncNetwork.h:56`; `src/framework/async/AsyncClient.cpp:381-404`). The frames after the relayed ones are cleared, so prediction duplicates the last relayed command (`src/framework/async/AsyncClient.cpp:398-404`, `src/framework/async/AsyncClient.cpp:423-431`).
 - Remote players think and move once per predicted tick (`game repo: src/game/Player.cpp:6691`, `game repo: src/game/Player.cpp:6743`). Prediction-error decay advances only on new frames (`game repo: src/game/PredictionErrorDecay.cpp:357-360`).
 - They are presented once per tick (`game repo: src/game/Player.cpp:6862-6867`). There is no snapshot interpolation.
 - Nothing updates their render entities between ticks, because the remote-entity producer is compiled out (§6.6).
@@ -150,40 +150,40 @@ Provenance: the `ClientUpdateView` call, `GetGameTimeLeft` and the client branch
 ### 4.3 Listen host (`+spawnServer` in the client binary)
 
 - `localClientNum` is `net_serverDedicated ? -1 : 0` (`src/framework/async/AsyncServer.cpp:226`). The client binary defaults `net_serverDedicated` to 0 (`src/framework/async/AsyncNetwork.cpp:43`).
-- An async session is active, so `Session::Frame` is skipped (`src/framework/Common.cpp:980`).
+- An async session is active, so `Session::Frame` is skipped (`src/framework/Common.cpp:1063`).
 
-`idAsyncServer::RunFrame` (`src/framework/async/AsyncServer.cpp:421-472`):
+`idAsyncServer::RunFrame` (`src/framework/async/AsyncServer.cpp:421-473`):
 
-1. `UpdateTime( 100 )` (`src/framework/async/AsyncServer.cpp:426`; body `src/framework/async/AsyncServer.cpp:1645-1657`).
-2. **Socket servicing.** `ProcessConnectionLessMessages` (`src/framework/async/AsyncServer.cpp:427`; body `src/framework/async/AsyncServer.cpp:474-484`) reads every packet on the server port and passes it to `ProcessMessage` (`src/framework/async/AsyncServer.cpp:1556-1593`):
-   - connectionless packets go to `ConnectionlessMessage` (`src/framework/async/AsyncServer.cpp:1559-1561`);
-   - other packets are matched to a client slot by client id and address (`src/framework/async/AsyncServer.cpp:1568-1584`), then `channel.Process`, `ProcessReliableClientMessages` (`src/framework/async/AsyncServer.cpp:1589`) and `ProcessUnreliableClientMessage` (`src/framework/async/AsyncServer.cpp:1590`; body `src/framework/async/AsyncServer.cpp:1175-1264`).
+1. `UpdateTime( 100 )` (`src/framework/async/AsyncServer.cpp:426`; body `src/framework/async/AsyncServer.cpp:1646-1658`).
+2. **Socket servicing.** `ProcessConnectionLessMessages` (`src/framework/async/AsyncServer.cpp:427`; body `src/framework/async/AsyncServer.cpp:475-485`) reads every packet on the server port and passes it to `ProcessMessage` (`src/framework/async/AsyncServer.cpp:1557-1594`):
+   - connectionless packets go to `ConnectionlessMessage` (`src/framework/async/AsyncServer.cpp:1560-1562`);
+   - other packets are matched to a client slot by client id and address (`src/framework/async/AsyncServer.cpp:1569-1585`), then `channel.Process`, `ProcessReliableClientMessages` (`src/framework/async/AsyncServer.cpp:1590`) and `ProcessUnreliableClientMessage` (`src/framework/async/AsyncServer.cpp:1591`; body `src/framework/async/AsyncServer.cpp:1176-1265`).
    
    A usercmd message:
-   - applies the snapshot the client acknowledged, if it is newer than the last acknowledged one, and queues `SERVER_RELIABLE_MESSAGE_APPLYSNAPSHOT` for it (`src/framework/async/AsyncServer.cpp:1219-1227`, `src/framework/async/AsyncServer.cpp:920-928`);
-   - is dropped when the client's frame is more than `MAX_USERCMD_BACKUP` from the server's (`src/framework/async/AsyncServer.cpp:1229-1232`);
-   - otherwise stores each usercmd in `userCmds[frame][client]` (`src/framework/async/AsyncServer.cpp:1234-1256`) and records the client's frame and prediction lead (`src/framework/async/AsyncServer.cpp:1206-1208`, `src/framework/async/AsyncServer.cpp:1258-1261`).
+   - applies the snapshot the client acknowledged, if it is newer than the last acknowledged one, and queues `SERVER_RELIABLE_MESSAGE_APPLYSNAPSHOT` for it (`src/framework/async/AsyncServer.cpp:1220-1228`, `src/framework/async/AsyncServer.cpp:921-929`);
+   - is dropped when the client's frame is more than `MAX_USERCMD_BACKUP` from the server's (`src/framework/async/AsyncServer.cpp:1230-1233`);
+   - otherwise stores each usercmd in `userCmds[frame][client]` (`src/framework/async/AsyncServer.cpp:1235-1257`) and records the client's frame and prediction lead (`src/framework/async/AsyncServer.cpp:1207-1209`, `src/framework/async/AsyncServer.cpp:1259-1262`).
    
    Packets are read before the tick loop, so a command that arrives this host frame is used by this frame's ticks if its frame has not run yet *(inferred from the order)*.
-3. `CheckClientTimeouts` (`src/framework/async/AsyncServer.cpp:428`; body `src/framework/async/AsyncServer.cpp:834-845`) drops a remote client silent for `net_serverClientTimeout` (40 s) and clears a zombie slot after `net_serverZombieTimeout` (5 s) (`src/framework/async/AsyncNetwork.cpp:49-50`).
+3. `CheckClientTimeouts` (`src/framework/async/AsyncServer.cpp:428`; body `src/framework/async/AsyncServer.cpp:835-846`) drops a remote client silent for `net_serverClientTimeout` (40 s) and clears a zombie slot after `net_serverZombieTimeout` (5 s) (`src/framework/async/AsyncNetwork.cpp:49-50`).
 4. If no map is spawned, the residual is zeroed and the function returns (`src/framework/async/AsyncServer.cpp:432-435`). Otherwise `gameTimeResidual += delta` (`src/framework/async/AsyncServer.cpp:436`).
 5. User-info changes made by the host are applied (`src/framework/async/AsyncServer.cpp:438-446`).
-6. **Server steps.** While `gameTimeResidual >= USERCMD_MSEC` (`src/framework/async/AsyncServer.cpp:448-455`):
-   - `DuplicateUsercmds` fills each client's slot whose command has not arrived with the previous command, and counts it (`src/framework/async/AsyncServer.cpp:622-636`; `src/framework/async/UsercmdCodec.cpp:90-109`);
-   - `LocalClientInput` puts `GetDirectUsercmd` into the host's slot (`src/framework/async/AsyncServer.cpp:820-832`; call at `src/framework/async/AsyncServer.cpp:825`);
+6. **Server steps.** While `gameTimeResidual >= USERCMD_MSEC` (`src/framework/async/AsyncServer.cpp:448-456`):
+   - `DuplicateUsercmds` fills each client's slot whose command has not arrived with the previous command, and counts it (`src/framework/async/AsyncServer.cpp:623-637`; `src/framework/async/UsercmdCodec.cpp:90-109`);
+   - `LocalClientInput` puts `GetDirectUsercmd` into the host's slot (`src/framework/async/AsyncServer.cpp:821-833`; call at `src/framework/async/AsyncServer.cpp:826`);
    - `game->RunFrame( userCmds[gameFrame], USERCMD_MSEC )`;
    - `++gameFrame`.
-7. **Publication to remote clients** (`src/framework/async/AsyncServer.cpp:457-470`); see §4.5. The local client and bots are skipped (`src/framework/async/AsyncServer.cpp:459`).
-8. `MasterHeartbeat` (`src/framework/async/AsyncServer.cpp:471`).
+7. **Publication to remote clients** (`src/framework/async/AsyncServer.cpp:458-471`); see §4.5. The local client and bots are skipped (`src/framework/async/AsyncServer.cpp:460`).
+8. `MasterHeartbeat` (`src/framework/async/AsyncServer.cpp:472`).
 
-Nothing on the host calls `ClientUpdateView`, and nothing builds a usercmd between ticks. `UpdateScreen` draws every frame (`src/framework/Common.cpp:985`). The pacer takes the client branch, because `IsDedicated()` reads `net_serverDedicated` (`src/framework/async/NetworkSystem.cpp:304-306`).
+Nothing on the host calls `ClientUpdateView`, and nothing builds a usercmd between ticks. `UpdateScreen` draws every frame (`src/framework/Common.cpp:1068`). The pacer takes the client branch, because `IsDedicated()` reads `net_serverDedicated` (`src/framework/async/NetworkSystem.cpp:304-306`).
 
 Consequences, from the code:
 - **Every host frame is a base draw.**
   - `idGameLocal::RunFrame` clears `unlock.unlockedDraw` (`game repo: src/game/Game_local.cpp:5258`) and nothing sets it.
   - The base draw rewinds only the origin: the camera origin is drawn at `originlog[n-1]` while the axis stays at tick n (`game repo: src/game/PlayerView.cpp:880-889`). Both step at 30 Hz; the origin is one tick behind, the axis is not.
 - **The host camera turns at 30 Hz.** Mouse deltas wait in `mouseDx`/`mouseDy` until `MakeCurrent`/`MouseMove` runs (`src/framework/UsercmdGen.cpp:416-490`, `src/framework/UsercmdGen.cpp:548-601`). On the host the only caller is `LocalClientInput`, once per tick.
-  - Adding `ClientUpdateView` alone would not fix this. The host also needs a per-frame `GetDirectUsercmd`, as single player does (`src/framework/Session.cpp:342`).
+  - Adding `ClientUpdateView` alone would not fix this. The host also needs a per-frame `GetDirectUsercmd`, as single player does (`src/framework/Session.cpp:343`).
 - **The SDK expected unlocked frames on the authoritative side.** SDK `idGameLocal::RunFrame` sets `canUnlockFrames` from the local player and clears `unlockedDraw` (`SDK: game/Game_local.cpp:4222-4231`; unchanged at `game repo: src/game/Game_local.cpp:5250-5259`).
 
 Provenance: jmarshall's `AsyncServer::RunFrame` is already non-blocking, has `LocalClientInput`, and has no `ClientUpdateView`.
@@ -191,29 +191,29 @@ Provenance: jmarshall's `AsyncServer::RunFrame` is already non-blocking, has `Lo
 ### 4.4 Dedicated server, and a headless client in the dedicated binary
 
 - In the dedicated binary `net_serverDedicated` is ROM 1 (`src/framework/async/AsyncNetwork.cpp:39-41`), so `localClientNum` is -1 and no usercmds are built.
-- Ticks run as in §4.3 steps 1-8. Then `SyncRenderSystem` runs (`src/framework/Common.cpp:982-984`), and `UpdateScreen` returns without drawing (`src/framework/Session.cpp:219`; `src/sys/posix/posix_main.cpp:425-432`).
+- Ticks run as in §4.3 steps 1-8. Then `SyncRenderSystem` runs (`src/framework/Common.cpp:1065-1067`), and `UpdateScreen` returns without drawing (`src/framework/Session.cpp:219`; `src/sys/posix/posix_main.cpp:425-432`).
 - **Pacing.**
-  - The pacer sleeps the whole remainder of the frame at `com_maxFPS` (default 60) (`src/framework/Common.cpp:1017-1021`), and the host loop adds `Sys_Sleep( 1 )` (`src/sys/posix/posix_main.cpp:660-664`).
+  - The pacer sleeps the whole remainder of the frame at `com_maxFPS` (default 60) (`src/framework/Common.cpp:1098-1102`), and the host loop adds `Sys_Sleep( 1 )` (`src/sys/posix/posix_main.cpp:660-664`).
   - Ticks therefore run on a wall-clock grid of about 16.7 ms. Game time stays exact, but tick and snapshot send times jitter by up to one frame *(derived)*.
 - `DoClientSideStuff()` is false in the dedicated binary (`game repo: src/game/Game_local.cpp:4829-4831`). With no local player, `canUnlockFrames` is false (`game repo: src/game/Game_local.cpp:5251-5256`).
 - A headless client (dedicated binary with `+connect`) runs the §4.2 path, including `ClientUpdateView`, and draws nothing.
 
 ### 4.5 Committed-state publication (server)
 
-Here "committed state" is the server's game state after the last tick a host frame ran. The server publishes it in snapshots written only after its tick loop, at most one per host frame and client (`src/framework/async/AsyncServer.cpp:457-470`). Reliable game messages sent during a tick are only queued on the client's channel (`src/framework/async/AsyncServer.cpp:493-512`, `src/framework/async/AsyncServer.cpp:1627-1643`) and leave with the next unreliable message. The listen host's own client and bots get nothing (`src/framework/async/AsyncServer.cpp:459`, `src/framework/async/AsyncServer.cpp:1631-1639`); the host's client shares the server's game.
+Here "committed state" is the server's game state after the last tick a host frame ran. The server publishes it in snapshots written only after its tick loop, at most one per host frame and client (`src/framework/async/AsyncServer.cpp:458-471`). Reliable game messages sent during a tick are only queued on the client's channel (`src/framework/async/AsyncServer.cpp:494-513`, `src/framework/async/AsyncServer.cpp:1628-1644`) and leave with the next unreliable message. The listen host's own client and bots get nothing (`src/framework/async/AsyncServer.cpp:460`, `src/framework/async/AsyncServer.cpp:1632-1640`); the host's client shares the server's game.
 
 For each remote client in the loop:
-1. **`SendSnapshotToClient`** (`src/framework/async/AsyncServer.cpp:1095-1173`).
-   - A client still in `SCS_CONNECTED` gets its game init once and no snapshot (`src/framework/async/AsyncServer.cpp:1100-1108`).
+1. **`SendSnapshotToClient`** (`src/framework/async/AsyncServer.cpp:1096-1174`).
+   - A client still in `SCS_CONNECTED` gets its game init once and no snapshot (`src/framework/async/AsyncServer.cpp:1101-1109`).
    - Otherwise a snapshot goes out only when all of these hold:
-     - the client is in the game and not loading a map (`src/framework/async/AsyncServer.cpp:1109-1111`);
-     - at least `net_serverSnapshotDelay` ms have passed since its last snapshot (`src/framework/async/AsyncServer.cpp:1112-1114`);
-     - the channel's rate limit allows a send and no fragments are pending (`src/framework/async/AsyncServer.cpp:1115-1117`).
-   - `game->ServerWriteSnapshot` (`src/framework/async/AsyncServer.cpp:1134`; `game repo: src/game/Game_network.cpp:1665`) writes entity state as of the last tick run, plus the relayed usercmds of other clients (`game repo: src/game/Game_network.cpp:1584` → `src/framework/async/AsyncServer.cpp:1671-1688`). At most `net_serverMaxUsercmdRelay` commands are relayed, default 5 (`src/framework/async/AsyncNetwork.cpp:48`).
-   - The header carries `gameFrame` and `gameTime` as they are after the loop, that is the next frame to run, plus the duplicated-usercmd count and `aheadOfServer` (`src/framework/async/AsyncServer.cpp:1142-1156`). The client restarts prediction from that frame (§4.2).
-   - `lastSnapshotTime` is set to this host frame's `realTime` (`src/framework/async/AsyncServer.cpp:1171`), even when the channel refused the message (`src/framework/async/AsyncServer.cpp:1164-1168`).
-2. **`SendEmptyToClient( i, false )`** when no snapshot went out (`src/framework/async/AsyncServer.cpp:462-467`). It sends an empty unreliable message at most every 500 ms (`SERVER_EMPTY_RESEND_MSEC`, `src/framework/async/AsyncServer.cpp:17`; `src/framework/async/AsyncServer.cpp:951-967`). Queued reliable messages, `APPLYSNAPSHOT` included, travel only inside unreliable messages (comment at `src/framework/async/AsyncServer.cpp:463-465`).
-3. `ProcessReliableClientMessages` and `ApplyPendingUserInfo` (`src/framework/async/AsyncServer.cpp:468-469`).
+     - the client is in the game and not loading a map (`src/framework/async/AsyncServer.cpp:1110-1112`);
+     - at least `net_serverSnapshotDelay` ms have passed since its last snapshot (`src/framework/async/AsyncServer.cpp:1113-1115`);
+     - the channel's rate limit allows a send and no fragments are pending (`src/framework/async/AsyncServer.cpp:1116-1118`).
+   - `game->ServerWriteSnapshot` (`src/framework/async/AsyncServer.cpp:1135`; `game repo: src/game/Game_network.cpp:1665`) writes entity state as of the last tick run, plus the relayed usercmds of other clients (`game repo: src/game/Game_network.cpp:1584` → `src/framework/async/AsyncServer.cpp:1672-1689`). At most `net_serverMaxUsercmdRelay` commands are relayed, default 5 (`src/framework/async/AsyncNetwork.cpp:48`).
+   - The header carries `gameFrame` and `gameTime` as they are after the loop, that is the next frame to run, plus the duplicated-usercmd count and `aheadOfServer` (`src/framework/async/AsyncServer.cpp:1143-1157`). The client restarts prediction from that frame (§4.2).
+   - `lastSnapshotTime` is set to this host frame's `realTime` (`src/framework/async/AsyncServer.cpp:1172`), even when the channel refused the message (`src/framework/async/AsyncServer.cpp:1165-1169`).
+2. **`SendEmptyToClient( i, false )`** when no snapshot went out (`src/framework/async/AsyncServer.cpp:463-468`). It sends an empty unreliable message at most every 500 ms (`SERVER_EMPTY_RESEND_MSEC`, `src/framework/async/AsyncServer.cpp:17`; `src/framework/async/AsyncServer.cpp:952-968`). Queued reliable messages, `APPLYSNAPSHOT` included, travel only inside unreliable messages (comment at `src/framework/async/AsyncServer.cpp:464-466`).
+3. `ProcessReliableClientMessages` and `ApplyPendingUserInfo` (`src/framework/async/AsyncServer.cpp:469-470`).
 
 Timing *(derived from the code, not measured)*:
 - The delay is checked against the host frame's `realTime`, so a snapshot goes out on the first host frame at least 50 ms after the previous one. The interval is the delay rounded up to the host-frame grid. On a dedicated server paced at 60 fps that is 3 or 4 frames, about 50-67 ms.
@@ -247,9 +247,9 @@ Timing *(derived from the code, not measured)*:
   
   The game calls run on every sample, because `doGameCallback` defaults to true (`game repo: src/framework/UsercmdGen.h:149`) and no caller passes false.
 - **Callers.**
-  - Single player: each tick (`src/framework/Session.cpp:554`) and each render-only frame (`src/framework/Session.cpp:342`).
-  - Client: each tick (`src/framework/async/AsyncClient.cpp:503`), each render-only frame (`src/framework/async/AsyncClient.cpp:351`), and every frame in `CS_CONNECTED` (`src/framework/async/AsyncClient.cpp:356`).
-  - Listen host: each tick only (`src/framework/async/AsyncServer.cpp:825`).
+  - Single player: each tick (`src/framework/Session.cpp:555`) and each render-only frame (`src/framework/Session.cpp:343`).
+  - Client: each tick (`src/framework/async/AsyncClient.cpp:504`), each render-only frame (`src/framework/async/AsyncClient.cpp:352`), and every frame in `CS_CONNECTED` (`src/framework/async/AsyncClient.cpp:357`).
+  - Listen host: each tick only (`src/framework/async/AsyncServer.cpp:826`).
 - **Render-only samples are not side-effect-free.** The command itself is discarded, including mouse-strafe motion written into `cmd.rightmove`/`cmd.forwardmove` (`src/framework/UsercmdGen.cpp:477`, `src/framework/UsercmdGen.cpp:481`). What persists:
   - `viewangles`, so the angle change reaches the next tick's command;
   - the consumed `mouseDx`/`mouseDy` (`src/framework/UsercmdGen.cpp:451-452`) and the advanced `m_smooth` history (`src/framework/UsercmdGen.cpp:417-442`);
@@ -264,9 +264,9 @@ Timing *(derived from the code, not measured)*:
   - The `m_smooth` history advances on every call, so its smoothing window is counted in samples, not time (`src/framework/UsercmdGen.cpp:417-442`).
   - `TurnTimeScale` makes key and controller turning a rate per second. This was an OE change of 2026-09-24; the comment at `src/framework/UsercmdGen.cpp:345-356` explains it.
 - **Stale comments.** Four places still describe input or common-services workers that no meson build has:
-  - the `com_asyncInput` help text, "input is sampled by the dedicated input thread" (ROM; `src/framework/Common.cpp:74`);
-  - the comment in `idCommonLocal::Async`, "the platform owns the dedicated input and sound workers" (`src/framework/Common.cpp:889-891`);
-  - `src/framework/Session.cpp:552-553`;
+  - the `com_asyncInput` help text, "input is sampled by the dedicated input thread" (ROM; `src/framework/Common.cpp:76`);
+  - the comment in `idCommonLocal::Async`, "the platform owns the dedicated input and sound workers" (`src/framework/Common.cpp:896-898`);
+  - `src/framework/Session.cpp:553-554`;
   - `src/framework/UsercmdGen.cpp:650-651`.
 - **Aim shown on a render-only frame.** `ClientUpdateView` shows `refAngles + ( cmd.angles - p->usercmd.angles )`, where `cmd` is the newest direct usercmd (`game repo: src/game/Game_local.cpp:6050-6072`). The delta is passed through `p->MouseMove` and clamped to `unlock.minAngles`/`maxAngles`. The SDK comment there says "This doesn't take all clamps/rate limits into account" (`game repo: src/game/Game_local.cpp:6052`).
 - **Aim fired.** The next tick uses the usercmd built at that tick. Because `viewangles` accumulates, its angles include every mouse delta consumed by render-only samples plus any input that arrived after the last draw. The fired aim is therefore the last shown aim plus newer input, subject to the clamps the SDK comment calls incomplete *(inferred)*.
@@ -462,7 +462,7 @@ These paths let a render frame change what the next tick, a snapshot or AoR code
   - The next full update takes the values it writes as `state.oldOrigin`/`oldAxis` (`game repo: src/game/vehicles/VehicleView.cpp:1197-1200`).
   - On a dedicated server `interpFraction` is always 0, because only `idGameLocal::Clear` and `ClientUpdateView` write it (`game repo: src/game/Game_local.cpp:1759`, `game repo: src/game/Game_local.cpp:1797`, `game repo: src/game/Game_local.cpp:6025`). When both log slots are valid, the branch therefore writes the previous tick's logged camera (`game repo: src/game/vehicles/VehicleView.cpp:1172-1175`).
   - On a client it uses the last on-foot fraction, which depends on the frame cap: in a vehicle `ClientUpdateView` returns before `game repo: src/game/Game_local.cpp:6025`, except on the render-only frames of the tick in which the player entered it (see §6.5 step 5).
-- **Live today on clients: the damped view while `unlockedDraw` is still set.** The main client route is snapshot receipt. `ClientReadSnapshot` runs from the engine's packet loop (`src/framework/async/AsyncClient.cpp:315-320`, `src/framework/async/AsyncClient.cpp:632`), before the tick loop and before `ClientPrediction` clears `unlockedDraw`. It calls `SetupClientAoR` → `GetAORView` (`game repo: src/game/Game_network.cpp:2563`, `game repo: src/game/Game_network.cpp:2625`; `game repo: src/game/AORManager.cpp:119`). After a render-only frame `unlockedDraw` is still true, in a vehicle too, because `ClientUpdateView` sets it before its `canUnlockFrames` gate (`game repo: src/game/Game_local.cpp:5960-5964`).
+- **Live today on clients: the damped view while `unlockedDraw` is still set.** The main client route is snapshot receipt. `ClientReadSnapshot` runs from the engine's packet loop (`src/framework/async/AsyncClient.cpp:315-320`, `src/framework/async/AsyncClient.cpp:633`), before the tick loop and before `ClientPrediction` clears `unlockedDraw`. It calls `SetupClientAoR` → `GetAORView` (`game repo: src/game/Game_network.cpp:2563`, `game repo: src/game/Game_network.cpp:2625`; `game repo: src/game/AORManager.cpp:119`). After a render-only frame `unlockedDraw` is still true, in a vehicle too, because `ClientUpdateView` sets it before its `canUnlockFrames` gate (`game repo: src/game/Game_local.cpp:5960-5964`).
   - `lastReturnedAxis` has one reader: `sdDampedVehicleView_FreePivot::ClampViewAngles` (`game repo: src/game/vehicles/VehicleView.cpp:727-730`), called during `UpdateViewAngles` (`game repo: src/game/Player.cpp:5642`). `sdDampedVehicleView_FreePivot` overrides `CalculateViewPos` (`game repo: src/game/vehicles/VehicleView.cpp:802-861`), so the value it reads is the one written at `game repo: src/game/vehicles/VehicleView.cpp:860` (SDK code, `SDK: game/vehicles/VehicleView.cpp:768`), after OE's interpolation of the eye axis when `!fullUpdate && unlockedDraw` (`game repo: src/game/vehicles/VehicleView.cpp:832-844`), with the stale fraction above. Predicted view angles in a free-pivot seat can therefore depend on render frames.
   - The base `sdDampedVehicleView::CalculateViewPos` has the same OE interpolation (`game repo: src/game/vehicles/VehicleView.cpp:553-568`) and also writes `lastReturnedAxis` (`game repo: src/game/vehicles/VehicleView.cpp:587`, SDK code at `SDK: game/vehicles/VehicleView.cpp:524`), but nothing reads that write.
   - Status: plausible, not run. The replay hash would not catch it: it covers the local player's origin, velocity, health and flags, the vehicle's origin, velocity and health, objectives, the rules state and the event count, but no view angles (`game repo: src/game/Game_local.cpp:11662-11676`).
@@ -491,53 +491,53 @@ These paths let a render frame change what the next tick, a snapshot or AoR code
 | `IsFPSUnlock` | none | deploy-menu NULL check |
 | `Entity::Present` producer | `#if 0` / `#endif` added | none |
 | `sdTransport`, `VehicleView`, `TransportExtras` | none | all vehicle sub-tick code (§6.8) |
-| Engine `ClientUpdateView` callers | single player only (`src/framework/Session.cpp:341-344`) | client (8191cae); none on the listen host |
+| Engine `ClientUpdateView` callers | single player only (`src/framework/Session.cpp:342-345`) | client (8191cae); none on the listen host |
 
 ## 7. Pacing, the unlock CVars and render submission
 
-### 7.1 The pacer (`src/framework/Common.cpp:990-1037`, OE 8191cae; sleep-only dedicated branch OE 007233d)
+### 7.1 The pacer (`src/framework/Common.cpp:1073-1135`, OE 8191cae; sleep-only dedicated branch OE 007233d)
 
-- **Target.** `targetFrameUsec = 1000000 / maxFPS` (`src/framework/Common.cpp:1007`), measured from where the previous frame's pacing ended (`lastFrameUsec`, `src/framework/Common.cpp:1004`, `src/framework/Common.cpp:1034`). Work time therefore counts toward the target.
+- **Target.** `targetFrameUsec = 1000000 / maxFPS` (`src/framework/Common.cpp:1091`), measured from where the previous frame's pacing ended (`lastFrameUsec`, `src/framework/Common.cpp:1087`, `src/framework/Common.cpp:1125`). Work time therefore counts toward the target.
 - **Wait.**
-  - Client: sleep until 1.5 ms before the frame is due (only if the wait exceeds 2 ms), then spin (`src/framework/Common.cpp:1022-1031`).
-  - Dedicated: sleep only (`src/framework/Common.cpp:1017-1021`).
-- **No catch-up.** An overrunning frame is not compensated (`src/framework/Common.cpp:1013-1015`, `src/framework/Common.cpp:1034`).
+  - Client: sleep until a margin before the frame is due, then spin (`src/framework/Common.cpp:1103-1122`). The margin is the lateness measured on recent sleeps plus 0.5 ms, capped at 6 ms: it rises to a late wake at once and decays by 1/64 a frame (`src/framework/Common.cpp:1109-1118`). Until 2026-09-25 it was a fixed 1.5 ms.
+  - Dedicated: sleep only (`src/framework/Common.cpp:1098-1102`).
+- **No catch-up.** An overrunning frame is not compensated (`src/framework/Common.cpp:1094-1096`, `src/framework/Common.cpp:1125`).
 - **The pacer can pull the average below the cap.** When frame times vary around the target, short frames are padded up to the target and long frames are not compensated. The average rate then falls below both the cap and the uncapped rate. For example, alternating 5 ms and 12 ms frames at cap 120 average about 98 fps, against about 117 fps uncapped *(derived)*.
-- **Sleeps can overshoot.** The dedicated branch only sleeps (`src/framework/Common.cpp:1020`). The client branch sleeps until 1.5 ms before the deadline (`src/framework/Common.cpp:1026`), so an overshoot above 1.5 ms delays the frame.
-- **When every frame takes longer than the target**, the pacer never waits and cannot be the limiter. That is the case at caps 144 and 240 with frames of about 9 ms (§7.5) *(derived)*.
+- **Sleeps wake late.** macOS wakes `sleep_for` about 2 ms after the requested time (measured 2026-09-25). With the old fixed 1.5 ms margin every paced client frame ran late: cap 60 gave 17.19 ms frames (58–59 fps). With a 3 ms margin, and with the adaptive margin, cap 60 holds 16.67 ms and cap 120 holds 8.33 ms (`FRAME_TIMING`, §7.6). The dedicated branch only sleeps (`src/framework/Common.cpp:1101`); its 30 Hz ticks do not need sub-millisecond pacing.
+- **When every frame takes longer than the target**, the pacer never waits and cannot be the limiter. That is the case at caps 144 and 240 on this host, where each frame's own work takes one display refresh (§7.5, measured).
 - **Not tick-aware.** The pacer ignores tick phase.
 
 ### 7.2 The pacing CVars
 
 | CVar | Default and flags | Engine reads | Game reads | Retail meaning (evidence) |
 |---|---|---|---|---|
-| `com_unlockFPS` | 1; BOOL, ARCHIVE, PROFILE (`src/framework/Common.cpp:76-77`) | **none** | found at `game repo: src/game/Game_local.cpp:2481`; read at `game repo: src/game/PlayerView.cpp:886` and at `game repo: src/game/Entity.cpp:1737` (compiled out) | Help text: "allow renderer to go faster than game ticks". `pak000: loffy.cfg:134`: "Set to "0" for fixed fps, i.e. 30 fps"; `pak000: visuals.cfg:26` sets 1 |
-| `com_unlock_avgFrames` | 4, range 1-10, NOCHEAT (`src/framework/Common.cpp:78-79`) | **none** | none | Help text: "average out render times over n frames for extra renders management" |
-| `com_unlock_safetyMargin` | 0.1, NOCHEAT (`src/framework/Common.cpp:80-81`) | **none** | none | Help text: "percentage safety margin under which not to trigger an extra render" |
-| `com_unlock_timingMethod` | 2, NOCHEAT (`src/framework/Common.cpp:82-83`) | **none** | none | Help text: 0 = whenever they fit; 1 = on boundaries of framerate multiples of 30; 2 = like 1, estimating from total previous time. `pak000: berzerkr.cfg:10-19`: 0 max FPS, 1 smoother, 2 smoothest and lowest FPS. `pak000: visuals.cfg:28` sets 1 |
-| `com_maxFPS` | 60; INTEGER, ARCHIVE (`src/framework/Common.cpp:84-85`) | `src/framework/Common.cpp:991-1005` | none | Not retail (OE 8191cae) |
-| `com_unlock_maxFPS` | 60, NOCHEAT (`src/framework/Common.cpp:86-87`) | `src/framework/Common.cpp:991-1005` (mirrored) | none | Help text: "only works in timing methods 1 & 2". `pak000: visuals.cfg:27` sets 120; `pak000: gizm.cfg:81` sets 0 |
+| `com_unlockFPS` | 1; BOOL, ARCHIVE, PROFILE (`src/framework/Common.cpp:78-79`) | **none** | found at `game repo: src/game/Game_local.cpp:2481`; read at `game repo: src/game/PlayerView.cpp:886` and at `game repo: src/game/Entity.cpp:1737` (compiled out) | Help text: "allow renderer to go faster than game ticks". `pak000: loffy.cfg:134`: "Set to "0" for fixed fps, i.e. 30 fps"; `pak000: visuals.cfg:26` sets 1 |
+| `com_unlock_avgFrames` | 4, range 1-10, NOCHEAT (`src/framework/Common.cpp:80-81`) | **none** | none | Help text: "average out render times over n frames for extra renders management" |
+| `com_unlock_safetyMargin` | 0.1, NOCHEAT (`src/framework/Common.cpp:82-83`) | **none** | none | Help text: "percentage safety margin under which not to trigger an extra render" |
+| `com_unlock_timingMethod` | 2, NOCHEAT (`src/framework/Common.cpp:84-85`) | **none** | none | Help text: 0 = whenever they fit; 1 = on boundaries of framerate multiples of 30; 2 = like 1, estimating from total previous time. `pak000: berzerkr.cfg:10-19`: 0 max FPS, 1 smoother, 2 smoothest and lowest FPS. `pak000: visuals.cfg:28` sets 1 |
+| `com_maxFPS` | 60; INTEGER, ARCHIVE (`src/framework/Common.cpp:86-87`) | `src/framework/Common.cpp:1074-1089` | none | Not retail (OE 8191cae) |
+| `com_unlock_maxFPS` | 60, NOCHEAT (`src/framework/Common.cpp:88-89`) | `src/framework/Common.cpp:1074-1089` (mirrored) | none | Help text: "only works in timing methods 1 & 2". `pak000: visuals.cfg:27` sets 120; `pak000: gizm.cfg:81` sets 0 |
 
 - **Provenance.** All five `com_unlock*` CVars and their help texts are in jmarshall's `src/framework/Common.cpp` (`/Users/jmulesa/etqw`).
 - **Retail semantics** are known only from these help strings and from the community and developer cfgs at the root of pak000. Whether the retail GUIs reference any of these CVars is unverified: the GUIs ship compiled as `.guib` files (under `generated/declb/guis/`), and a string search of them finds no CVar names at all, not even common ones such as `r_mode`. Among text files, only root-level `.cfg` files mention `com_unlock`.
-- **Mirroring** (`src/framework/Common.cpp:990-1001`). Each frame one value wins:
+- **Mirroring** (`src/framework/Common.cpp:1073-1084`). Each frame one value wins:
   1. If `com_maxFPS` was modified, it wins.
   2. Otherwise, a modified `com_unlock_maxFPS` wins.
   3. Otherwise `com_unlock_maxFPS` is forced to equal `com_maxFPS`.
 - **Side effects of mirroring.**
-  - The `com_unlock_maxFPS` fallback at `src/framework/Common.cpp:1005` is effectively dead.
-  - A cfg that sets `com_unlock_maxFPS` in the same frame that the archived `com_maxFPS` loads is overwritten (`src/framework/Common.cpp:991-994`).
+  - The `com_unlock_maxFPS` fallback at `src/framework/Common.cpp:1089` is effectively dead.
+  - A cfg that sets `com_unlock_maxFPS` in the same frame that the archived `com_maxFPS` loads is overwritten (`src/framework/Common.cpp:1074-1077`).
   - Both CVars start out modified (`src/framework/CVarSystem.cpp:99`, `src/framework/CVarSystem.cpp:122`), so on the first frame `com_maxFPS` wins over a `com_unlock_maxFPS` set by a startup cfg.
 
 ### 7.3 `com_unlockFPS 0` today
 
-- The engine never reads the CVar. It still calls `ClientUpdateView` on render-only frames (`src/framework/Session.cpp:341-344`; `src/framework/async/AsyncClient.cpp:350-354`).
+- The engine never reads the CVar. It still calls `ClientUpdateView` on render-only frames (`src/framework/Session.cpp:342-345`; `src/framework/async/AsyncClient.cpp:351-355`).
 - The game's `ClientUpdateView` does not check the CVar either (`game repo: src/game/Game_local.cpp:5957-5965`; `SDK: game/Game_local.cpp:4874-4881`). The base-draw rewind does check it (`game repo: src/game/PlayerView.cpp:886`).
 - Result *(inferred, not observed)*: base draws show origin n while render-only frames interpolate from n-1, so the view steps back once per tick.
 
 ### 7.4 Changing the cap during play
 
-- `com_maxFPS` is read every frame (`src/framework/Common.cpp:1005`). Setting 0 resets the pacing timer (`src/framework/Common.cpp:1035-1036`).
+- `com_maxFPS` is read every frame (`src/framework/Common.cpp:1089`). Setting 0 resets the pacing timer (`src/framework/Common.cpp:1126-1127`).
 - Changing `r_swapInterval` recreates the swapchain, with `DeviceWaitIdle`, on the next `BeginFrame` (`src/renderer/VulkanBackend.cpp:5190-5201`).
 - Nothing in the engine blocks a cap change. No registered meson test covers one. `tests/test_frame_pacing_adversarial.py` sends `set com_maxFPS` over stdin during play (`tests/test_frame_pacing_adversarial.py:309-310`) and tries edge cases (1000, -60, 1, rapid 60/240 toggles; `tests/test_frame_pacing_adversarial.py:456-490`), but it is not in `tests/meson.build`.
 
@@ -549,30 +549,32 @@ These paths let a render frame change what the next tick, a snapshot or AoR code
 - `EndFrame( bool )` ignores its argument (`src/renderer/VulkanBackend.cpp:5381`). It presents, and counts `framesPresented` only when the present succeeds (`src/renderer/VulkanBackend.cpp:5480-5490`). The counter is printed at shutdown (`src/renderer/VulkanBackend.cpp:5106`).
 - Present mode: with `r_swapInterval <= 0`, `ChoosePresentMode` prefers MAILBOX, then IMMEDIATE, and otherwise uses FIFO (`src/renderer/VulkanBackend.cpp:1479-1494`). The choice is logged at `src/renderer/VulkanBackend.cpp:1969-1971`.
 
-**The recorded result.** `STATUS.md` (the render-cap replay determinism row) records 387/645/647/647 presented frames at caps 60/120/144/240.
+**The earlier recorded result.** `STATUS.md` (the render-cap replay determinism row, before 2026-09-25) records 387/645/647/647 presented frames at caps 60/120/144/240. The paragraph below explains why that count could not say which rate gameplay reached; §7.6 replaces it.
 - `framesPresented` counts the whole process lifetime: loading frames, pacifier frames at up to 30 Hz (`src/framework/Session.cpp:234-255`), `CompleteWipe` frames, and gameplay.
 - The test divides by 150 (`tests/test_high_refresh_determinism.py:332`) and only asserts that the 120 run presented more frames than the 60 run (`tests/test_high_refresh_determinism.py:334-335`).
 - Gameplay lasts about 4.95 s, since the replay quits at tick 150 (`game repo: src/game/Game_local.cpp:5370-5371`).
-- If the 60 run met its cap, gameplay at caps of 120 and above ran at roughly (645 − 90) / 4.95 ≈ 112 fps *(derived arithmetic, not measured)*. That also assumes gameplay spans the full 150 ticks of wall time and that the number of frames outside gameplay is the same at every cap. Neither is guaranteed:
-  - `CompleteWipe` presents frames in a loop outside the pacer (`src/framework/Session.cpp:630-637`), so their count depends on uncapped speed, not on the cap;
-  - the catch-up cap lets one frame run up to 10 ticks at once (`src/framework/Common.cpp:917-922`; `src/framework/Session.cpp:319-328`), which may shorten gameplay after the load *(inferred)*.
+- If the 60 run met its cap, gameplay at caps of 120 and above ran at roughly (645 − 90) / 4.95 ≈ 112 fps *(derived arithmetic, not measured; the 60 run in fact ran at 58–59 fps, §7.1, and the measured median rate is about 120, §7.5)*. That also assumes gameplay spans the full 150 ticks of wall time and that the number of frames outside gameplay is the same at every cap. Neither is guaranteed:
+  - `CompleteWipe` presents frames in a loop outside the pacer (`src/framework/Session.cpp:631-638`), so their count depends on uncapped speed, not on the cap;
+  - the catch-up cap lets one frame run up to 10 ticks at once (`src/framework/Common.cpp:924-929`; `src/framework/Session.cpp:319-328`), which may shorten gameplay after the load *(inferred)*.
 
 **Host facts** (build output and hardware, not code)
 - The client-network test logs (build output under `build/meson-logs/client-network/`, not in the repo) show `Vulkan swapchain: 2560x1440, 3 images, format 44, present mode 0`, that is IMMEDIATE, for both the join and the listen-host runs. So FIFO vsync is not the limiter.
 - The window is 1280x720 points with `SDL_WINDOW_HIGH_PIXEL_DENSITY` (`src/sys/sdl/sdl_glimp.cpp:52`), and `r_fullscreen` defaults to 0 (`src/renderer/RenderSystem_init.cpp:69`).
 - The host is an M1 Max whose built-in panel runs at up to 120 Hz. MoltenVK is 1.4.2.
 
-**Cause: unverified.** Two hypotheses:
-- **(a) Display or compositor.** A windowed layer on a 120 Hz panel is paced by the display even in IMMEDIATE mode, and the acquire blocks. That MoltenVK maps IMMEDIATE to `displaySyncEnabled = NO` was not checked in its source.
-- **(b) Frame cost.** About 8.5-9 ms of CPU or GPU work per frame.
+**Cause: presentation waits for the display (measured 2026-09-25).** With `com_logFrameTiming 1` (§7.6), uncapped play and caps 144 and 240 all run at about 120 fps, and each frame's *work* (from the start of the frame to the pacer, which includes `BeginFrame`'s fence wait and image acquire and `EndFrame`'s present) takes the whole 8.3 ms. The pacer never waits. The same client at cap 120 does its work in about 7.7 ms and waits the rest, and at cap 60 in about 3.8 ms. So on this host a windowed IMMEDIATE-mode swapchain is paced by the 120 Hz display; hypothesis (b), frame cost, is ruled out. Which call blocks (the fence wait or the acquire) and whether fullscreen, a 60 Hz panel setting or MoltenVK settings change it was not measured; `r_showmetrics 1` (`src/renderer/RendererMetrics.cpp:18`) times both scopes (`src/renderer/VulkanBackend.cpp:5233`, `src/renderer/VulkanBackend.cpp:5206`).
 
-**How to decide**
-1. Measure a gameplay-only rate.
-2. Run `r_showmetrics 1` (`src/renderer/RendererMetrics.cpp:18`) and compare the "Vulkan acquire swapchain image" and "Vulkan wait for frame fence" scopes (`src/renderer/VulkanBackend.cpp:5233`, `src/renderer/VulkanBackend.cpp:5206`).
-3. Enable MoltenVK performance tracking.
-4. Make A/B runs: panel at 60 Hz, `r_mode 3`, and `r_fullscreen 1`.
+**Consequence for M5.** Caps 144 and 240 cannot be reached here in a window. `high-refresh-determinism` now reports them as unreachable rather than failing (M5 plan decision D1 is still the owner's), and still requires every schedule's per-tick state to match.
+
+**Stalls during play (measured, not yet explained).** Every schedule of the replay, at every cap, has one frame of about 410–460 ms during play, and its p99 frame interval is about 60–75 ms. Because it happens at every cap, it is presumably content (for example assets loaded when the scripted replay enters a vehicle) rather than pacing; not investigated yet.
 
 **Windows.** The loop's `Sleep( 1 )` sits outside the pacer (`src/sys/win32/SystemBootstrap.cpp:1405-1408`). `timeBeginPeriod` appears only in engine sources that no meson build compiles: `src/sys/win32/win_main.cpp:973` and the vendored SDL2 timer (`src/sys/sdl2/src/timer/windows/SDL_systimer.c:54`). Whether SDL3 raises the timer resolution is unverified. If it does not, this sleep could cap Windows well below high refresh *(inferred; the Windows engine has never been built)*.
+
+### 7.6 Measuring the frame rate: `com_logFrameTiming`
+
+- `com_frameTicks` counts the game ticks run in the current host frame. `idCommonLocal::Frame` resets it (`src/framework/Common.cpp:1036`); single player (`src/framework/Session.cpp:335`), the network client (`src/framework/async/AsyncClient.cpp:339`) and the server (`src/framework/async/AsyncServer.cpp:455`) add to it.
+- With `com_logFrameTiming 1`, every host frame adds its interval (end of the previous frame's pacing to the end of its own) and its work time (start of the frame to the pacer), and once a second the engine prints one `FRAME_TIMING` line: the window length, frames, ticks, the cap, and the p50/p95/p99/max of the intervals and the p50/p95/max of the work times (`src/framework/Common.cpp:975-1024`, called at `src/framework/Common.cpp:1131`).
+- A window with about 30 ticks is play; fewer ticks means loading or menus. `high-refresh-determinism` takes the frame rate from the median frame interval over the play windows, so one hitch does not decide it, and reports the average and the longest frame as well.
 
 ## 8. Doom 3, and what retail ETQW added
 
@@ -604,7 +606,7 @@ Remaining stepped paths must be listed rather than claimed as interpolated, and 
 **Criterion 1: replay determinism**
 - Only the offline single-player replay exists (`tests/test_high_refresh_determinism.py`, meson `high-refresh-determinism`).
 - Its hash leaves out view angles, other players and projectiles (`game repo: src/game/Game_local.cpp:11662-11676`).
-- The replay still samples input through the engine: `RunGameTic` builds each tick's usercmd with `GetDirectUsercmd` (`src/framework/Session.cpp:554-559`), and render-only frames sample too (`src/framework/Session.cpp:342`). The injection block (`game repo: src/game/Game_local.cpp:5341-5374`) only overwrites `forwardmove`, `rightmove`, `upmove` and attack on chosen ticks. Angles and every other field come from engine sampling, and they stay constant only because nothing moves the mouse.
+- The replay still samples input through the engine: `RunGameTic` builds each tick's usercmd with `GetDirectUsercmd` (`src/framework/Session.cpp:555-560`), and render-only frames sample too (`src/framework/Session.cpp:343`). The injection block (`game repo: src/game/Game_local.cpp:5341-5374`) only overwrites `forwardmove`, `rightmove`, `upmove` and attack on chosen ticks. Angles and every other field come from engine sampling, and they stay constant only because nothing moves the mouse.
 - Presentation reaches tick state through the paths in §6.9. The replay hash cannot see them.
 - Render-only samples run the game's usercmd callbacks (§5), so the weapon lock and other client button state can depend on the frame rate.
 - There is no listen-host replay.
@@ -638,9 +640,9 @@ Remaining stepped paths must be listed rather than claimed as interpolated, and 
 - The mirroring can overwrite a cfg-set `com_unlock_maxFPS` (§7.2).
 
 **Pacing and other gaps in the frame path**
-- Caps above about 120 did not take effect on the development Mac, cause unverified (§7.5).
+- Caps above 120 cannot be reached on the development Mac in a window: presentation waits for its 120 Hz display (measured, §7.5). Every replay schedule also has one ~410–460 ms stall during play (§7.5), not yet explained.
 - Three CVars are read nowhere: `com_unlock_avgFrames`, `com_unlock_safetyMargin` and `com_unlock_timingMethod` (§7.2). CHARTER §7.5 requires every exposed pacing CVar to do something.
-- In client and listen-host sessions, `GuiFrameEvents` → `uiManager->Update` never runs per frame (`src/framework/Common.cpp:979-985`). It runs only out of sequence, during loads and wipes (`src/framework/Session.cpp:224-226`). Doom 3 called it in that branch. Whether HUD GUIs still update by another route is unverified.
+- In client and listen-host sessions, `GuiFrameEvents` → `uiManager->Update` never runs per frame (`src/framework/Common.cpp:1062-1068`). It runs only out of sequence, during loads and wipes (`src/framework/Session.cpp:224-226`). Doom 3 called it in that branch. Whether HUD GUIs still update by another route is unverified.
 - Render-only input samples have side effects (§5): the weapon lock can clear between ticks, the `m_smooth` window is counted in samples, and mouse-strafe motion from render-only samples is dropped.
 - Windows `Sleep( 1 )` sits outside the pacer (§7.5).
 
@@ -664,5 +666,5 @@ Remaining stepped paths must be listed rather than claimed as interpolated, and 
 - **Tick frames.** Should frames that ran a tick also call `ClientUpdateView`, with `timeLeft` taken from the post-tick residual? The alternative is a tick-aligned scheduler, as retail timing methods 1 and 2 describe. Either way, the per-cycle reference capture (`game repo: src/game/Game_local.cpp:5987-6022`) assumes a preceding base draw and needs review.
 - **Render-only input samples.** Should they skip the game callbacks (`GetDirectUsercmd( false )`), or take only the view angles, so that buttons and impulses stay tick-bound as CHARTER §7.5 requires? What does a render-only sample then need from `MouseMove`'s game clamps?
 - **Should `com_unlockFPS 0` lock rendering to the tick rate**, as the pak000 cfg comment says?
-- **Client ordering.** `ClientPrediction` (`src/framework/async/AsyncClient.cpp:343-347`) runs before `ProcessReliableServerMessages` (`src/framework/async/AsyncClient.cpp:348`) in the same frame. Reliable messages in each packet are already processed before that packet's snapshot (`src/framework/async/AsyncClient.cpp:810`). Is the second call intended, and what can it still find?
+- **Client ordering.** `ClientPrediction` (`src/framework/async/AsyncClient.cpp:344-348`) runs before `ProcessReliableServerMessages` (`src/framework/async/AsyncClient.cpp:349`) in the same frame. Reliable messages in each packet are already processed before that packet's snapshot (`src/framework/async/AsyncClient.cpp:811`). Is the second call intended, and what can it still find?
 - **Seat and camera switches.** The `originlog` resets on seat switch and camera cycle copy `player->renderView.vieworg`, which may still be the pre-switch view (`game repo: src/game/vehicles/Transport.cpp:2832-2837`, `game repo: src/game/vehicles/TransportExtras.cpp:442-445`, `game repo: src/game/vehicles/VehicleView.cpp:267-270`). Nothing resets `originlog` on vehicle exit, respawn or teleport, and that gap is SDK behaviour.
