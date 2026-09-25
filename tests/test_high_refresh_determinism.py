@@ -7,10 +7,22 @@ from authoritative 30 Hz simulation (USERCMD_HZ = 30, USERCMD_MSEC = 33) produce
 zero simulation drift or physics divergence on stock map Valley (maps/valley.world).
 
 Validates:
-1. Fixed tick-indexed command stream replayed across 60, 120, 144, and 240 Hz render schedules.
-2. Bit-for-bit identical CRC32 simulation hashes (SIM_HASH) across all 4 refresh rates.
+1. Fixed tick-indexed command stream replayed at caps 60, 120, 144 and 240 and uncapped
+   (com_maxFPS 0, which also measures this host's frame-rate ceiling).
+2. Bit-for-bit identical CRC32 simulation hashes (SIM_HASH) across all schedules.
 3. Identical player/vehicle coordinates, velocities, health, objective state, and serviced event counts.
-4. Smooth presentation scaling with com_maxFPS and clean shutdown with exit code 0.
+4. The frame rate each schedule reached during play, from the engine's once-a-second
+   FRAME_TIMING lines (com_logFrameTiming 1; windows with >= 25 game ticks), taken from the
+   median frame interval so one loading hitch does not decide it. It may not exceed the cap
+   by more than 3%. A cap clearly below the uncapped rate (<= 90% of it) is set by the pacer
+   and must be held to 98% (the pacer ran a 60 cap at 58 fps before 2026-09-25); any other
+   cap must reach 90% of the lower of the cap and the uncapped rate, which provisionally
+   implements the recommendation in docs/m5-plan.md decision D1 (owner decision pending).
+   A cap above the uncapped rate is reported as unreachable on this host (on a 120 Hz
+   display, presentation waits for the display, so 144 and 240 run at about 120). The
+   average rate and the longest frame are reported too, and every FRAME_TIMING window must
+   report the schedule's own cap.
+5. Clean shutdown with exit code 0.
 """
 
 from __future__ import annotations
@@ -75,6 +87,39 @@ SIM_HASH_RE = re.compile(
 )
 
 
+FRAME_TIMING_RE = re.compile(
+    r"FRAME_TIMING: window_ms=([\d.]+) frames=(\d+) ticks=(\d+) cap=(-?\d+)"
+    r" dt_p50=([\d.]+) dt_p95=([\d.]+) dt_p99=([\d.]+) dt_max=([\d.]+)"
+)
+PLAY_MIN_TICKS = 25     # a FRAME_TIMING window with fewer game ticks is loading or menus
+CAP_OVERSHOOT = 1.03    # a schedule may run at most this much above its cap
+PACED_FRACTION = 0.98   # a cap <= REACH_FRACTION x the uncapped rate must be held this closely
+REACH_FRACTION = 0.9    # any other cap must reach this fraction of min(cap, the uncapped rate)
+
+
+def play_timing(lines: list[str]) -> dict | None:
+    """Frame rate and frame-interval spread over the FRAME_TIMING windows of play."""
+    windows = [m for ln in lines if (m := FRAME_TIMING_RE.search(ln)) and int(m.group(3)) >= PLAY_MIN_TICKS]
+    if not windows:
+        return None
+    ms = sum(float(m.group(1)) for m in windows)
+    frames = sum(int(m.group(2)) for m in windows)
+    medians = sorted(float(m.group(5)) for m in windows)
+    return {
+        "caps": sorted({int(m.group(4)) for m in re.finditer(FRAME_TIMING_RE, "\n".join(lines))}),
+        "windows": len(windows),
+        "fps": 1000.0 / medians[len(medians) // 2],  # from the median frame interval
+        "avg_fps": frames * 1000.0 / ms,
+        "dt_p50": max(float(m.group(5)) for m in windows),
+        "dt_p99": max(float(m.group(7)) for m in windows),
+        "dt_max": max(float(m.group(8)) for m in windows),
+    }
+
+
+def cap_label(fps: int) -> str:
+    return "uncapped" if fps == 0 else f"{fps} Hz"
+
+
 def stream_reader(pipe, q: queue.Queue[str]) -> None:
     try:
         for line in iter(pipe.readline, ""):
@@ -94,7 +139,7 @@ def run_determinism_schedule(
     timeout_sec: float = 45.0,
 ) -> tuple[dict[int, SimHashEntry], int, list[str]]:
     """Runs a single determinism schedule at the given com_maxFPS."""
-    print(f"\n--- [SCHEDULE {fps} Hz] Launching Valley determinism replay (com_maxFPS {fps}) ---")
+    print(f"\n--- [SCHEDULE {cap_label(fps)}] Launching Valley determinism replay (com_maxFPS {fps}) ---")
 
     args = [
         str(bin_path),
@@ -103,6 +148,7 @@ def run_determinism_schedule(
         "+set", "si_rules", "sdGameRulesObjective",
         "+set", "r_swapInterval", "0",
         "+set", "com_maxFPS", str(fps),
+        "+set", "com_logFrameTiming", "1",
         "+set", "g_determinismTest", "1",
         "+set", "g_simHash", "1",
         "+devmap", "valley",
@@ -221,7 +267,7 @@ def main() -> int:
     print(" OpenETQW High-Refresh Simulation Determinism Replay Test")
     print(f" Working Directory: {REPO_ROOT}")
     print(f" Retail Basepath:   {DATA_PATH}")
-    print(" Render Schedules:   60 Hz, 120 Hz, 144 Hz, 240 Hz")
+    print(" Render Schedules:   60 Hz, 120 Hz, 144 Hz, 240 Hz, uncapped")
     print(" Target Binary:     " + (str(CLIENT_BIN) if CLIENT_BIN.is_file() else str(DED_BIN)))
     print("=================================================================")
 
@@ -238,14 +284,15 @@ def main() -> int:
         print(f"[SKIP] Retail assets not found at {DATA_PATH / 'base' / 'pak000.pk4'}. Skipping test.")
         return 77  # Meson skip code
 
-    rates = [60, 120, 144, 240]
+    rates = [60, 120, 144, 240, 0]  # 0 = uncapped: this host's ceiling
     results: dict[int, dict[int, SimHashEntry]] = {}
     frames: dict[int, int] = {}
+    timing: dict[int, dict | None] = {}
 
     test_start = time.time()
 
     for fps in rates:
-        sim_hashes, presented_frames, _ = run_determinism_schedule(
+        sim_hashes, presented_frames, lines = run_determinism_schedule(
             fps=fps,
             bin_path=bin_path,
             expected_min_ticks=150,
@@ -253,6 +300,7 @@ def main() -> int:
         )
         results[fps] = sim_hashes
         frames[fps] = presented_frames
+        timing[fps] = play_timing(lines)
 
     print("\n=================================================================")
     print(" Cross-Schedule Determinism & Bit-for-Bit Identity Verification")
@@ -274,8 +322,8 @@ def main() -> int:
     mismatches = 0
     sample_ticks = [1, 20, 50, 70, 91, 105, 115, 121, 140, 150]
 
-    print("\n--- Telemetry Sample Comparison across 60, 120, 144, 240 Hz ---")
-    header = f"{'Tick':>5} | {'60 Hz Hash':>10} | {'120 Hz Hash':>10} | {'144 Hz Hash':>10} | {'240 Hz Hash':>10} | {'Identical?':>10}"
+    print("\n--- Telemetry Sample Comparison across 60, 120, 144, 240 Hz and uncapped ---")
+    header = f"{'Tick':>5} | {'60 Hz Hash':>10} | {'120 Hz Hash':>10} | {'144 Hz Hash':>10} | {'240 Hz Hash':>10} | {'Uncapped':>10} | {'Identical?':>10}"
     print(header)
     print("-" * len(header))
 
@@ -324,25 +372,55 @@ def main() -> int:
             h120 = results[120][tick].crc_hash
             h144 = results[144][tick].crc_hash
             h240 = results[240][tick].crc_hash
+            h0 = results[0][tick].crc_hash
             status = "MATCH (OK)" if not tick_mismatch else "MISMATCH"
-            print(f"{tick:5d} | 0x{h60} | 0x{h120} | 0x{h144} | 0x{h240} | {status:>10}")
+            print(f"{tick:5d} | 0x{h60} | 0x{h120} | 0x{h144} | 0x{h240} | 0x{h0} | {status:>10}")
 
-    print("\n--- Presentation Cadence Summary ---")
+    print("\n--- Frame rate during play (FRAME_TIMING) ---")
+    rate_failures = []
     for fps in rates:
-        print(f"  {fps:3d} Hz schedule presented: {frames[fps]:4d} Vulkan frames ({frames[fps]/150:.2f} frames/tick)")
-
-    assert frames[60] > 0, "Expected non-zero Vulkan frames at 60 Hz"
-    assert frames[120] > frames[60], f"Expected 120 Hz frames ({frames[120]}) > 60 Hz frames ({frames[60]})"
+        t = timing[fps]
+        if t is None:
+            rate_failures.append(f"{cap_label(fps)}: no FRAME_TIMING window with >= {PLAY_MIN_TICKS} ticks")
+            continue
+        print(f"  {cap_label(fps):>8}: {t['fps']:6.1f} fps (median frame interval; average {t['avg_fps']:.1f})"
+              f" over {t['windows']} s of play; per-second p50 <= {t['dt_p50']:.2f} ms, p99 <= {t['dt_p99']:.2f} ms,"
+              f" longest frame {t['dt_max']:.2f} ms; {frames[fps]} frames presented in the whole run")
+    ceiling = timing[0]["fps"] if timing.get(0) else None
+    for fps in (r for r in rates if r > 0):
+        t = timing[fps]
+        if t is None or ceiling is None:
+            continue
+        if t["fps"] > CAP_OVERSHOOT * fps:
+            rate_failures.append(f"{cap_label(fps)}: {t['fps']:.1f} fps is above the cap (> {CAP_OVERSHOOT:.2f} x {fps})")
+        if fps <= REACH_FRACTION * ceiling:
+            # the pacer, not the host, sets this rate: hold the cap
+            need = PACED_FRACTION * fps
+            why = f"{PACED_FRACTION:.0%} of the cap, which is well below uncapped {ceiling:.1f}"
+        else:
+            need = REACH_FRACTION * min(fps, ceiling)
+            why = f"{REACH_FRACTION:.0%} of min(cap, uncapped {ceiling:.1f})"
+        if t["fps"] < need:
+            rate_failures.append(f"{cap_label(fps)}: {t['fps']:.1f} fps is below {need:.1f} ({why})")
+        if ceiling < fps:
+            print(f"  [NOTE] {cap_label(fps)} is not reachable on this host: uncapped play runs at {ceiling:.1f} fps")
+    for fps in rates:
+        t = timing[fps]
+        if t is not None and t["caps"] != [fps]:
+            rate_failures.append(f"{cap_label(fps)}: FRAME_TIMING reported caps {t['caps']}, expected [{fps}]")
+    for f in rate_failures:
+        print(f"  [FAIL] {f}")
 
     total_duration = time.time() - test_start
-    print(f"\n[SUMMARY] Total runtime for all 4 schedules: {total_duration:.2f}s")
+    print(f"\n[SUMMARY] Total runtime for all {len(rates)} schedules: {total_duration:.2f}s")
     print(f"[SUMMARY] Total simulation ticks verified per schedule: {len(common_ticks)}")
-    print(f"[SUMMARY] Total state comparisons across 4 schedules: {len(common_ticks) * 3}")
+    print(f"[SUMMARY] Total state comparisons across {len(rates)} schedules: {len(common_ticks) * (len(rates) - 1)}")
     print(f"[SUMMARY] Total mismatches detected: {mismatches}")
 
     assert mismatches == 0, f"Determinism failure: {mismatches} state mismatches detected across render schedules!"
+    assert not rate_failures, f"Frame rate failures: {rate_failures}"
 
-    print("\n[PASSED] 100% BIT-FOR-BIT IDENTICAL SIMULATION ACROSS 60, 120, 144, AND 240 HZ RENDER SCHEDULES.")
+    print("\n[PASSED] 100% BIT-FOR-BIT IDENTICAL SIMULATION AT CAPS 60, 120, 144, 240 AND UNCAPPED; FRAME RATES WITHIN BOUNDS.")
     return 0
 
 

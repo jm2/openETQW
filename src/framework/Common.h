@@ -76,6 +76,11 @@ extern idCVar		com_useBinaryDecls;
 extern idCVar		com_writeBinaryDecls;
 extern idCVar		com_updateLoadSize;
 extern idCVar		com_videoRam;
+
+// game ticks run in the current host frame: idSessionLocal::Frame, idAsyncClient::RunFrame
+// and idAsyncServer::RunFrame add to it; idCommonLocal::Frame resets it and reports it
+// (com_logFrameTiming)
+extern int			com_frameTicks;
 extern idCVar		com_maxFPS;
 extern idCVar		com_unlock_maxFPS;
 

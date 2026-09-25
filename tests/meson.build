@@ -124,6 +124,7 @@ if build_engine
     suite: 'integration',
     timeout: 120,
   )
+  # asserts wall-clock frame rates: never run it next to another test
   test(
     'high-refresh-determinism',
     py,
@@ -131,6 +132,7 @@ if build_engine
     workdir: meson.project_source_root(),
     suite: 'integration',
     timeout: 180,
+    is_parallel: false,
   )
   test(
     'campaign-client-maps',

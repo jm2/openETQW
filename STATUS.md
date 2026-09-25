@@ -86,7 +86,7 @@ All rows: host mbp-m1max, macOS 27 arm64, Apple Clang 21, debug build, retail da
 | 10 minutes at 2% loss and 20–60 ms delay without a disconnect | map-loaded (valley) | as above; the reviewed `lossy-session` | meson `lossy-session` (suite `soak`) | 33 checks: each client's copy within 0.04 u of the server; 33 walks, each seen by the other client moving 170–305 u; longest snapshot gap 0.24 s; no drop; 2 slots in game at the end; all exit 0. An earlier version (walks not checked) also passed, twice |
 | The Vulkan client on a network | map-loaded (valley) | as above, MoltenVK | meson `client-network-join`, `client-network-listen` | Join: each client saw the other walk (423.14 u, 320.76 u). Listen host (`+spawnServer`): the peer saw the host walk 423.14 u; the host moved the peer's player 320.76 u from its usercmds. 1,248–1,428 frames presented with world draws; no Vulkan error markers. What the client draws of remote players is not checked |
 | Vulkan client loads and renders stock maps | map-loaded | as above, MoltenVK, suite 17 | meson `client-lifecycle`, `campaign-client-maps`, `vulkan-shadows` | 5 maps (valley, outskirts, ark, canyon, refinery) in `+devmap` sessions. Evidence is backend draw counters only; 0 skinned and 0 GUI draws |
-| Render-cap replay determinism | map-loaded (offline `+devmap`, one player) | as above, suite 17 | meson `high-refresh-determinism` | Same hashes at caps 60/120/144/240, but presented frames were 387/645/647/647, so caps above ~120 did not take effect here (cause unverified) |
+| Render-cap replay determinism, with measured frame rates | map-loaded (offline `+devmap`, one player) | as above; branch `m5/frame-timing` | meson `high-refresh-determinism` (caps 60/120/144/240 and uncapped, `com_logFrameTiming 1`) | Same per-tick hashes in all five schedules (150 ticks). Median-interval frame rate during play: 60.0, 120.0, 122.0, 121.8 and 121.2 fps; caps 144 and 240 reported unreachable here (display-bound: each frame's work takes the full 8.3 ms). Longest frame 413–462 ms in every schedule, p99 about 62–76 ms. Before the pacer fix, cap 60 ran at 58–59 fps (17.19 ms frames). The earlier run's 387/645/647/647 'presented frames' counted the whole process lifetime |
 | History purge scan | inspected | as above | Integrator scans (session scratchpad): every blob in every ref hashed against the retail data (raw, LF and CRLF forms); same-named text files compared line by line; binaries/resources checked against the Doom 3 GPL, dhewm3, RBDOOM-3-BFG, DOOM-3-BFG and openQ4 trees; name/content sweep for disassembly, IDA databases, PDBs and captures | One retail file found (the splash bitmap) and purged. The 204 files in `src/compiledscript/scripts/` (202 `.script`, 2 `.include`) are SDK text media, not retail content: 195 distinct script blobs in the game history (194 in the engine history) are byte-identical to the SDK 1.5 installer's Game Text Media copies; the others are small edits and jmarshall's rework of `main.script` (`docs/provenance.md` §2.2) |
 
 Evidence levels: inspected < configured < compiled < unit-tested < launched < map-loaded < match-tested
@@ -119,7 +119,7 @@ Notes on the per-map results:
 
 ### Not done / stubbed / known broken
 - **No Linux or Windows engine.** The engine has never been configured or compiled on Linux or Windows: there is no host, Actions minutes are out, and the engine CI legs skip while `openETQW-game` is private. Those legs are also `experimental: true` with `continue-on-error` (`.github/workflows/ci.yml:164`).
-- **Windows engine link gaps (inspected).** SystemBootstrap's `idSysLocal` lacks 23 virtual methods that only the POSIX `src/sys/sys_local.cpp` implements (DLL_*, FPU_*, GetClockTicks, callstack, DebugPrintf and others). `Sys_InitInput` and `Sys_ShutdownInput` (`Common.cpp:1298`, `:1408`; defined in `src/sys/win32/win_input.cpp`) and `Sys_ShowSplashScreen` (`Common.cpp:1282`; defined in `src/sys/win32/splashscreen.cpp`) come from files that are not in the Windows source list. The Windows network layer (`SystemBootstrap.cpp`) has no loss or latency simulation.
+- **Windows engine link gaps (inspected).** SystemBootstrap's `idSysLocal` lacks 23 virtual methods that only the POSIX `src/sys/sys_local.cpp` implements (DLL_*, FPU_*, GetClockTicks, callstack, DebugPrintf and others). `Sys_InitInput` and `Sys_ShutdownInput` (`Common.cpp:1400`, `:1510`; defined in `src/sys/win32/win_input.cpp`) and `Sys_ShowSplashScreen` (`Common.cpp:1384`; defined in `src/sys/win32/splashscreen.cpp`) come from files that are not in the Windows source list. The Windows network layer (`SystemBootstrap.cpp`) has no loss or latency simulation.
 - **No build or dependency scripts.** `scripts/deps/*` and `scripts/build.*` do not exist in either repo. The only dependency installer is `tools/ci/linux_deps.sh` (CI-only, apt).
 - **No retail data discovery.** No platform probes common retail install locations. Linux and Windows `Sys_DefaultBasePath` return the current directory. `fs_basepath` works and is what the tests use.
 - **The Vulkan client on a network is tested only by automation (2026-09-25).** It joined a dedicated server and hosted a listen server (`+spawnServer`; `+devmap` starts no async server), each with one headless peer, and moved under `clientMove`. Nobody has played it, and nothing checks what it draws of remote players.
@@ -127,8 +127,7 @@ Notes on the per-map results:
 - **High-refresh gaps (openETQW-game):**
   - Remote-entity interpolation producer compiled out: `src/game/Entity.cpp:1736` (`#if 0 // jmarshall - unlock fps`).
   - The vehicle sub-tick path is unreachable: `idPlayer::IsFPSUnlock` returns false with a proxy (`src/game/Player.cpp:8794`).
-  - `com_unlock_avgFrames`, `com_unlock_safetyMargin` and `com_unlock_timingMethod` are registered (`src/framework/Common.cpp:78–83`) and read nowhere.
-  - `docs/frame-path.md` does not exist.
+  - `com_unlock_avgFrames`, `com_unlock_safetyMargin` and `com_unlock_timingMethod` are registered (`src/framework/Common.cpp:80–85`) and read nowhere.
   - Other per-frame effects of late view-angle sampling that the audit listed (the mouse smoothing history, `game->UsercommandCallback`) were not reviewed today.
 - **Silent engine no-ops** in `src/framework/async/NetworkSystem.cpp`:
   - `ServerGetClientNetId` (:245);
@@ -171,7 +170,7 @@ Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>
 | OpenETQW MP: dedicated | blocked: no engine build | blocked: no engine build | map-loaded | — | — | Loopback, one host. Up to 2 clients (headless, or the Vulkan client and a headless one) + 1 bot. Movement checked both ways; reconnect, client restart, map restart, 10-minute lossy session |
 | OpenETQW MP: listen server | blocked: no engine build | blocked: no engine build | map-loaded | — | — | The Vulkan client with `+spawnServer` (`+devmap` starts no async server) and one headless peer (2026-09-25): the peer sees the host walk, and the host moves the peer's player. What the host draws of remote players is not checked and is expected to be stepped (no `ClientUpdateView`) |
 | Cross-OS client/server pair | blocked: no engine build | blocked: no engine build | blocked: needs an engine on a second OS | — | — | M3 requires one |
-| High refresh: on foot | blocked: no engine build | blocked: no engine build | map-loaded | — | — | Offline replay at 60 and ~120 fps. Key turning per second (turn-rate, headless networked client). The Vulkan client has joined a server (`client-network-join`), but nothing captures per-frame poses |
+| High refresh: on foot | blocked: no engine build | blocked: no engine build | map-loaded | — | — | Offline replay at caps 60/120 (held exactly) and 144/240 (display-bound at ~120 here). Key turning per second (turn-rate, headless networked client). The Vulkan client has joined a server (`client-network-join`), but nothing captures per-frame poses |
 | High refresh: vehicles | blocked: no engine build | blocked: no engine build | blocked: path unreachable (`IsFPSUnlock` proxy gate) | — | — | The sub-tick vehicle code added 2026-09-21 has never run |
 | Bots / navigation | blocked: no engine build | blocked: no engine build | map-loaded | — | — | Retail AAS on all 12 maps. Warmup traversal, soldier class only, much of it in vehicles (on six maps most of the 45 s window). ~15 Hz AI at the retail default |
 | Retail 1.5 peer rejected at connect (clean break, D7) | blocked: no engine build | blocked: no engine build | launched | — | — | Simulated peer (id/Splash Damage majors 1, 2, 10–14, 22) gets "Server uses protocol 20293.5". No real retail client tried |
@@ -244,9 +243,10 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
 - Bots / navigation row: partial. Retail AAS is on all 12 maps and bots traverse in warmup. Bots play no objectives.
 
 **M5 (high-refresh multiplayer): not met.**
-- Only an offline single-player replay exists (`high-refresh-determinism`). Caps above ~120 did not take effect on this host. Its hash leaves out view angles, other players and projectiles.
+- Only an offline single-player replay exists (`high-refresh-determinism`). Its hash leaves out view angles, other players and projectiles.
+- Frame rate is now measured during play (`com_logFrameTiming`, 2026-09-25): caps 60 and 120 are held exactly (16.67 and 8.33 ms frames) after a pacer fix; caps 144 and 240 run at about 120 because presentation waits for this host's 120 Hz display. Every replay schedule has one ~410–460 ms stall during play, not yet explained.
 - Today's turn-rate fix removed one render-rate dependence of authoritative state (key turning).
-- `docs/frame-path.md` (2026-09-25) traces one host frame in each mode, from code; nothing in it was measured. `docs/m5-plan.md` orders the remaining work in 16 steps, with ten owner decisions (D1–D10).
+- `docs/frame-path.md` (2026-09-25) traces one host frame in each mode, from code; its pacing section (§7.1, §7.5, §7.6) also has the frame rates measured with `com_logFrameTiming`. `docs/m5-plan.md` orders the remaining work in 16 steps, with ten owner decisions (D1–D10).
 - Open (details and file:line in `docs/frame-path.md` §9):
   - the `Entity::Present` producer (compiled out by jmarshall; SDK code);
   - the vehicle proxy gate;
@@ -305,7 +305,7 @@ Both repositories are private and have no releases.
    - Nothing is sold.
 
 ## Compatibility record
-- **Module ABI:** `GAME_API_VERSION` is 8 (1008 with `SD_PUBLIC_TOOLS`), in openETQW-game `src/game/Game.h:467–471`. The engine checks it at load (`Common.cpp:1184`). The previous STATUS said 1, which was wrong. No interface change today. `struct-layout` asserts `gameImport_t` 192 bytes and `gameExport_t` 24 bytes on arm64 (unit-tested).
+- **Module ABI:** `GAME_API_VERSION` is 8 (1008 with `SD_PUBLIC_TOOLS`), in openETQW-game `src/game/Game.h:467–471`. The engine checks it at load (`Common.cpp:1286`). The previous STATUS said 1, which was wrong. No interface change today. `struct-layout` asserts `gameImport_t` 192 bytes and `gameExport_t` 24 bytes on arm64 (unit-tested).
 - **Serialized/asset format changes:** none today. The usercmd codec moved to `UsercmdCodec.cpp` unchanged.
 - **Wire protocol id and OpenETQW-only deviations:** major `0x4F45` ('OE' = 20293), minor 5 (`src/framework/async/AsyncNetwork.h`):
   - minor 1: 16-bit channel framing, acked baselines;

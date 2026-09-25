@@ -13,12 +13,12 @@ M5 is done when:
 
 1. **Frame-path doc** (`docs/frame-path.md`). Documentation only.
 
-2. **Frame timing (engine).**
-   - Add a counter of ticks run in each host frame, set by `idSessionLocal::Frame`, `idAsyncClient::RunFrame` and `idAsyncServer::RunFrame`.
-   - Add a CVar `com_logFrameTiming` (default 0). When set, print one `FRAME_TIMING` line per host frame: frame number, work time, pacing wait, ticks run and `timeLeft`.
-   - `high-refresh-determinism` then reports the achieved gameplay frame rate per cap, and its frame-time distribution (median and 95th/99th percentile), instead of the renderer's lifetime present counter.
-   - It fails when the rate is above 1.03 × cap, or when the per-tick hashes differ.
-   - **Decision D1:** when the host cannot reach a cap (this Mac tops out at about 112–120 fps in a window), should the test fail or report the cap as unreachable? *Recommendation:* report it as unreachable with the measured ceiling, and fail only below 0.9 × min(cap, ceiling). A test that always fails on this Mac gates nothing.
+2. **Frame timing (engine).** Done (2026-09-25):
+   - `com_frameTicks` counts the ticks run in each host frame (single player, network client, server).
+   - `com_logFrameTiming 1` prints one `FRAME_TIMING` line a second: frames, ticks, the cap, and the percentiles of frame intervals and frame work. Per-frame lines with `timeLeft` are deferred to step 3's capture.
+   - `high-refresh-determinism` measures the rate during play from the median frame interval, per cap, with an uncapped run for this host's ceiling (also compared tick by tick). It fails above 1.03 × cap, below 0.98 × cap where the cap is well below the ceiling, and below 0.9 × min(cap, ceiling) otherwise. That last bound provisionally implements D1's recommendation.
+   - It also fixed the pacer, which ran a 60 cap at 58–59 fps because macOS wakes sleeps about 2 ms late.
+   - **Decision D1:** when the host cannot reach a cap (this Mac tops out at about 120 fps in a window, the display's rate), should the test fail or report the cap as unreachable? *Recommendation:* report it as unreachable with the measured ceiling, and fail only below 0.9 × min(cap, ceiling). A test that always fails on this Mac gates nothing.
 
 3. **Per-frame pose capture (game + engine tests).**
    - Add a CVar `g_logFramePoses` that prints one `FRAME_POSE` line per main-view draw, just before `RenderScene` in `idPlayerView::SingleView`. It logs:
@@ -33,7 +33,8 @@ M5 is done when:
    - **Decision D2:** which vehicle and seat count as "one vehicle seat", and does "pose" include skeletal joints? *Recommendation:* the driver seat of a ground vehicle on valley, with entity origins and axes only (no joints).
 
 4. **The ~120 fps ceiling.**
-   - Use steps 2 and 3 to find out whether presentation (MoltenVK and the 120 Hz panel), the pacer or the frame work sets the ceiling. Try fullscreen, a smaller window and a 60 Hz panel.
+   - Measured (2026-09-25): presentation waits for the 120 Hz display. Uncapped and at caps 144/240 each frame's work takes the whole 8.3 ms, while the same frames take about 7.7 ms at cap 120 (`docs/frame-path.md` §7.5). Still open: which call blocks (fence or acquire; `r_showmetrics 1`), and whether fullscreen or a 60 Hz panel setting changes it.
+   - Separately, every replay schedule has one ~410–460 ms stall during play; find its cause (probably content loaded mid-play).
    - A test-only mode that skips presenting must also skip acquiring the swapchain image and render offscreen; otherwise the swapchain runs dry and the run hangs.
    - **Decision D3:** is an offscreen or no-present run acceptable M5 evidence for caps 144 and 240 on a 120 Hz panel? *Recommendation:* yes for the determinism and pose criteria, with the limitation stated. "Smooth motion" still needs a display that reaches the cap.
 
