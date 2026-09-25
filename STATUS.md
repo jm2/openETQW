@@ -22,7 +22,7 @@ From the owner, 2026-09-25, answers to the open-question list (the letters and n
 - B10 bot `validClasses`: do what retail 1.5 does. Retail 1.5 reads it as a bool in all three game modules (`docs/specs/retail-1.5-reference.md`), so `GetBool` is restored (game `fix/target-1.5-data`, not merged yet).
 - C11 data: everything targets the retail data patched to 1.5: `pak000`–`pak008` (the required set) plus the edition's language paks (here `zpak_english000`–`003`); the unpatched DVD set alone is not supported.
 - C12 other OSes: no Linux or Windows retail-data automation. Do what is possible without retail data (for example a Windows cross-compile); the owner tests retail data on other OSes by hand.
-- M5 plan D1–D10: all decided (`docs/m5-plan.md`). D10's CVar default is drafted off (retail 1.5 behaviour) and waits for the owner's confirmation.
+- M5 plan D1–D10: all decided (`docs/m5-plan.md`). D10 (asked again with context): vehicles feel "as modern/responsive as possible without breaking game physics": the seat view is on by default and grows to every seat as each is made safe, and moving vehicles further off the tick rate is to be explored.
 - F16: the merged branches were deleted (13 engine, 8 game).
 - Charter §11: the retail-install check is the engine's alone, as in openQ4 ("mirroring openQ4 here sounds reasonable"); the local charter now says so, and release gate 6 names engine packages too.
 Environment corrections vs. SESSION_BRIEF: the only host is macOS arm64; there is no Linux or Windows host. GitHub Actions minutes for private repositories ran out on 2026-09-24, so hosted CI does not run. Local checks, local independent reviews and CodeRabbit (about one review an hour) replace it (`CONTRIBUTING.md`). Merge gates are a convention; the free plan has no branch protection.
@@ -362,7 +362,7 @@ None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline
 |---|---|---|---|---|
 | 1 | Target 1.5: game `fix/target-1.5-data` PR, then an engine companion bump with ledger 047/050/030/022/013/052, the DVD-fact tests, the B9 criterion in `all-stock-maps`, the per-map table re-run on 1.5, and `KNOWN_VIEW_LEAK` confirmed on the fixed game | macOS arm64 | none (PR #14 merged) | Full suite on the 1.5 data: 28/28 |
 | 2 | Release gate 6 safeguards: engine `feat/retail-install-check` with game `feat/install-licenses` (rebased on 54d18d8); readme, CONTRIBUTING, ledger 035/052 and this file updated when they merge | macOS arm64 | step 1 (the check refuses the DVD set; only the fixed game passes on 1.5) | Full suite on 1.5 plus `retail-install-check` and `install-licenses` |
-| 3 | M5 in the order of `docs/m5-plan.md`: the D1 test change (the reach bounds become reports), then steps 6–15 and 17 | macOS arm64 | D10's default for steps 13–14 | Each step's test (see the plan) |
+| 3 | M5 in the order of `docs/m5-plan.md`: the D1 test change (the reach bounds become reports), then steps 6–15 and 17 | macOS arm64 | none | Each step's test (see the plan) |
 | 4 | Windows x64 cross-compile with mingw-w64 (C12); then a Linux sysroot | macOS arm64 (cross) | none | The engine configures and compiles for Windows x64 |
 | 5 | Provenance and license records: post-split files and openQ4 donor commits in the manifest, SPDX lines, the minizip relabel (release gate 3) | any | none | Manifest covers every tracked file; game `check_spdx.py` passes |
 | 6 | M4 gameplay-driven tests: classes, damage and kills, deployable delivery, stopwatch and campaign transitions | macOS arm64 | step 1 | New meson tests pass on the 1.5 data |
@@ -373,4 +373,4 @@ None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline
 - Manual retail-data runs on Linux and Windows, once builds exist (C12).
 
 ## Questions for the owner
-- M5 plan D10: should the allow-listed vehicle-seat view default to on for the ground-vehicle driver seat (the original recommendation; a ledgered deviation, since retail 1.5 has no seat view) or off (drafted; retail behaviour)? The one-seat checks run with it on either way.
+- None open.

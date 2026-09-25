@@ -87,7 +87,7 @@ M5 is done when:
     - **Decision D9** (decided 2026-09-25): remove them for now, with a ledger row, since step 10 replaces what they did. Test that retail configs which set them still load cleanly.
 
 13. **Vehicle proxy gate.** `idPlayer::IsFPSUnlock` turns the per-frame view update off in any vehicle (SDK behaviour), so vehicles draw at 30 Hz.
-    - **Decision D10** (decided 2026-09-25: the recommended path, for now): allow-listed seats with a presentation-only view. Keep `IsFPSUnlock` unchanged (it matches retail 1.5), and add a separate predicate for allowed seats behind a CVar. Its default: the recommendation was on for the ground-vehicle driver seat, but D2 found that retail 1.5 has no seat view, so this plan defaults it to off (retail behaviour) until the owner confirms otherwise; the one-seat checks run with it on. Ledger row: an OpenETQW extension.
+    - **Decision D10** (decided 2026-09-25): **on by default**. The owner: "let's get vehicles feeling as modern/responsive as possible without breaking game physics. If we can move vehicles entirely out of tick rate and modernize them safely, we should explore that." So: allowed seats get a presentation-only view, and the allow-list grows to every seat as each is made safe; `IsFPSUnlock` stays as retail 1.5 has it, and a separate predicate and CVar (default on) select the seats. The authoritative simulation (vehicle physics, hits, the tick rate) does not change. Ledger row: an OpenETQW deviation from retail 1.5's look (retail draws every seat at the tick rate). How much further vehicles can move off the tick rate safely (input sampling, remote vehicles, physics) is being explored before steps 13–14.
     - A decision record goes in `docs/decisions/`, plus a guard test that an excluded proxy never unlocks.
 
 14. **Game: presentation-only view for allowed seats.** It blends the last two tick views, adds the sub-tick mouse turn and draws the vehicle from a render copy. It depends on steps 6 and 13.
@@ -100,4 +100,4 @@ M5 is done when:
 
 17. **Cap change during play.** A registered test changes `com_maxFPS` (and `com_unlock_maxFPS` after step 11) in the middle of a session and checks that the new cap is held and that `SIM_HASH`/`SIM_VIEW` still match. No test covers it today (`docs/frame-path.md` §9 criterion 5; `tests/test_frame_pacing_adversarial.py` is not registered).
 
-All ten decisions are made (2026-09-25). D10's CVar default is off pending the owner's confirmation (see step 13).
+All ten decisions are made (2026-09-25).
