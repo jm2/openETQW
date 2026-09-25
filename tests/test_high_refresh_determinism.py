@@ -12,9 +12,9 @@ Validates:
 2. Bit-for-bit identical CRC32 simulation hashes (SIM_HASH) across all schedules, and
    identical SIM_VIEW lines: state each tick produces that later ticks read back and that
    a render frame could write into (the view angles after UpdateViewAngles, the tick's
-   logged view origin and weapon offset, the vehicle's last pushed pose;
+   logged view origin and weapon offset and orientation, the vehicle's last pushed pose;
    docs/frame-path.md section 6.9). One divergence is known and allowed (KNOWN_VIEW_LEAK):
-   from the tick the replay enters the vehicle, the logged weapon offset (wlog) can
+   from the tick the replay enters the vehicle, the logged weapon pose (wlog) can
    differ between caps whose render frames fall at different fractions of a tick (144
    against 60/120/240), because the render frames of the entering tick still run the
    on-foot unlock path and write the weapon's render entity, which the vehicle ticks then
