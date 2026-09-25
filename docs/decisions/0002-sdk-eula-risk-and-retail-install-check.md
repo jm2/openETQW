@@ -12,7 +12,7 @@ The game repository is id's ET:QW 1.5 SDK code, and the SDK EULA is the only per
 
 - **A3:** accept the risk as openQ4 does, with two safeguards: a retail-install check, and the licence texts in every package.
 - **A7:** the check works "exactly how openQ4 does". It is engine-only: when the file system starts, each required base pak must be present with its retail engine checksum, or the engine stops with an error that lists what is missing or modified. The init-only CVar `fs_validateOfficialPaks 0` turns it off for tests on synthetic data.
-- **C11:** the data target is retail 1.5, so the required set is `pak000`–`pak008`.
+- **C11:** the data target is retail 1.5, so the required set is `pak000`–`pak008`. Language paks are not required, as in openQ4: editions differ, and only the English set's checksums are known. A client without a base dialogue pak (`zpak_<language>000.pk4`) gets a warning. Docs that name `zpak_english000`–`003` describe the English edition, not an additional requirement.
 
 ## Consequences
 

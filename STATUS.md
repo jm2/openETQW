@@ -20,7 +20,7 @@ From the owner, 2026-09-25, answers to the open-question list (the letters and n
 - B8 bot think rate: keep the retail default (about 15 Hz decisions, `bot_threadMinFrameDelay 1`); the criterion means the bot thread keeps up with the 30 Hz server.
 - B9 quarry's 415 entities: the ">500 entities per map" criterion becomes "every entity in each map file is accounted for".
 - B10 bot `validClasses`: do what retail 1.5 does. Retail 1.5 reads it as a bool in all three game modules (`docs/specs/retail-1.5-reference.md`), so `GetBool` is restored (game `fix/target-1.5-data`, not merged yet).
-- C11 data: everything targets the retail data patched to 1.5 (`pak000`–`pak008`, `zpak_english000`–`003`); the unpatched DVD set alone is not supported.
+- C11 data: everything targets the retail data patched to 1.5: `pak000`–`pak008` (the required set) plus the edition's language paks (here `zpak_english000`–`003`); the unpatched DVD set alone is not supported.
 - C12 other OSes: no Linux or Windows retail-data automation. Do what is possible without retail data (for example a Windows cross-compile); the owner tests retail data on other OSes by hand.
 - M5 plan D1–D10: all decided (`docs/m5-plan.md`). D10's CVar default is drafted off (retail 1.5 behaviour) and waits for the owner's confirmation.
 - F16: the merged branches were deleted (13 engine, 8 game).

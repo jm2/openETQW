@@ -22,7 +22,7 @@ get CI back: both stay private until the owner decides to publish.
    network gets the full Meson suite with retail data:
    `ETQW_DATA_PATH="$HOME/etqw_data" meson test -C build -j 1` (add `--no-suite soak` to skip the 10-minute `lossy-session`)
    (replace `$HOME/etqw_data` with the root of a full retail ET:QW install patched to 1.5:
-   `base/` must hold `pak000`–`pak008.pk4` and `zpak_english000`–`003`; the unpatched DVD set is
+   `base/` must hold `pak000`–`pak008.pk4` and a language set, here `zpak_english000`–`003`; the unpatched DVD set is
    not supported). Check that the retail-data tests ran rather than skipped: a run that skips
    them does not meet this gate. Put the result in the PR with the host, OS, architecture,
    commit and data set. The tests use fixed
