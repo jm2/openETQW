@@ -32,8 +32,11 @@ For every stock map a FRESH dedicated server process is started with
               transition). Each team needs a per-life 2D displacement >= 50 u.
               A stuck metric (longest interval with fwd/side != 0 but a 2D
               speed < 10 u/s between consecutive samples) is reported. AAS area
-              validity: while grounded and alive, area > 0 in >= 90 % of
-              samples (needs the PLAYER_POS 'hp= dead= area=' suffix).
+              validity: while grounded, alive and on foot, area > 0 in >= 90 %
+              of samples (needs the PLAYER_POS 'hp= dead= area=' suffix). A bot
+              riding a vehicle (PLAYER_POS 'vehicle=' >= 0) reports the
+              vehicle's position and ground state, where the player AAS does
+              not apply; those samples are counted separately.
   f) think    'botThreadStats' at the start and end of the bot window:
               gameHz = dGameFrame / dWall must be within 27..33.5,
               thinkRatio = dBotFrames / dGameFrame is reported (and must be
@@ -151,6 +154,7 @@ class BotTracker:
         self.samples = 0
         self.alive_samples = 0
         self.grounded_alive = 0
+        self.vehicle_samples = 0
         self.area_known = 0
         self.area_valid = 0
         self.nonfinite = 0
@@ -209,7 +213,10 @@ class BotTracker:
         self.alive_samples += 1
         if s["atk"] or s["atk_cmd"]:
             self.attack_seen = True
-        if s["ground"] == 1:
+        riding = s.get("vehicle") is not None and s["vehicle"] >= 0
+        if riding:
+            self.vehicle_samples += 1
+        elif s["ground"] == 1:
             self.grounded_alive += 1
             if s["area"] is not None:
                 self.area_known += 1
@@ -256,6 +263,7 @@ class BotTracker:
             "best_life": self.best_life_index,
             "samples": self.samples, "alive_samples": self.alive_samples,
             "grounded_alive_samples": self.grounded_alive,
+            "vehicle_samples": self.vehicle_samples,
             "area_samples": self.area_known, "area_valid_samples": self.area_valid,
             "area_valid_fraction": round(frac, 4) if frac is not None else None,
             "stuck_longest_s": round(self.stuck_longest, 2),
@@ -575,12 +583,15 @@ def run_map(map_name: str, map_index: int, cfg: argparse.Namespace, ctx: dict) -
         else:
             known = sum(tr.area_known for tr in trs)
             valid = sum(tr.area_valid for tr in trs)
+            riding = sum(tr.vehicle_samples for tr in trs)
+            riding_note = f"; {riding} samples in a vehicle left out" if riding else ""
             if known == 0:
-                res.check(f"bots.{team}.aas_area_validity", FAIL, "no grounded+alive samples with an area value")
+                res.check(f"bots.{team}.aas_area_validity", FAIL,
+                          f"no grounded+alive on-foot samples with an area value{riding_note}")
             else:
                 frac = valid / known
                 res.check_bool(f"bots.{team}.aas_area_validity", frac >= AREA_VALID_MIN_FRACTION,
-                               f"area>0 in {valid}/{known} grounded+alive samples ({frac:.1%}, need >= {AREA_VALID_MIN_FRACTION:.0%})")
+                               f"area>0 in {valid}/{known} grounded+alive on-foot samples ({frac:.1%}, need >= {AREA_VALID_MIN_FRACTION:.0%}){riding_note}")
 
     # ---------------- f) think rate ----------------
     think: dict = {"start": bts0, "end": bts1, "start_status": bts0_status, "end_status": bts1_status}

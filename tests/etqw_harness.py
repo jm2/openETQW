@@ -313,15 +313,16 @@ PLAYER_POS_RE = re.compile(
     r"(?:\s*lagged=(\d+)\s*frozen=(\d+)\s*inh=(\d+))?"
     r"(?:\s*hp=(-?\d+)\s*dead=(\d+)\s*area=(-?\d+))?"
     r"(?:\s*yaw=" + _F + r")?"
+    r"(?:\s*vehicle=(-?\d+))?"
     r"\s*\)",
     re.IGNORECASE,
 )
 
 
 def parse_player_pos(line: str) -> Optional[dict]:
-    """Parse a PLAYER_POS line. The optional ' hp=%d dead=%d area=%d' and
-    ' yaw=%.2f' suffixes (before the closing ')') yield hp/dead/area/yaw; they
-    are None when the build does not print them yet."""
+    """Parse a PLAYER_POS line. The optional ' hp=%d dead=%d area=%d',
+    ' yaw=%.2f' and ' vehicle=%d' suffixes (before the closing ')') yield
+    hp/dead/area/yaw/vehicle; they are None when the build does not print them."""
     m = PLAYER_POS_RE.search(line)
     if not m:
         return None
@@ -341,6 +342,9 @@ def parse_player_pos(line: str) -> Optional[dict]:
         "area": int(g[23]) if g[23] is not None else None,
         # the yaw of the player's latest usercmd in degrees (game builds from 2026-09-24)
         "yaw": float(g[24]) if g[24] is not None else None,
+        # the entity number of the vehicle (or other proxy) the player rides, -1 on foot
+        # (game builds from 2026-09-25)
+        "vehicle": int(g[25]) if g[25] is not None else None,
     }
 
 
