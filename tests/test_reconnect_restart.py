@@ -287,9 +287,13 @@ def main(argv):
 
         # 4. map restart with both clients connected: the game respawns both
         # players on their teams
-        a_mark, b_mark, srv_mark = a.mark(), b.mark(), srv.mark()
+        srv_mark = srv.mark()
         srv.send("serverMapRestart")
         srv.sync()
+        # count only snapshots sent after the restart: let any queued (delayed) ones
+        # from before it arrive first (the tests delay packets by at most ~0.1 s)
+        time.sleep(1.0)
+        a_mark, b_mark = a.mark(), b.mark()
         for cl, m in ((a, a_mark), (b, b_mark)):
             got = wait_snapshots(cl, m)
             print(f"[map restart] {cl.name} snapshots after the restart: from {got[0]}")
