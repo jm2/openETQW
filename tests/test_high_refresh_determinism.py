@@ -100,9 +100,9 @@ SIM_VIEW_RE = re.compile(r"SIM_VIEW: tick=(\d+) (.*)$")
 # differs from the tick after the replay's enterVehicle (91) on, between any schedule
 # and the 60 Hz one; observed on 31-40 of the 58 ticks 92-149, lasting to the end of
 # the replay in some runs. Allowed only in that shape: the wlog field alone, a weapon
-# pose on both sides, from tick 92, on at most 45 ticks per schedule. Nothing else may
-# differ.
-KNOWN_VIEW_LEAK = {"field": "wlog", "from_tick": 92, "to_tick": 149, "max_ticks": 45}
+# pose on both sides, starting at tick 92, on 25-45 ticks per schedule. Nothing else
+# may differ.
+KNOWN_VIEW_LEAK = {"field": "wlog", "from_tick": 92, "to_tick": 149, "min_ticks": 25, "max_ticks": 45}
 
 FRAME_TIMING_RE = re.compile(
     r"FRAME_TIMING: window_ms=([\d.]+) frames=(\d+) ticks=(\d+) cap=(-?\d+)"
@@ -222,6 +222,8 @@ def run_determinism_schedule(
         except queue.Empty:
             continue
 
+    # let the reader reach EOF first: the SIM_VIEW check needs every line of the run
+    t.join(timeout=10.0)
     # Drain remaining output
     while True:
         try:
@@ -479,9 +481,13 @@ def main() -> int:
           f" {known} known (the weapon log after entering the vehicle)")
     for fps, ticks in sorted(known_span.items()):
         print(f"    known: {cap_label(fps)} against {cap_label(rates[0])}, ticks {min(ticks)}-{max(ticks)} ({len(ticks)})")
-        if len(ticks) > KNOWN_VIEW_LEAK["max_ticks"]:
-            view_mismatches.append(f"{cap_label(fps)}: the known weapon-log divergence covers {len(ticks)} ticks"
-                                   f" (more than the {KNOWN_VIEW_LEAK['max_ticks']} observed)")
+        # the observed shape: it starts on the tick after entering the vehicle and covers
+        # 31-40 ticks; a divergence that starts later or is much smaller or larger is new
+        if (min(ticks) != KNOWN_VIEW_LEAK["from_tick"]
+                or not KNOWN_VIEW_LEAK["min_ticks"] <= len(ticks) <= KNOWN_VIEW_LEAK["max_ticks"]):
+            view_mismatches.append(f"{cap_label(fps)}: a weapon-log divergence on ticks {min(ticks)}-{max(ticks)}"
+                                   f" ({len(ticks)} ticks) does not have the known shape (from tick"
+                                   f" {KNOWN_VIEW_LEAK['from_tick']}, {KNOWN_VIEW_LEAK['min_ticks']}-{KNOWN_VIEW_LEAK['max_ticks']} ticks)")
     for m in view_mismatches[:10]:
         print(f"  [FAIL] {m}")
     assert not view_mismatches, f"render-frame state leaked into {len(view_mismatches)} tick(s) (SIM_VIEW)"
