@@ -340,6 +340,28 @@ if build_dedicated
   )
 endif
 
+# Licence texts for every package (owner decision, 2026-09-25): the GPL for the
+# engine; the ET:QW SDK EULA, which must accompany each copy (EULA section 5) because
+# the engine links the SDK idLib and staged SDK headers (docs/provenance.md section 4);
+# and the notices of the third-party code compiled in. SDL3, Vulkan and zlib are
+# system dependencies; a package that bundles them adds their notices.
+# tools/ci/check_install_licenses.py checks this list.
+install_data('LICENSE', install_dir: 'licenses' / 'openETQW')
+install_data(
+  'src' / 'imgui' / 'LICENSE.txt',
+  'src' / 'recast' / 'License.txt',
+  'LICENSES' / 'third-party' / 'minizip.txt',
+  rename: ['imgui.txt', 'recastnavigation.txt', 'minizip.txt'],
+  install_dir: 'licenses' / 'openETQW' / 'third-party',
+)
+if game_repo_root != ''
+  install_data(
+    game_repo_root / 'EULA_SDK_ETQW.txt',
+    game_repo_root / 'legal' / 'EULA SDK ETQW.rtf',
+    install_dir: 'licenses' / 'ETQW-SDK',
+  )
+endif
+
 if build_tests
   subdir('tests')
   test(

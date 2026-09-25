@@ -101,6 +101,15 @@ usercmd_history_test = executable(
 )
 test('usercmd-history', usercmd_history_test, suite: 'unit', timeout: 30)
 
+# Every package carries the licence texts (GPL, SDK EULA, third-party notices)
+test(
+  'install-licenses',
+  py,
+  args: [meson.project_source_root() / 'tools' / 'ci' / 'check_install_licenses.py', meson.project_build_root()],
+  suite: 'unit',
+  timeout: 30,
+)
+
 # 5. Zero-SDK compliance test
 test(
   'zero-sdk',
