@@ -463,7 +463,8 @@ class DedicatedServer:
 
     def __init__(self, binary: Path, data_path: Path, map_name: str, port: int,
                  log_path: Optional[Path] = None, cvars: Optional[dict] = None,
-                 savepath: Optional[Path] = None, extra_args: Optional[list[str]] = None):
+                 savepath: Optional[Path] = None, extra_args: Optional[list[str]] = None,
+                 cwd: Optional[Path] = None):
         self.binary = Path(binary)
         self.data_path = Path(data_path)
         self.map_name = map_name
@@ -473,6 +474,9 @@ class DedicatedServer:
         self.extra_args = list(extra_args or [])
         self._own_savepath = savepath is None
         self.savepath = Path(savepath) if savepath else Path(tempfile.mkdtemp(prefix=f"etqw-{map_name}-"))
+        # the working directory (default: the save path); the Vulkan client finds
+        # vkprogs/ relative to it, so it runs from the repository root
+        self.cwd = Path(cwd) if cwd else None
         self.lines: list[LogLine] = []
         self._cond = threading.Condition()
         self._sync_n = 0
@@ -507,7 +511,7 @@ class DedicatedServer:
         self.start_time = time.monotonic()
         self.proc = subprocess.Popen(
             self.command_line(),
-            cwd=str(self.savepath),
+            cwd=str(self.cwd or self.savepath),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,

@@ -321,6 +321,40 @@ if build_dedicated
     timeout: 600,
     is_parallel: false,
   )
+  # two remote clients through a 'reconnect', a killed-and-restarted client and
+  # a serverMapRestart; each client must still see the other move
+  test(
+    'reconnect-restart',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_reconnect_restart.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--port', '29950',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'reconnect-restart',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
+  # the charter's M3 soak: 10 minutes at 2% loss and 40 +/- 20 ms delay without
+  # a disconnect (skip it in quick runs with 'meson test --no-suite soak')
+  test(
+    'lossy-session',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_lossy_session.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--port', '29940',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'lossy-session',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration', 'soak'],
+    protocol: 'exitcode',
+    timeout: 1200,
+    is_parallel: false,
+  )
   # the same with 20% packet loss each way (net_forceDrop), connecting straight
   # into outskirts: streamed snapshots superseding lost ones, the reliable game init
   test(
@@ -341,4 +375,29 @@ if build_dedicated
     timeout: 600,
     is_parallel: false,
   )
+endif
+
+# 8. The Vulkan client on a network (needs both binaries; opens a window):
+#    joining a dedicated server, and hosting a listen server, each with a
+#    headless remote client that must see the Vulkan client's player walk
+if build_engine and build_dedicated
+  foreach mode : ['join', 'listen']
+    test(
+      'client-network-' + mode,
+      py,
+      args: [
+        meson.project_source_root() / 'tests' / 'test_client_network.py',
+        '--mode', mode,
+        '--ded-binary', all_stock_maps_ded,
+        '--client-binary', campaign_client,
+        '--port', mode == 'join' ? '29930' : '29934',
+        '--log-dir', meson.project_build_root() / 'meson-logs' / 'client-network',
+      ],
+      workdir: meson.project_source_root(),
+      suite: ['client', 'integration'],
+      protocol: 'exitcode',
+      timeout: 600,
+      is_parallel: false,
+    )
+  endforeach
 endif

@@ -12,7 +12,8 @@ Verifies:
 2. Asynchronous pawn possession and in-world spawning on opposing teams (GDF & Strogg).
 3. Continuous UDP snapshot generation and reception across both clients (50+ snapshots).
 4. Mutual spatial tracking and cross-client entity replication (position error < 2.0 units).
-5. Movement replication over UDP (displacement >= 50 units observed by peer client).
+5. Movement replication over UDP in both directions: each client sees the other walk
+   (displacement >= 50 units, ending within 2 units of the server's position).
 6. The server registers a client's attack button and its release (weapon attacking).
 7. Graceful multi-process shutdown with clean exit code 0 for all instances.
 """
@@ -421,41 +422,47 @@ def run_multiclient_test():
         raise ValueError(f"Replication error exceeds tolerance ({MAX_TOLERANCE} u): c1_view={err_c1_from_c2:.4f}, c2_view={err_c0_from_c1:.4f}")
     print(f"  >>> [PASSED] Mutual spatial replication verified (all errors < {MAX_TOLERANCE} units)")
 
-    print("\n[7] Verifying Dynamic Movement Replication Over UDP...")
-
-    # Record initial position of Client 0 as seen by Client 2
-    initial_c0_view = c2_pos0["org"]
-
-    # Command Client 1 to move forward for ~1.5s
-    print("  Commanding Client 1 forward movement (+forward)...")
-    client1_proc.stdin.write("clientMove 127 0 0\n")
-    client1_proc.stdin.flush()
-
-    time.sleep(1.5)
-
-    # Stop Client 1 movement
-    client1_proc.stdin.write("clientMove 0 0 0\n")
-    client1_proc.stdin.flush()
-
-    time.sleep(0.5)
-
-    # Query Client 0 position as observed by Client 2
-    moved_c2_pos0 = query_player_pos(client2_proc, "CLIENT_2", output_queue, timeout=3.0, client_num=0)
-    moved_srv_pos0 = query_player_pos(server_proc, "SERVER", output_queue, timeout=3.0, client_num=0)
-
-    dx = moved_c2_pos0["org"][0] - initial_c0_view[0]
-    dy = moved_c2_pos0["org"][1] - initial_c0_view[1]
-    displacement = math.sqrt(dx * dx + dy * dy)
-
-    print(f"  Client 0 Initial Pos (seen by Client 2): {initial_c0_view}")
-    print(f"  Client 0 Moved Pos   (seen by Client 2): {moved_c2_pos0['org']}")
-    print(f"  Client 0 Authoritative Pos (on Server):  {moved_srv_pos0['org']}")
-    print(f"  Observed Peer Displacement:             {displacement:.2f} units (dx={dx:.2f}, dy={dy:.2f})")
+    print("\n[7] Verifying Dynamic Movement Replication Over UDP (both directions)...")
 
     MIN_DISPLACEMENT = 50.0
-    if displacement < MIN_DISPLACEMENT:
-        raise ValueError(f"Observed displacement too low: {displacement:.2f} < {MIN_DISPLACEMENT} units")
-    print(f"  >>> [PASSED] Peer movement replication verified: {displacement:.2f} >= {MIN_DISPLACEMENT} units")
+
+    def check_peer_sees_movement(mover_proc, mover_name, mover_slot, observer_proc, observer_name):
+        """The mover walks forward for 1.5 s; the observer's copy of the mover must
+        follow it (moved >= MIN_DISPLACEMENT) and, once the mover is at rest, be
+        within MAX_TOLERANCE of the server's position."""
+        initial = query_player_pos(observer_proc, observer_name, output_queue, timeout=3.0, client_num=mover_slot)["org"]
+        print(f"  Commanding {mover_name} forward movement (clientMove 127 0 0)...")
+        mover_proc.stdin.write("clientMove 127 0 0\n")
+        mover_proc.stdin.flush()
+        time.sleep(1.5)
+        mover_proc.stdin.write("clientMove 0 0 0\n")
+        mover_proc.stdin.flush()
+        # the player slides for about half a second after the stop; compare once the
+        # server has it at rest and a few more snapshots have reached the observer
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            time.sleep(0.25)
+            if math.hypot(*query_player_pos(server_proc, "SERVER", output_queue, timeout=3.0, client_num=mover_slot)["vel"]) < 1.0:
+                break
+        time.sleep(0.5)
+
+        seen = query_player_pos(observer_proc, observer_name, output_queue, timeout=3.0, client_num=mover_slot)["org"]
+        authoritative = query_player_pos(server_proc, "SERVER", output_queue, timeout=3.0, client_num=mover_slot)["org"]
+        moved = math.hypot(seen[0] - initial[0], seen[1] - initial[1])
+        lag = dist(seen, authoritative)
+        print(f"  Client {mover_slot} Initial Pos (seen by {observer_name}): {initial}")
+        print(f"  Client {mover_slot} Moved Pos   (seen by {observer_name}): {seen}")
+        print(f"  Client {mover_slot} Authoritative Pos (on Server):  {authoritative}")
+        print(f"  Observed Peer Displacement: {moved:.2f} units; distance from the server's position: {lag:.2f} units")
+        if moved < MIN_DISPLACEMENT:
+            raise ValueError(f"{observer_name} saw client {mover_slot} move only {moved:.2f} < {MIN_DISPLACEMENT} units")
+        if lag > MAX_TOLERANCE:
+            raise ValueError(f"{observer_name}'s copy of client {mover_slot} is {lag:.2f} units from the server's (> {MAX_TOLERANCE})")
+        print(f"  >>> [PASSED] {observer_name} saw client {mover_slot} move {moved:.2f} >= {MIN_DISPLACEMENT} units")
+        return moved
+
+    displacement = check_peer_sees_movement(client1_proc, "CLIENT_1", 0, client2_proc, "CLIENT_2")
+    reverse_displacement = check_peer_sees_movement(client2_proc, "CLIENT_2", 1, client1_proc, "CLIENT_1")
 
     print("\n[8] Verifying Weapon Attack & Command Interaction...")
 
@@ -512,7 +519,7 @@ def run_multiclient_test():
     print(f" 2 Concurrent Clients:        VERIFIED (Client 0 & Client 1)")
     print(f" Opposing Team Spawns:        VERIFIED (GDF & Strogg)")
     print(f" Mutual Spatial Replication:  VERIFIED (< {MAX_TOLERANCE} u error)")
-    print(f" Peer Movement Replication:   VERIFIED ({displacement:.2f} >= {MIN_DISPLACEMENT} u)")
+    print(f" Peer Movement Replication:   VERIFIED both ways ({displacement:.2f} and {reverse_displacement:.2f} >= {MIN_DISPLACEMENT} u)")
     print(f" Weapon Attack on the Server: VERIFIED (+attack / -attack; peers do not see it headless)")
     print(f" Clean Multi-Process Exit:    VERIFIED (c1={c1_exit}, c2={c2_exit}, srv={srv_exit})")
     print("=================================================================\n")
