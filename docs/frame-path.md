@@ -607,7 +607,7 @@ Remaining stepped paths must be listed rather than claimed as interpolated, and 
 - Only the offline single-player replay exists (`tests/test_high_refresh_determinism.py`, meson `high-refresh-determinism`).
 - Its hash leaves out view angles, other players and projectiles (`game repo: src/game/Game_local.cpp:11662-11676`).
 - The replay still samples input through the engine: `RunGameTic` builds each tick's usercmd with `GetDirectUsercmd` (`src/framework/Session.cpp:555-560`), and render-only frames sample too (`src/framework/Session.cpp:343`). The injection block (`game repo: src/game/Game_local.cpp:5341-5374`) only overwrites `forwardmove`, `rightmove`, `upmove` and attack on chosen ticks. Angles and every other field come from engine sampling, and they stay constant only because nothing moves the mouse.
-- Presentation reaches tick state through the paths in §6.9. The replay hash cannot see them.
+- Presentation reaches tick state through the paths in §6.9. Since 2026-09-25 the replay also prints and compares `SIM_VIEW` each tick (the view angles after `UpdateViewAngles`, the tick's logged view origin and weapon offset, the vehicle's last pushed pose; `game repo: src/game/Game_local.cpp`, after `SIM_HASH`). In the single-player replay they match on all 150 ticks at caps 60/120/144/240 and uncapped, the vehicle phase included, so no presentation leak shows there. The §6.9 paths that matter run on network clients (snapshot receipt while `unlockedDraw` is set, the free-pivot damped view), and no client replay exists yet.
 - Render-only samples run the game's usercmd callbacks (§5), so the weapon lock and other client button state can depend on the frame rate.
 - There is no listen-host replay.
 

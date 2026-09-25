@@ -36,7 +36,7 @@ M5 is done when:
 
 ## Keep presentation out of simulation
 
-5. **The replay hash covers the state render frames could leak into (game + tests).**
+5. **The replay hash covers the state render frames could leak into (game + tests).** Single-player part done (2026-09-25): the game prints `SIM_VIEW` each tick (view angles after `UpdateViewAngles`, the tick's logged view origin and weapon offset, the vehicle's last pushed pose) and `high-refresh-determinism` compares it across caps: identical on all 150 ticks at every cap. Still to do: the listen-host and network-client variants, where the §6.9 leaks live; AoR results are not in the line yet.
    - At the end of each tick, add to `SIM_HASH` values that tick code produces and later reads:
      - the local player's view angles after `UpdateViewAngles`;
      - the tick pose logs (`originlog` and the weapon logs);
