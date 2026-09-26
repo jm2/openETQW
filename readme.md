@@ -73,7 +73,7 @@ ETQW_DATA_PATH=/path/to/etqw meson test -C build -j 1
 ETQW_DATA_PATH=/path/to/etqw meson test -C build -j 1 --no-suite soak
 ```
 
-`ETQW_DATA_PATH` is the directory that contains `base/pak000.pk4`. Without it, every retail-data test exits 77 and Meson reports it as skipped.
+`ETQW_DATA_PATH` is the retail install root, whose `base/` holds `pak000.pk4`–`pak008.pk4`. Without it, or with any of those paks missing, every retail-data test exits 77 and Meson reports it as skipped.
 
 ## Run
 

@@ -8,7 +8,8 @@ It provides:
 * binary discovery for the dedicated server (build/openETQW-ded_<arch>[.exe],
   overridable with --ded-binary or OPENETQW_DED_BINARY);
 * retail-data resolution from ETQW_DATA_PATH only (there is deliberately no
-  per-user default: unset or missing <path>/base/pak000.pk4 means SKIP, 77);
+  per-user default: unset, or any of <path>/base/pak000-pak008.pk4 missing,
+  means SKIP, 77);
 * a retail pak index (pak000..pakNNN, later paks override earlier ones);
 * a dedicated-server launcher with a private fs_savepath, a stdout reader
   thread that timestamps every line with time.monotonic(), a stdin writer and

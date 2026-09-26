@@ -2827,8 +2827,8 @@ void idFileSystemLocal::Startup( void ) {
 		}
 
 #ifndef ID_DEDICATED
-		// The pak000-pak008 set is the same in every edition and is the only fatal
-		// check. Character dialogue lives in the edition's zpak_<language>000.pk4, so
+		// The pak000-pak008 set is the only fatal check (only the English edition's
+		// checksums are known; docs/official-pk4-checksums.md). Character dialogue lives in the edition's zpak_<language>000.pk4, so
 		// a partial copy passes the check while every voice is silent: say so.
 		if ( !HasBaseLanguageMediaPack() ) {
 			common->Warning(
