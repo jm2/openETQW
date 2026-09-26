@@ -319,9 +319,10 @@ This stage must ship in the same release as stage 3. Otherwise targets stepping 
 ### Stage 5: late mouse look in angle-driven seats (m5-plan step 14, second part)
 
 **What changes (game)**
-- **The late turn.** Use the render-only usercmd the engine already passes: Δ = `SHORT2ANGLE(cmd.angles − p->usercmd.angles)`. This is the same form as the on-foot path (game `Game_local.cpp:6087`).
+- **The late turn.** Use the render-only usercmd the engine already passes: Δ = `SHORT2ANGLE((short)(cmd.angles − p->usercmd.angles))`, normalized to the shortest arc. This is the same form as the on-foot path (game `Game_local.cpp:6087`).
 - **The drawn angles.** A_k = A_n − (1−f)·r_n + clampPure(A_n, Δ, f·33 ms).
-  - r_n = (A_n − A_{n−1}) − (cmd_n − cmd_{n−1}) is the angle change that input did not cause, such as auto-centre and clamps.
+  - r_n = wrap(A_n − A_{n−1}) − wrap(SHORT2ANGLE((short)(cmd_n − cmd_{n−1}))) is the angle change that input did not cause, such as auto-centre and clamps.
+  - Every angle difference here is a shortest-arc delta: `wrap` is `idMath::AngleNormalize180`, and the usercmd difference is taken in 16 bits (`(short)`) before `SHORT2ANGLE`. Yaw wraps at ±180° and usercmd angles wrap at 16 bits, so a direct subtraction would turn a small turn across the wrap (179° to −179°) into about −358°, and spreading that residual over the tick would swing the camera the long way round or snap it. Δ is computed the same way: `SHORT2ANGLE( (short)( cmd.angles − p->usercmd.angles ) )`, then normalized.
   - Spreading r_n over the tick stops it showing as a step at the boundary.
 - **`clampPure`** is a new const method for each view class. It follows the class's `ClampViewAngles`, with two differences:
   - it skips `DoFreshEntryAngles`;
