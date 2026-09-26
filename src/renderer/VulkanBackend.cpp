@@ -9418,7 +9418,15 @@ const char* sdVulkanBackend::GetDeviceName() const {
 	return state != NULL ? state->deviceName : "";
 }
 
+namespace {
+bool vulkanUnavailable = false;
+}
+
+void R_NotifyVulkanUnavailable() {
+	vulkanUnavailable = true;
+}
+
 bool R_UseVulkanBackend() {
-	return cvarSystem != NULL &&
+	return !vulkanUnavailable && cvarSystem != NULL &&
 		idStr::Icmp( cvarSystem->GetCVarString( "r_renderAPI" ), "vulkan" ) == 0;
 }

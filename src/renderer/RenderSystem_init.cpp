@@ -39,11 +39,10 @@ glconfig_t glConfig;
 
 namespace {
 const char* renderAPIValues[] = { "opengl", "vulkan", NULL };
-#if defined( __APPLE__ )
+// Vulkan on every platform; the engine falls back to OpenGL when Vulkan
+// cannot initialize (R_NotifyVulkanUnavailable), unless r_renderAPI is
+// explicitly set to opengl.
 const char* defaultRenderAPI = "vulkan";
-#else
-const char* defaultRenderAPI = "opengl";
-#endif
 }
 
 idCVar r_renderAPI(
@@ -598,7 +597,18 @@ void idRenderSystemLocal::Init() {
 		// selected Vulkan device before either resource manager is initialized.
 		if ( R_UseVulkanBackend() && !vulkanBackend.Init(
 			sys3D->GetGameWindowHandle(), parms.width, parms.height ) ) {
-			common->FatalError( "Failed to initialize the Vulkan renderer" );
+			common->Printf(
+				"Vulkan initialization failed; falling back to OpenGL for this run.\n"
+				"(Set r_renderAPI opengl to skip Vulkan.)\n" );
+			R_NotifyVulkanUnavailable();
+			// The window above was created for Vulkan; recreate it (and a GL
+			// context) before the legacy path queries GL state.
+			glimpParms_t glParms = parms;
+			sys3D->RecreateContext( glParms );
+			if ( !sys3D->MakeCurrent( sys3D->GetGameWindow() ) ) {
+				common->FatalError(
+					"idRenderSystemLocal::Init: no OpenGL context after the Vulkan fallback" );
+			}
 		}
 		R_InitOpenGL();
 		openGLRunning = !R_UseVulkanBackend();

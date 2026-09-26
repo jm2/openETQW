@@ -6,6 +6,7 @@
 #include <SDL3/SDL_vulkan.h>
 #include "sys_local.h"
 #include "sys_render.h"
+#include "../renderer/VulkanBackend.h"
 
 namespace {
 
@@ -29,7 +30,7 @@ public:
 class id3DContextSDL3 : public id3DContext {
 public:
 	id3DContextSDL3() :
-		window( NULL ) {
+		window( NULL ), glContext( NULL ) {
 		memset( &gameWindowParms, 0, sizeof( gameWindowParms ) );
 		memset( &primaryMonitor, 0, sizeof( primaryMonitor ) );
 	}
@@ -49,7 +50,12 @@ public:
 			common->FatalError( "SDL3: failed to initialize video subsystem: %s", SDL_GetError() );
 		}
 
-		SDL_WindowFlags flags = SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+		SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+		if ( R_UseVulkanBackend() ) {
+			flags |= SDL_WINDOW_VULKAN;
+		} else {
+			flags |= SDL_WINDOW_OPENGL;
+		}
 		if ( parms.fullScreen ) {
 			flags |= SDL_WINDOW_FULLSCREEN;
 		}
@@ -60,8 +66,31 @@ public:
 			parms.height,
 			flags
 		);
+		if ( window == NULL && R_UseVulkanBackend() ) {
+			common->Printf(
+				"SDL3: failed to create a Vulkan window (%s); falling back to OpenGL.\n",
+				SDL_GetError() );
+			R_NotifyVulkanUnavailable();
+			flags = ( flags & ~SDL_WINDOW_VULKAN ) | SDL_WINDOW_OPENGL;
+			window = SDL_CreateWindow(
+				"Enemy Territory: QUAKE Wars",
+				parms.width,
+				parms.height,
+				flags
+			);
+		}
 		if ( window == NULL ) {
-			common->FatalError( "SDL3: failed to create Vulkan window: %s", SDL_GetError() );
+			common->FatalError( "SDL3: failed to create window: %s", SDL_GetError() );
+		}
+
+		if ( !R_UseVulkanBackend() ) {
+			glContext = SDL_GL_CreateContext( window );
+			if ( glContext == NULL ) {
+				common->FatalError( "SDL3: failed to create OpenGL context: %s", SDL_GetError() );
+			}
+			if ( !SDL_GL_MakeCurrent( window, glContext ) ) {
+				common->FatalError( "SDL3: failed to make the OpenGL context current: %s", SDL_GetError() );
+			}
 		}
 
 		gameWindowParms = parms;
@@ -73,11 +102,19 @@ public:
 		renderContext.Create( rcParms );
 
 		EnumerateMonitors();
-		common->Printf( "SDL3 Vulkan window created: %dx%d (fullscreen: %d)\n",
+		common->Printf( "SDL3 %s window created: %dx%d (fullscreen: %d)\n",
+			R_UseVulkanBackend() ? "Vulkan" : "OpenGL",
 			parms.width, parms.height, parms.fullScreen ? 1 : 0 );
 	}
 
 	virtual void Shutdown() override {
+		if ( glContext != NULL ) {
+			if ( SDL_GL_GetCurrentContext() == glContext ) {
+				SDL_GL_MakeCurrent( window, NULL );
+			}
+			SDL_GL_DestroyContext( glContext );
+			glContext = NULL;
+		}
 		if ( window != NULL ) {
 			SDL_DestroyWindow( window );
 			window = NULL;
@@ -149,12 +186,12 @@ public:
 
 	virtual bool MakeCurrent( dcHandle_t windowDC ) override {
 		(void)windowDC;
-		return true;
+		return glContext == NULL || SDL_GL_MakeCurrent( window, glContext );
 	}
 
 	virtual bool ReleaseCurrent( dcHandle_t windowDC ) override {
 		(void)windowDC;
-		return true;
+		return glContext == NULL || SDL_GL_MakeCurrent( window, NULL );
 	}
 
 	virtual void ReleaseContext( dcHandle_t windowDC ) override {
@@ -162,7 +199,10 @@ public:
 	}
 
 	virtual void SwapBuffers() override {
-		// Handled directly by VulkanBackend swapchain presentation
+		if ( glContext != NULL ) {
+			SDL_GL_SwapWindow( window );
+		}
+		// Vulkan presentation is handled directly by VulkanBackend's swapchain
 	}
 
 	virtual void SetGamma( unsigned short red[256], unsigned short green[256], unsigned short blue[256] ) override {
@@ -230,6 +270,7 @@ public:
 
 private:
 	SDL_Window*				window;
+	SDL_GLContext			glContext;
 	idRenderContextSDL3		renderContext;
 	glimpParms_t			gameWindowParms;
 	monitorInfo_t			primaryMonitor;

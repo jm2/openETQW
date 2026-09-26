@@ -103,6 +103,10 @@ private:
 extern sdVulkanBackend vulkanBackend;
 
 bool R_UseVulkanBackend();
+// Permanent fallback switch: once set, R_UseVulkanBackend() is false for the
+// rest of the run so every caller takes the OpenGL path (r_renderAPI may still
+// read "vulkan"; the engine fell back because Vulkan could not initialize).
+void R_NotifyVulkanUnavailable();
 
 struct drawSurf_s;
 struct viewLight_s;
