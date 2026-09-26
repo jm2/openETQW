@@ -17,13 +17,16 @@ get CI back: both stay private until the owner decides to publish.
    - `python3 tools/ci/check_python.py` (syntax and pyflakes over `tests/` and `tools/`; needs `pyflakes==4.0.0`, the version CI used)
    - `python3 tools/ci/check_integration_skips.py` (every retail-data test must exit 77 without data; it starts stub binaries, never a real server)
    - `python3 tools/ci/check_include_case.py` (every `#include` matches the file's letter case; Linux is case-sensitive, macOS is not)
-   - `meson test -C build --suite unit` (asset-free unit tests, including the zero-SDK audit)
+   - `meson test -C build --suite unit` (asset-free unit tests, including the zero-SDK audit, the licence texts in the
+     install set and the retail-install check on synthetic paks)
 2. **Retail-data suite for runtime changes.** Anything touching the engine, the game or the
    network gets the full Meson suite with retail data:
    `ETQW_DATA_PATH="$HOME/etqw_data" meson test -C build -j 1` (add `--no-suite soak` to skip the 10-minute `lossy-session`)
    (replace `$HOME/etqw_data` with the root of a full retail ET:QW install patched to 1.5:
    `base/` must hold `pak000`–`pak008.pk4`; the language paks, such as `zpak_english000`–`003`,
-   are optional (they carry the dialogue); the unpatched DVD set is not supported). Check that
+   are optional (they carry the dialogue); the unpatched DVD set is not supported, and the engine
+   refuses to start on it). A new test that runs the engine on synthetic data must pass
+   `+set fs_validateOfficialPaks 0`, as `tools/ci/dedicated_server_smoke.py` does. Check that
    the retail-data tests ran rather than skipped: a run that skips them does not meet this gate.
    Put the result in the PR with the host, OS, architecture, commit and data set. The tests use
    fixed UDP ports, so run one suite at a time on a host.

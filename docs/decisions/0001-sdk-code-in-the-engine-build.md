@@ -25,6 +25,6 @@ Unlike openQ4, OpenETQW states the exceptions openly and keeps each file's own l
 
 ## Consequences
 
-- Every engine package must carry the ET:QW SDK EULA as well as the GPL (EULA §5: the agreement accompanies each copy). The engine's `meson install` does this on the branch `feat/retail-install-check` (commit 0b3386c; checked by meson `install-licenses`).
-- Release gate item 2 is cleared for the engine binaries once that lands. The SDK files in the engine's early history (jmarshall's root commits, left in place by the owner) still need EULA §5 handling before publishing (`docs/provenance.md` §6).
+- Every engine package must carry the ET:QW SDK EULA as well as the GPL (EULA §5: the agreement accompanies each copy). The engine's `meson install` does this since PR #19 (checked by meson `install-licenses`).
+- Release gate item 2 is cleared for the engine binaries. The SDK files in the engine's early history (jmarshall's root commits, left in place by the owner) still need EULA §5 handling before publishing (`docs/provenance.md` §6).
 - `docs/provenance.md` §4 remains the registry. Any new SDK code in the engine build needs a new registry entry and the owner's approval.

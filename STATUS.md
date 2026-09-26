@@ -3,7 +3,7 @@
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
 Updated: 2026-09-25 (evening) · session/agent: Claude Code integrator session 3a9edf51 · host: mbp-m1max, macOS 27.0 (Darwin 27.0.0), arm64 (Apple M1 Max)
-Engine repo `~/openETQW`: `main` with PR #17 (merged 2026-09-25; `tools/ci/companion.ref` pins game 775c102) · game repo `~/openETQW-game`: `main` 775c102 (PR #11, merged 2026-09-25) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none; upstream checked 2026-09-24)
+Engine repo `~/openETQW`: `main` with PR #19 (merged 2026-09-25; `tools/ci/companion.ref` pins game GAMEMERGE) · game repo `~/openETQW-game`: `main` GAMEMERGE (PR #12, merged 2026-09-25) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none; upstream checked 2026-09-24)
 
 Both histories were rewritten on 2026-09-24 (`docs/provenance.md` §7). Every commit ID changed: engine 2104090 → 84a224b and 53d0172 → fef1e53; game 285eaa1 → 24f58bf and 9b3a02b → 19a709a. Engine SHAs quoted in older docs (`CHECKPOINT_STOCK_MAPS_PHASE.md`, ledger rows, earlier STATUS text) are pre-rewrite IDs. The game's historical `tools/ci/engine.ref` pins name engine commits that no longer exist.
 
@@ -72,12 +72,11 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 | openETQW | #14 d15bdea | M5 step 5, single player: `high-refresh-determinism` compares `SIM_VIEW` across caps in full precision; one weapon-log divergence after entering the vehicle is allowed in its measured shape (45–59 ticks from tick 92) until plan step 6 |
 | game | #8 ea14841, #9 54d18d8, #10 f00f4d3 | `SIM_VIEW`: per-tick view state for the replay, with the vehicle view's last returned axis, in full precision |
 | game / openETQW | #11 775c102 / #17 | Target the retail 1.5 data: the SDK script-event signatures back, `validClasses` read as retail 1.5 reads it (B10), a data-free `events.script` check; the engine tests for the 1.5 data and B9 |
+| openETQW | #15, #16, #18 | Docs: the audit follow-ups, the owner's answers and decision records, the charter answer and D10, `docs/vehicle-responsiveness.md` |
+| game / openETQW | #12 GAMEMERGE / #19 | Release gate 6 safeguards: openQ4's retail-install check (A7, `fs_validateOfficialPaks`; meson `retail-install-check`), the licence texts in both install sets (A3; meson `install-licenses`), game README/CONTRIBUTING licensing |
 
 ### Open and pending
-- **Pushed, no PR yet.** Engine `feat/retail-install-check` was adversarially reviewed (its 7 confirmed findings fixed in 9f3b4d6); game `feat/install-licenses` was not. Neither has passed the full suite yet:
-  - engine `feat/retail-install-check` (ff66385, 0b3386c, 9f3b4d6): openQ4's retail-install check (A7, `fs_validateOfficialPaks`), licence texts in the engine's install set (A3), meson tests `retail-install-check` and `install-licenses`.
-  - game `feat/install-licenses` (9eba2d9, 9a5f751; on 54d18d8): licence texts in the game's install set and CI artifact, plus the game README/CONTRIBUTING licensing docs.
-- **Merge order:** `feat/retail-install-check` with game `feat/install-licenses`, now that the 1.5 fix has merged (the check refuses the DVD set).
+- None. The release-gate safeguards (engine #19 with game #12) are the last merge above.
 
 ### Found this session
 - **The data was not 1.5.** `~/etqw_data` held the unpatched English DVD paks, so every result before 2026-09-25 14:49 ran the SDK 1.5 game code on 1.0 scripts. The 1.5 paks were added from the official Linux 1.5 client installer on the owner's drive. On them, `main` failed 20 of 28 tests: PR #1's "retail" script-event signatures had been fitted to the DVD scripts, and the harness counts the reconcile warnings as failures (details under Demonstrated and ledger 050). With game PR #11 and this engine PR, the full suite passes on the 1.5 data (28/28).
@@ -95,6 +94,7 @@ All rows: host mbp-m1max, macOS 27 arm64, Apple Clang 21, debug build, retail da
 | Full suite, **1.5 data**, game `fix/target-1.5-data` | map-loaded | as above; engine c6345bb binaries (test tree of `m5/sim-view`), game a5af70b | as above, 2026-09-25 16:58 | 26 OK, 2 FAIL. No reconcile warnings. all-stock-maps 11/11 on the 1.5 maps, with every map entity spawned (the DVD data left 11 path corners unspawned) and ark's and volcano's new counts (897, 1332). client-lifecycle and vulkan-shadows waited out their 90 s: their "player active" marker was a debug print that only the DVD scripts make (`parachute::Idle`), and their map marker is never printed. Fixed in the tests on engine `fix/target-1.5-data` (5a5b672), not yet re-run. An earlier run of this row loaded the old module: the engine loads `game_arm64.dylib` from its own directory first, not from `fs_basepath`. |
 | Full suite, **1.5 data**, both `fix/target-1.5-data` branches | map-loaded | as above; engine `fix/target-1.5-data` 9575b21 (the tests for 1.5) with game 358b2aa | as above, 2026-09-25 18:30 | **28/28 OK.** all-stock-maps 11/11 (table below), campaign-client-maps 4/4, client-lifecycle and vulkan-shadows pass with the new markers, the replay passed with the known divergence in its allowed shape (56 ticks from tick 92) |
 | Replay on the **1.5 data** | map-loaded (offline `+devmap`) | as above; game ea14841 to 54d18d8 | meson `high-refresh-determinism` (five runs, 2026-09-25) | Pass, 5/5. The known weapon-log divergence after entering the vehicle appeared in 3 of 5 runs, always in its allowed shape: from tick 92, 31–37 ticks, any cap against 60 Hz (on the DVD data about 2 runs in 3, 31–40 ticks) |
+| Full suite, **1.5 data**, the release-gate safeguards (30 tests) | map-loaded | as above; engine `feat/retail-install-check` (the code of PR #19) with game `feat/install-licenses` (on 775c102) | as above, 2026-09-25 19:56–20:32 | **30/30 OK**, including the new unit tests `retail-install-check` (the engine refuses a `base/` without the retail 1.5 paks, and `fs_validateOfficialPaks 0` turns that off) and `install-licenses` (6/6 licence texts installed). all-stock-maps 11/11, campaign-client-maps 4/4. The asset-free `tools/ci/dedicated_server_smoke.py` (which sets `fs_validateOfficialPaks 0`) passes on the same binaries |
 | Full retail-data suite, fix branch (22 tests) | map-loaded (highest level any test in it reaches) | as above; the `fix/audit-followups` trees, merged as engine c1e6424 and game b5c3345 | `ETQW_DATA_PATH=… meson test -C build -j 1` (suites 18 and 19) | Suite 18: 21/22 OK; bot-gameplay failed (the bots had not met within the 40 s window). A/B of the old and new dedicated pacing at 40 s: 1/6 and 2/6 failures, server tick rate 30.3 Hz either way, so not a pacing regression. With the 90 s window: 8/8 solo runs passed (first combat after 13.5–42.8 s). Suite 19 (before the code review's fixes): 22/22 OK. Suite 20, final tree: 22/22 OK (2026-09-24, 0 script-event mismatch warnings; `build/meson-logs/testlog.txt` holds this run) |
 | Full retail-data suite, before the fix branch (21 tests) | map-loaded (highest level any test in it reaches) | as above; binaries built 12:26 from the uncommitted tree later committed as fef1e53 / 19a709a. Trees are identical to `main` 84a224b / 24f58bf. This is inferred from file times; the binaries carry no commit stamp | `ETQW_DATA_PATH=… meson test -C build -j 1` (suite 17, 2026-09-24 12:27–12:46 EDT) | 21/21 OK. `build/meson-logs/testlog.txt` has been overwritten by suite 18 |
 | Key turning no longer depends on frame rate | map-loaded (quarry; dedicated server + one headless client) | as above, fix tree | `tests/test_turn_rate.py` (meson `turn-rate`), `in_yawspeed 20`, `in_anglespeedkey 1` | 19.6 °/s at a 30 fps cap, 19.3 °/s at 240 fps. With the old code restored: 122 °/s at 240 fps (the test failed, as intended). After the review found the per-call `ANGLE2SHORT` truncation (direction-dependent rate at small steps) and it was fixed: 19.9–20.1 °/s for +left at 30 and 240 fps and +right at 240 fps, 10% tolerance, three runs. Under meson the test writes its logs to `build/meson-logs/turn-rate/`. Controller turning uses the same scale but is untested |
@@ -180,7 +180,7 @@ Notes on the per-map results:
 - **Navigation data checks.** The AAS map CRC is never compared. The .nav loader does not bounds-check node links (`BotAI_Navigation.cpp` `LoadNodes`). The AAS loader reads packed disk structs raw, with no layout assertions (`AASFile_local.cpp`).
 - **Vulkan.** Validation layers are not installed on the host. The backend has no screenshot or image capture.
 - **macOS dedicated binary** links the AppKit, Metal, OpenGL and related frameworks (`ded_deps` in `meson.build`). It has never run on a host without a GPU or display.
-- **Retail-install check.** Not enforced on `main`. Built on engine `feat/retail-install-check` (openQ4's check, `fs_validateOfficialPaks`; A7), not merged.
+- **Retail-install check.** Only the English edition's checksums are known; other editions' `pak000`–`pak004` are refused until their checksums are added (Inputs needed). The check has not run on Linux or Windows (no engine build there).
 - **Leftover CMake.** Engine `src/CMakeLists.txt` and game `src/compiledscript/CMakeLists.txt` are still tracked.
 - **Include letter case in the Radiant editor.** `src/tools/radiant` (Windows-only MFC, not built by Meson) has about 80 includes whose case does not match the file; `check_include_case.py` excludes it.
 
@@ -193,7 +193,7 @@ Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>
 | Engine build | blocked: never configured (no host, no CI) | blocked: never configured (no host, no CI); link gaps at inspection; a mingw-w64 cross-compile is next (C12) | compiled | — | — | macOS x64 and Linux ARM64 engine CI legs exist but skip. A docstring in `tools/ci/dedicated_server_smoke.py` claims a Rosetta x86_64 run; no log supports it |
 | Dedicated server launch (headless) | blocked: no engine build | blocked: no engine build | map-loaded | — | — | macOS: on a Mac with GPU and display. Stdin console commands and exit 0 |
 | Client launch (graphics) | blocked: no engine build | blocked: no engine build | map-loaded | — | — | SDL3 + Vulkan via MoltenVK. `+devmap` sessions, and since 2026-09-25 a network join and a listen host (`client-network-*`) |
-| Asset-free unit tests | blocked: no engine build | blocked: no engine build | unit-tested | — | — | bitmsg, usercmd-delta, struct-layout, usercmd-history, zero-sdk. The codec tests are self-consistency tests |
+| Asset-free unit tests | blocked: no engine build | blocked: no engine build | unit-tested | — | — | bitmsg, usercmd-delta, struct-layout, usercmd-history, install-licenses, zero-sdk, retail-install-check (on synthetic paks). The codec tests are self-consistency tests |
 | Stock map: server | blocked: no engine build | blocked: no engine build | map-loaded | — | — | 11 stock maps + Valley, warmup. One Valley match with forced objectives |
 | Stock map: client | blocked: no engine build | blocked: no engine build | map-loaded | — | — | valley, outskirts, ark, canyon, refinery. Draw counters only |
 | OpenETQW MP: dedicated | blocked: no engine build | blocked: no engine build | map-loaded | — | — | Loopback, one host. Up to 2 clients (headless, or the Vulkan client and a headless one) + 1 bot. Movement checked both ways; reconnect, client restart, map restart, 10-minute lossy session |
@@ -287,7 +287,7 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
   - a mixed-cap live session and a cap change during play;
   - `com_unlockFPS` is ignored, and `com_unlock_avgFrames`/`safetyMargin`/`timingMethod` do nothing (D9: remove them).
 
-**M7 (public release): not met.** None of the six release-gate items is cleared yet. Item 2's SDK exceptions are approved (A6), and the item clears for the engine binaries when the licence install (`feat/retail-install-check` 0b3386c) merges (next section). Also missing:
+**M7 (public release): not met.** None of the six release-gate items is cleared yet. Item 2's SDK exceptions are approved (A6) and their condition, the SDK EULA in every engine package, is met (PR #19); the SDK files in engine history still hold it open (next section). Also missing:
 - packages and packaging scripts;
 - a release workflow;
 - `docs/platform-matrix.md`;
@@ -304,7 +304,7 @@ Both repositories are private and have no releases.
    - Remediation deferred by the owner (2026-09-25). This gate stays blocking until it is resolved.
 2. **SDK-licensed code linked into engine binaries: not cleared; exceptions approved by the owner (2026-09-25).**
    - The engine links the game repo's SDK idLib (`libidLib.a`, 72 objects) and compiles the staged SDK `DeclType.cpp`, 189 staged SDK headers and `BuildDefines.inc`; three unit tests also compile the SDK `BitMsg.cpp`. `docs/provenance.md` §4 lists them (E1–E4).
-   - The owner approved them as tracked exceptions on openQ4's precedent (A6; `docs/decisions/0001-sdk-code-in-the-engine-build.md`). Condition: every engine package carries the SDK EULA as well as the GPL (built on `feat/retail-install-check` 0b3386c, not merged). The item is cleared for the engine binaries once that merges.
+   - The owner approved them as tracked exceptions on openQ4's precedent (A6; `docs/decisions/0001-sdk-code-in-the-engine-build.md`). Condition: every engine package carries the SDK EULA as well as the GPL. Met since PR #19: `meson install` puts it under `licenses/ETQW-SDK`, checked by meson `install-licenses`. That clears the item for the engine binaries.
    - Still open before publishing: engine history holds SDK files through jmarshall's root commits (the owner left them in place); SDK EULA §5 (the EULA must accompany each copy) still has to be handled for those commits (`docs/provenance.md` §6).
 3. **`docs/provenance.md` coverage: not cleared.**
    - At 84a224b, `docs/provenance-manifest.json` classified 5,275 imported files; after the 2026-09-24 edit (splash entry dropped) it classifies 5,274.
@@ -322,10 +322,10 @@ Both repositories are private and have no releases.
    - Local backup bundles of the pre-purge repos (verified) are kept outside the repositories, in the gitignored `~/openETQW/.agents/backups-2026-09-24-prepurge/`. They hold the purged bitmap and must never be pushed.
    - No `.exe`, `.pdb`, `.pk4` or capture files and no raw decompiler output were found.
    - Third-party binary blobs remain: `src/openal/lib/openal32.lib`, `eaxguid.lib` (2 copies) and zlib contrib `.obj` files. They are not retail content, but they are unreviewed restricted dependencies (§11).
-6. **SDK EULA with the game repo and every package; retail-install check enforced; nothing sold: not cleared.**
+6. **SDK EULA with the game repo and every package; retail-install check enforced; nothing sold: not cleared (both safeguards are in place; no package exists yet to carry them).**
    - The owner accepted the EULA §2 risk as openQ4 does (A3, 2026-09-25), with two safeguards (`docs/decisions/0002-sdk-eula-risk-and-retail-install-check.md`):
-     - the retail-install check, openQ4's design (A7): built on engine `feat/retail-install-check`, not merged;
-     - the licence texts in every package: the engine and game install sets carry them on `feat/retail-install-check` (0b3386c, checked by meson `install-licenses`) and game `feat/install-licenses`, not merged.
+     - the retail-install check, openQ4's design (A7): enforced since engine PR #19 (`fs_validateOfficialPaks`, meson `retail-install-check`);
+     - the licence texts in every package: the engine and game install sets carry them since engine PR #19 (checked by meson `install-licenses`) and game PR #12.
    - The EULA ships verbatim in the game repo (`legal/EULA SDK ETQW.rtf`, `EULA_SDK_ETQW.txt`).
    - No packages exist. Nothing is sold.
 
@@ -359,11 +359,10 @@ None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline
 ## Next steps (7 or fewer, ordered)
 | # | Step | Host / OS needed | Depends on | Acceptance test |
 |---|---|---|---|---|
-| 1 | Release gate 6 safeguards: engine `feat/retail-install-check` with game `feat/install-licenses` (rebased on 54d18d8); readme, CONTRIBUTING, ledger 035/052 and this file updated when they merge | macOS arm64 | none (the 1.5 fix has merged) | Full suite on 1.5 plus `retail-install-check` and `install-licenses` |
-| 2 | M5 in the order of `docs/m5-plan.md`: the D1 test change (the reach bounds become reports); the vehicle physics guard (step 5a) before any vehicle change; then steps 6–17, with the vehicle stages of `docs/vehicle-responsiveness.md` in steps 6, 8, 9, 13, 14, 14a and 14b | macOS arm64 | none | Each step's test (see the plan) |
-| 3 | Windows x64 cross-compile with mingw-w64 (C12); then a Linux sysroot | macOS arm64 (cross) | none | The engine configures and compiles for Windows x64 |
-| 4 | Provenance and license records: post-split files and openQ4 donor commits in the manifest, SPDX lines, the minizip relabel (release gate 3) | any | none | Manifest covers every tracked file; game `check_spdx.py` passes |
-| 5 | M4 gameplay-driven tests: classes, damage and kills, deployable delivery, stopwatch and campaign transitions | macOS arm64 | none | New meson tests pass on the 1.5 data |
+| 1 | M5 in the order of `docs/m5-plan.md`: the D1 test change (the reach bounds become reports); the vehicle physics guard (step 5a) before any vehicle change; then steps 6–17, with the vehicle stages of `docs/vehicle-responsiveness.md` in steps 6, 8, 9, 13, 14, 14a and 14b | macOS arm64 | none | Each step's test (see the plan) |
+| 2 | Windows x64 cross-compile with mingw-w64 (C12); then a Linux sysroot | macOS arm64 (cross) | none | The engine configures and compiles for Windows x64 |
+| 3 | Provenance and license records: post-split files and openQ4 donor commits in the manifest, SPDX lines, the minizip relabel (release gate 3) | any | none | Manifest covers every tracked file; game `check_spdx.py` passes |
+| 4 | M4 gameplay-driven tests: classes, damage and kills, deployable delivery, stopwatch and campaign transitions | macOS arm64 | none | New meson tests pass on the 1.5 data |
 
 ## Inputs needed from the owner
 - Optional: `Loaded pk4 ... with checksum` lines from other-language editions (`pak000`–`pak004`), so the retail-install check can accept them.
