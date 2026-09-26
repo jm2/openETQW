@@ -153,6 +153,9 @@ Notes on the per-map results:
 - **High-refresh gaps (openETQW-game):**
   - Remote-entity interpolation producer compiled out: `src/game/Entity.cpp:1736` (`#if 0 // jmarshall - unlock fps`).
   - Vehicle seats draw at the tick rate: `idPlayer::IsFPSUnlock` returns false with a proxy (`src/game/Player.cpp:8794`), as retail 1.5 does (M5 plan D2). OpenETQW's vehicle sub-tick code still runs on the render frames of the tick in which a player enters, and through `GetAORView` (AoR, antilag), where it writes presentation values into tick state (plan step 6). D10 adds a seat view, on by default (steps 13–14).
+  - Vehicle cameras, hulls, riders and mouse look in every seat step at 30 Hz; how to make them smooth and responsive without changing physics is `docs/vehicle-responsiveness.md` (the vehicle stages of the M5 plan).
+  - Vehicle handling is not guarded by any test: `SIM_HASH` covers only a vehicle's origin and linear velocity, to 0.01, and the replay compares one build with itself across caps. M5 plan step 5a adds a per-tick vehicle trace and a golden recorded from `main` before any vehicle change.
+  - On a network client, aircraft probably apply one tick of reversed cyclic after each snapshot: `sdAirVehicleControl`'s `oldCmdAngles` and `collective` are neither networked nor rolled back during re-prediction (inferred from the code; retail has the same code). M5 plan step 14a.
   - `com_unlock_avgFrames`, `com_unlock_safetyMargin` and `com_unlock_timingMethod` are registered (`src/framework/Common.cpp:80–85`) and read nowhere (D9: remove them, plan step 12).
   - Other per-frame effects of late view-angle sampling that the audit listed (the mouse smoothing history, `game->UsercommandCallback`) were not reviewed (2026-09-24 audit).
 - **Silent engine no-ops** in `src/framework/async/NetworkSystem.cpp`:
@@ -357,7 +360,7 @@ None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline
 | # | Step | Host / OS needed | Depends on | Acceptance test |
 |---|---|---|---|---|
 | 1 | Release gate 6 safeguards: engine `feat/retail-install-check` with game `feat/install-licenses` (rebased on 54d18d8); readme, CONTRIBUTING, ledger 035/052 and this file updated when they merge | macOS arm64 | none (the 1.5 fix has merged) | Full suite on 1.5 plus `retail-install-check` and `install-licenses` |
-| 2 | M5 in the order of `docs/m5-plan.md`: the D1 test change (the reach bounds become reports), then steps 6–15 and 17 | macOS arm64 | none | Each step's test (see the plan) |
+| 2 | M5 in the order of `docs/m5-plan.md`: the D1 test change (the reach bounds become reports); the vehicle physics guard (step 5a) before any vehicle change; then steps 6–17, with the vehicle stages of `docs/vehicle-responsiveness.md` in steps 6, 8, 9, 13, 14, 14a and 14b | macOS arm64 | none | Each step's test (see the plan) |
 | 3 | Windows x64 cross-compile with mingw-w64 (C12); then a Linux sysroot | macOS arm64 (cross) | none | The engine configures and compiles for Windows x64 |
 | 4 | Provenance and license records: post-split files and openQ4 donor commits in the manifest, SPDX lines, the minizip relabel (release gate 3) | any | none | Manifest covers every tracked file; game `check_spdx.py` passes |
 | 5 | M4 gameplay-driven tests: classes, damage and kills, deployable delivery, stopwatch and campaign transitions | macOS arm64 | none | New meson tests pass on the 1.5 data |
@@ -368,4 +371,7 @@ None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline
 - Manual retail-data runs on Linux and Windows, once builds exist (C12).
 
 ## Questions for the owner
-- None open.
+From `docs/vehicle-responsiveness.md` §5.1 (none blocks the first stages):
+- **Driver seats:** turn their smooth view on as soon as the blend lands (smooth, but the hull's motion is drawn 16.5 ms older on average), or only once the per-class hull lead (step 14b) is measured? Recommendation: wait for the lead, since the goal is "as responsive as possible". Gunner and free-look seats have no such trade and go first.
+- **Beyond retail:** may the hull lead (step 14b) and, later, remote-vehicle axes and joints go beyond retail 1.5's look, each with a ledger row?
+- **Aircraft:** if the client-side fix (step 14a) leaves a residual on loopback, may the air-control state be networked (a protocol minor bump, allowed by the clean break)?
