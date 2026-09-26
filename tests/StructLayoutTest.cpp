@@ -59,6 +59,7 @@ public:
 static TestCommonMock s_testCommon;
 idCommon * common = &s_testCommon;
 idSys * sys = NULL;
+idDeclManager * declManager = NULL;
 
 // ----------------------------------------------------------------------------
 // 1. idDrawVert Layout Assertions (SD_USE_DRAWVERT_SIZE_32)
