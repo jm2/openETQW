@@ -176,6 +176,7 @@ Notes on the per-map results:
 - **Skipped map chunks:** ledger 013 records `shadowModel` and `mapEnvBounds` (every stock map has both), the discarded portal data and the headless render world (the 2026-09-24 docs pass; at 84a224b it named valley only).
 - **Untriaged warnings.**
   - `salvage.script(338)`: "Event call on a NULL object", after `func_door_gdf_rail_1` is not found.
+  - `all-stock-maps` on ark: a GDF bot sometimes sticks at (13384.48, 2887.50, 387.18), pushing forward with no velocity, where the player AAS has no area, and `bots.gdf.aas_area_validity` fails (12/50 and 8/46 samples). 2 of 13 ark runs on 2026-09-25 with PR #19's minizip change, 0 of 9 without it; the change removes only the decryption branch, which never runs without a password, so this is taken as a flake of the bot's route, not a regression.
   - `sdVehiclePart::AddSurface`: "Invalid Surface", on the headless server (inprocess-map-change and all-stock-maps), on the DVD and the 1.5 data alike; not new with 1.5.
   - Client logs: renderprog parse and "cannot upload ARB" warnings.
 - **Navigation data checks.** The AAS map CRC is never compared. The .nav loader does not bounds-check node links (`BotAI_Navigation.cpp` `LoadNodes`). The AAS loader reads packed disk structs raw, with no layout assertions (`AASFile_local.cpp`).

@@ -1,5 +1,11 @@
-minizip (src/framework/minizip/: unzip.c, unzip.h, ioapi.c, ioapi.h, crypt.h),
-compiled into both engine binaries. Its notice, from unzip.h:
+minizip (src/framework/minizip/: unzip.c, unzip.h, ioapi.c, ioapi.h),
+compiled into both engine binaries. Its notice, from unzip.h, is below.
+
+crypt.h and the password path of unzip.c are Info-ZIP's decryption code (from
+Info-ZIP's crypt.c, under the Info-ZIP license those files name). The engine
+builds unzip.c with NOUNCRYPT (meson.build), so that code is not compiled into either
+binary; the files stay in the source tree with their Info-ZIP notices.
+
 
 unzip.h -- IO for uncompress .zip files using zlib
    Version 1.01e, February 12th, 2005
