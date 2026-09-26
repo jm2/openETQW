@@ -3,7 +3,7 @@
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
 Updated: 2026-09-25 (evening) · session/agent: Claude Code integrator session 3a9edf51 · host: mbp-m1max, macOS 27.0 (Darwin 27.0.0), arm64 (Apple M1 Max)
-Engine repo `~/openETQW`: `main` with PR #19 (merged 2026-09-25; `tools/ci/companion.ref` pins game GAMEMERGE) · game repo `~/openETQW-game`: `main` GAMEMERGE (PR #12, merged 2026-09-25) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none; upstream checked 2026-09-24)
+Engine repo `~/openETQW`: `main` with PR #19 (merged 2026-09-25; `tools/ci/companion.ref` pins game ef9a876) · game repo `~/openETQW-game`: `main` ef9a876 (PR #12, merged 2026-09-25) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none; upstream checked 2026-09-24)
 
 Both histories were rewritten on 2026-09-24 (`docs/provenance.md` §7). Every commit ID changed: engine 2104090 → 84a224b and 53d0172 → fef1e53; game 285eaa1 → 24f58bf and 9b3a02b → 19a709a. Engine SHAs quoted in older docs (`CHECKPOINT_STOCK_MAPS_PHASE.md`, ledger rows, earlier STATUS text) are pre-rewrite IDs. The game's historical `tools/ci/engine.ref` pins name engine commits that no longer exist.
 
@@ -73,7 +73,7 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 | game | #8 ea14841, #9 54d18d8, #10 f00f4d3 | `SIM_VIEW`: per-tick view state for the replay, with the vehicle view's last returned axis, in full precision |
 | game / openETQW | #11 775c102 / #17 | Target the retail 1.5 data: the SDK script-event signatures back, `validClasses` read as retail 1.5 reads it (B10), a data-free `events.script` check; the engine tests for the 1.5 data and B9 |
 | openETQW | #15, #16, #18 | Docs: the audit follow-ups, the owner's answers and decision records, the charter answer and D10, `docs/vehicle-responsiveness.md` |
-| game / openETQW | #12 GAMEMERGE / #19 | Release gate 6 safeguards: openQ4's retail-install check (A7, `fs_validateOfficialPaks`; meson `retail-install-check`), the licence texts in both install sets (A3; meson `install-licenses`), game README/CONTRIBUTING licensing |
+| game / openETQW | #12 ef9a876 / #19 | Release gate 6 safeguards: openQ4's retail-install check (A7, `fs_validateOfficialPaks`; meson `retail-install-check`), the licence texts in both install sets (A3; meson `install-licenses`), game README/CONTRIBUTING licensing |
 
 ### Open and pending
 - None. The release-gate safeguards (engine #19 with game #12) are the last merge above.
