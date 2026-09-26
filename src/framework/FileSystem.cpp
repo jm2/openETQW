@@ -259,6 +259,120 @@ public:
 
 static idInitExclusions	initExclusions;
 
+/*
+===============================================================================
+
+	Retail-install check (OpenETQW)
+
+	Ported from openQ4 (https://github.com/themuffinator/openQ4, engine commit
+	b37b1456, src/framework/FileSystem.cpp: officialPk4Info_t, FS_IsIgnored-
+	OfficialGameBinaryPk4, ValidateRequiredOfficialPaks, PrintContentSearch-
+	Diagnostics, HasBaseLanguageMediaPack and the fs_validateOfficialPaks block in
+	Startup). The engine refuses to start unless base/ holds the retail ET:QW data
+	patched to 1.5, each pak unmodified. The checksum is the engine's own pack
+	checksum (LoadPackFile: MD4 over the zip entries' CRCs), the value the log
+	prints as "Loaded pk4 ... with checksum". fs_validateOfficialPaks 0 turns the
+	check off for tests on synthetic data. docs/official-pk4-checksums.md
+	records where each value came from.
+
+===============================================================================
+*/
+
+typedef struct {
+	const char *	name;
+	unsigned int	checksum;
+	bool			required;
+} officialPk4Info_t;
+
+static officialPk4Info_t officialPk4s[] = {
+	// the retail media, the same on the English DVD and Steam
+	{ "pak000.pk4",				0x442eb08b,	true },
+	{ "pak001.pk4",				0x010e16e6,	true },
+	{ "pak002.pk4",				0x8dbe7353,	true },
+	{ "pak003.pk4",				0x99dfcabb,	true },
+	{ "pak004.pk4",				0x7e49f838,	true },
+	// the official 1.5 patch (OpenETQW targets 1.5)
+	{ "pak005.pk4",				0x5ccc7213,	true },
+	{ "pak006.pk4",				0x9edf1b7d,	true },
+	{ "pak007.pk4",				0x074a1a2f,	true },
+	{ "pak008.pk4",				0x71a93b80,	true },
+
+	// official but optional: languages differ by edition
+	{ "zpak_english000.pk4",	0x977c7bd0,	false },
+	{ "zpak_english001.pk4",	0x06583cd8,	false },
+	{ "zpak_english002.pk4",	0x8dc70e3d,	false },
+	{ "zpak_english003.pk4",	0xc2d7ed49,	false },
+
+	{ NULL,						0,			false }
+};
+
+// the retail game modules, which OpenETQW cannot load (game000.pk4 Windows,
+// game001.pk4 macOS, game002.pk4 Linux, from the 1.5 patch)
+static bool FS_IsIgnoredOfficialGameBinaryPk4( const char *pakName ) {
+	idStr name;
+
+	if ( !pakName || !pakName[ 0 ] ) {
+		return false;
+	}
+
+	name = pakName;
+	name.StripPath();
+
+	return !name.Icmp( "game000.pk4" ) || !name.Icmp( "game001.pk4" ) || !name.Icmp( "game002.pk4" );
+}
+
+// the retail editions' character dialogue ships in zpak_<language>000.pk4; the
+// numbered zpak_<language>001-003 are 1.5 patches. The 1.5 patch also installs a
+// 2 KB zpak_korean000.pk4 (bindings and fonts, no dialogue) on every system, so
+// Korean is not listed.
+static const char *fsBaseLanguagePacks[] = {
+	"english",
+	"french",
+	"german",
+	"italian",
+	"polish",
+	"russian",
+	"spanish",
+	NULL
+};
+
+// is this a zpak_<language>000.pk4 of a known dialogue language?
+static bool FS_IsBaseLanguagePackName( const char *pakFilename ) {
+	idStr fileName;
+
+	if ( pakFilename == NULL || pakFilename[ 0 ] == '\0' ) {
+		return false;
+	}
+
+	fileName = pakFilename;
+	fileName.StripPath();
+	fileName.ToLower();
+	for ( int i = 0; fsBaseLanguagePacks[ i ] != NULL; i++ ) {
+		if ( !fileName.Icmp( va( "zpak_%s000.pk4", fsBaseLanguagePacks[ i ] ) ) ) {
+			return true;
+		}
+	}
+	return false;
+}
+
+// is the pak directly inside a directory named gameDir? (the parent directory's
+// name, not any path component: "base" is a common folder name)
+static bool FS_PakPathIsInGameDir( const char *pakFilename, const char *gameDir ) {
+	idStr directory;
+	idStr dirName;
+
+	if ( pakFilename == NULL || gameDir == NULL || gameDir[ 0 ] == '\0' ) {
+		return false;
+	}
+
+	directory = pakFilename;
+	directory.BackSlashesToSlashes();
+	directory.StripFilename();
+	dirName = directory;
+	dirName.StripPath();
+	return !dirName.Icmp( gameDir );
+}
+
 #define MAX_ZIPPED_FILE_NAME	2048
 #define FILE_HASH_SIZE			1024
 
@@ -484,6 +598,7 @@ private:
 	static idCVar			fs_game_base;
 	static idCVar			fs_caseSensitiveOS;
 	static idCVar			fs_searchAddons;
+	static idCVar			fs_validateOfficialPaks;
 
 	backgroundDownload_t *	backgroundDownloads;
 	backgroundDownload_t	defaultBackgroundDownload;
@@ -521,6 +636,11 @@ private:
 	void					AddGameDirectory( const char *path, const char *dir );
 	void					SetupGameDirectories( const char *gameName );
 	void					Startup( void );
+							// the retail-install check (ported from openQ4)
+	pack_t *				FindBaseGamePackByName( const char *name ) const;
+	bool					ValidateRequiredOfficialPaks( idStr &errors ) const;
+	bool					HasBaseLanguageMediaPack( void ) const;
+	void					PrintContentSearchDiagnostics( void );
 	void					SetRestrictions( void );
 							// some files can be obtained from directories without compromising si_pure
 	bool					FileAllowedFromDir( const char *path );
@@ -563,6 +683,7 @@ idCVar	idFileSystemLocal::fs_caseSensitiveOS( "fs_caseSensitiveOS", "0", CVAR_SY
 idCVar	idFileSystemLocal::fs_caseSensitiveOS( "fs_caseSensitiveOS", "1", CVAR_SYSTEM | CVAR_BOOL, "" );
 #endif
 idCVar	idFileSystemLocal::fs_searchAddons( "fs_searchAddons", "0", CVAR_SYSTEM | CVAR_BOOL, "search all addon pk4s ( disables addon functionality )" );
+idCVar	idFileSystemLocal::fs_validateOfficialPaks( "fs_validateOfficialPaks", "1", CVAR_SYSTEM | CVAR_INIT | CVAR_BOOL, "verify the required retail ET:QW 1.5 base pk4 checksums on startup" );
 
 idFileSystemLocal	fileSystemLocal;
 idFileSystem *		fileSystem = &fileSystemLocal;
@@ -2449,6 +2570,11 @@ void idFileSystemLocal::AddGameDirectory( const char *path, const char *dir ) {
 	pakfiles.Sort();
 
 	for ( i = 0; i < pakfiles.Num(); i++ ) {
+		if ( !idStr::Icmp( dir, BASE_GAMEDIR ) && FS_IsIgnoredOfficialGameBinaryPk4( pakfiles[ i ] ) ) {
+			common->Printf( "Ignoring unneeded game binary pk4 %s\n", BuildOSPath( path, dir, pakfiles[ i ] ) );
+			continue;
+		}
+
 		pakfile = BuildOSPath( path, dir, pakfiles[i] );
 		pak = LoadPackFile( pakfile );
 		if ( !pak ) {
@@ -2529,6 +2655,133 @@ void idFileSystemLocal::FollowAddonDependencies( pack_t *pak ) {
 
 /*
 ================
+idFileSystemLocal::FindBaseGamePackByName
+
+The loaded pak of that file name directly inside a base/ directory, or NULL.
+================
+*/
+pack_t *idFileSystemLocal::FindBaseGamePackByName( const char *name ) const {
+	idStr pakName;
+
+	for ( searchpath_t *search = searchPaths; search; search = search->next ) {
+		if ( !search->pack || !FS_PakPathIsInGameDir( search->pack->pakFilename.c_str(), BASE_GAMEDIR ) ) {
+			continue;
+		}
+		search->pack->pakFilename.ExtractFileName( pakName );
+		if ( !pakName.Icmp( name ) ) {
+			return search->pack;
+		}
+	}
+	return NULL;
+}
+
+/*
+================
+idFileSystemLocal::ValidateRequiredOfficialPaks
+================
+*/
+bool idFileSystemLocal::ValidateRequiredOfficialPaks( idStr &errors ) const {
+	errors.Clear();
+	for ( int i = 0; officialPk4s[ i ].name != NULL; i++ ) {
+		const officialPk4Info_t *info = &officialPk4s[ i ];
+		if ( !info->required ) {
+			continue;
+		}
+		pack_t *pack = FindBaseGamePackByName( info->name );
+		if ( !pack ) {
+			errors += va( "missing %s (expected 0x%08x)\n", info->name, info->checksum );
+			continue;
+		}
+		if ( (unsigned int)pack->checksum != info->checksum ) {
+			errors += va( "checksum mismatch for %s (expected 0x%08x, got 0x%08x from %s)\n",
+				info->name, info->checksum, (unsigned int)pack->checksum, pack->pakFilename.c_str() );
+		}
+	}
+	return ( errors.Length() == 0 );
+}
+
+/*
+================
+idFileSystemLocal::HasBaseLanguageMediaPack
+================
+*/
+bool idFileSystemLocal::HasBaseLanguageMediaPack( void ) const {
+	for ( searchpath_t *search = searchPaths; search != NULL; search = search->next ) {
+		if ( search->pack == NULL || !FS_PakPathIsInGameDir( search->pack->pakFilename.c_str(), BASE_GAMEDIR ) ) {
+			continue;
+		}
+		if ( FS_IsBaseLanguagePackName( search->pack->pakFilename.c_str() ) ) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/*
+===============
+idFileSystemLocal::PrintContentSearchDiagnostics
+
+The retail-install check aborts the engine, so the log says where the engine
+looked and what it found there: a case-mismatched 'base' or 'pakNNN.pk4' tree
+copied from a Windows install is the common cause on Linux, which checksum text
+alone would not reveal.
+===============
+*/
+void idFileSystemLocal::PrintContentSearchDiagnostics( void ) {
+	const char *roots[ 4 ];
+	const char *rootNames[ 4 ];
+	idStrList	found;
+	idStr		osPath;
+	int			i, k;
+
+	roots[ 0 ] = fs_basepath.GetString();	rootNames[ 0 ] = "fs_basepath";
+	roots[ 1 ] = fs_savepath.GetString();	rootNames[ 1 ] = "fs_savepath";
+	roots[ 2 ] = fs_cdpath.GetString();		rootNames[ 2 ] = "fs_cdpath";
+	roots[ 3 ] = fs_devpath.GetString();	rootNames[ 3 ] = "fs_devpath";
+
+	common->Printf( "----- content search diagnostics -----\n" );
+	common->Printf( "fs_game      = '%s'\n", fs_game.GetString() );
+	common->Printf( "fs_game_base = '%s'\n", fs_game_base.GetString() );
+
+	// the roots SetupGameDirectories searches
+	for ( i = 0; i < 4; i++ ) {
+		if ( roots[ i ] == NULL || roots[ i ][ 0 ] == '\0' ) {
+			common->Printf( "%s = <unset>\n", rootNames[ i ] );
+			continue;
+		}
+		common->Printf( "%s = '%s'\n", rootNames[ i ], roots[ i ] );
+
+		// list each tree once
+		for ( k = 0; k < i; k++ ) {
+			if ( roots[ k ] != NULL && roots[ k ][ 0 ] != '\0' && idStr::Icmp( roots[ k ], roots[ i ] ) == 0 ) {
+				break;
+			}
+		}
+		if ( k < i ) {
+			continue;
+		}
+
+		osPath = BuildOSPath( roots[ i ], BASE_GAMEDIR, "" );
+		osPath.StripTrailing( '/' );
+		osPath.StripTrailing( '\\' );
+
+		found.Clear();
+		// -1 means no directory on POSIX, but also an empty one on Windows
+		if ( ListOSFiles( osPath, ".pk4", found ) == -1 ) {
+			common->Printf( "   %s: no pk4 files, or no such directory (note: paths are case sensitive on Linux)\n", osPath.c_str() );
+			continue;
+		}
+
+		common->Printf( "   %s: %d pk4 file(s)\n", osPath.c_str(), found.Num() );
+		for ( k = 0; k < found.Num(); k++ ) {
+			common->Printf( "      %s\n", found[ k ].c_str() );
+		}
+	}
+	common->Printf( "-------------------------------------\n" );
+}
+
+/*
+================
 idFileSystemLocal::Startup
 ================
 */
@@ -2560,6 +2813,31 @@ void idFileSystemLocal::Startup( void ) {
 		 idStr::Icmp( fs_game.GetString(), BASE_GAMEDIR ) &&
 		 idStr::Icmp( fs_game.GetString(), fs_game_base.GetString() ) ) {
 		SetupGameDirectories( fs_game.GetString() );
+	}
+
+	if ( fs_validateOfficialPaks.GetBool() ) {
+		idStr validationErrors;
+		if ( !ValidateRequiredOfficialPaks( validationErrors ) ) {
+			PrintContentSearchDiagnostics();
+			common->FatalError(
+				"Required official Enemy Territory: QUAKE WARS media pk4 files are missing from '%s' or modified.\n\n%s\n"
+				"OpenETQW reads the retail game data, patched to 1.5, from '<ET:QW install root>/%s'. Put pak000.pk4 through pak008.pk4 in that folder, "
+				"or launch with +set fs_basepath pointing at the install root that contains it. The 1.5 patch paks (pak005.pk4 to pak008.pk4) come from the official 1.5 patch.",
+				BASE_GAMEDIR, validationErrors.c_str(), BASE_GAMEDIR );
+		}
+
+#ifndef ID_DEDICATED
+		// The pak000-pak008 set is the only fatal check (only the English edition's
+		// checksums are known; docs/official-pk4-checksums.md). Character dialogue lives in the edition's zpak_<language>000.pk4, so
+		// a partial copy passes the check while every voice is silent: say so.
+		if ( !HasBaseLanguageMediaPack() ) {
+			common->Warning(
+				"No retail language media archive (zpak_<language>000.pk4) was found in '%s'; character dialogue will be incomplete or silent. "
+				"The numbered zpak_<language>001-003.pk4 archives are 1.5 patches and do not replace it. Install the retail language archive in '<ET:QW install root>/%s', "
+				"or launch with +set fs_basepath pointing at the install root that contains it.",
+				BASE_GAMEDIR, BASE_GAMEDIR );
+		}
+#endif
 	}
 
 	// currently all addons are in the search list - deal with filtering out and dependencies now
@@ -3205,6 +3483,7 @@ void idFileSystemLocal::Init( bool quiet ) {
 	common->StartupVariable( "fs_copyfiles" );
 	common->StartupVariable( "fs_restrict" );
 	common->StartupVariable( "fs_searchAddons" );
+	common->StartupVariable( "fs_validateOfficialPaks" );
 
 	if ( fs_basepath.GetString()[0] == '\0' ) {
 		fs_basepath.SetString( Sys_DefaultBasePath() );

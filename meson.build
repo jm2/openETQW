@@ -68,6 +68,13 @@ common_engine_defs = [
   '-DID_ENABLE_CURL=0',
 ]
 
+# minizip's decryption code (crypt.h, the password path in unzip.c) comes from
+# Info-ZIP's crypt.c under the Info-ZIP license. The engine never opens encrypted
+# paks, so it is compiled out and the binaries carry only zlib-licensed minizip.
+# unz_s keeps its crypt fields either way (minizip/unzip_internal.h), so the C++
+# files that share it need not see the define.
+engine_c_args = ['-DNOUNCRYPT']
+
 if host_system == 'darwin'
   common_engine_defs += ['-DMACOS_X']
 elif host_system == 'windows'
@@ -293,6 +300,7 @@ if build_engine
     engine_client_binary_name,
     openetqw_client_sources,
     include_directories: engine_include_dirs,
+    c_args: engine_c_args,
     cpp_args: client_cpp_args,
     objcpp_args: client_cpp_args,
     dependencies: client_deps,
@@ -330,6 +338,7 @@ if build_dedicated
     engine_ded_binary_name,
     openetqw_ded_sources,
     include_directories: engine_include_dirs,
+    c_args: engine_c_args,
     cpp_args: ded_cpp_args,
     objcpp_args: ded_cpp_args,
     dependencies: ded_deps,
@@ -337,6 +346,28 @@ if build_dedicated
     export_dynamic: true,
     win_subsystem: 'console',
     install: true,
+  )
+endif
+
+# Licence texts for every package (owner decision, 2026-09-25): the GPL for the
+# engine; the ET:QW SDK EULA, which must accompany each copy (EULA section 5) because
+# the engine links the SDK idLib and staged SDK headers (docs/provenance.md section 4);
+# and the notices of the third-party code compiled in. SDL3, Vulkan and zlib are
+# system dependencies; a package that bundles them adds their notices.
+# tools/ci/check_install_licenses.py checks this list.
+install_data('LICENSE', install_dir: 'licenses' / 'openETQW')
+install_data(
+  'src' / 'imgui' / 'LICENSE.txt',
+  'src' / 'recast' / 'License.txt',
+  'LICENSES' / 'third-party' / 'minizip.txt',
+  rename: ['imgui.txt', 'recastnavigation.txt', 'minizip.txt'],
+  install_dir: 'licenses' / 'openETQW' / 'third-party',
+)
+if game_repo_root != ''
+  install_data(
+    game_repo_root / 'EULA_SDK_ETQW.txt',
+    game_repo_root / 'legal' / 'EULA SDK ETQW.rtf',
+    install_dir: 'licenses' / 'ETQW-SDK',
   )
 endif
 

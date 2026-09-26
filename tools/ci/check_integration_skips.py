@@ -65,6 +65,8 @@ NOT_INTEGRATION = {
     "tests/test_zero_sdk.py",
     "tests/test_meson_sources_stress.py",
     "tests/test_win32_platform_stress.py",
+    # runs the dedicated server on synthetic data only (the retail-install check)
+    "tests/test_retail_install_check.py",
 }
 STUB_ARCHES = ("arm64", "x64")
 STUB_NAMES = ("openETQW-ded", "openETQW-client")

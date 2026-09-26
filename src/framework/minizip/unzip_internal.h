@@ -45,10 +45,10 @@ typedef struct unz_s {
 	unz_file_info_internal		cur_file_info_internal;
 	file_in_zip_read_info_s*	pfile_in_zip_read;
 	int							encrypted;
-#ifndef NOUNCRYPT
+	// Present even with NOUNCRYPT (the engine's build): the layout must not
+	// depend on a macro that only unzip.c is compiled with.
 	unsigned long				keys[ 3 ];
 	const unsigned long*		pcrc_32_tab;
-#endif
 } unz_s;
 
 #endif

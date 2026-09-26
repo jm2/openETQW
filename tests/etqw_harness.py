@@ -8,7 +8,8 @@ It provides:
 * binary discovery for the dedicated server (build/openETQW-ded_<arch>[.exe],
   overridable with --ded-binary or OPENETQW_DED_BINARY);
 * retail-data resolution from ETQW_DATA_PATH only (there is deliberately no
-  per-user default: unset or missing <path>/base/pak000.pk4 means SKIP, 77);
+  per-user default: unset, or any of <path>/base/pak000-pak008.pk4 missing,
+  means SKIP, 77);
 * a retail pak index (pak000..pakNNN, later paks override earlier ones);
 * a dedicated-server launcher with a private fs_savepath, a stdout reader
   thread that timestamps every line with time.monotonic(), a stdin writer and
@@ -154,15 +155,26 @@ def find_ded_binary(explicit: Optional[str] = None) -> Path:
                    + ", ".join(str(c) for c in ded_binary_candidates()) + ")")
 
 
+# the base paks the engine's retail-install check requires (the retail data patched to 1.5)
+REQUIRED_PAKS = [f"pak{n:03d}.pk4" for n in range(9)]
+
+
+def missing_required_paks(data_path: Path) -> list[str]:
+    """The required base paks (pak000-pak008) missing under data_path/base."""
+    return [p for p in REQUIRED_PAKS if not (Path(data_path) / "base" / p).is_file()]
+
+
 def resolve_data_path() -> Path:
     """Return the retail data root (directory containing base/) from
-    ETQW_DATA_PATH. Raises SkipTest when unset or incomplete."""
+    ETQW_DATA_PATH. Raises SkipTest when unset or incomplete (the engine
+    refuses to start without pak000-pak008, the retail data patched to 1.5)."""
     raw = os.environ.get("ETQW_DATA_PATH", "").strip()
     if not raw:
         raise SkipTest("ETQW_DATA_PATH is not set (point it at the directory containing base/pak000.pk4)")
     p = Path(raw).expanduser()
-    if not (p / "base" / "pak000.pk4").is_file():
-        raise SkipTest(f"ETQW_DATA_PATH={raw}: {p / 'base' / 'pak000.pk4'} not found")
+    missing = missing_required_paks(p)
+    if missing:
+        raise SkipTest(f"ETQW_DATA_PATH={raw}: base/{', base/'.join(missing)} not found (the data must be patched to 1.5)")
     return p.resolve()
 
 
@@ -173,13 +185,14 @@ def env_data_path() -> Path:
 
 
 def skip_unless_available(data_path: Path, *binaries: Path) -> None:
-    """Exit 77 (the meson skip code) unless <data_path>/base/pak000.pk4 and
-    every binary exist."""
+    """Exit 77 (the meson skip code) unless <data_path>/base/pak000-pak008.pk4
+    and every binary exist."""
     reasons = []
     if not os.environ.get("ETQW_DATA_PATH", "").strip():
         reasons.append("ETQW_DATA_PATH is not set (point it at the directory containing base/pak000.pk4)")
-    elif not (Path(data_path) / "base" / "pak000.pk4").is_file():
-        reasons.append(f"{Path(data_path) / 'base' / 'pak000.pk4'} not found")
+    elif missing_required_paks(data_path):
+        reasons.append(f"{Path(data_path) / 'base'}: {', '.join(missing_required_paks(data_path))} not found"
+                       " (the data must be patched to 1.5)")
     reasons += [f"binary not found: {b}" for b in binaries if not Path(b).is_file()]
     if reasons:
         for r in reasons:
