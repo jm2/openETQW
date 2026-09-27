@@ -63,11 +63,14 @@ const VkDeviceSize VULKAN_JOINT_PALETTE_BYTES =
 	MAX_JOINTS_PER_MESH * sizeof( idJointMat );
 const int VULKAN_MATERIAL_TEXTURES = 5;
 
+// Off by default: where the layer is installed it costs most of the frame rate
+// (56 against ~370 fps uncapped on an RX 6400), and players do not need it.
+// campaign-client-maps and client-network-* turn it on.
 idCVar r_vkValidation(
 	"r_vkValidation",
-	"1",
+	"0",
 	CVAR_RENDERER | CVAR_ARCHIVE | CVAR_BOOL | CVAR_NOCHEAT,
-	"enable the Khronos Vulkan validation layer when it is installed"
+	"enable the Khronos Vulkan validation layer when it is installed (slow; for development)"
 );
 
 idCVar r_vkSkipGui(
