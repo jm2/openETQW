@@ -399,7 +399,9 @@ int Sys_Rmdir( const char *path ) {
 
 #if !defined( __APPLE__ ) && ( defined( ID_DEDICATED ) || !defined( MACOS_X ) )
 const char *Sys_DefaultCDPath( void ) {
-	return "";
+	// the macOS fallback: the working directory's base/ supplies engine-shipped
+	// loose content (vkprogs/) when the save path is redirected
+	return Posix_Cwd();
 }
 #endif
 
