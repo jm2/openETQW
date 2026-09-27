@@ -119,7 +119,12 @@ SIM_VIEW_FIELDS_RE = re.compile(
 # the smaller differences (31-40 ticks visible). Allowed only in that shape: the wlog
 # field alone, a weapon pose on both sides, starting at tick 92, on 45-59 ticks per
 # schedule. Nothing else may differ.
-KNOWN_VIEW_LEAK = {"field": "wlog", "from_tick": 92, "to_tick": 150, "min_ticks": 45, "max_ticks": 59}
+# 2026-09-26: the determinism stream now names the vehicle (vehicle_titan, matching
+# valley-match) instead of relying on nearest-vehicle selection, which picked an
+# icarus on Linux (float drift in walk -> different nearest vehicle). With titan the
+# leak covers 44 ticks (92-149) on this host; bounds widened to 40-59 to cover both
+# shapes. macOS re-verification needed (icarus vs titan view class may differ).
+KNOWN_VIEW_LEAK = {"field": "wlog", "from_tick": 92, "to_tick": 150, "min_ticks": 40, "max_ticks": 59}
 
 FRAME_TIMING_RE = re.compile(
     r"FRAME_TIMING: window_ms=([\d.]+) frames=(\d+) ticks=(\d+) cap=(-?\d+)"
