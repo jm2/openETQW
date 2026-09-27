@@ -9,6 +9,8 @@
 
 #include "sys_local.h"
 #include "sys_render.h"
+#define SDL_MAIN_HANDLED
+#include <SDL3/SDL_main.h>
 #include "win_local.h"
 #include "win_soundthread.h"
 #ifdef ETQW_WITH_RADIANT
@@ -198,7 +200,7 @@ void idSysLocal::Init() {
 	Sys_EnsureThreadingInitialized();
 #ifndef ID_DEDICATED
 	SDL_SetMainReady();
-	SDL_SetHint( SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2" );
+	SetProcessDpiAwarenessContext( DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 );
 	SDL_SetHint( SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1" );
 	if ( !SDL_Init( SDL_INIT_VIDEO | SDL_INIT_EVENTS ) ) {
 		Sys_Error( "SDL3 initialization failed: %s", SDL_GetError() );
