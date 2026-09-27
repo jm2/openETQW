@@ -1227,11 +1227,25 @@ bool CreateVulkanInstance( sdVulkanBackendState& state ) {
 
 bool CreateVulkanSurface( sdVulkanBackendState& state ) {
 	VkSurfaceKHR surface = VK_NULL_HANDLE;
+#if defined( _WIN32 )
+	HWND window = static_cast< HWND >( state.nativeWindow );
+	VkWin32SurfaceCreateInfoKHR surfaceInfo;
+	memset( &surfaceInfo, 0, sizeof( surfaceInfo ) );
+	surfaceInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+	surfaceInfo.hinstance = GetModuleHandleA( NULL );
+	surfaceInfo.hwnd = window;
+	if ( !CheckVulkanResult( state.CreateWin32SurfaceKHR( state.instance,
+		&surfaceInfo, NULL, &surface ),
+		"vkCreateWin32SurfaceKHR" ) ) {
+		return false;
+	}
+#else
 	if ( !SDL_Vulkan_CreateSurface( static_cast< SDL_Window* >( state.nativeWindow ),
 		state.instance, NULL, &surface ) ) {
 		common->Warning( "SDL_Vulkan_CreateSurface failed: %s", SDL_GetError() );
 		return false;
 	}
+#endif
 	state.surface = surface;
 	return true;
 }

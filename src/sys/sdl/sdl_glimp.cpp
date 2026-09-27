@@ -142,15 +142,35 @@ public:
 	}
 
 	virtual dcHandle_t GetGameWindow() override {
+#if defined( _WIN32 )
+		if ( window == NULL ) {
+			return NULL;
+		}
+		return reinterpret_cast< dcHandle_t >( SDL_GetPointerProperty(
+			SDL_GetWindowProperties( window ), SDL_PROP_WINDOW_WIN32_HDC_POINTER, NULL ) );
+#else
 		return static_cast< dcHandle_t >( window );
+#endif
 	}
 
 	virtual wndHandle_t GetGameWindowHandle() override {
+#if defined( _WIN32 )
+		if ( window == NULL ) {
+			return NULL;
+		}
+		return reinterpret_cast< wndHandle_t >( SDL_GetPointerProperty(
+			SDL_GetWindowProperties( window ), SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL ) );
+#else
 		return static_cast< wndHandle_t >( window );
+#endif
 	}
 
 	virtual idRenderContext* GetGameRenderContext() override {
 		return &renderContext;
+	}
+
+	SDL_Window* GetSDLWindow() const {
+		return window;
 	}
 
 	virtual bool SetGameWindowParms( const glimpParms_t& parms ) override {
@@ -296,3 +316,7 @@ id3DContextSDL3 sys3DLocal;
 } // namespace
 
 id3DContext* sys3D = &sys3DLocal;
+
+SDL_Window* Sys_GetGameSDLWindow( void ) {
+	return sys3DLocal.GetSDLWindow();
+}
