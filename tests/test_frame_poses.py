@@ -395,7 +395,10 @@ def main(argv):
     # cheats, and the observer sets it once connected, when it has the server's net_allowCheats
     game = {"si_rules": "sdGameRulesObjective", "si_pure": "0", "g_teamSwitchDelay": "0", "si_teamForceBalance": "0",
             "net_allowCheats": "1"}
-    view_cvars = {"com_unlockFPS": "1", "r_swapInterval": "0",
+    # r_vkValidation 0: this test measures frame rates, and the Khronos validation layer,
+    # where it is installed (Linux, not the macOS host), cut the uncapped rate from about
+    # 370 to 56 fps on antec. campaign-client-maps keeps it on to catch spec violations.
+    view_cvars = {"com_unlockFPS": "1", "r_swapInterval": "0", "r_vkValidation": "0",
                   "in_yawSpeed": "90", "in_angleSpeedKey": "1"}
     if mode == "join":
         srv = h.DedicatedServer(ded, data, args.map, args.port, log_path=log("server"), cvars=game)
@@ -461,6 +464,18 @@ def main(argv):
         connect(srv, peer, mode)
         spawn(srv, peer, "gdf")
         slot = peer.slot
+        # Separate the walking lanes. On valley both spawn facing north on x = 10376, the
+        # peer 64 u behind; every turn is 180 degrees, a forward leg covers ~515 u and a
+        # walk ends ~190 u ahead of where it began (backpedalling is slower). On that line
+        # the walks ran the players into each other, and the observer's southward legs into
+        # a wall ~350 u south of its spawn; the blocked draws failed A5/A6 and changed A7's
+        # shape. Strafing east puts the observer on x ~ 10530, clear from y -11490 to
+        # -10430 (the span its walks cover); the peer's walks stay on x = 10376, north of
+        # its spawn, which is clear to y -9830.
+        obs.send("clientMove 0 127 0")
+        time.sleep(0.7)
+        obs.send("clientMove 0 0 0")
+        time.sleep(0.5)
         mark = obs.mark()
         obs.send("set g_logFramePoses 4")
         if not obs.wait_for(lambda s: s.startswith("FRAME_POSE:"), 10.0, mark):
