@@ -5337,7 +5337,11 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 	VkImageMemoryBarrier2 toColor;
 	memset( &toColor, 0, sizeof( toColor ) );
 	toColor.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-	toColor.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
+	// The acquire semaphore is waited on at COLOR_ATTACHMENT_OUTPUT; starting the
+	// transition's scope at the same stage orders it after the presentation
+	// engine has released the image (sync validation: WRITE_AFTER_READ against
+	// vkAcquireNextImageKHR with srcStageMask NONE).
+	toColor.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 	toColor.srcAccessMask = VK_ACCESS_2_NONE;
 	toColor.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 	toColor.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
@@ -5668,7 +5672,8 @@ bool sdVulkanBackend::BeginToolWindow( void* nativeWindow, int width, int height
 	VkImageMemoryBarrier2 barriers[ 2 ];
 	memset( barriers, 0, sizeof( barriers ) );
 	barriers[ 0 ].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-	barriers[ 0 ].srcStageMask = VK_PIPELINE_STAGE_2_NONE;
+	// Chained to the acquire semaphore's wait stage, as in the game window.
+	barriers[ 0 ].srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 	barriers[ 0 ].srcAccessMask = VK_ACCESS_2_NONE;
 	barriers[ 0 ].dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 	barriers[ 0 ].dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
