@@ -83,6 +83,7 @@ M5 is done when:
     - Frames that ran a tick are currently drawn as "base" frames at the tick boundary. That produces a 30 Hz judder.
     - The fix is to call `ClientUpdateView` on every drawn frame, with `timeLeft` from the residual left after the tick.
     - **Decision D7** (decided 2026-09-25): this, not a tick-aligned frame scheduler (retail timing methods 1 and 2). It is simpler, works at any cap and adds no latency.
+    - Candidate (owner, 2026-09-26): smooth the network client's prediction-clock corrections so the presented time never jumps. Each snapshot moves `clientPredictTime` by delta/4 ± 1 ms (`docs/frame-path.md` §2); the draws of the next tick are then held or the tick runs early, 1–5 ms beyond `frame-poses` A8's slack on 2–3% of ticks at cap 240 (`antec`). Since 2026-09-26 A8 counts affected ticks (max(1, 5%)) and bounds the miss (8 ms), so it passes today; decide after this step on a real 240 Hz display (D3), since it changes client timing.
 
 ## CVars and vehicles
 
@@ -124,7 +125,7 @@ M5 is done when:
       - Step 17: a cap change during play is tested.
     - Worth landing first, though not a safety matter: steps 8–10. Until then most of what a higher cap draws is the same 30 Hz motion (remote entities, tick frames drawn at the tick boundary), and step 7 for the listen host.
     - The value: 240 is recommended. It is a cap the tests already run (60/120/240) and that `antec` holds (ceiling ~370 fps, 2026-09-26). Uncapped also switches the pacer off, so menus and loading screens would run the GPU flat out (`r_swapInterval` defaults to 0, as in retail, so there is no vsync to stop them). 250 has no special meaning here: the tick is 30 Hz and frame times are in microseconds, so nothing depends on it the way Quake 3 physics depended on 125/250/333.
-    - Known at 240 today: `frame-poses-join` A8 is flaky around its allowance on a host that reaches 240 fps (STATUS, Known broken), a prediction-clock effect to settle before or with this step.
+    - Known at 240 today: prediction-clock corrections leave the draws of 2–3% of ticks 1–5 ms off the wall clock (STATUS, Known broken; the smoothing candidate under step 10).
     - Change the default in `src/framework/Common.cpp` and the help text, update `docs/frame-path.md` §7.2 and the test docstrings that cite the 60 default (`client-network-*`, whose GUI check needs only 40 updates a second), and add a ledger row (an OpenETQW default, not retail's).
 
 All ten decisions are made (2026-09-25). Step 18's value is the owner's to pick when its gate is met.
