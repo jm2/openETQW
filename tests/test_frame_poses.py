@@ -48,7 +48,13 @@ Checks (0.25 s dropped at each edge of a phase; a phase needs >= 20 draw pairs):
                would move it back; docs/frame-path.md section 9). Each unlocked draw's fraction
                is also checked against wall time: it predicts when the tick ends (its
                time + (1 - fraction) x 33 ms), which must fall between the tick's last
-               draw and the next tick's first draw, +/- 4 ms (max(1, 1%) exceptions)
+               draw and the next tick's first draw, +/- 4 ms. A snapshot's
+               prediction-clock correction (docs/frame-path.md section 2) can leave the
+               draws of one tick a few ms off (the fraction held, or the next tick early),
+               and at a high cap that is several draws, so the misses are counted by tick:
+               at most max(1, 5%) of the checked ticks may have one, and no draw may miss
+               by more than 8 ms beyond the 4 ms (a stuck fraction or one running at the
+               wrong speed misses on most ticks or by far more)
   A9 still     view, viewmodel and peer poses stay put: between consecutive draws
                < 0.05 u (a standing player's physics can still settle by about 0.01 u
                a tick) and the view angles < 0.01 degrees; over the whole phase each
@@ -176,13 +182,20 @@ def phase_errors(poses):
     return wrong, falling, repeated
 
 
+FRACTION_SLACK_US = 4000       # A8: the prediction-clock nudge
+FRACTION_WORST_US = 8000       # A8: the most a miss may exceed the slack by
+FRACTION_TICK_ALLOWANCE = 0.05  # A8: ticks allowed a miss (snapshot corrections)
+
+
 def fraction_timing_errors(poses):
     """A8, against wall time: (unlocked draws checked, draws whose fraction does not
-    predict when the tick ends). A fraction fr at time t says the tick ends at
+    predict when the tick ends, ticks checked, ticks with such a draw, the largest miss
+    beyond the slack in us). A fraction fr at time t says the tick ends at
     t + (1 - fr) x 33 ms, which must lie between the tick's last draw and the next
     tick's first draw (4 ms slack: the client nudges its prediction clock)."""
-    slack_us = 4000
     checked = bad = 0
+    ticks, bad_ticks = set(), set()
+    worst = 0.0
     for i, p in enumerate(poses):
         if p["ud"] != 1:
             continue
@@ -190,11 +203,21 @@ def fraction_timing_errors(poses):
         if j is None or poses[j]["gt"] - p["gt"] != 33:
             continue  # no next tick in the phase, or a tick went undrawn (A2)
         checked += 1
+        ticks.add(p["gt"])
         predicted = p["us"] + (1.0 - p["fr"]) * 33000.0
-        last_in_tick, next_first = poses[j - 1]["us"], poses[j]["us"]
-        if not (0.0 < p["fr"] < 1.0) or not (last_in_tick - slack_us <= predicted <= next_first + slack_us):
-            bad += 1
-    return checked, bad
+        low, high = poses[j - 1]["us"] - FRACTION_SLACK_US, poses[j]["us"] + FRACTION_SLACK_US
+        if not (0.0 < p["fr"] < 1.0):
+            miss = float("inf")
+        elif predicted < low:
+            miss = low - predicted
+        elif predicted > high:
+            miss = predicted - high
+        else:
+            continue
+        bad += 1
+        bad_ticks.add(p["gt"])
+        worst = max(worst, miss)
+    return checked, bad, len(ticks), len(bad_ticks), worst
 
 
 def tick_rate(poses):
@@ -270,16 +293,22 @@ def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
     all_p = p_turn + p_walk + p_peer
     wrong8, back8, flat8 = phase_errors(all_p)
     same = sum(1 for a, b in zip(all_p, all_p[1:]) if a["gt"] == b["gt"])
-    checked8, late8 = 0, 0
+    checked8 = late8 = ticks8 = late_ticks8 = 0
+    worst8 = 0.0
     for p in (p_turn, p_walk, p_peer):  # per phase: phases are separate time spans
-        c, b = fraction_timing_errors(p)
+        c, b, t, bt, w = fraction_timing_errors(p)
         checked8 += c
         late8 += b
+        ticks8 += t
+        late_ticks8 += bt
+        worst8 = max(worst8, w)
     res["A8"] = {"ok": wrong8 == 0 and back8 == 0 and flat8 <= allowed_misses(same) and checked8 > 0
-                 and late8 <= allowed_misses(checked8),
+                 and late_ticks8 <= max(1, int(FRACTION_TICK_ALLOWANCE * ticks8))
+                 and worst8 <= FRACTION_WORST_US,
                  "wrong": wrong8, "same": same,
                  "detail": f"{wrong8} of {same} draws within a tick not unlocked; {back8} step the fraction back, {flat8} repeat it;"
-                           f" {late8} of {checked8} unlocked fractions off the wall clock"}
+                           f" {late8} of {checked8} unlocked fractions off the wall clock, in {late_ticks8} of {ticks8} ticks"
+                           + (f", worst {worst8 / 1000:.1f} ms beyond the slack" if late8 else "")}
     f9 = changed_fraction(p_still, lambda a, b: moved(a["view"], b["view"], STILL_EPS) or moved(a["wpn"], b["wpn"], STILL_EPS)
                           or rotated(a["view"], b["view"])
                           or moved(peer(a), peer(b), STILL_EPS))
