@@ -138,7 +138,8 @@ if build_engine
   test(
     'render-api-fallback',
     py,
-    args: [meson.project_source_root() / 'tests' / 'test_render_api_fallback.py'],
+    args: [meson.project_source_root() / 'tests' / 'test_render_api_fallback.py',
+      '--client-binary', campaign_client],
     workdir: meson.project_source_root(),
     suite: 'integration',
     timeout: 180,
