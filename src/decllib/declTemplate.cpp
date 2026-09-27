@@ -276,7 +276,7 @@ const char* sdDeclTemplate::GetParameterValue(
 void sdDeclTemplate::ExpandArguments( idStrList& arguments ) const {
 	while ( arguments.Num() < parameters.Num() ) {
 		const Parameter* parameter = parameters[ arguments.Num() ];
-		idStr value = parameter->hasDefault ? parameter->value : "";
+		idStr value = parameter->hasDefault ? parameter->value : idStr();
 		for ( int i = 0; i < arguments.Num(); i++ ) {
 			value.Replace( parameters[ i ]->name, arguments[ i ] );
 		}
