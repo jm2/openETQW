@@ -7643,24 +7643,29 @@ void sdVulkanBackend::DestroyBuffer( const void* owner ) {
 	if ( state == NULL || state->device == VK_NULL_HANDLE || owner == NULL ) {
 		return;
 	}
-	for ( int i = 0; i < state->bufferResources.Num(); ++i ) {
-		if ( state->bufferResources[ i ].owner == owner ) {
-			sdVulkanBufferResource removed = state->bufferResources[ i ];
-			const int lastIndex = state->bufferResources.Num() - 1;
-			const void* movedOwner = i != lastIndex ?
-				state->bufferResources[ lastIndex ].owner : NULL;
-			state->bufferResourceLookup.Remove( owner );
-			state->bufferResources.RemoveIndexFast( i );
-			if ( movedOwner != NULL ) {
-				state->bufferResourceLookup.Set( movedOwner, i );
-			}
-			const unsigned int retireFrame = state->frameActive ||
-				state->toolFrameActive ? state->frameIndex :
-				( state->frameIndex + NUM_VULKAN_FRAMES - 1 ) % NUM_VULKAN_FRAMES;
-			state->frameRetiredBufferResources[ retireFrame ].Append( removed );
-			return;
-		}
+	// UploadBuffer calls this for every vertex-cache block, so find the resource
+	// through the lookup rather than scanning every live buffer.
+	sdVulkanResourceLookup::Iterator found =
+		state->bufferResourceLookup.Find( owner );
+	if ( found == state->bufferResourceLookup.End() || found->second < 0 ||
+		found->second >= state->bufferResources.Num() ||
+		state->bufferResources[ found->second ].owner != owner ) {
+		return;
 	}
+	const int i = found->second;
+	sdVulkanBufferResource removed = state->bufferResources[ i ];
+	const int lastIndex = state->bufferResources.Num() - 1;
+	const void* movedOwner = i != lastIndex ?
+		state->bufferResources[ lastIndex ].owner : NULL;
+	state->bufferResourceLookup.Remove( owner );
+	state->bufferResources.RemoveIndexFast( i );
+	if ( movedOwner != NULL ) {
+		state->bufferResourceLookup.Set( movedOwner, i );
+	}
+	const unsigned int retireFrame = state->frameActive ||
+		state->toolFrameActive ? state->frameIndex :
+		( state->frameIndex + NUM_VULKAN_FRAMES - 1 ) % NUM_VULKAN_FRAMES;
+	state->frameRetiredBufferResources[ retireFrame ].Append( removed );
 }
 
 static void IssueDepthStencilBarrier( sdVulkanBackendState& state, VkCommandBuffer commandBuffer ) {
