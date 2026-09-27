@@ -354,6 +354,18 @@ const char *Sys_EXEPath( void ) {
 	}
 #endif
 
+#if defined( __linux__ )
+	{
+		char resolved[ MAX_OSPATH ];
+		const ssize_t length = readlink( "/proc/self/exe", resolved, sizeof( resolved ) - 1 );
+		if ( length > 0 ) {
+			resolved[ length ] = '\0';
+			idStr::Copynz( s_exePath, resolved, sizeof( s_exePath ) );
+			return s_exePath;
+		}
+	}
+#endif
+
 	idStr::Copynz( s_exePath, Posix_Cwd(), sizeof( s_exePath ) );
 	return s_exePath;
 }

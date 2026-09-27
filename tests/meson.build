@@ -133,6 +133,17 @@ if build_engine
     suite: 'integration',
     timeout: 120,
   )
+  # r_renderAPI defaults to vulkan and falls back to OpenGL when Vulkan is
+  # unavailable; three client startups that contend for the display
+  test(
+    'render-api-fallback',
+    py,
+    args: [meson.project_source_root() / 'tests' / 'test_render_api_fallback.py'],
+    workdir: meson.project_source_root(),
+    suite: 'integration',
+    timeout: 180,
+    is_parallel: false,
+  )
   # asserts wall-clock frame rates: never run it next to another test
   test(
     'high-refresh-determinism',
