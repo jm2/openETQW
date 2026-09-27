@@ -83,6 +83,7 @@ M5 is done when:
     - Frames that ran a tick are currently drawn as "base" frames at the tick boundary. That produces a 30 Hz judder.
     - The fix is to call `ClientUpdateView` on every drawn frame, with `timeLeft` from the residual left after the tick.
     - **Decision D7** (decided 2026-09-25): this, not a tick-aligned frame scheduler (retail timing methods 1 and 2). It is simpler, works at any cap and adds no latency.
+    - Candidate (owner, 2026-09-26): smooth the network client's prediction-clock corrections so the presented time never jumps. Each snapshot moves `clientPredictTime` by delta/4 ± 1 ms (`docs/frame-path.md` §2); the draws of the next tick are then held or the tick runs early, 1–5 ms beyond `frame-poses` A8's slack on 2–3% of ticks at cap 240 (`antec`). Since 2026-09-26 A8 counts affected ticks (max(1, 5%)) and bounds the miss (8 ms), so it passes today; decide after this step on a real 240 Hz display (D3), since it changes client timing.
 
 ## CVars and vehicles
 
@@ -117,4 +118,14 @@ M5 is done when:
 
 17. **Cap change during play.** A registered test changes `com_maxFPS` (and `com_unlock_maxFPS` after step 11) in the middle of a session and checks that the new cap is held and that `SIM_HASH`/`SIM_VIEW` still match. No test covers it today (`docs/frame-path.md` §9 criterion 5; `tests/test_frame_pacing_adversarial.py` is not registered).
 
-All ten decisions are made (2026-09-25).
+18. **Raise the default cap.** The owner (2026-09-26): the default config should have "a max 240/250/uncapped fps once safe to do so". `com_maxFPS` defaults to 60 (not a retail CVar; retail capped unlocked frames with `com_unlock_maxFPS`, default 60, which `pak000: visuals.cfg` sets to 120).
+    - The gate ("safe"):
+      - The frame rate never changes authoritative state: step 6 has landed and `high-refresh-determinism` passes at 60/120/144/240 without its `KNOWN_VIEW_LEAK` allowance, plus the listen-host variant from step 5. Today a vehicle entry still leaks render-frame values into logged tick state, and at a higher default more players would run at caps where it differs.
+      - Step 11: `com_unlockFPS 0` draws once per tick and `com_unlock_maxFPS` aliases `com_maxFPS`, so a player or a retail cfg can lower the cap and have it stick.
+      - Step 17: a cap change during play is tested.
+    - Worth landing first, though not a safety matter: steps 8–10. Until then most of what a higher cap draws is the same 30 Hz motion (remote entities, tick frames drawn at the tick boundary), and step 7 for the listen host.
+    - The value: 240 is recommended. It is a cap the tests already run (60/120/240) and that `antec` holds (ceiling ~370 fps, 2026-09-26). Uncapped also switches the pacer off, so menus and loading screens would run the GPU flat out (`r_swapInterval` defaults to 0, as in retail, so there is no vsync to stop them). 250 has no special meaning here: the tick is 30 Hz and frame times are in microseconds, so nothing depends on it the way Quake 3 physics depended on 125/250/333.
+    - Known at 240 today: prediction-clock corrections leave the draws of 2–3% of ticks 1–5 ms off the wall clock (STATUS, Known broken; the smoothing candidate under step 10).
+    - Change the default in `src/framework/Common.cpp` and the help text, update `docs/frame-path.md` §7.2 and the test docstrings that cite the 60 default (`client-network-*`, whose GUI check needs only 40 updates a second), and add a ledger row (an OpenETQW default, not retail's).
+
+All ten decisions are made (2026-09-25). Step 18's value is the owner's to pick when its gate is met.

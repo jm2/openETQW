@@ -45,6 +45,14 @@ extern idCVar r_useIndexBuffers;
 static const int	FRAME_MEMORY_BYTES = 0x200000;
 static const int	VULKAN_FRAME_MEMORY_BYTES = 0x1000000;
 static const int	EXPAND_HEADERS = 1024;
+// Vertex, index and texcoord blocks share the frame arena.  Index blocks hold
+// three 2-byte glIndex_t per triangle, so an odd triangle count used to leave
+// the next block on a 2-byte boundary.  Vulkan requires each vertex attribute
+// address to be aligned to its component size (4 bytes for the idDrawVert
+// position); RADV hangs the GPU fetching from a misaligned idDrawVert block
+// (canyon: the strogg hog's CPU-skinned snapshot).  16 bytes also covers index
+// offsets and acceleration-structure build inputs.
+static const int	FRAME_MEMORY_ALIGN = 16;
 
 idCVar idVertexCache::r_showVertexCache( "r_showVertexCache", "0", CVAR_INTEGER|CVAR_RENDERER, "" );
 idCVar idVertexCache::r_vertexBufferMegs( "r_vertexBufferMegs", "32", CVAR_INTEGER|CVAR_RENDERER, "" );
@@ -398,7 +406,9 @@ vertCache_t	*idVertexCache::AllocFrameTemp( void *data, int size ) {
 		common->Error( "idVertexCache::AllocFrameTemp: size = %i\n", size );
 	}
 
-	if ( dynamicAllocThisFrame + size > frameBytes ) {
+	const int alignedOffset = ( dynamicAllocThisFrame + FRAME_MEMORY_ALIGN - 1 ) &
+		~( FRAME_MEMORY_ALIGN - 1 );
+	if ( alignedOffset + size > frameBytes ) {
 		// if we don't have enough room in the temp block, allocate a static block,
 		// but immediately free it so it will get freed at the next frame
 		tempOverflow = true;
@@ -433,8 +443,8 @@ vertCache_t	*idVertexCache::AllocFrameTemp( void *data, int size ) {
 	block->size = size;
 	block->tag = TAG_TEMP;
 	block->indexBuffer = false;
-	block->offset = dynamicAllocThisFrame;
-	dynamicAllocThisFrame += block->size;
+	block->offset = alignedOffset;
+	dynamicAllocThisFrame = alignedOffset + block->size;
 	dynamicCountThisFrame++;
 	block->user = NULL;
 	block->frameUsed = 0;

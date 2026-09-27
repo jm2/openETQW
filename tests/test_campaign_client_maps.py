@@ -12,8 +12,9 @@ are asserted:
     light with shadow casters was in view (the "Vulkan shadow lights" diagnostic)
   - no Vulkan validation error / VK_ERROR / device loss, no ERROR banner,
     no fatal signal, no MegaTexture open failure
-Vulkan validation messages can only appear when VK_LAYER_KHRONOS_validation is
-installed; the test reports whether it was active.
+The client runs with r_vkValidation 1 (off by default), so Vulkan validation messages
+appear wherever VK_LAYER_KHRONOS_validation is installed; the test reports whether it
+was active.
 
 Exit 77 when ETQW_DATA_PATH is unset/invalid or the client binary is missing.
 """
@@ -69,6 +70,7 @@ def find_client(explicit):
 def run_map(client, data, map_name, render_seconds, log_path, team="gdf", at=None):
     args = [str(client), "+set", "fs_basepath", str(data), "+set", "fs_game", "base",
             "+set", "si_rules", "sdGameRulesObjective", "+set", "r_renderAPI", "vulkan", "+set", "r_shadows", "1",
+            "+set", "r_vkValidation", "1",
             "+devmap", map_name, "+clientTeam", team, "+clientClass", "soldier", "+closeLimbo"]
     lines = []
     q = queue.Queue()

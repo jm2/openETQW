@@ -63,11 +63,14 @@ const VkDeviceSize VULKAN_JOINT_PALETTE_BYTES =
 	MAX_JOINTS_PER_MESH * sizeof( idJointMat );
 const int VULKAN_MATERIAL_TEXTURES = 5;
 
+// Off by default: where the layer is installed it costs most of the frame rate
+// (56 against ~370 fps uncapped on an RX 6400), and players do not need it.
+// campaign-client-maps and client-network-* turn it on.
 idCVar r_vkValidation(
 	"r_vkValidation",
-	"1",
+	"0",
 	CVAR_RENDERER | CVAR_ARCHIVE | CVAR_BOOL | CVAR_NOCHEAT,
-	"enable the Khronos Vulkan validation layer when it is installed"
+	"enable the Khronos Vulkan validation layer when it is installed (slow; for development)"
 );
 
 idCVar r_vkSkipGui(
@@ -130,6 +133,7 @@ struct sdVulkanImageResource {
 	int				width;
 	int				height;
 	int				mipLevels;
+	bool			cubeMap;
 };
 
 struct sdVulkanToolDepthResource {
@@ -344,6 +348,7 @@ struct sdVulkanBackendState {
 	unsigned int				queueFamilyIndex;
 	char					deviceName[ VK_MAX_PHYSICAL_DEVICE_NAME_SIZE ];
 	bool					fillModeNonSolid;
+	bool					rayTracingDeviceEnabled;
 	VkDeviceSize			jointUniformAlignment;
 
 	VkSwapchainKHR				swapchain;
@@ -633,6 +638,7 @@ struct sdVulkanBackendState {
 		queueFamilyIndex = UINT_MAX;
 		deviceName[ 0 ] = '\0';
 		fillModeNonSolid = false;
+		rayTracingDeviceEnabled = false;
 		jointUniformAlignment = 1;
 		swapchain = VK_NULL_HANDLE;
 		swapchainFormat = VK_FORMAT_UNDEFINED;
@@ -1395,6 +1401,7 @@ bool CreateLogicalDevice( sdVulkanBackendState& state,
 
 	VkPhysicalDeviceFeatures coreFeatures;
 	memset( &coreFeatures, 0, sizeof( coreFeatures ) );
+	coreFeatures.robustBufferAccess = VK_TRUE;
 	if ( state.fillModeNonSolid ) {
 		coreFeatures.fillModeNonSolid = VK_TRUE;
 	}
@@ -1404,6 +1411,7 @@ bool CreateLogicalDevice( sdVulkanBackendState& state,
 		if ( state.fillModeNonSolid ) {
 			rayTracingConfiguration.coreFeatures.fillModeNonSolid = VK_TRUE;
 		}
+		rayTracingConfiguration.coreFeatures.robustBufferAccess = VK_TRUE;
 		coreFeatures = rayTracingConfiguration.coreFeatures;
 	}
 
@@ -3962,6 +3970,9 @@ bool CreateGuiResources( sdVulkanBackendState& state ) {
 	return true;
 }
 
+const sdVulkanImageResource* FindVulkanImageResource(
+	const sdVulkanBackendState& state, const void* owner );
+
 bool AllocateImageDescriptor( sdVulkanBackendState& state,
 	sdVulkanImageResource& resource ) {
 	VkDescriptorSetAllocateInfo allocateInfo;
@@ -3980,17 +3991,42 @@ bool AllocateImageDescriptor( sdVulkanBackendState& state,
 	imageInfo.sampler = resource.sampler;
 	imageInfo.imageView = resource.view;
 	imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	// Fallback for the "other" type: binding 4 is samplerCube, 0–3 are sampler2D.
+	// Writing a cube view into a 2D slot (or vice versa) is a spec violation
+	// (VUID-vkCmdDrawIndexed-viewType-07752).  Use the image's own view for the
+	// matching slots and a matching-type fallback for the rest.
+	const sdVulkanImageResource* fallback = NULL;
+	if ( resource.cubeMap ) {
+		// Cube view goes to binding 4 only; 2D slots get a 2D fallback.
+		fallback = FindVulkanImageResource( state,
+			globalImages != NULL ? globalImages->blackImage : NULL );
+	} else {
+		// 2D view goes to bindings 0–3; cube slot gets a cube fallback.
+		fallback = FindVulkanImageResource( state,
+			globalImages != NULL ? globalImages->blackCubeMapImage : NULL );
+	}
+	VkDescriptorImageInfo fallbackInfo;
+	memset( &fallbackInfo, 0, sizeof( fallbackInfo ) );
+	if ( fallback != NULL ) {
+		fallbackInfo.sampler = fallback->sampler;
+		fallbackInfo.imageView = fallback->view;
+		fallbackInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	} else {
+		fallbackInfo = imageInfo;
+	}
 	VkWriteDescriptorSet writes[ VULKAN_MATERIAL_TEXTURES ];
 	memset( writes, 0, sizeof( writes ) );
 	for ( int bindingIndex = 0; bindingIndex < VULKAN_MATERIAL_TEXTURES;
 		++bindingIndex ) {
+		const bool isCubeSlot = ( bindingIndex == 4 );
+		const bool useMain = ( resource.cubeMap == isCubeSlot );
 		writes[ bindingIndex ].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 		writes[ bindingIndex ].dstSet = resource.descriptorSet;
 		writes[ bindingIndex ].dstBinding = bindingIndex;
 		writes[ bindingIndex ].descriptorCount = 1;
 		writes[ bindingIndex ].descriptorType =
 			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		writes[ bindingIndex ].pImageInfo = &imageInfo;
+		writes[ bindingIndex ].pImageInfo = useMain ? &imageInfo : &fallbackInfo;
 	}
 	state.UpdateDescriptorSets( state.device, VULKAN_MATERIAL_TEXTURES,
 		writes, 0, NULL );
@@ -4238,6 +4274,17 @@ bool GetVulkanMaterialDescriptor( sdVulkanBackendState& state,
 	if ( space != NULL && space->ambientCubeMap != NULL &&
 		space->ambientCubeMap->GetAmbientCubeMap() != NULL ) {
 		images[ 4 ] = space->ambientCubeMap->GetAmbientCubeMap();
+	}
+	// Bindings 0–3 are sampler2D; binding 4 is samplerCube.  A cube map in a
+	// 2D slot (or vice versa) is a spec violation (VUID-vkCmdDrawIndexed-
+	// viewType-07752).  Replace mismatched images with matching-type fallbacks.
+	for ( int slot = 0; slot < 4; ++slot ) {
+		if ( images[ slot ] != NULL && images[ slot ]->cubeFiles != CF_2D ) {
+			images[ slot ] = globalImages->blackImage;
+		}
+	}
+	if ( images[ 4 ] != NULL && images[ 4 ]->cubeFiles == CF_2D ) {
+		images[ 4 ] = globalImages->blackCubeMapImage;
 	}
 	for ( int textureIndex = 0; textureIndex < stage.numTextures; ++textureIndex ) {
 		const stageTexture_t& texture = stage.textures[ textureIndex ];
@@ -4572,6 +4619,15 @@ bool GetVulkanSkyboxDescriptor( sdVulkanBackendState& state,
 	}
 	if ( images[ 0 ] == NULL || images[ 1 ] == NULL ) {
 		return false;
+	}
+	// Bindings 0–3 are sampler2D; binding 4 is samplerCube.
+	for ( int slot = 0; slot < 4; ++slot ) {
+		if ( images[ slot ] != NULL && images[ slot ]->cubeFiles != CF_2D ) {
+			images[ slot ] = globalImages->blackImage;
+		}
+	}
+	if ( images[ 4 ] != NULL && images[ 4 ]->cubeFiles == CF_2D ) {
+		images[ 4 ] = globalImages->blackCubeMapImage;
 	}
 	const sdVulkanImageResource* resources[ VULKAN_MATERIAL_TEXTURES ];
 	for ( int imageIndex = 0; imageIndex < VULKAN_MATERIAL_TEXTURES;
@@ -5076,6 +5132,9 @@ bool sdVulkanBackend::Init( void* nativeWindow, int width, int height ) {
 		Shutdown();
 		return false;
 	}
+	// Buffers may request the ray-tracing usage bits only when the device was
+	// created with bufferDeviceAddress and the acceleration-structure extension.
+	state->rayTracingDeviceEnabled = rayTracingAvailable;
 	if ( rayTracingAvailable ) {
 		sdRayTracingVulkanContext rayTracingContext;
 		memset( &rayTracingContext, 0, sizeof( rayTracingContext ) );
@@ -5281,7 +5340,11 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 	VkImageMemoryBarrier2 toColor;
 	memset( &toColor, 0, sizeof( toColor ) );
 	toColor.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-	toColor.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
+	// The acquire semaphore is waited on at COLOR_ATTACHMENT_OUTPUT; starting the
+	// transition's scope at the same stage orders it after the presentation
+	// engine has released the image (sync validation: WRITE_AFTER_READ against
+	// vkAcquireNextImageKHR with srcStageMask NONE).
+	toColor.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 	toColor.srcAccessMask = VK_ACCESS_2_NONE;
 	toColor.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 	toColor.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
@@ -5612,7 +5675,8 @@ bool sdVulkanBackend::BeginToolWindow( void* nativeWindow, int width, int height
 	VkImageMemoryBarrier2 barriers[ 2 ];
 	memset( barriers, 0, sizeof( barriers ) );
 	barriers[ 0 ].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-	barriers[ 0 ].srcStageMask = VK_PIPELINE_STAGE_2_NONE;
+	// Chained to the acquire semaphore's wait stage, as in the game window.
+	barriers[ 0 ].srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 	barriers[ 0 ].srcAccessMask = VK_ACCESS_2_NONE;
 	barriers[ 0 ].dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 	barriers[ 0 ].dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
@@ -6959,6 +7023,7 @@ bool sdVulkanBackend::UploadImageCube( const void* owner,
 	resource.width = size;
 	resource.height = size;
 	resource.mipLevels = 1;
+	resource.cubeMap = true;
 	VkImageCreateInfo imageInfo;
 	memset( &imageInfo, 0, sizeof( imageInfo ) );
 	imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -7507,10 +7572,13 @@ bool sdVulkanBackend::UploadBuffer( const void* owner, const void* data,
 	// indexes.  Static allocations use the same neutral capability so a cache
 	// block can be rebound by the reconstructed interaction/deform paths without
 	// creating a Vulkan buffer whose usage disagrees with the eventual bind.
-	const VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
-		VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
-		VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+	// The ray-tracing bits are only valid when the device enabled their features.
+	VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+	if ( state->rayTracingDeviceEnabled ) {
+		usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+			VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+	}
 	bool uploaded = false;
 	if ( frameTemporary && CreateBufferAllocation( *state, resource.bytes, usage,
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -7570,49 +7638,29 @@ void sdVulkanBackend::DestroyBuffer( const void* owner ) {
 	if ( state == NULL || state->device == VK_NULL_HANDLE || owner == NULL ) {
 		return;
 	}
-	for ( int i = 0; i < state->bufferResources.Num(); ++i ) {
-		if ( state->bufferResources[ i ].owner == owner ) {
-			sdVulkanBufferResource removed = state->bufferResources[ i ];
-			const int lastIndex = state->bufferResources.Num() - 1;
-			const void* movedOwner = i != lastIndex ?
-				state->bufferResources[ lastIndex ].owner : NULL;
-			state->bufferResourceLookup.Remove( owner );
-			state->bufferResources.RemoveIndexFast( i );
-			if ( movedOwner != NULL ) {
-				state->bufferResourceLookup.Set( movedOwner, i );
-			}
-			const unsigned int retireFrame = state->frameActive ||
-				state->toolFrameActive ? state->frameIndex :
-				( state->frameIndex + NUM_VULKAN_FRAMES - 1 ) % NUM_VULKAN_FRAMES;
-			state->frameRetiredBufferResources[ retireFrame ].Append( removed );
-			return;
-		}
+	// UploadBuffer calls this for every vertex-cache block, so find the resource
+	// through the lookup rather than scanning every live buffer.
+	sdVulkanResourceLookup::Iterator found =
+		state->bufferResourceLookup.Find( owner );
+	if ( found == state->bufferResourceLookup.End() || found->second < 0 ||
+		found->second >= state->bufferResources.Num() ||
+		state->bufferResources[ found->second ].owner != owner ) {
+		return;
 	}
-}
-
-static void IssueDepthStencilBarrier( sdVulkanBackendState& state, VkCommandBuffer commandBuffer ) {
-	VkImageMemoryBarrier2 dsBarrier;
-	memset( &dsBarrier, 0, sizeof( dsBarrier ) );
-	dsBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-	dsBarrier.srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-	dsBarrier.srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-	dsBarrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
-	dsBarrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
-	dsBarrier.oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-	dsBarrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-	dsBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	dsBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	dsBarrier.image = state.depthImages[ state.imageIndex ];
-	dsBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-	dsBarrier.subresourceRange.levelCount = 1;
-	dsBarrier.subresourceRange.layerCount = 1;
-
-	VkDependencyInfo dependencyInfo;
-	memset( &dependencyInfo, 0, sizeof( dependencyInfo ) );
-	dependencyInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-	dependencyInfo.imageMemoryBarrierCount = 1;
-	dependencyInfo.pImageMemoryBarriers = &dsBarrier;
-	state.CmdPipelineBarrier2( commandBuffer, &dependencyInfo );
+	const int i = found->second;
+	sdVulkanBufferResource removed = state->bufferResources[ i ];
+	const int lastIndex = state->bufferResources.Num() - 1;
+	const void* movedOwner = i != lastIndex ?
+		state->bufferResources[ lastIndex ].owner : NULL;
+	state->bufferResourceLookup.Remove( owner );
+	state->bufferResources.RemoveIndexFast( i );
+	if ( movedOwner != NULL ) {
+		state->bufferResourceLookup.Set( movedOwner, i );
+	}
+	const unsigned int retireFrame = state->frameActive ||
+		state->toolFrameActive ? state->frameIndex :
+		( state->frameIndex + NUM_VULKAN_FRAMES - 1 ) % NUM_VULKAN_FRAMES;
+	state->frameRetiredBufferResources[ retireFrame ].Append( removed );
 }
 
 static void VulkanCreateShadowCache( srfTriangles_t* tri ) {
@@ -8407,7 +8455,10 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			surface->material->SurfaceCastsShadow() ) {
 			sdRayTracingGeometry geometry;
 			memset( &geometry, 0, sizeof( geometry ) );
+			// Streamed surfaces (streamVertexCache) sit at a new frame-arena offset
+			// every frame, so their acceleration structures cannot be cached.
 			geometry.deforming = surface->geo->deformedSurface ||
+				surface->geo->streamVertexCache ||
 				surface->geo->deformedSurfaceInstance ||
 				surface->geo->hardwareSkinnedSurface ||
 				surface->geo->frameAlloced || surface->geo->weightCache != NULL ||
@@ -8463,7 +8514,10 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 		if ( !hardwareSkinned && selectedWaterStage ) {
 			sdRayTracingGeometry geometry;
 			memset( &geometry, 0, sizeof( geometry ) );
+			// Streamed surfaces (streamVertexCache) sit at a new frame-arena offset
+			// every frame, so their acceleration structures cannot be cached.
 			geometry.deforming = surface->geo->deformedSurface ||
+				surface->geo->streamVertexCache ||
 				surface->geo->deformedSurfaceInstance ||
 				surface->geo->hardwareSkinnedSurface ||
 				surface->geo->frameAlloced || surface->geo->weightCache != NULL ||
@@ -9182,8 +9236,10 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 						}
 					}
 				}
-
-				IssueDepthStencilBarrier( *state, frame.commandBuffer );
+				// No barrier before the interactions: the stencil clear, the shadow
+				// volumes' stencil writes and the interactions' stencil tests are all
+				// in this rendering instance, where depth/stencil operations (and
+				// vkCmdClearAttachments) execute in rasterization order.
 			}
 
 			// Render localInteractions
@@ -9196,8 +9252,6 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 				for ( const drawSurf_s* surf = light->localShadows; surf != NULL; surf = surf->nextOnLight ) {
 					DrawVulkanShadowSurface( *state, surf, light, view );
 				}
-
-				IssueDepthStencilBarrier( *state, frame.commandBuffer );
 			}
 
 			// Render mtInteractions (atmosphere interactions on MegaTexture terrains)

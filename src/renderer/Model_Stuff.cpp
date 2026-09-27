@@ -81,6 +81,20 @@ struct stuffInstance_t {
 	byte pad;
 };
 
+// The instances of one STUFF_BATCH_SIZE cell, in file order.  A snapshot rebuild
+// skips a cell whose instance origins are all beyond the fade distance instead of
+// testing every instance of the map.
+struct stuffCell_t {
+	stuffCell_t() : cellX( 0 ), cellY( 0 ) {
+		originBounds.Clear();
+	}
+
+	int cellX;
+	int cellY;
+	idBounds originBounds;
+	idList< int > instances;
+};
+
 struct stuffSurface_t {
 	stuffSurface_t() : distanceScale( 1.0f ) {
 		bounds.Clear();
@@ -88,6 +102,7 @@ struct stuffSurface_t {
 
 	idList< idRenderModel* > models;
 	idList< stuffInstance_t > instances;
+	idList< stuffCell_t > cells;	// in the order of each cell's first instance
 	idBounds bounds;
 	float distanceScale;
 };
@@ -181,6 +196,20 @@ byte PackAngle( float value ) {
 	return static_cast< byte >( idMath::ClampInt( 0, 255, static_cast< int >( value * ( 255.0f / 360.0f ) ) ) );
 }
 
+float DistanceSqrToBounds( const idBounds& bounds, const idVec3& point ) {
+	float distanceSqr = 0.0f;
+	for ( int axis = 0; axis < 3; ++axis ) {
+		float delta = 0.0f;
+		if ( point[ axis ] < bounds[ 0 ][ axis ] ) {
+			delta = bounds[ 0 ][ axis ] - point[ axis ];
+		} else if ( point[ axis ] > bounds[ 1 ][ axis ] ) {
+			delta = point[ axis ] - bounds[ 1 ][ axis ];
+		}
+		distanceSqr += delta * delta;
+	}
+	return distanceSqr;
+}
+
 idMat3 InstanceAxis( const stuffInstance_t& instance ) {
 	return idAngles(
 		instance.angles[ 0 ] * ( 360.0f / 255.0f ),
@@ -270,6 +299,30 @@ bool ReadStuffSurface( idFile* file, stuffSurface_t* surface, const char* fileNa
 		idBounds instanceBounds;
 		instanceBounds.FromTransformedBounds( modelBounds, instance.origin, InstanceAxis( instance ) );
 		surface->bounds += instanceBounds;
+	}
+
+	idHashIndex cellHash( 1024, 1024 );
+	for ( int i = 0; i < surface->instances.Num(); ++i ) {
+		const idVec3& origin = surface->instances[ i ].origin;
+		const int cellX = static_cast< int >( idMath::Floor( origin.x / STUFF_BATCH_SIZE ) );
+		const int cellY = static_cast< int >( idMath::Floor( origin.y / STUFF_BATCH_SIZE ) );
+		const int key = cellHash.GenerateKey( static_cast< unsigned int >( cellX ),
+			static_cast< unsigned int >( cellY ) );
+		int cellIndex = cellHash.GetFirst( key );
+		for ( ; cellIndex != idHashIndex::NULL_INDEX; cellIndex = cellHash.GetNext( cellIndex ) ) {
+			if ( surface->cells[ cellIndex ].cellX == cellX &&
+				surface->cells[ cellIndex ].cellY == cellY ) {
+				break;
+			}
+		}
+		if ( cellIndex == idHashIndex::NULL_INDEX ) {
+			cellIndex = surface->cells.Append( stuffCell_t() );
+			surface->cells[ cellIndex ].cellX = cellX;
+			surface->cells[ cellIndex ].cellY = cellY;
+			cellHash.Add( key, cellIndex );
+		}
+		surface->cells[ cellIndex ].originBounds.AddPoint( origin );
+		surface->cells[ cellIndex ].instances.Append( i );
 	}
 
 	return true;
@@ -378,32 +431,40 @@ idRenderModel* BuildSnapshot( stuffModelData_t* data, stuffSnapshot_t* snapshot,
 
 	for ( int surfaceIndex = 0; surfaceIndex < data->surfaces.Num(); ++surfaceIndex ) {
 		const stuffSurface_t* stuffSurface = data->surfaces[ surfaceIndex ];
-		for ( int instanceIndex = 0; instanceIndex < stuffSurface->instances.Num(); ++instanceIndex ) {
-			const stuffInstance_t& instance = stuffSurface->instances[ instanceIndex ];
-			const float distanceSqr = ( instance.origin - localViewOrigin ).LengthSqr() * stuffSurface->distanceScale;
-			if ( distanceSqr > fadeEndSqr ) {
+		// Build groups never span cells and each cell keeps its instances in file
+		// order, so walking the near cells builds the same groups as walking every
+		// instance of the map (only the order the groups are created in differs).
+		for ( int cellIndex = 0; cellIndex < stuffSurface->cells.Num(); ++cellIndex ) {
+			const stuffCell_t& cell = stuffSurface->cells[ cellIndex ];
+			if ( DistanceSqrToBounds( cell.originBounds, localViewOrigin ) *
+				stuffSurface->distanceScale > fadeEndSqr ) {
 				continue;
 			}
-
-			if ( instance.modelIndex >= stuffSurface->models.Num() ) {
-				continue;
-			}
-			idRenderModel* instanceModel = stuffSurface->models[ instance.modelIndex ];
-			const idMat3 instanceAxis = InstanceAxis( instance );
-			const int cellX = static_cast< int >( idMath::Floor( instance.origin.x / STUFF_BATCH_SIZE ) );
-			const int cellY = static_cast< int >( idMath::Floor( instance.origin.y / STUFF_BATCH_SIZE ) );
-			for ( int modelSurfaceIndex = 0; modelSurfaceIndex < instanceModel->NumSurfaces(); ++modelSurfaceIndex ) {
-				const modelSurface_t* modelSurface = instanceModel->Surface( modelSurfaceIndex );
-				if ( modelSurface == NULL || modelSurface->material == NULL || modelSurface->geometry == NULL ||
-					modelSurface->geometry->verts == NULL || modelSurface->geometry->indexes == NULL ||
-					modelSurface->geometry->numVerts <= 0 || modelSurface->geometry->numIndexes <= 0 ||
-					modelSurface->geometry->numVerts > STUFF_MAX_VERTS_PER_SURFACE ) {
+			for ( int cellInstance = 0; cellInstance < cell.instances.Num(); ++cellInstance ) {
+				const stuffInstance_t& instance = stuffSurface->instances[ cell.instances[ cellInstance ] ];
+				const float distanceSqr = ( instance.origin - localViewOrigin ).LengthSqr() * stuffSurface->distanceScale;
+				if ( distanceSqr > fadeEndSqr ) {
 					continue;
 				}
 
-				stuffBuildGroup_t* group = FindBuildGroup( groups, modelSurface->material,
-					stuffSurface->distanceScale, cellX, cellY, modelSurface->geometry->numVerts );
-				AppendInstanceSurface( group, modelSurface->geometry, instance, instanceAxis );
+				if ( instance.modelIndex >= stuffSurface->models.Num() ) {
+					continue;
+				}
+				idRenderModel* instanceModel = stuffSurface->models[ instance.modelIndex ];
+				const idMat3 instanceAxis = InstanceAxis( instance );
+				for ( int modelSurfaceIndex = 0; modelSurfaceIndex < instanceModel->NumSurfaces(); ++modelSurfaceIndex ) {
+					const modelSurface_t* modelSurface = instanceModel->Surface( modelSurfaceIndex );
+					if ( modelSurface == NULL || modelSurface->material == NULL || modelSurface->geometry == NULL ||
+						modelSurface->geometry->verts == NULL || modelSurface->geometry->indexes == NULL ||
+						modelSurface->geometry->numVerts <= 0 || modelSurface->geometry->numIndexes <= 0 ||
+						modelSurface->geometry->numVerts > STUFF_MAX_VERTS_PER_SURFACE ) {
+						continue;
+					}
+
+					stuffBuildGroup_t* group = FindBuildGroup( groups, modelSurface->material,
+						stuffSurface->distanceScale, cell.cellX, cell.cellY, modelSurface->geometry->numVerts );
+					AppendInstanceSurface( group, modelSurface->geometry, instance, instanceAxis );
+				}
 			}
 		}
 	}
@@ -436,6 +497,12 @@ idRenderModel* BuildSnapshot( stuffModelData_t* data, stuffSnapshot_t* snapshot,
 		triangles->tangentsCalculated = true;
 		triangles->generateNormals = false;
 		triangles->params[ TRIPARM_DISTANCESCALE ] = group->distanceScale;
+		// A snapshot is rebuilt every r_stuffUpdateAngle degrees of turning and
+		// r_stuffUpdateDistance units of movement.  Under Vulkan, stream its few
+		// hundred KB through the frame arena like other regenerated geometry:
+		// static caches gave each rebuild ~70 buffers with their own device
+		// memory, and allocating them stalled the rebuild frame (valley, RADV).
+		triangles->streamVertexCache = true;
 
 		modelSurface_t modelSurface;
 		modelSurface.id = outputSurface++;

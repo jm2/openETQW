@@ -28,7 +28,10 @@ If you have questions concerning this license or the applicable additional terms
 
 // vertex cache calls should only be made by the front end
 
-const int NUM_VERTEX_FRAMES = 2;
+// The Vulkan backend keeps two frames in flight (NUM_VULKAN_FRAMES) and the
+// front end fills frame N's temp buffer before BeginFrame waits for frame N-2,
+// so a third buffer keeps a frame from rewriting vertices the GPU still reads.
+const int NUM_VERTEX_FRAMES = 3;
 
 typedef enum {
 	TAG_FREE,

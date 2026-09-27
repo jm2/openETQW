@@ -149,6 +149,12 @@ public:
 			if ( triangles == NULL ) {
 				continue;
 			}
+			// R_CommitAmbientDrawsurf gives a streamed surface a frame-temp cache
+			// every frame under Vulkan; a static one would be overwritten unused and
+			// never freed.
+			if ( triangles->streamVertexCache && R_UseVulkanBackend() ) {
+				continue;
+			}
 			if ( triangles->ambientCache == NULL && triangles->verts != NULL && triangles->numVerts > 0 ) {
 				vertexCache.Alloc( triangles->verts,
 					triangles->numVerts * sizeof( triangles->verts[ 0 ] ), &triangles->ambientCache );

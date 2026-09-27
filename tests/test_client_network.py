@@ -54,7 +54,10 @@ class VulkanClient(h.DedicatedServer):
     def command_line(self):
         args = [str(self.binary), "+set", "fs_basepath", str(self.data_path), "+set", "fs_game", "base",
                 "+set", "fs_savepath", str(self.savepath), "+set", "net_port", str(self.port),
-                "+set", "r_renderAPI", "vulkan", "+set", "r_fullscreen", "0"]
+                "+set", "r_renderAPI", "vulkan", "+set", "r_fullscreen", "0",
+                # the validation layer where installed (off by default); a caller's
+                # cvars come later and win (frame-poses turns it off)
+                "+set", "r_vkValidation", "1"]
         for k, v in self.cvars.items():
             args += ["+set", str(k), str(v)]
         if self.listen_map:

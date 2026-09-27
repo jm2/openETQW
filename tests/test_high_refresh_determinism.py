@@ -119,7 +119,14 @@ SIM_VIEW_FIELDS_RE = re.compile(
 # the smaller differences (31-40 ticks visible). Allowed only in that shape: the wlog
 # field alone, a weapon pose on both sides, starting at tick 92, on 45-59 ticks per
 # schedule. Nothing else may differ.
-KNOWN_VIEW_LEAK = {"field": "wlog", "from_tick": 92, "to_tick": 150, "min_ticks": 45, "max_ticks": 59}
+# 2026-09-26 (game 78ec05e): the stream now enters the map's only vehicle_titan instead
+# of the nearest vehicle. From where the replay is at tick 90 the two nearest are
+# icarus_78 (2210.6 u) and desecrator_77 (2225.9 u), so the arm64/x86_64 difference in
+# the path decided it: Linux took the icarus, whose view logs no axis (the test needs
+# one), and macOS the desecrator, the 55-56-tick shape above. With the titan, on antec
+# (5 runs, 17 comparisons) the leak starts at tick 92 and covers 43 or 53-55 ticks; the
+# bounds cover both vehicles. Not yet measured with the titan on macOS.
+KNOWN_VIEW_LEAK = {"field": "wlog", "from_tick": 92, "to_tick": 150, "min_ticks": 40, "max_ticks": 59}
 
 FRAME_TIMING_RE = re.compile(
     r"FRAME_TIMING: window_ms=([\d.]+) frames=(\d+) ticks=(\d+) cap=(-?\d+)"
@@ -529,7 +536,8 @@ def main() -> int:
     for fps, ticks in sorted(known_span.items()):
         print(f"    known: {cap_label(fps)} against {cap_label(rates[0])}, ticks {min(ticks)}-{max(ticks)} ({len(ticks)})")
         # the observed shape: it starts on the tick after entering the vehicle and covers
-        # 55-56 ticks at full precision; a divergence that starts later or is much smaller is new
+        # 43-56 ticks at full precision (see KNOWN_VIEW_LEAK); a divergence that starts
+        # later or is much smaller is new
         if (min(ticks) != KNOWN_VIEW_LEAK["from_tick"]
                 or not KNOWN_VIEW_LEAK["min_ticks"] <= len(ticks) <= KNOWN_VIEW_LEAK["max_ticks"]):
             view_mismatches.append(f"{cap_label(fps)}: a weapon-log divergence on ticks {min(ticks)}-{max(ticks)}"

@@ -358,7 +358,9 @@ const char *Sys_EXEPath( void ) {
 	{
 		char resolved[ MAX_OSPATH ];
 		const ssize_t length = readlink( "/proc/self/exe", resolved, sizeof( resolved ) - 1 );
-		if ( length > 0 ) {
+		// a result that fills the buffer may be truncated; s_exePath is no larger,
+		// so fall back rather than cache a partial path
+		if ( length > 0 && length < static_cast< ssize_t >( sizeof( resolved ) - 1 ) ) {
 			resolved[ length ] = '\0';
 			idStr::Copynz( s_exePath, resolved, sizeof( s_exePath ) );
 			return s_exePath;
@@ -399,7 +401,9 @@ int Sys_Rmdir( const char *path ) {
 
 #if !defined( __APPLE__ ) && ( defined( ID_DEDICATED ) || !defined( MACOS_X ) )
 const char *Sys_DefaultCDPath( void ) {
-	return "";
+	// the macOS fallback: the working directory's base/ supplies engine-shipped
+	// loose content (vkprogs/) when the save path is redirected
+	return Posix_Cwd();
 }
 #endif
 

@@ -49,6 +49,16 @@ public:
 		if ( !SDL_InitSubSystem( SDL_INIT_VIDEO ) ) {
 			common->FatalError( "SDL3: failed to initialize video subsystem: %s", SDL_GetError() );
 		}
+		// The OpenGL path (explicit or the Vulkan fallback) draws stencil shadows
+		// and assumes 24/8 (glConfig, as win_opengl.cpp requests); SDL's defaults
+		// are a 16-bit depth buffer and no stencil. Set before any window exists.
+		SDL_GL_SetAttribute( SDL_GL_RED_SIZE, 8 );
+		SDL_GL_SetAttribute( SDL_GL_GREEN_SIZE, 8 );
+		SDL_GL_SetAttribute( SDL_GL_BLUE_SIZE, 8 );
+		SDL_GL_SetAttribute( SDL_GL_ALPHA_SIZE, 8 );
+		SDL_GL_SetAttribute( SDL_GL_DEPTH_SIZE, 24 );
+		SDL_GL_SetAttribute( SDL_GL_STENCIL_SIZE, 8 );
+		SDL_GL_SetAttribute( SDL_GL_DOUBLEBUFFER, 1 );
 
 		SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
 		if ( R_UseVulkanBackend() ) {
@@ -91,6 +101,11 @@ public:
 			if ( !SDL_GL_MakeCurrent( window, glContext ) ) {
 				common->FatalError( "SDL3: failed to make the OpenGL context current: %s", SDL_GetError() );
 			}
+			int depthBits = 0;
+			int stencilBits = 0;
+			SDL_GL_GetAttribute( SDL_GL_DEPTH_SIZE, &depthBits );
+			SDL_GL_GetAttribute( SDL_GL_STENCIL_SIZE, &stencilBits );
+			common->Printf( "SDL3 OpenGL context: depth %d, stencil %d\n", depthBits, stencilBits );
 		}
 
 		gameWindowParms = parms;

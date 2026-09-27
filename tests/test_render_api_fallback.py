@@ -6,13 +6,20 @@ r_renderAPI defaults to "vulkan" on every platform.  When Vulkan cannot
 initialize, the engine falls back to OpenGL for the run instead of failing
 (r_renderAPI is not modified; a user who wants OpenGL only sets it).
 
-Phases (client startup + quick-quit; the messages all appear during init):
-1. Default run: a Vulkan window is created and no fallback is printed.
+Phases (client startup + quick-quit; the messages all appear during init). Each
+run gets its own empty fs_savepath: r_renderAPI is archived, so a shared
+base/etqwconfig.cfg would carry one run's (or a player's) setting into the next.
+1. Default run: a Vulkan window is created and no fallback is printed. On a host
+   with no usable Vulkan (no loader, driver or device, so no swapchain is ever
+   created) the fallback is accepted instead: it is printed only when r_renderAPI
+   is vulkan, so it still shows the default. A fallback after a swapchain was
+   created is a Vulkan startup failure of the engine's own (for example missing
+   vkprogs) and fails.
 2. `+set r_renderAPI opengl`: an OpenGL window is created, the legacy GL
    path runs with a real context (GL_MAX_TEXTURE_SIZE is queried, which is
    where the pre-fallback code died with "Max Texture Size greater than 512"
-   because the SDL3 layer never created a GL context), and no fallback is
-   printed.
+   because the SDL3 layer never created a GL context) with a stencil buffer
+   for the stencil shadows, and no fallback is printed.
 3. Vulkan hidden (the loader is given no ICDs): the engine prints the
    fallback and creates an OpenGL window that initializes like phase 2.
 
@@ -21,9 +28,12 @@ Exit status: 0 pass, 1 fail, 77 skip (no client binary or retail data).
 
 from __future__ import annotations
 
+import argparse
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import etqw_harness as h
@@ -34,6 +44,7 @@ DATA_PATH = h.env_data_path()
 
 
 def _find_client_binary() -> Path:
+    """The client under build/, for runs outside Meson (Meson passes --client-binary)."""
     candidates = [
         REPO_ROOT / "build" / "openETQW-client_arm64",
         REPO_ROOT / "build" / "openETQW-client_x64",
@@ -52,10 +63,19 @@ CLIENT_BIN = _find_client_binary()
 
 
 def run_client(*extra_args: str, env_overrides: dict[str, str] | None = None) -> tuple[int, str]:
+    savepath = Path(tempfile.mkdtemp(prefix="etqw-render-api-"))
+    try:
+        return _run_client(savepath, *extra_args, env_overrides=env_overrides)
+    finally:
+        shutil.rmtree(savepath, ignore_errors=True)
+
+
+def _run_client(savepath: Path, *extra_args: str, env_overrides: dict[str, str] | None = None) -> tuple[int, str]:
     args = [
         str(CLIENT_BIN),
         "+set", "fs_basepath", str(DATA_PATH),
         "+set", "fs_game", "base",
+        "+set", "fs_savepath", str(savepath),
         *extra_args,
         "+quit",
     ]
@@ -93,7 +113,10 @@ def check_gl_initialised(output: str, phase: str) -> None:
     )
     size = max_texture_size(output)
     assert size > 512, f"{phase}: GL_MAX_TEXTURE_SIZE is {size}, expected > 512"
-    print(f"  GL_VENDOR present, GL_MAX_TEXTURE_SIZE: {size}")
+    stencil = next((int(line.rsplit(" ", 1)[1]) for line in output.splitlines()
+                    if line.startswith("SDL3 OpenGL context:") and "stencil" in line), 0)
+    assert stencil >= 8, f"{phase}: the OpenGL context has {stencil} stencil bits, expected >= 8"
+    print(f"  GL_VENDOR present, GL_MAX_TEXTURE_SIZE: {size}, stencil bits: {stencil}")
 
 
 def test_default_is_vulkan() -> None:
@@ -102,10 +125,19 @@ def test_default_is_vulkan() -> None:
     print("=================================================================")
     code, out = run_client()
     print(f"  exit code: {code}")
-    assert "SDL3 Vulkan window created" in out, "Phase 1: expected a Vulkan window by default"
-    assert "falling back to OpenGL" not in out, "Phase 1: unexpected OpenGL fallback with working Vulkan"
+    if "falling back to OpenGL" in out:
+        # no usable Vulkan on this host; the fallback is printed only when
+        # r_renderAPI is vulkan, so the default is still what this phase checks
+        assert "Vulkan swapchain:" not in out, (
+            "Phase 1: Vulkan created a swapchain and then fell back to OpenGL (an engine-side Vulkan startup failure)"
+        )
+        assert "SDL3 OpenGL window created" in out, "Phase 1: fallback without an OpenGL window"
+        check_gl_initialised(out, "Phase 1")
+        print("  Vulkan unavailable on this host: the default tried Vulkan and fell back to OpenGL")
+    else:
+        assert "SDL3 Vulkan window created" in out, "Phase 1: expected a Vulkan window by default"
+        print("  Vulkan window created, no fallback")
     assert code == 0, f"Phase 1: expected exit 0, got {code}"
-    print("  Vulkan window created, no fallback")
 
 
 def test_explicit_opengl() -> None:
@@ -142,6 +174,12 @@ def test_fallback_without_vulkan() -> None:
 
 
 def main() -> int:
+    global CLIENT_BIN
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--client-binary", help="the client to test (default: the one under build/)")
+    args = ap.parse_args()
+    if args.client_binary:
+        CLIENT_BIN = Path(args.client_binary)
     print("=================================================================")
     print(" Render API Selection Test (vulkan default, OpenGL fallback)")
     print(f" Binary: {CLIENT_BIN}")
