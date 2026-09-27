@@ -436,6 +436,12 @@ idRenderModel* BuildSnapshot( stuffModelData_t* data, stuffSnapshot_t* snapshot,
 		triangles->tangentsCalculated = true;
 		triangles->generateNormals = false;
 		triangles->params[ TRIPARM_DISTANCESCALE ] = group->distanceScale;
+		// A snapshot is rebuilt every r_stuffUpdateAngle degrees of turning and
+		// r_stuffUpdateDistance units of movement.  Under Vulkan, stream its few
+		// hundred KB through the frame arena like other regenerated geometry:
+		// static caches gave each rebuild ~70 buffers with their own device
+		// memory, and allocating them stalled the rebuild frame (valley, RADV).
+		triangles->streamVertexCache = true;
 
 		modelSurface_t modelSurface;
 		modelSurface.id = outputSurface++;
