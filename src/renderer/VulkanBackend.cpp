@@ -8452,7 +8452,10 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			surface->material->SurfaceCastsShadow() ) {
 			sdRayTracingGeometry geometry;
 			memset( &geometry, 0, sizeof( geometry ) );
+			// Streamed surfaces (streamVertexCache) sit at a new frame-arena offset
+			// every frame, so their acceleration structures cannot be cached.
 			geometry.deforming = surface->geo->deformedSurface ||
+				surface->geo->streamVertexCache ||
 				surface->geo->deformedSurfaceInstance ||
 				surface->geo->hardwareSkinnedSurface ||
 				surface->geo->frameAlloced || surface->geo->weightCache != NULL ||
@@ -8508,7 +8511,10 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 		if ( !hardwareSkinned && selectedWaterStage ) {
 			sdRayTracingGeometry geometry;
 			memset( &geometry, 0, sizeof( geometry ) );
+			// Streamed surfaces (streamVertexCache) sit at a new frame-arena offset
+			// every frame, so their acceleration structures cannot be cached.
 			geometry.deforming = surface->geo->deformedSurface ||
+				surface->geo->streamVertexCache ||
 				surface->geo->deformedSurfaceInstance ||
 				surface->geo->hardwareSkinnedSurface ||
 				surface->geo->frameAlloced || surface->geo->weightCache != NULL ||
