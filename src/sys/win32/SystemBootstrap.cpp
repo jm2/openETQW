@@ -527,7 +527,105 @@ int idSysLocal::MessageBox( const char* title, const char* buffer, messageBoxTyp
 	return Sys_MessageBox( title, buffer, type );
 }
 
+/*
+==============================================================
+Stdin console input
+
+The dedicated server and the test harness drive commands through
+stdin.  POSIX assembles them in Posix_ConsoleInput; this is the same
+line assembly so commands like 'quit' and 'map valley' reach the
+console parser as SE_CONSOLE events.
+==============================================================
+*/
+static char consoleLine[ 1024 ];
+static int consolePos = 0;
+static bool consoleEOF = false;
+
+static void Win_QueueConsoleLine() {
+	const int len = consolePos + 1;
+	char* buf = static_cast< char* >( Mem_Alloc( len ) );
+	memcpy( buf, consoleLine, len );
+	sysLocal.QueEvent( SE_CONSOLE, 0, 0, len, buf );
+}
+
+static bool Win_ConsoleReady( HANDLE stdinHandle ) {
+	const DWORD type = GetFileType( stdinHandle );
+	if ( type == FILE_TYPE_PIPE ) {
+		DWORD available = 0;
+		if ( !PeekNamedPipe( stdinHandle, NULL, 0, NULL, &available, NULL ) ) {
+			// Broken pipe: ReadFile reports the EOF below.
+			return true;
+		}
+		return available > 0;
+	}
+	if ( type == FILE_TYPE_CHAR ) {
+		return WaitForSingleObject( stdinHandle, 0 ) == WAIT_OBJECT_0;
+	}
+	return true;
+}
+
+void Win_ConsoleInput( void ) {
+	if ( consoleEOF ) {
+		return;
+	}
+	HANDLE stdinHandle = GetStdHandle( STD_INPUT_HANDLE );
+	if ( stdinHandle == INVALID_HANDLE_VALUE || stdinHandle == NULL ) {
+		consoleEOF = true;
+		return;
+	}
+	if ( !Win_ConsoleReady( stdinHandle ) ) {
+		return;
+	}
+	char chunk[ 256 ];
+	DWORD read = 0;
+	if ( !ReadFile( stdinHandle, chunk, sizeof( chunk ), &read, NULL ) || read == 0 ) {
+		// EOF: flush any partial line, like Posix_ConsoleInput.
+		if ( consolePos > 0 ) {
+			consoleLine[ consolePos ] = '\0';
+			Win_QueueConsoleLine();
+			consolePos = 0;
+		}
+		consoleEOF = true;
+		return;
+	}
+	for ( DWORD i = 0; i < read; i++ ) {
+		const char ch = chunk[ i ];
+		if ( ch == '\r' || ch == '\n' ) {
+			if ( consolePos > 0 ) {
+				consoleLine[ consolePos ] = '\0';
+				Win_QueueConsoleLine();
+				consolePos = 0;
+			}
+			continue;
+		}
+		if ( ch == '\b' || ch == 127 ) {
+			if ( consolePos > 0 ) {
+				consolePos--;
+			}
+			continue;
+		}
+		if ( consolePos < static_cast< int >( sizeof( consoleLine ) - 1 ) ) {
+			consoleLine[ consolePos++ ] = ch;
+		}
+	}
+}
+
+static sdLock inputPollLock;
+
+sdLock& IN_GetPollLock() {
+	return inputPollLock;
+}
+
+void Sys_InitInput( void ) {
+	consolePos = 0;
+	consoleEOF = false;
+}
+
+void Sys_ShutdownInput( void ) {
+}
+
 void idSysLocal::ProcessOSEvents() {
+	Win_ConsoleInput();
 #ifndef ID_DEDICATED
 	Sys_ProcessSDLEvents();
 #endif
@@ -914,6 +1012,12 @@ void Sys_ShowWindow( bool show ) {
 	} else {
 		sys3D->HideGameWindow();
 	}
+}
+
+// The splash bitmap (IDB_ETQW_SPLASH) is purged retail content and cannot
+// ship, so there is no splash to show on Windows either; the POSIX layer
+// stubs this the same way.  win32/splashscreen.cpp keeps the window code.
+void Sys_ShowSplashScreen( bool show ) {
 }
 
 bool Sys_IsWindowVisible() {
