@@ -130,6 +130,7 @@ struct sdVulkanImageResource {
 	int				width;
 	int				height;
 	int				mipLevels;
+	bool			cubeMap;
 };
 
 struct sdVulkanToolDepthResource {
@@ -344,6 +345,7 @@ struct sdVulkanBackendState {
 	unsigned int				queueFamilyIndex;
 	char					deviceName[ VK_MAX_PHYSICAL_DEVICE_NAME_SIZE ];
 	bool					fillModeNonSolid;
+	bool					rayTracingDeviceEnabled;
 	VkDeviceSize			jointUniformAlignment;
 
 	VkSwapchainKHR				swapchain;
@@ -633,6 +635,7 @@ struct sdVulkanBackendState {
 		queueFamilyIndex = UINT_MAX;
 		deviceName[ 0 ] = '\0';
 		fillModeNonSolid = false;
+		rayTracingDeviceEnabled = false;
 		jointUniformAlignment = 1;
 		swapchain = VK_NULL_HANDLE;
 		swapchainFormat = VK_FORMAT_UNDEFINED;
@@ -1335,13 +1338,18 @@ bool SelectPhysicalDevice( sdVulkanBackendState& state ) {
 		VkPhysicalDeviceVulkan13Features features13;
 		memset( &features13, 0, sizeof( features13 ) );
 		features13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+		VkPhysicalDeviceVulkan14Features features14;
+		memset( &features14, 0, sizeof( features14 ) );
+		features14.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES;
+		features13.pNext = &features14;
 		VkPhysicalDeviceFeatures2 features2;
 		memset( &features2, 0, sizeof( features2 ) );
 		features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
 		features2.pNext = &features13;
 		state.GetPhysicalDeviceFeatures2( devices[ i ], &features2 );
 		if ( !features13.dynamicRendering || !features13.synchronization2 ||
-			!features13.shaderDemoteToHelperInvocation ) {
+			!features13.shaderDemoteToHelperInvocation ||
+			!features14.dynamicRenderingLocalRead ) {
 			continue;
 		}
 
@@ -1393,17 +1401,27 @@ bool CreateLogicalDevice( sdVulkanBackendState& state,
 	features13.synchronization2 = VK_TRUE;
 	features13.shaderDemoteToHelperInvocation = VK_TRUE;
 
+	// dynamicRenderingLocalRead allows vkCmdPipelineBarrier2 inside a dynamic
+	// rendering instance (VUID-...-09553), which IssueDepthStencilBarrier needs.
+	VkPhysicalDeviceVulkan14Features features14;
+	memset( &features14, 0, sizeof( features14 ) );
+	features14.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES;
+	features14.dynamicRenderingLocalRead = VK_TRUE;
+	features13.pNext = &features14;
+
 	VkPhysicalDeviceFeatures coreFeatures;
 	memset( &coreFeatures, 0, sizeof( coreFeatures ) );
+	coreFeatures.robustBufferAccess = VK_TRUE;
 	if ( state.fillModeNonSolid ) {
 		coreFeatures.fillModeNonSolid = VK_TRUE;
 	}
 
 	if ( rayTracingAvailable ) {
-		features13.pNext = &rayTracingConfiguration.bufferDeviceAddress;
+		features14.pNext = &rayTracingConfiguration.bufferDeviceAddress;
 		if ( state.fillModeNonSolid ) {
 			rayTracingConfiguration.coreFeatures.fillModeNonSolid = VK_TRUE;
 		}
+		rayTracingConfiguration.coreFeatures.robustBufferAccess = VK_TRUE;
 		coreFeatures = rayTracingConfiguration.coreFeatures;
 	}
 
@@ -1418,8 +1436,8 @@ bool CreateLogicalDevice( sdVulkanBackendState& state,
 		features2.pNext = &portabilityFeatures;
 		state.GetPhysicalDeviceFeatures2( state.physicalDevice, &features2 );
 
-		portabilityFeatures.pNext = features13.pNext;
-		features13.pNext = &portabilityFeatures;
+		portabilityFeatures.pNext = features14.pNext;
+		features14.pNext = &portabilityFeatures;
 	}
 
 	idList< const char* > extensions;
@@ -3962,6 +3980,9 @@ bool CreateGuiResources( sdVulkanBackendState& state ) {
 	return true;
 }
 
+const sdVulkanImageResource* FindVulkanImageResource(
+	const sdVulkanBackendState& state, const void* owner );
+
 bool AllocateImageDescriptor( sdVulkanBackendState& state,
 	sdVulkanImageResource& resource ) {
 	VkDescriptorSetAllocateInfo allocateInfo;
@@ -3980,17 +4001,42 @@ bool AllocateImageDescriptor( sdVulkanBackendState& state,
 	imageInfo.sampler = resource.sampler;
 	imageInfo.imageView = resource.view;
 	imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	// Fallback for the "other" type: binding 4 is samplerCube, 0–3 are sampler2D.
+	// Writing a cube view into a 2D slot (or vice versa) is a spec violation
+	// (VUID-vkCmdDrawIndexed-viewType-07752).  Use the image's own view for the
+	// matching slots and a matching-type fallback for the rest.
+	const sdVulkanImageResource* fallback = NULL;
+	if ( resource.cubeMap ) {
+		// Cube view goes to binding 4 only; 2D slots get a 2D fallback.
+		fallback = FindVulkanImageResource( state,
+			globalImages != NULL ? globalImages->blackImage : NULL );
+	} else {
+		// 2D view goes to bindings 0–3; cube slot gets a cube fallback.
+		fallback = FindVulkanImageResource( state,
+			globalImages != NULL ? globalImages->blackCubeMapImage : NULL );
+	}
+	VkDescriptorImageInfo fallbackInfo;
+	memset( &fallbackInfo, 0, sizeof( fallbackInfo ) );
+	if ( fallback != NULL ) {
+		fallbackInfo.sampler = fallback->sampler;
+		fallbackInfo.imageView = fallback->view;
+		fallbackInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	} else {
+		fallbackInfo = imageInfo;
+	}
 	VkWriteDescriptorSet writes[ VULKAN_MATERIAL_TEXTURES ];
 	memset( writes, 0, sizeof( writes ) );
 	for ( int bindingIndex = 0; bindingIndex < VULKAN_MATERIAL_TEXTURES;
 		++bindingIndex ) {
+		const bool isCubeSlot = ( bindingIndex == 4 );
+		const bool useMain = ( resource.cubeMap == isCubeSlot );
 		writes[ bindingIndex ].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 		writes[ bindingIndex ].dstSet = resource.descriptorSet;
 		writes[ bindingIndex ].dstBinding = bindingIndex;
 		writes[ bindingIndex ].descriptorCount = 1;
 		writes[ bindingIndex ].descriptorType =
 			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		writes[ bindingIndex ].pImageInfo = &imageInfo;
+		writes[ bindingIndex ].pImageInfo = useMain ? &imageInfo : &fallbackInfo;
 	}
 	state.UpdateDescriptorSets( state.device, VULKAN_MATERIAL_TEXTURES,
 		writes, 0, NULL );
@@ -4238,6 +4284,17 @@ bool GetVulkanMaterialDescriptor( sdVulkanBackendState& state,
 	if ( space != NULL && space->ambientCubeMap != NULL &&
 		space->ambientCubeMap->GetAmbientCubeMap() != NULL ) {
 		images[ 4 ] = space->ambientCubeMap->GetAmbientCubeMap();
+	}
+	// Bindings 0–3 are sampler2D; binding 4 is samplerCube.  A cube map in a
+	// 2D slot (or vice versa) is a spec violation (VUID-vkCmdDrawIndexed-
+	// viewType-07752).  Replace mismatched images with matching-type fallbacks.
+	for ( int slot = 0; slot < 4; ++slot ) {
+		if ( images[ slot ] != NULL && images[ slot ]->cubeFiles != CF_2D ) {
+			images[ slot ] = globalImages->blackImage;
+		}
+	}
+	if ( images[ 4 ] != NULL && images[ 4 ]->cubeFiles == CF_2D ) {
+		images[ 4 ] = globalImages->blackCubeMapImage;
 	}
 	for ( int textureIndex = 0; textureIndex < stage.numTextures; ++textureIndex ) {
 		const stageTexture_t& texture = stage.textures[ textureIndex ];
@@ -4572,6 +4629,15 @@ bool GetVulkanSkyboxDescriptor( sdVulkanBackendState& state,
 	}
 	if ( images[ 0 ] == NULL || images[ 1 ] == NULL ) {
 		return false;
+	}
+	// Bindings 0–3 are sampler2D; binding 4 is samplerCube.
+	for ( int slot = 0; slot < 4; ++slot ) {
+		if ( images[ slot ] != NULL && images[ slot ]->cubeFiles != CF_2D ) {
+			images[ slot ] = globalImages->blackImage;
+		}
+	}
+	if ( images[ 4 ] != NULL && images[ 4 ]->cubeFiles == CF_2D ) {
+		images[ 4 ] = globalImages->blackCubeMapImage;
 	}
 	const sdVulkanImageResource* resources[ VULKAN_MATERIAL_TEXTURES ];
 	for ( int imageIndex = 0; imageIndex < VULKAN_MATERIAL_TEXTURES;
@@ -5076,6 +5142,9 @@ bool sdVulkanBackend::Init( void* nativeWindow, int width, int height ) {
 		Shutdown();
 		return false;
 	}
+	// Buffers may request the ray-tracing usage bits only when the device was
+	// created with bufferDeviceAddress and the acceleration-structure extension.
+	state->rayTracingDeviceEnabled = rayTracingAvailable;
 	if ( rayTracingAvailable ) {
 		sdRayTracingVulkanContext rayTracingContext;
 		memset( &rayTracingContext, 0, sizeof( rayTracingContext ) );
@@ -6959,6 +7028,7 @@ bool sdVulkanBackend::UploadImageCube( const void* owner,
 	resource.width = size;
 	resource.height = size;
 	resource.mipLevels = 1;
+	resource.cubeMap = true;
 	VkImageCreateInfo imageInfo;
 	memset( &imageInfo, 0, sizeof( imageInfo ) );
 	imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -7507,10 +7577,13 @@ bool sdVulkanBackend::UploadBuffer( const void* owner, const void* data,
 	// indexes.  Static allocations use the same neutral capability so a cache
 	// block can be rebound by the reconstructed interaction/deform paths without
 	// creating a Vulkan buffer whose usage disagrees with the eventual bind.
-	const VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
-		VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
-		VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+	// The ray-tracing bits are only valid when the device enabled their features.
+	VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+	if ( state->rayTracingDeviceEnabled ) {
+		usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+			VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+	}
 	bool uploaded = false;
 	if ( frameTemporary && CreateBufferAllocation( *state, resource.bytes, usage,
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -7591,27 +7664,26 @@ void sdVulkanBackend::DestroyBuffer( const void* owner ) {
 }
 
 static void IssueDepthStencilBarrier( sdVulkanBackendState& state, VkCommandBuffer commandBuffer ) {
-	VkImageMemoryBarrier2 dsBarrier;
-	memset( &dsBarrier, 0, sizeof( dsBarrier ) );
-	dsBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-	dsBarrier.srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-	dsBarrier.srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-	dsBarrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
-	dsBarrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
-	dsBarrier.oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-	dsBarrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-	dsBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	dsBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	dsBarrier.image = state.depthImages[ state.imageIndex ];
-	dsBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-	dsBarrier.subresourceRange.levelCount = 1;
-	dsBarrier.subresourceRange.layerCount = 1;
+	// Depth writes from the shadow pass must be visible to the depth tests of the
+	// interaction pass.  Both run inside one dynamic rendering instance, where an
+	// image barrier on the depth attachment is illegal (VUID-vkCmdPipelineBarrier2-
+	// image-09555 requires RENDERING_LOCAL_READ/GENERAL for attachment images); this
+	// is a pure memory dependency (no layout change), so a memory barrier is the
+	// correct primitive and is what VUID-...-09554 permits inside the instance.
+	VkMemoryBarrier2 memoryBarrier;
+	memset( &memoryBarrier, 0, sizeof( memoryBarrier ) );
+	memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+	memoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+	memoryBarrier.srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	memoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
+	memoryBarrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
 
 	VkDependencyInfo dependencyInfo;
 	memset( &dependencyInfo, 0, sizeof( dependencyInfo ) );
 	dependencyInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-	dependencyInfo.imageMemoryBarrierCount = 1;
-	dependencyInfo.pImageMemoryBarriers = &dsBarrier;
+	dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+	dependencyInfo.memoryBarrierCount = 1;
+	dependencyInfo.pMemoryBarriers = &memoryBarrier;
 	state.CmdPipelineBarrier2( commandBuffer, &dependencyInfo );
 }
 
