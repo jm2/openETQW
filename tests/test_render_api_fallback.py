@@ -6,8 +6,12 @@ r_renderAPI defaults to "vulkan" on every platform.  When Vulkan cannot
 initialize, the engine falls back to OpenGL for the run instead of failing
 (r_renderAPI is not modified; a user who wants OpenGL only sets it).
 
-Phases (client startup + quick-quit; the messages all appear during init):
-1. Default run: a Vulkan window is created and no fallback is printed.
+Phases (client startup + quick-quit; the messages all appear during init). Each
+run gets its own empty fs_savepath: r_renderAPI is archived, so a shared
+base/etqwconfig.cfg would carry one run's (or a player's) setting into the next.
+1. Default run: a Vulkan window is created and no fallback is printed. On a host
+   whose Vulkan cannot initialize, the fallback message is accepted instead (it is
+   printed only when r_renderAPI is vulkan, so it still shows the default).
 2. `+set r_renderAPI opengl`: an OpenGL window is created, the legacy GL
    path runs with a real context (GL_MAX_TEXTURE_SIZE is queried, which is
    where the pre-fallback code died with "Max Texture Size greater than 512"
@@ -22,8 +26,10 @@ Exit status: 0 pass, 1 fail, 77 skip (no client binary or retail data).
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import etqw_harness as h
@@ -52,10 +58,19 @@ CLIENT_BIN = _find_client_binary()
 
 
 def run_client(*extra_args: str, env_overrides: dict[str, str] | None = None) -> tuple[int, str]:
+    savepath = Path(tempfile.mkdtemp(prefix="etqw-render-api-"))
+    try:
+        return _run_client(savepath, *extra_args, env_overrides=env_overrides)
+    finally:
+        shutil.rmtree(savepath, ignore_errors=True)
+
+
+def _run_client(savepath: Path, *extra_args: str, env_overrides: dict[str, str] | None = None) -> tuple[int, str]:
     args = [
         str(CLIENT_BIN),
         "+set", "fs_basepath", str(DATA_PATH),
         "+set", "fs_game", "base",
+        "+set", "fs_savepath", str(savepath),
         *extra_args,
         "+quit",
     ]
@@ -102,10 +117,16 @@ def test_default_is_vulkan() -> None:
     print("=================================================================")
     code, out = run_client()
     print(f"  exit code: {code}")
-    assert "SDL3 Vulkan window created" in out, "Phase 1: expected a Vulkan window by default"
-    assert "falling back to OpenGL" not in out, "Phase 1: unexpected OpenGL fallback with working Vulkan"
+    if "falling back to OpenGL" in out:
+        # Vulkan cannot initialize on this host; the fallback is printed only when
+        # r_renderAPI is vulkan, so the default is still what this phase checks
+        assert "SDL3 OpenGL window created" in out, "Phase 1: fallback without an OpenGL window"
+        check_gl_initialised(out, "Phase 1")
+        print("  Vulkan unavailable on this host: the default tried Vulkan and fell back to OpenGL")
+    else:
+        assert "SDL3 Vulkan window created" in out, "Phase 1: expected a Vulkan window by default"
+        print("  Vulkan window created, no fallback")
     assert code == 0, f"Phase 1: expected exit 0, got {code}"
-    print("  Vulkan window created, no fallback")
 
 
 def test_explicit_opengl() -> None:
