@@ -25,6 +25,7 @@ From the owner, 2026-09-25, answers to the open-question list (the letters and n
 - M5 plan D1–D10: all decided (`docs/m5-plan.md`). D10 (asked again with context): vehicles feel "as modern/responsive as possible without breaking game physics": the seat view is on by default and grows to every seat as each is made safe, and moving vehicles further off the tick rate is to be explored.
 - F16: the merged branches were deleted (13 engine, 8 game).
 - Charter §11: the retail-install check is the engine's alone, as in openQ4 ("mirroring openQ4 here sounds reasonable"); the local charter now says so, and release gate 6 names engine packages too.
+From the owner, 2026-09-26: the default frame cap should be high ("240/250/uncapped") once it is safe to do so. `com_maxFPS` stays 60 until the gate in `docs/m5-plan.md` step 18 is met; the value is picked then (recommended: 240).
 Environment corrections vs. SESSION_BRIEF: the macOS arm64 host is joined by `antec` (Fedora 44, x86_64, GCC 16.2.1, AMD RX 6400 / RADV NAVI24) since 2026-09-26; the Linux engine and game module now build and run the full retail suite there. GitHub Actions minutes for private repositories ran out on 2026-09-24, so hosted CI does not run. Local checks, local independent reviews and CodeRabbit (about one review an hour) replace it (`CONTRIBUTING.md`). Merge gates are a convention; the free plan has no branch protection.
 
 ## Toolchain and commands (this session)
