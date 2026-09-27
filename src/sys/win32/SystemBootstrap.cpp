@@ -200,7 +200,18 @@ void idSysLocal::Init() {
 	Sys_EnsureThreadingInitialized();
 #ifndef ID_DEDICATED
 	SDL_SetMainReady();
-	SetProcessDpiAwarenessContext( DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 );
+	// SDL2's SDL_HINT_WINDOWS_DPI_AWARENESS ("permonitorv2") is gone in SDL3.
+	// WINVER 0x0501 keeps the user32 prototype out of the headers, so resolve
+	// it dynamically; failure leaves the process DPI mode as created.
+	{
+		typedef BOOL (WINAPI *SetProcessDpiAwarenessContext_t)( HANDLE );
+		SetProcessDpiAwarenessContext_t setDpiContext =
+			reinterpret_cast< SetProcessDpiAwarenessContext_t >( GetProcAddress(
+				GetModuleHandleA( "user32.dll" ), "SetProcessDpiAwarenessContext" ) );
+		if ( setDpiContext != NULL ) {
+			setDpiContext( DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 );
+		}
+	}
 	SDL_SetHint( SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1" );
 	if ( !SDL_Init( SDL_INIT_VIDEO | SDL_INIT_EVENTS ) ) {
 		Sys_Error( "SDL3 initialization failed: %s", SDL_GetError() );
