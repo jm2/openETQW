@@ -493,7 +493,7 @@ void ImDrawList::_ClearFreeMemory()
 // Note: For multi-threaded rendering, consider using `imgui_threaded_rendering` from https://github.com/ocornut/imgui_club
 ImDrawList* ImDrawList::CloneOutput() const
 {
-    ImDrawList* dst = IM_NEW(ImDrawList(NULL));
+    ImDrawList* dst = IM_NEW(ImDrawList)(NULL);
     dst->CmdBuffer = CmdBuffer;
     dst->IdxBuffer = IdxBuffer;
     dst->VtxBuffer = VtxBuffer;
