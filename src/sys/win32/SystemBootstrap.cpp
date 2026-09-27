@@ -1156,6 +1156,56 @@ void Sys_SetClipboardData( const wchar_t *string ) {
 	CloseClipboard();
 }
 
+idCVar net_forceDrop( "net_forceDrop", "0", CVAR_SYSTEM | CVAR_INTEGER, "percentage packet loss" );	// as win_net.cpp: outgoing packets
+idCVar net_forceLatency( "net_forceLatency", "0", CVAR_SYSTEM | CVAR_INTEGER, "milliseconds latency added to received packets" );
+idCVar net_forceJitter( "net_forceJitter", "0", CVAR_SYSTEM | CVAR_INTEGER, "up to this many more milliseconds of random latency per received packet (order kept)" );
+
+// Received packets held back by net_forceLatency / net_forceJitter (network testing).
+// Keyed by socket, so idPort (shared with the game module) is unchanged.
+struct delayedPacket_t {
+	int				socket;
+	int				releaseTime;
+	netadr_t		from;
+	idList< byte >	data;
+};
+static idList< delayedPacket_t* > delayedPackets;
+
+// last release time per socket: jitter varies the delay but keeps the arrival
+// order, like queueing on a real path (independent per-packet delays reordered
+// the fragments of every large message, which the channel then dropped)
+struct socketRelease_t {
+	int		socket;
+	int		releaseTime;
+};
+static idList< socketRelease_t > socketReleases;
+
+static int Net_ReleaseTime( int netSocket, int wanted ) {
+	for ( int i = 0; i < socketReleases.Num(); i++ ) {
+		if ( socketReleases[ i ].socket == netSocket ) {
+			socketReleases[ i ].releaseTime = Max( wanted, socketReleases[ i ].releaseTime );
+			return socketReleases[ i ].releaseTime;
+		}
+	}
+	socketRelease_t release = { netSocket, wanted };
+	socketReleases.Append( release );
+	return wanted;
+}
+
+// a closed socket's descriptor is reused by the next one opened
+static void Net_PurgeSocket( int netSocket ) {
+	for ( int i = delayedPackets.Num() - 1; i >= 0; i-- ) {
+		if ( delayedPackets[ i ]->socket == netSocket ) {
+			delete delayedPackets[ i ];
+			delayedPackets.RemoveIndex( i );
+		}
+	}
+	for ( int i = socketReleases.Num() - 1; i >= 0; i-- ) {
+		if ( socketReleases[ i ].socket == netSocket ) {
+			socketReleases.RemoveIndex( i );
+		}
+	}
+}
+
 idPort::idPort() :
 	netSocket( -1 ),
 	silent( false ),
@@ -1201,6 +1251,7 @@ bool idPort::InitForPort( int portNumber ) {
 
 void idPort::Close() {
 	if ( netSocket != -1 ) {
+		Net_PurgeSocket( netSocket );
 		closesocket( static_cast< SOCKET >( netSocket ) );
 		netSocket = -1;
 	}
@@ -1213,22 +1264,77 @@ bool idPort::GetPacket( netadr_t &from, void *data, int &size, int maxSize ) {
 	if ( netSocket == -1 || data == NULL || maxSize <= 0 ) {
 		return false;
 	}
+
+	const int latency = Max( 0, net_forceLatency.GetInteger() );
+	const int jitter = Max( 0, net_forceJitter.GetInteger() );
+	if ( latency == 0 && jitter == 0 && delayedPackets.Num() == 0 ) {
+		sockaddr_in address;
+		int addressLength = sizeof( address );
+		const int received = recvfrom( static_cast< SOCKET >( netSocket ), static_cast< char* >( data ), maxSize, 0, reinterpret_cast< sockaddr* >( &address ), &addressLength );
+		if ( received == SOCKET_ERROR ) {
+			return false;
+		}
+		NetadrFromSockaddr( address, from );
+		size = received;
+		packetsRead++;
+		bytesRead += received;
+		return true;
+	}
+
+	// queue everything that has arrived, each with its own release time
+	const int now = Sys_Milliseconds();
+	netadr_t packetFrom;
+	int packetSize = 0;
 	sockaddr_in address;
 	int addressLength = sizeof( address );
-	const int received = recvfrom( static_cast< SOCKET >( netSocket ), static_cast< char* >( data ), maxSize, 0, reinterpret_cast< sockaddr* >( &address ), &addressLength );
-	if ( received == SOCKET_ERROR ) {
+	while ( ( packetSize = recvfrom( static_cast< SOCKET >( netSocket ), static_cast< char* >( data ), maxSize, 0, reinterpret_cast< sockaddr* >( &address ), &addressLength ) ) > 0 ) {
+		delayedPacket_t* packet = new delayedPacket_t;
+		packet->socket = netSocket;
+		packet->releaseTime = Net_ReleaseTime( netSocket, now + latency + ( jitter > 0 ? rand() % ( jitter + 1 ) : 0 ) );
+		NetadrFromSockaddr( address, packet->from );
+		packet->data.SetNum( packetSize );
+		memcpy( &packet->data[ 0 ], data, packetSize );
+		delayedPackets.Append( packet );
+		addressLength = sizeof( address );
+	}
+
+	// hand out the due packet of this socket that is released first
+	int best = -1;
+	for ( int i = 0; i < delayedPackets.Num(); i++ ) {
+		const delayedPacket_t* packet = delayedPackets[ i ];
+		if ( packet->socket == netSocket && packet->releaseTime <= now && ( best < 0 || packet->releaseTime < delayedPackets[ best ]->releaseTime ) ) {
+			best = i;
+		}
+	}
+	if ( best < 0 ) {
 		return false;
 	}
-	NetadrFromSockaddr( address, from );
-	size = received;
+	delayedPacket_t* packet = delayedPackets[ best ];
+	delayedPackets.RemoveIndex( best );
+	from = packet->from;
+	size = Min( packet->data.Num(), maxSize );
+	memcpy( data, &packet->data[ 0 ], size );
+	delete packet;
 	packetsRead++;
-	bytesRead += received;
+	bytesRead += size;
 	return true;
 }
 
 bool idPort::GetPacketBlocking( netadr_t &from, void *data, int &size, int maxSize, int timeout ) {
 	if ( netSocket == -1 ) {
 		return false;
+	}
+
+	// a packet held back by net_forceLatency / net_forceJitter can be due already,
+	// and the socket does not wake select when one becomes due
+	if ( GetPacket( from, data, size, maxSize ) ) {
+		return true;
+	}
+	const int now = Sys_Milliseconds();
+	for ( int i = 0; i < delayedPackets.Num(); i++ ) {
+		if ( delayedPackets[ i ]->socket == netSocket ) {
+			timeout = Min( timeout, Max( 0, delayedPackets[ i ]->releaseTime - now ) );
+		}
 	}
 	fd_set readSet;
 	FD_ZERO( &readSet );
@@ -1246,6 +1352,14 @@ void idPort::SendPacket( const netadr_t to, const void *data, int size ) {
 	if ( silent || netSocket == -1 || data == NULL || size <= 0 ) {
 		return;
 	}
+
+	const int dropPercent = idMath::ClampInt( 0, 100, net_forceDrop.GetInteger() );
+	if ( dropPercent > 0 && rand() < dropPercent * ( RAND_MAX / 100 ) ) {
+		packetsWritten++;	// counted as sent, as a lost packet would be
+		bytesWritten += size;
+		return;
+	}
+
 	sockaddr_in address;
 	SockaddrFromNetadr( to, address );
 	const int sent = sendto( static_cast< SOCKET >( netSocket ), static_cast< const char* >( data ), size, 0, reinterpret_cast< sockaddr* >( &address ), sizeof( address ) );
