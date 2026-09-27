@@ -1338,18 +1338,13 @@ bool SelectPhysicalDevice( sdVulkanBackendState& state ) {
 		VkPhysicalDeviceVulkan13Features features13;
 		memset( &features13, 0, sizeof( features13 ) );
 		features13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
-		VkPhysicalDeviceVulkan14Features features14;
-		memset( &features14, 0, sizeof( features14 ) );
-		features14.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES;
-		features13.pNext = &features14;
 		VkPhysicalDeviceFeatures2 features2;
 		memset( &features2, 0, sizeof( features2 ) );
 		features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
 		features2.pNext = &features13;
 		state.GetPhysicalDeviceFeatures2( devices[ i ], &features2 );
 		if ( !features13.dynamicRendering || !features13.synchronization2 ||
-			!features13.shaderDemoteToHelperInvocation ||
-			!features14.dynamicRenderingLocalRead ) {
+			!features13.shaderDemoteToHelperInvocation ) {
 			continue;
 		}
 
@@ -1401,14 +1396,6 @@ bool CreateLogicalDevice( sdVulkanBackendState& state,
 	features13.synchronization2 = VK_TRUE;
 	features13.shaderDemoteToHelperInvocation = VK_TRUE;
 
-	// dynamicRenderingLocalRead allows vkCmdPipelineBarrier2 inside a dynamic
-	// rendering instance (VUID-...-09553), which IssueDepthStencilBarrier needs.
-	VkPhysicalDeviceVulkan14Features features14;
-	memset( &features14, 0, sizeof( features14 ) );
-	features14.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES;
-	features14.dynamicRenderingLocalRead = VK_TRUE;
-	features13.pNext = &features14;
-
 	VkPhysicalDeviceFeatures coreFeatures;
 	memset( &coreFeatures, 0, sizeof( coreFeatures ) );
 	coreFeatures.robustBufferAccess = VK_TRUE;
@@ -1417,7 +1404,7 @@ bool CreateLogicalDevice( sdVulkanBackendState& state,
 	}
 
 	if ( rayTracingAvailable ) {
-		features14.pNext = &rayTracingConfiguration.bufferDeviceAddress;
+		features13.pNext = &rayTracingConfiguration.bufferDeviceAddress;
 		if ( state.fillModeNonSolid ) {
 			rayTracingConfiguration.coreFeatures.fillModeNonSolid = VK_TRUE;
 		}
@@ -1436,8 +1423,8 @@ bool CreateLogicalDevice( sdVulkanBackendState& state,
 		features2.pNext = &portabilityFeatures;
 		state.GetPhysicalDeviceFeatures2( state.physicalDevice, &features2 );
 
-		portabilityFeatures.pNext = features14.pNext;
-		features14.pNext = &portabilityFeatures;
+		portabilityFeatures.pNext = features13.pNext;
+		features13.pNext = &portabilityFeatures;
 	}
 
 	idList< const char* > extensions;
@@ -7668,30 +7655,6 @@ void sdVulkanBackend::DestroyBuffer( const void* owner ) {
 	state->frameRetiredBufferResources[ retireFrame ].Append( removed );
 }
 
-static void IssueDepthStencilBarrier( sdVulkanBackendState& state, VkCommandBuffer commandBuffer ) {
-	// Depth writes from the shadow pass must be visible to the depth tests of the
-	// interaction pass.  Both run inside one dynamic rendering instance, where an
-	// image barrier on the depth attachment is illegal (VUID-vkCmdPipelineBarrier2-
-	// image-09555 requires RENDERING_LOCAL_READ/GENERAL for attachment images); this
-	// is a pure memory dependency (no layout change), so a memory barrier is the
-	// correct primitive and is what VUID-...-09554 permits inside the instance.
-	VkMemoryBarrier2 memoryBarrier;
-	memset( &memoryBarrier, 0, sizeof( memoryBarrier ) );
-	memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-	memoryBarrier.srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-	memoryBarrier.srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-	memoryBarrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
-	memoryBarrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
-
-	VkDependencyInfo dependencyInfo;
-	memset( &dependencyInfo, 0, sizeof( dependencyInfo ) );
-	dependencyInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-	dependencyInfo.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-	dependencyInfo.memoryBarrierCount = 1;
-	dependencyInfo.pMemoryBarriers = &memoryBarrier;
-	state.CmdPipelineBarrier2( commandBuffer, &dependencyInfo );
-}
-
 static void VulkanCreateShadowCache( srfTriangles_t* tri ) {
 	if ( tri == NULL || tri->verts == NULL || tri->numVerts <= 0 ) {
 		return;
@@ -9259,8 +9222,10 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 						}
 					}
 				}
-
-				IssueDepthStencilBarrier( *state, frame.commandBuffer );
+				// No barrier before the interactions: the stencil clear, the shadow
+				// volumes' stencil writes and the interactions' stencil tests are all
+				// in this rendering instance, where depth/stencil operations (and
+				// vkCmdClearAttachments) execute in rasterization order.
 			}
 
 			// Render localInteractions
@@ -9273,8 +9238,6 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 				for ( const drawSurf_s* surf = light->localShadows; surf != NULL; surf = surf->nextOnLight ) {
 					DrawVulkanShadowSurface( *state, surf, light, view );
 				}
-
-				IssueDepthStencilBarrier( *state, frame.commandBuffer );
 			}
 
 			// Render mtInteractions (atmosphere interactions on MegaTexture terrains)
