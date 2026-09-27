@@ -178,6 +178,15 @@ void idRenderSystemLocal::EndFrame( bool swapBuffers ) {
 			RENDER_METRIC_SCOPE( "Vulkan EndFrame" );
 			vulkanBackend.EndFrame( swapBuffers );
 		}
+		// openGLRunning is false under Vulkan, so the call above never runs
+		// there.  Without it the frame-temp arena never rewinds (every temp
+		// allocation overflows into a new static buffer once it fills) and
+		// deferred frees never happen, so each stuff-snapshot rebuild leaked
+		// its buffers and the growing allocation cost stalled frames.
+		if ( !openGLRunning ) {
+			RENDER_METRIC_SCOPE( "Vertex cache EndFrame" );
+			vertexCache.EndFrame();
+		}
 	}
 	R_RenderMetricsEndFrame();
 	synced = true;
