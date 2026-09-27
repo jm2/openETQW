@@ -295,6 +295,11 @@ if build_engine
   client_deps = engine_common_deps + [sdl3_dep, vulkan_dep] + apple_frameworks_dep
   client_link_args = engine_common_link_args
   client_cpp_args = common_engine_defs + engine_pch_args + ['-DVK_ENABLE_BETA_EXTENSIONS', '-DUSE_SDL3']
+  if host_system == 'linux'
+    gl_dep = dependency('gl', required: true)
+    client_deps += [gl_dep]
+    client_cpp_args += ['-DID_GL_HARDLINK']
+  endif
 
   executable(
     engine_client_binary_name,
