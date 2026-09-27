@@ -242,8 +242,27 @@ void idSysLocal::Shutdown() {
 	Sys_ShutdownThreading();
 }
 
+void idSysLocal::DebugPrintf( const char *fmt, ... ) {
+	va_list argptr;
+	va_start( argptr, fmt );
+	Sys_DebugVPrintf( fmt, argptr );
+	va_end( argptr );
+}
+
+void idSysLocal::DebugVPrintf( const char *fmt, va_list arg ) {
+	Sys_DebugVPrintf( fmt, arg );
+}
+
 void idSysLocal::GetCPUInfo( cpuInfo_t& info ) {
 	Sys_CPUInfo( info );
+}
+
+double idSysLocal::GetClockTicks( void ) {
+	return Sys_GetClockTicks();
+}
+
+double idSysLocal::ClockTicksPerSecond( void ) {
+	return Sys_ClockTicksPerSecond();
 }
 
 void idSysLocal::Sleep( int msec ) {
@@ -294,6 +313,76 @@ void idSysLocal::GetProcessMemoryStatus( sysProcessMemoryStats_t &stats ) {
 	Sys_GetProcessMemoryStatus( stats );
 }
 
+cpuid_t idSysLocal::GetProcessorId( void ) {
+	return Sys_GetProcessorId();
+}
+
+const char *idSysLocal::GetProcessorString( void ) {
+	return Sys_GetProcessorString();
+}
+
+const char *idSysLocal::FPU_GetState( void ) {
+	return Sys_FPU_GetState();
+}
+
+bool idSysLocal::FPU_StackIsEmpty( void ) {
+	return Sys_FPU_StackIsEmpty();
+}
+
+void idSysLocal::FPU_SetFTZ( bool enable ) {
+	Sys_FPU_SetFTZ( enable );
+}
+
+void idSysLocal::FPU_SetDAZ( bool enable ) {
+	Sys_FPU_SetDAZ( enable );
+}
+
+void idSysLocal::FPU_EnableExceptions( int exceptions ) {
+	Sys_FPU_EnableExceptions( exceptions );
+}
+
+void idSysLocal::GetCurCallStack( address_t *callStack, const int callStackSize ) {
+	if ( callStack != NULL && callStackSize > 0 ) {
+		memset( callStack, 0, callStackSize * sizeof( address_t ) );
+	}
+}
+
+const char *idSysLocal::GetCurCallStackStr( int depth ) {
+	return "";
+}
+
+const char *idSysLocal::GetCallStackStr( const address_t *callStack, const int callStackSize ) {
+	return "";
+}
+
+void idSysLocal::ShutdownSymbols( void ) {
+}
+
+void *idSysLocal::DLL_Load( const char *dllName, bool checkFullPathMatch ) {
+	return Sys_DLL_Load( dllName, checkFullPathMatch );
+}
+
+void *idSysLocal::DLL_GetProcAddress( void *dllHandle, const char *procName ) {
+	return Sys_DLL_GetProcAddress( dllHandle, procName );
+}
+
+void idSysLocal::DLL_Unload( void *dllHandle ) {
+	Sys_DLL_Unload( dllHandle );
+}
+
+void idSysLocal::DLL_GetFileName( const char *baseName, char *dllName, int maxLength ) {
+#if defined( _M_ARM64 )
+	#define SYS_ARCH_SUFFIX "_arm64"
+#elif defined( _M_X64 )
+	#define SYS_ARCH_SUFFIX "_x64"
+#elif defined( _M_IX86 )
+	#define SYS_ARCH_SUFFIX "_x86"
+#else
+	#define SYS_ARCH_SUFFIX ""
+#endif
+	idStr::snPrintf( dllName, maxLength, "%s%s.dll", baseName, SYS_ARCH_SUFFIX );
+}
+
 const char *idSysLocal::GetFunctionName( const address_t function ) {
 	return Sys_GetFunctionName( function );
 }
@@ -333,6 +422,20 @@ const sdSysEvent* idSysLocal::GenerateKeyEvent( keyNum_t key, bool down ) {
 	sdScopedLock< true > queueLock( eventLock );
 	sdSysEvent* event = eventAllocator.Alloc();
 	event->Init( SE_KEY, SE_KEY_VALUE( key, key ), SE_KEY_VALUE2( down, false ), 0, NULL );
+	return event;
+}
+
+const sdSysEvent *idSysLocal::GenerateMouseButtonEvent( int button, bool down ) {
+	sdScopedLock< true > queueLock( eventLock );
+	sdSysEvent *event = eventAllocator.Alloc();
+	event->Init( SE_MOUSE_BUTTON, button, down, 0, NULL );
+	return event;
+}
+
+const sdSysEvent *idSysLocal::GenerateMouseMoveEvent( int deltax, int deltay ) {
+	sdScopedLock< true > queueLock( eventLock );
+	sdSysEvent *event = eventAllocator.Alloc();
+	event->Init( SE_MOUSE, deltax, deltay, 0, NULL );
 	return event;
 }
 
@@ -458,19 +561,71 @@ void idSysLocal::FlushServerInfo() {
 
 void idSysLocal::InitInput() {
 	Keyboard().Init();
-	ime.Init();
+	IME().Init();
 	controllerManager.Init();
 }
 
 void idSysLocal::ShutdownInput() {
 	controllerManager.Shutdown();
-	ime.Shutdown();
+	IME().Shutdown();
 	Keyboard().Shutdown();
+}
+
+#ifdef ID_DEDICATED
+// The SDL3 layer (sdl_events.cpp) provides the real Keyboard/Mouse/IME for the
+// client.  The dedicated build has no SDL input stack, so it gets headless
+// implementations, mirroring sys_local.cpp.
+namespace {
+
+class idKeyboardHeadless : public idKeyboard {
+public:
+	virtual ~idKeyboardHeadless() {}
+	virtual bool Init() { return true; }
+	virtual void Shutdown() {}
+	virtual void Activate() {}
+	virtual void Deactivate() {}
+	virtual int PollInputEvents( bool ) { return 0; }
+	virtual int ReturnInputEvent( const int, keyNum_t&, bool& ) { return 0; }
+	virtual void EndInputEvents() {}
+	virtual keyNum_t ConvertScanToKey( unsigned int ) const { return K_INVALID; }
+	virtual keyNum_t ConvertCharToKey( char ) const { return K_INVALID; }
+	virtual char ConvertScanToChar( unsigned int ) const { return 0; }
+	virtual unsigned int ConvertCharToScan( char ) const { return 0; }
+	virtual char ConvertKeyToChar( const keyNum_t ) const { return 0; }
+	virtual bool IsConsoleKey( const sdSysEvent& ) const { return false; }
+};
+
+class idMouseHeadless : public idMouse {
+public:
+	virtual ~idMouseHeadless() {}
+	virtual bool Init() { return true; }
+	virtual void Shutdown() {}
+	virtual bool IsActive() const { return false; }
+	virtual void Activate() {}
+	virtual void Deactivate() {}
+	virtual void GrabCursor( bool ) {}
+	virtual int PollInputEvents( bool ) { return 0; }
+	virtual int ReturnInputEvent( const int, int&, int& ) { return 0; }
+	virtual void EndInputEvents() {}
+};
+
+idKeyboardHeadless headlessKeyboard;
+idMouseHeadless headlessMouse;
+
+} // namespace
+
+idKeyboard& idSysLocal::Keyboard() {
+	return headlessKeyboard;
+}
+
+idMouse& idSysLocal::Mouse() {
+	return headlessMouse;
 }
 
 sdIME& idSysLocal::IME() {
 	return ime;
 }
+#endif
 
 void idSysLocal::SetSystemLocale() {
 	Sys_SetSystemLocale();
