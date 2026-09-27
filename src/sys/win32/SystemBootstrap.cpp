@@ -480,11 +480,18 @@ void idSysLocal::QueEvent( sysEventType_t type, int value, int value2, int ptrLe
 
 void idSysLocal::ClearEvents() {
 	sdScopedLock< true > queueLock( eventLock );
-	while ( !eventQue.IsListEmpty() ) {
-		sdSysEvent* event = eventQue.Next();
-		event->GetNode().Remove();
-		event->FreeData();
-		eventAllocator.Free( event );
+	// SE_CONSOLE events are command lines (stdin for the dedicated server) and
+	// are never stale: dropping them loses the command written right after a
+	// map-changing one ("nextMap\necho ..." lost the echo).  Same rule as the
+	// POSIX Sys_FreeQueuedEvents( ..., keepConsoleEvents = true ).
+	for ( sdSysEvent* event = eventQue.Next(); event != NULL; ) {
+		sdSysEvent* next = event->GetNode().Next();
+		if ( !event->IsConsoleEvent() ) {
+			event->GetNode().Remove();
+			event->FreeData();
+			eventAllocator.Free( event );
+		}
+		event = next;
 	}
 }
 
