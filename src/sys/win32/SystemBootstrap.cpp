@@ -198,10 +198,10 @@ void idSysLocal::Init() {
 #ifndef ID_DEDICATED
 	SDL_SetMainReady();
 	// SDL2's SDL_HINT_WINDOWS_DPI_AWARENESS ("permonitorv2") is gone in SDL3.
-	// WINVER 0x0501 keeps the user32 prototype out of the headers, so resolve
-	// it dynamically; failure leaves the process DPI mode as created.
+	// SetProcessDpiAwarenessContext exists from Windows 10 1703 on, so it is
+	// resolved at run time; without it the process DPI mode stays as created.
 	{
-		typedef BOOL (WINAPI *SetProcessDpiAwarenessContext_t)( HANDLE );
+		typedef BOOL (WINAPI *SetProcessDpiAwarenessContext_t)( DPI_AWARENESS_CONTEXT );
 		SetProcessDpiAwarenessContext_t setDpiContext =
 			reinterpret_cast< SetProcessDpiAwarenessContext_t >( GetProcAddress(
 				GetModuleHandleA( "user32.dll" ), "SetProcessDpiAwarenessContext" ) );
