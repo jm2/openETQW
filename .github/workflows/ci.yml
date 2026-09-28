@@ -220,7 +220,8 @@ jobs:
             vcpkg_triplet: ""
             experimental: false
             blocker: ""
-          # Windows engine sources do not compile yet: experimental.
+          # Windows x64 builds and runs the retail suite locally (VS 2026, MSVC 19.51,
+          # 2026-09-28) but has never run on a hosted runner: experimental until it does.
           - id: windows-x64-msvc
             name: Windows x64 MSVC
             os: windows-2025
@@ -230,7 +231,7 @@ jobs:
             cxx: cl
             vcpkg_triplet: x64-windows
             experimental: true
-            blocker: "Windows engine sources have never compiled: src/sys/win32 SystemBootstrap/win_local SDL3 issues, and src/sys/sys_local.cpp is POSIX-only (Common.cpp POSIX calls replaced, not yet built with MSVC)"
+            blocker: "never run on a hosted runner; built and tested locally with VS 2026 (MSVC 19.51) only"
           - id: windows-arm64-msvc
             name: Windows ARM64 MSVC
             os: windows-11-arm
@@ -240,7 +241,7 @@ jobs:
             cxx: cl
             vcpkg_triplet: arm64-windows
             experimental: true
-            blocker: "Windows engine sources have never compiled: src/sys/win32 SystemBootstrap/win_local SDL3 issues, and src/sys/sys_local.cpp is POSIX-only (Common.cpp POSIX calls replaced, not yet built with MSVC)"
+            blocker: "the Windows ARM64 engine build has never compiled (x64 builds locally with VS 2026)"
     env:
       OPENETQW_GAME_REPO: ${{ github.workspace }}/openETQW-game
       CC: ${{ matrix.cc }}
@@ -324,7 +325,7 @@ jobs:
             git clone --depth 1 https://github.com/microsoft/vcpkg.git $root
             & (Join-Path $root "bootstrap-vcpkg.bat") -disableMetrics
           }
-          & (Join-Path $root "vcpkg.exe") install --triplet $env:VCPKG_TRIPLET --clean-after-build sdl3 vulkan-headers vulkan-loader zlib pkgconf
+          & (Join-Path $root "vcpkg.exe") install --triplet $env:VCPKG_TRIPLET --clean-after-build "sdl3[vulkan]" vulkan-headers vulkan-loader zlib pkgconf
           $installed = (Join-Path $root "installed/$env:VCPKG_TRIPLET") -replace '\\', '/'
           "PKG_CONFIG=$installed/tools/pkgconf/pkgconf.exe" >> $env:GITHUB_ENV
           "PKG_CONFIG_PATH=$installed/lib/pkgconfig;$installed/share/pkgconfig" >> $env:GITHUB_ENV
