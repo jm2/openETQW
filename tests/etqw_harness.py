@@ -98,14 +98,26 @@ def install_signal_handlers() -> None:
                 pass
 
 
-def graceful_terminate(proc: subprocess.Popen) -> str:
+# Popen creationflags for a dedicated server that graceful_terminate() should stop
+# with CTRL_BREAK_EVENT on Windows (a console control event needs its own process
+# group); 0 on POSIX.
+CONSOLE_SIGNAL_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+
+
+def graceful_terminate(proc: subprocess.Popen, console_group: bool = False) -> str:
     """Ask an engine process to shut down cleanly (it must exit 0).
 
     POSIX sends SIGTERM, which the engine turns into a clean shutdown.
-    On Windows there is no SIGTERM: send_signal would TerminateProcess and
-    the exit code would not be 0, so ask over stdin instead (the engine
-    reads console input from stdin on every platform).  Returns the
+    On Windows there is no SIGTERM (send_signal would TerminateProcess and
+    the exit code would not be 0).  A dedicated server started with
+    creationflags=CONSOLE_SIGNAL_GROUP (console_group=True) gets
+    CTRL_BREAK_EVENT, which it handles like SIGTERM; otherwise, as for the
+    GUI client, which has no console, the request goes over stdin (the
+    engine reads console input from stdin on every platform).  Returns the
     request that was used."""
+    if os.name == "nt" and console_group:
+        proc.send_signal(signal.CTRL_BREAK_EVENT)
+        return "CTRL_BREAK_EVENT"
     if os.name == "nt":
         try:
             proc.stdin.write("quit\n")
