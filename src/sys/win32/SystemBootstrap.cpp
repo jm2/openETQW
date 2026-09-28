@@ -38,10 +38,6 @@ idSys *				sys = &sysLocal;
 
 Win32Vars_t win32 = {};
 
-void PQ_Init() {}
-void PQ_ShutDown() {}
-sdSoundThread* sys_soundThread = NULL;
-
 #ifdef ID_DEDICATED
 void Sys_ProcessSDLEvents( void ) {}
 void IN_Frame( void ) {}

@@ -219,6 +219,16 @@ DARWIN_CLIENT_SOURCES = (
 
 PLATFORM_WIN32_SOURCES = (
     "src/sys/win32/SystemBootstrap.cpp",
+    # Call-stack names for idSysLocal::GetFunctionName/GetFunctionSourceFile.
+    "src/sys/win32/win_stack.cpp",
+    "src/sys/win32/stacktracer.cpp",
+    # Sound service worker (sys_soundThread) and PDH perf queries
+    # (Sys_GetPerformanceQuery); SystemBootstrap starts them client-side.
+    "src/sys/win32/win_soundthread.cpp",
+    "src/sys/win32/win_perfquery.cpp",
+    # Controller APIs instantiated by sdControllerManagerLocal::Init (#ifdef _WIN32).
+    "src/sys/win32/input/win_xinput.cpp",
+    "src/sys/win32/input/win_dinput.cpp",
 )
 
 SDL3_PLATFORM_SOURCES = (

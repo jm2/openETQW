@@ -6,10 +6,10 @@ Win32 performance-counter queries.
 ===========================================================================
 */
 
-#include "../../idlib/precompiled.h"
+#include "idlib/precompiled.h"
 #pragma hdrstop
 
-#include "../sys_local.h"
+#include "sys_local.h"
 
 #include <pdh.h>
 #include <pdhmsg.h>
@@ -145,7 +145,8 @@ sdPerformanceQueryWin::sdPerformanceQueryWin( const sdQueryInfoWin* info ) :
 		browseDlgData.szReturnPathBuffer = nameBuffer;
 		browseDlgData.cchReturnPathLength = sizeof( nameBuffer );
 		browseDlgData.dwDefaultDetailLevel = PERF_DETAIL_WIZARD;
-		browseDlgData.szDialogBoxCaption = "Select a performance query to add";
+		static char browseCaption[] = "Select a performance query to add";
+		browseDlgData.szDialogBoxCaption = browseCaption;
 		status = PdhBrowseCountersA( &browseDlgData );
 		PdhIsOk( status );
 		counterName = nameBuffer;

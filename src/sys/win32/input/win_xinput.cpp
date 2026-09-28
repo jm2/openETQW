@@ -1,10 +1,10 @@
 // Copyright (C) 2007 Id Software, Inc.
 //
 
-#include "../../../idlib/precompiled.h"
+#include "idlib/precompiled.h"
 #pragma hdrstop
 
-#include "../../sys_local.h"
+#include "sys_local.h"
 #include "win_xinput.h"
 
 extern int com_frameTime;

@@ -14,6 +14,10 @@ Win32 DbgHelp stack tracing.
 #include <dbghelp.h>
 #include <intrin.h>
 
+// winnt.h only declares RtlCaptureContext above NTDDI_WIN2K; the dedicated
+// build's WINVER (LibOS.h, ID_DEDICATED) is 0x0500 and hides it.
+extern "C" NTSYSAPI VOID NTAPI RtlCaptureContext( PCONTEXT ContextRecord );
+
 unsigned char idStackTracer::symbolInfo[ 4096 ];
 char idStackTracer::basePath[ 256 ];
 

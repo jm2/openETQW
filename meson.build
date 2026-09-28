@@ -247,6 +247,11 @@ elif host_system == 'windows'
   version_dep = cpp.find_library('version', required: true)
   ole32_dep = cpp.find_library('ole32', required: true)
   shell32_dep = cpp.find_library('shell32', required: true)
+  # win_perfquery.cpp (PDH), win_dinput.cpp (c_dfDIJoystick2/GUID_*/SysAllocString)
+  pdh_dep = cpp.find_library('pdh', required: true)
+  dinput8_dep = cpp.find_library('dinput8', required: true)
+  dxguid_dep = cpp.find_library('dxguid', required: true)
+  oleaut32_dep = cpp.find_library('oleaut32', required: true)
   engine_common_deps += [
     ws2_32_dep,
     winmm_dep,
@@ -254,6 +259,10 @@ elif host_system == 'windows'
     version_dep,
     ole32_dep,
     shell32_dep,
+    pdh_dep,
+    dinput8_dep,
+    dxguid_dep,
+    oleaut32_dep,
   ]
 endif
 
@@ -297,6 +306,10 @@ if build_engine
   client_cpp_args = common_engine_defs + engine_pch_args + ['-DVK_ENABLE_BETA_EXTENSIONS', '-DUSE_SDL3']
   if host_system == 'linux'
     gl_dep = dependency('gl', required: true)
+    client_deps += [gl_dep]
+    client_cpp_args += ['-DID_GL_HARDLINK']
+  elif host_system == 'windows'
+    gl_dep = cpp.find_library('opengl32', required: true)
     client_deps += [gl_dep]
     client_cpp_args += ['-DID_GL_HARDLINK']
   endif
