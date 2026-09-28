@@ -783,7 +783,9 @@ void Sys_Error( const char *error, ... ) {
 	OutputDebugStringA( text );
 	fprintf( stderr, "%s\n", text );
 	fflush( stderr );
+#ifndef ID_DEDICATED
 	MessageBoxA( NULL, text, GAME_NAME, MB_OK | MB_ICONERROR );
+#endif
 	ExitProcess( 1 );
 }
 
