@@ -82,7 +82,6 @@ const int SYSTEM_MAX_OS_PATH = 256;
 const int SYSTEM_EDITOR_RADIANT = BIT( 1 );
 #endif
 
-volatile LONG quitRequested;
 LARGE_INTEGER timerFrequency;
 LARGE_INTEGER timerBase;
 bool networkingInitialized;
@@ -792,9 +791,11 @@ void Sys_Error( const char *error, ... ) {
 	ExitProcess( 1 );
 }
 
+// Does not return, like posix_main.cpp's _exit: idCommonLocal::Quit calls this
+// after Shutdown, and the frame that ran the quit command must not continue on
+// the freed state.
 void Sys_Quit() {
-	InterlockedExchange( &quitRequested, 1 );
-	PostQuitMessage( 0 );
+	fflush( NULL );
 	ExitProcess( 0 );
 }
 
@@ -1809,11 +1810,11 @@ int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE, LPSTR commandLine, int ) {
 			sys->Mouse().GrabCursor( true );
 		}
 	}
-	while ( InterlockedCompareExchange( &quitRequested, 0, 0 ) == 0 ) {
+	// "quit" ends the process: idCommonLocal::Quit shuts down, then Sys_Quit exits.
+	while ( 1 ) {
 		common->Frame();
 		Sys_Sleep( 1 );
 	}
-	common->Shutdown();
 	return 0;
 }
 #endif
@@ -1827,16 +1828,51 @@ int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE, LPSTR commandLine, int ) {
 */
 
 #ifdef ID_DEDICATED
+// Console control events arrive on a thread the system creates for them.  As
+// with the POSIX SIGINT/SIGTERM handler, the handler only records the request;
+// the main loop turns it into a "quit" command, so the shutdown runs on the main
+// thread between frames.
+static volatile LONG pendingCtrlEvent = -1;
+
+static const char *Sys_CtrlEventName( LONG ctrlType ) {
+	switch ( ctrlType ) {
+	case CTRL_C_EVENT:			return "CTRL_C_EVENT";
+	case CTRL_BREAK_EVENT:		return "CTRL_BREAK_EVENT";
+	case CTRL_CLOSE_EVENT:		return "CTRL_CLOSE_EVENT";
+	case CTRL_SHUTDOWN_EVENT:	return "CTRL_SHUTDOWN_EVENT";
+	default:					return "console control event";
+	}
+}
+
 static BOOL WINAPI Sys_ConsoleCtrlHandler( DWORD ctrlType ) {
 	switch ( ctrlType ) {
 	case CTRL_C_EVENT:
 	case CTRL_BREAK_EVENT:
+		InterlockedCompareExchange( &pendingCtrlEvent, static_cast< LONG >( ctrlType ), -1 );
+		return TRUE;
 	case CTRL_CLOSE_EVENT:
 	case CTRL_SHUTDOWN_EVENT:
-		Sys_Quit();
+		// The system ends the process as soon as this handler returns (or after
+		// its timeout), so hold this thread while the main thread shuts down;
+		// Sys_Quit's ExitProcess ends it.
+		InterlockedCompareExchange( &pendingCtrlEvent, static_cast< LONG >( ctrlType ), -1 );
+		Sleep( 10000 );
 		return TRUE;
 	default:
 		return FALSE;
+	}
+}
+
+static void Sys_HandlePendingCtrlEvent( void ) {
+	const LONG ctrlType = InterlockedExchange( &pendingCtrlEvent, -1 );
+	if ( ctrlType == -1 ) {
+		return;
+	}
+	common->Printf( "Received %s, shutting down...\n", Sys_CtrlEventName( ctrlType ) );
+	if ( cmdSystem != NULL ) {
+		cmdSystem->BufferCommandText( CMD_EXEC_NOW, "quit\n" );
+	} else {
+		common->Quit();
 	}
 }
 
@@ -1868,12 +1904,12 @@ int main( int argc, char **argv ) {
 		}
 	}
 
-	while ( InterlockedCompareExchange( &quitRequested, 0, 0 ) == 0 ) {
+	// "quit" ends the process: idCommonLocal::Quit shuts down, then Sys_Quit exits.
+	while ( 1 ) {
+		Sys_HandlePendingCtrlEvent();
 		common->Frame();
 		Sys_Sleep( 1 );
 	}
-
-	common->Shutdown();
 	return 0;
 }
 #endif
