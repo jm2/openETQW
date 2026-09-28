@@ -61,6 +61,7 @@ struct sdRayTracingViewContext {
 	VkImageView	colorImageView;
 	VkImage			depthImage;
 	VkImageView	depthImageView;
+	VkImageView	depthSampleView;
 	VkImage			reflectionImage;
 	VkImageView	reflectionImageView;
 	VkSampler		reflectionSampler;

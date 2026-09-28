@@ -365,6 +365,7 @@ struct sdVulkanBackendState {
 	idList< VkImage >			depthImages;
 	idList< VkDeviceMemory >	depthMemory;
 	idList< VkImageView >		depthViews;
+	idList< VkImageView >		depthSampleViews;
 	idList< byte >			depthInitialized;
 	bool					swapchainDirty;
 	bool					swapchainTransferSource;
@@ -1645,6 +1646,11 @@ void DestroyDepthResources( sdVulkanBackendState& state ) {
 				state.DestroyImageView( state.device, state.depthViews[ i ], NULL );
 			}
 		}
+		for ( int i = 0; i < state.depthSampleViews.Num(); ++i ) {
+			if ( state.depthSampleViews[ i ] != VK_NULL_HANDLE ) {
+				state.DestroyImageView( state.device, state.depthSampleViews[ i ], NULL );
+			}
+		}
 		for ( int i = 0; i < state.depthImages.Num(); ++i ) {
 			if ( state.depthImages[ i ] != VK_NULL_HANDLE ) {
 				state.DestroyImage( state.device, state.depthImages[ i ], NULL );
@@ -1657,6 +1663,7 @@ void DestroyDepthResources( sdVulkanBackendState& state ) {
 	state.depthImages.Clear();
 	state.depthMemory.Clear();
 	state.depthViews.Clear();
+	state.depthSampleViews.Clear();
 	state.depthInitialized.Clear();
 }
 
@@ -1690,13 +1697,18 @@ void DestroySwapchain( sdVulkanBackendState& state ) {
 
 bool CreateDepthResources( sdVulkanBackendState& state, unsigned int count,
 	VkExtent2D extent, idList< VkImage >& images,
-	idList< VkDeviceMemory >& memory, idList< VkImageView >& views ) {
+	idList< VkDeviceMemory >& memory, idList< VkImageView >& views,
+	idList< VkImageView >* sampleViews = NULL ) {
 	images.SetNum( count );
 	memory.SetNum( count );
 	views.SetNum( count );
 	memset( images.Begin(), 0, count * sizeof( VkImage ) );
 	memset( memory.Begin(), 0, count * sizeof( VkDeviceMemory ) );
 	memset( views.Begin(), 0, count * sizeof( VkImageView ) );
+	if ( sampleViews != NULL ) {
+		sampleViews->SetNum( count );
+		memset( sampleViews->Begin(), 0, count * sizeof( VkImageView ) );
+	}
 	const VkFormat depthFormat = state.depthStencilFormat != VK_FORMAT_UNDEFINED ?
 		state.depthStencilFormat : VK_FORMAT_D32_SFLOAT_S8_UINT;
 	for ( unsigned int i = 0; i < count; ++i ) {
@@ -1751,12 +1763,22 @@ bool CreateDepthResources( sdVulkanBackendState& state, unsigned int count,
 			&viewInfo, NULL, &views[ i ] ), "vkCreateImageView(depth)" ) ) {
 			break;
 		}
+		if ( sampleViews != NULL ) {
+			viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+			if ( !CheckVulkanResult( state.CreateImageView( state.device,
+				&viewInfo, NULL, &( *sampleViews )[ i ] ), "vkCreateImageView(depth sample)" ) ) {
+				break;
+			}
+		}
 	}
 	for ( unsigned int i = 0; i < count; ++i ) {
 		if ( views[ i ] == VK_NULL_HANDLE ) {
 			for ( unsigned int j = 0; j < count; ++j ) {
 				if ( views[ j ] != VK_NULL_HANDLE ) {
 					state.DestroyImageView( state.device, views[ j ], NULL );
+				}
+				if ( sampleViews != NULL && ( *sampleViews )[ j ] != VK_NULL_HANDLE ) {
+					state.DestroyImageView( state.device, ( *sampleViews )[ j ], NULL );
 				}
 				if ( images[ j ] != VK_NULL_HANDLE ) {
 					state.DestroyImage( state.device, images[ j ], NULL );
@@ -1768,6 +1790,9 @@ bool CreateDepthResources( sdVulkanBackendState& state, unsigned int count,
 			images.Clear();
 			memory.Clear();
 			views.Clear();
+			if ( sampleViews != NULL ) {
+				sampleViews->Clear();
+			}
 			return false;
 		}
 	}
@@ -1927,8 +1952,9 @@ bool CreateSwapchain( sdVulkanBackendState& state, int requestedWidth,
 	idList< VkImage > newDepthImages;
 	idList< VkDeviceMemory > newDepthMemory;
 	idList< VkImageView > newDepthViews;
+	idList< VkImageView > newDepthSampleViews;
 	if ( !CreateDepthResources( state, newImageCount, extent, newDepthImages,
-		newDepthMemory, newDepthViews ) ) {
+		newDepthMemory, newDepthViews, &newDepthSampleViews ) ) {
 		for ( unsigned int i = 0; i < newImageCount; ++i ) {
 			state.DestroyImageView( state.device, newViews[ i ], NULL );
 		}
@@ -1939,6 +1965,7 @@ bool CreateSwapchain( sdVulkanBackendState& state, int requestedWidth,
 	if ( !CreateSemaphoreList( state, newImageCount, newPresentSemaphores,
 		"vkCreateSemaphore(present)" ) ) {
 		for ( unsigned int i = 0; i < newImageCount; ++i ) {
+			state.DestroyImageView( state.device, newDepthSampleViews[ i ], NULL );
 			state.DestroyImageView( state.device, newDepthViews[ i ], NULL );
 			state.DestroyImage( state.device, newDepthImages[ i ], NULL );
 			state.FreeMemory( state.device, newDepthMemory[ i ], NULL );
@@ -1955,6 +1982,7 @@ bool CreateSwapchain( sdVulkanBackendState& state, int requestedWidth,
 		surfaceFormat.format, extent, newCurrentRenderResource ) ) {
 		DestroySemaphoreList( state, newPresentSemaphores );
 		for ( unsigned int i = 0; i < newImageCount; ++i ) {
+			state.DestroyImageView( state.device, newDepthSampleViews[ i ], NULL );
 			state.DestroyImageView( state.device, newDepthViews[ i ], NULL );
 			state.DestroyImage( state.device, newDepthImages[ i ], NULL );
 			state.FreeMemory( state.device, newDepthMemory[ i ], NULL );
@@ -1982,6 +2010,7 @@ bool CreateSwapchain( sdVulkanBackendState& state, int requestedWidth,
 	state.depthImages = newDepthImages;
 	state.depthMemory = newDepthMemory;
 	state.depthViews = newDepthViews;
+	state.depthSampleViews = newDepthSampleViews;
 	state.depthInitialized.SetNum( newImageCount );
 	memset( state.depthInitialized.Begin(), 0, newImageCount );
 	state.currentRenderResource = newCurrentRenderResource;
@@ -9298,6 +9327,8 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 		rayTracingView.colorImageView = state->swapchainViews[ state->imageIndex ];
 		rayTracingView.depthImage = state->depthImages[ state->imageIndex ];
 		rayTracingView.depthImageView = state->depthViews[ state->imageIndex ];
+	rayTracingView.depthSampleView = state->depthSampleViews.Num() > static_cast< int >( state->imageIndex ) ?
+		state->depthSampleViews[ state->imageIndex ] : VK_NULL_HANDLE;
 		if ( currentRenderCopied && state->currentRenderInitialized ) {
 			rayTracingView.reflectionImage = state->currentRenderResource.image;
 			rayTracingView.reflectionImageView = state->currentRenderResource.view;
