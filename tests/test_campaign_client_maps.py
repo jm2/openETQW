@@ -4,7 +4,7 @@
 
 North America: outskirts, Northern Europe: ark, South Pacific: canyon,
 Africa: refinery (override with --maps). For each map the Vulkan client loads
-the map (+devmap, r_shadows 1), joins GDF as a soldier, renders for a while,
+the map (+devmap, r_shadows 1, the stencil path with r_rayTracing 0), joins GDF as a soldier, renders for a while,
 is asked to shut down cleanly (SIGTERM on POSIX, stdin 'quit' on Windows), and must exit 0. The metrics the backend prints at shutdown
 are asserted:
   - frames presented, world draws, MegaTexture (terrain) draws > 0
@@ -69,7 +69,7 @@ def find_client(explicit):
 def run_map(client, data, map_name, render_seconds, log_path, team="gdf", at=None):
     args = [str(client), "+set", "fs_basepath", str(data), "+set", "fs_game", "base",
             "+set", "si_rules", "sdGameRulesObjective", "+set", "r_renderAPI", "vulkan", "+set", "r_shadows", "1",
-            "+set", "r_vkValidation", "1",
+            "+set", "r_rayTracing", "0", "+set", "r_vkValidation", "1",
             "+devmap", map_name, "+clientTeam", team, "+clientClass", "soldier", "+closeLimbo"]
     lines = []
     q = queue.Queue()

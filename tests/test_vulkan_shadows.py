@@ -8,7 +8,7 @@ Validates:
    - worldShadowPassPipeline (two-sided depth-pass)
    - worldShadowFailPipeline (two-sided Carmack's Reverse depth-fail)
    - worldInteractionPipeline (additive blending masked by stencil == 0)
-3. Full stock map Valley (maps/valley.world) loading with r_renderAPI vulkan and r_shadows 1.
+3. Full stock map Valley (maps/valley.world) loading with r_renderAPI vulkan, r_shadows 1 and the stencil path (r_rayTracing 0; Win64 defaults to ray-query lighting).
 4. Active streaming and submission of dynamic stencil shadow volumes (shadow draws > 0).
 5. Dynamic light interaction passes masked by the stencil buffer (light interactions > 0).
 6. Continuous MoltenVK swapchain presentation (frames presented >= 50).
@@ -80,8 +80,9 @@ def test_vulkan_shadows_lifecycle() -> None:
         "+set", "fs_basepath", str(DATA_PATH),
         "+set", "fs_game", "base",
         "+set", "si_rules", "sdGameRulesObjective",
-        "+set", "r_renderAPI", "vulkan",
-        "+set", "r_shadows", "1",
+    "+set", "r_renderAPI", "vulkan",
+    "+set", "r_shadows", "1",
+    "+set", "r_rayTracing", "0",
         "+devmap", "valley",
         "+clientTeam", "gdf",
         "+clientClass", "soldier",
