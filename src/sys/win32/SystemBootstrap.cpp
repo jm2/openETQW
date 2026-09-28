@@ -153,7 +153,7 @@ void SockaddrFromNetadr( const netadr_t& address, sockaddr_in& socketAddress ) {
 }
 
 void NetadrFromSockaddr( const sockaddr_in& socketAddress, netadr_t& address ) {
-	address.type = ( ntohl( socketAddress.sin_addr.s_addr ) == INADDR_LOOPBACK ) ? NA_LOOPBACK : NA_IP;
+	address.type = NA_IP;
 	memcpy( address.ip, &socketAddress.sin_addr, sizeof( address.ip ) );
 	address.port = ntohs( socketAddress.sin_port );
 }
@@ -1368,9 +1368,16 @@ void idPort::SendPacket( const netadr_t to, const void *data, int size ) {
 }
 
 bool Sys_StringToNetAdr( const char *text, netadr_t *address, bool doDNSResolve ) {
-	if ( text == NULL || address == NULL ) {
+	if ( text == NULL || address == NULL || text[ 0 ] == '\0' ) {
 		return false;
 	}
+	memset( address, 0, sizeof( *address ) );
+
+	if ( idStr::Icmp( text, "localhost" ) == 0 || idStr::Icmp( text, "127.0.0.1" ) == 0 ) {
+		address->type = NA_LOOPBACK;
+		return true;
+	}
+
 	char host[ 256 ];
 	idStr::Copynz( host, text, sizeof( host ) );
 	char* portText = strrchr( host, ':' );
@@ -1379,14 +1386,8 @@ bool Sys_StringToNetAdr( const char *text, netadr_t *address, bool doDNSResolve 
 		*portText++ = '\0';
 		port = atoi( portText );
 	}
-	memset( address, 0, sizeof( *address ) );
 	address->port = static_cast< unsigned short >( port );
-	if ( idStr::Icmp( host, "localhost" ) == 0 ) {
-		address->type = NA_LOOPBACK;
-		address->ip[ 0 ] = 127;
-		address->ip[ 3 ] = 1;
-		return true;
-	}
+
 	unsigned long parsed = inet_addr( host );
 	if ( parsed == INADDR_NONE && doDNSResolve ) {
 		hostent* entry = gethostbyname( host );
@@ -1432,7 +1433,13 @@ bool Sys_IsLANAddress( const netadr_t& address ) {
 }
 
 bool Sys_CompareNetAdrBase( const netadr_t& a, const netadr_t& b ) {
-	return a.type == b.type && memcmp( a.ip, b.ip, sizeof( a.ip ) ) == 0;
+	if ( a.type != b.type ) {
+		return false;
+	}
+	if ( a.type == NA_LOOPBACK ) {
+		return true;
+	}
+	return memcmp( a.ip, b.ip, sizeof( a.ip ) ) == 0;
 }
 
 int Sys_GetLocalIPCount() { return 1; }
