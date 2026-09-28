@@ -101,7 +101,8 @@ void	DisableTaskKeys( BOOL bDisable, BOOL bBeep, BOOL bTaskMgr );
 void	PQ_Init( void );
 void	PQ_ShutDown( void );
 
-void	Sys_ProcessSDLEvents( void );void	Sys_QueueSDLKeyEvent( const SDL_KeyboardEvent& event );
+void	Sys_ProcessSDLEvents( void );
+void	Sys_QueueSDLKeyEvent( const SDL_KeyboardEvent& event );
 void	Sys_QueueSDLTextEvent( const SDL_TextInputEvent& event );
 void	Sys_QueueSDLMouseMotionEvent( const SDL_MouseMotionEvent& event );
 void	Sys_QueueSDLMouseButtonEvent( const SDL_MouseButtonEvent& event );

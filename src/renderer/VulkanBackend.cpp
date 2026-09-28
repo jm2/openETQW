@@ -9359,8 +9359,8 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 		rayTracingView.colorImageView = state->swapchainViews[ state->imageIndex ];
 		rayTracingView.depthImage = state->depthImages[ state->imageIndex ];
 		rayTracingView.depthImageView = state->depthViews[ state->imageIndex ];
-	rayTracingView.depthSampleView = state->depthSampleViews.Num() > static_cast< int >( state->imageIndex ) ?
-		state->depthSampleViews[ state->imageIndex ] : VK_NULL_HANDLE;
+		rayTracingView.depthSampleView = state->depthSampleViews.Num() > static_cast< int >( state->imageIndex ) ?
+			state->depthSampleViews[ state->imageIndex ] : VK_NULL_HANDLE;
 		if ( currentRenderCopied && state->currentRenderInitialized ) {
 			rayTracingView.reflectionImage = state->currentRenderResource.image;
 			rayTracingView.reflectionImageView = state->currentRenderResource.view;
