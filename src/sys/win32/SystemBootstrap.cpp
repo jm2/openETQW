@@ -18,6 +18,7 @@
 #endif
 
 #include <winsock2.h>
+#include <timeapi.h>
 #include <direct.h>
 #include <io.h>
 #include <locale.h>
@@ -194,6 +195,7 @@ void idSysLocal::Init() {
 	QueryPerformanceFrequency( &timerFrequency );
 	QueryPerformanceCounter( &timerBase );
 	Sys_EnsureThreadingInitialized();
+	timeBeginPeriod( 1 );
 #ifndef ID_DEDICATED
 	SDL_SetMainReady();
 	// SDL2's SDL_HINT_WINDOWS_DPI_AWARENESS ("permonitorv2") is gone in SDL3.
@@ -235,6 +237,7 @@ void idSysLocal::Shutdown() {
 	PQ_ShutDown();
 	SDL_Quit();
 #endif
+	timeEndPeriod( 1 );
 	Sys_ShutdownThreading();
 }
 
