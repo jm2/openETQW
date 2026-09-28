@@ -407,6 +407,13 @@ if host_system == 'windows'
       endforeach
     endif
   endforeach
+  # The engine loads the game module from its executable's directory.  POSIX
+  # hosts symlink it (readme); on Windows, where a symlink needs privileges, the
+  # build copies it, again whenever the game build replaces it.
+  game_module_dll = game_repo_root / 'build' / game_module_binary_name + '.dll'
+  if game_repo_root != '' and fs_mod.is_file(game_module_dll)
+    fs_mod.copyfile(game_module_dll, game_module_binary_name + '.dll')
+  endif
 endif
 
 if build_tests

@@ -52,7 +52,8 @@ meson setup build -Dbuild_engine=true -Dbuild_dedicated=true -Dbuild_tests=true
 meson compile -C build
 
 # 3. The engine loads the game module from the directory of its executable.
-#    The engine build does not copy it; the development host uses a symlink.
+#    The engine build does not copy it here; the development host uses a symlink.
+#    (On Windows the engine build copies game_x64.dll, see Build on Windows.)
 ln -s "$PWD/../openETQW-game/build/game_arm64.dylib" build/game_arm64.dylib
 ```
 
