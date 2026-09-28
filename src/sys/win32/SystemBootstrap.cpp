@@ -1059,7 +1059,12 @@ long Sys_FileTimeStamp( FILE *file ) {
 	return _fstat( _fileno( file ), &status ) == 0 ? static_cast< long >( status.st_mtime ) : 0;
 }
 
-const char *Sys_DefaultCDPath() { return ""; }
+const char *Sys_DefaultCDPath() {
+	static char path[ SYSTEM_MAX_OS_PATH ];
+	_getcwd( path, sizeof( path ) );
+	path[ sizeof( path ) - 1 ] = '\0';
+	return path;
+}
 
 const char *Sys_DefaultBasePath() {
 	static char path[ SYSTEM_MAX_OS_PATH ];
