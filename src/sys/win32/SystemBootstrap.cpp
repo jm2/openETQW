@@ -556,10 +556,69 @@ static bool Win_ConsoleReady( HANDLE stdinHandle ) {
 		}
 		return available > 0;
 	}
-	if ( type == FILE_TYPE_CHAR ) {
-		return WaitForSingleObject( stdinHandle, 0 ) == WAIT_OBJECT_0;
-	}
 	return true;
+}
+
+/*
+An interactive console cannot be polled like a pipe: its handle is signaled by
+any input record (a focus change, a mouse move, the key-up of the Enter that
+started the process), and a ReadFile in line mode then blocks until the user
+presses Enter, which would stop the server's frames while an admin types.  A
+reader thread does the blocking reads instead, keeping the console's own echo
+and line editing, and hands the text to the main thread.
+*/
+static CRITICAL_SECTION consoleReaderLock;
+static char consoleReaderText[ 4096 ];
+static int consoleReaderLength = 0;
+static bool consoleReaderEOF = false;
+static bool consoleReaderStarted = false;
+
+static DWORD WINAPI Win_ConsoleReaderThread( LPVOID parm ) {
+	const HANDLE stdinHandle = static_cast< HANDLE >( parm );
+	for ( ;; ) {
+		char chunk[ 256 ];
+		DWORD read = 0;
+		SetLastError( ERROR_SUCCESS );
+		const BOOL ok = ReadFile( stdinHandle, chunk, sizeof( chunk ), &read, NULL );
+		if ( ( !ok || read == 0 ) && GetLastError() == ERROR_OPERATION_ABORTED ) {
+			// Ctrl+C interrupted the read; the control handler deals with it.
+			continue;
+		}
+		EnterCriticalSection( &consoleReaderLock );
+		if ( !ok || read == 0 ) {
+			// Ctrl+Z at the start of a line, or the console went away.
+			consoleReaderEOF = true;
+			LeaveCriticalSection( &consoleReaderLock );
+			return 0;
+		}
+		// Keep what fits if the main thread has not drained for a while.
+		const int count = Min( static_cast< int >( read ), static_cast< int >( sizeof( consoleReaderText ) ) - consoleReaderLength );
+		memcpy( consoleReaderText + consoleReaderLength, chunk, count );
+		consoleReaderLength += count;
+		LeaveCriticalSection( &consoleReaderLock );
+	}
+}
+
+// Returns the number of bytes copied into chunk; sets eof once the reader has stopped.
+static int Win_TakeConsoleReaderText( HANDLE stdinHandle, char* chunk, int chunkSize, bool& eof ) {
+	if ( !consoleReaderStarted ) {
+		consoleReaderStarted = true;
+		InitializeCriticalSection( &consoleReaderLock );
+		const HANDLE thread = CreateThread( NULL, 0, Win_ConsoleReaderThread, stdinHandle, 0, NULL );
+		if ( thread == NULL ) {
+			eof = true;
+			return 0;
+		}
+		CloseHandle( thread );
+	}
+	EnterCriticalSection( &consoleReaderLock );
+	const int count = Min( chunkSize, consoleReaderLength );
+	memcpy( chunk, consoleReaderText, count );
+	memmove( consoleReaderText, consoleReaderText + count, consoleReaderLength - count );
+	consoleReaderLength -= count;
+	eof = consoleReaderEOF && consoleReaderLength == 0;
+	LeaveCriticalSection( &consoleReaderLock );
+	return count;
 }
 
 void Win_ConsoleInput( void ) {
@@ -571,20 +630,16 @@ void Win_ConsoleInput( void ) {
 		consoleEOF = true;
 		return;
 	}
-	if ( !Win_ConsoleReady( stdinHandle ) ) {
-		return;
-	}
 	char chunk[ 256 ];
 	DWORD read = 0;
-	if ( !ReadFile( stdinHandle, chunk, sizeof( chunk ), &read, NULL ) || read == 0 ) {
-		// EOF: flush any partial line, like Posix_ConsoleInput.
-		if ( consolePos > 0 ) {
-			consoleLine[ consolePos ] = '\0';
-			Win_QueueConsoleLine();
-			consolePos = 0;
+	bool eof = false;
+	if ( GetFileType( stdinHandle ) == FILE_TYPE_CHAR ) {
+		read = static_cast< DWORD >( Win_TakeConsoleReaderText( stdinHandle, chunk, sizeof( chunk ), eof ) );
+	} else if ( Win_ConsoleReady( stdinHandle ) ) {
+		if ( !ReadFile( stdinHandle, chunk, sizeof( chunk ), &read, NULL ) || read == 0 ) {
+			read = 0;
+			eof = true;
 		}
-		consoleEOF = true;
-		return;
 	}
 	for ( DWORD i = 0; i < read; i++ ) {
 		const char ch = chunk[ i ];
@@ -605,6 +660,15 @@ void Win_ConsoleInput( void ) {
 		if ( consolePos < static_cast< int >( sizeof( consoleLine ) - 1 ) ) {
 			consoleLine[ consolePos++ ] = ch;
 		}
+	}
+	if ( eof ) {
+		// EOF: flush any partial line, like Posix_ConsoleInput.
+		if ( consolePos > 0 ) {
+			consoleLine[ consolePos ] = '\0';
+			Win_QueueConsoleLine();
+			consolePos = 0;
+		}
+		consoleEOF = true;
 	}
 }
 
