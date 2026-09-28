@@ -792,6 +792,7 @@ void Sys_Error( const char *error, ... ) {
 void Sys_Quit() {
 	InterlockedExchange( &quitRequested, 1 );
 	PostQuitMessage( 0 );
+	ExitProcess( 0 );
 }
 
 bool Sys_AlreadyRunning() {
