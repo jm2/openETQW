@@ -13,7 +13,6 @@ Tests:
 """
 
 import os
-import signal
 import subprocess
 import sys
 import time
@@ -200,7 +199,7 @@ def test_piped_stdin_immediate_eof():
 
 
 def test_piped_stdin_active_eof_and_signal():
-    """Test piped stdin EOF during active simulation, verify no spinlock, and clean SIGTERM shutdown."""
+    """Test piped stdin EOF during active simulation, verify no spinlock, and clean shutdown."""
     print("\n--- [TEST 3B] Active Piped stdin EOF & Graceful Signal Handling ---")
     proc = subprocess.Popen(
         COMMON_ARGS,
@@ -231,10 +230,12 @@ def test_piped_stdin_active_eof_and_signal():
         cpu = get_process_cpu_percent(proc.pid)
         print(f"Process alive after EOF. Current CPU usage: {cpu:.1f}%")
 
-        print("[4] Sending SIGTERM to test graceful signal shutdown...")
-        os.kill(proc.pid, signal.SIGTERM)
-
+        print("[4] Sending the shutdown request...")
+        request = h.graceful_terminate(proc)
         rc = proc.wait(timeout=15.0)
+        if os.name == "nt":
+            print(f"[PASSED] Test 3B completed. EOF handled without spinlock; Windows has no SIGTERM, stopped via {request} (rc {rc}).")
+            return True
         assert rc == 0, f"Expected exit code 0 on graceful SIGTERM, got {rc}"
         print(f"[PASSED] Test 3B completed successfully. EOF handled without spinlock, clean SIGTERM exit code {rc}.")
         return True

@@ -5,7 +5,7 @@
 North America: outskirts, Northern Europe: ark, South Pacific: canyon,
 Africa: refinery (override with --maps). For each map the Vulkan client loads
 the map (+devmap, r_shadows 1), joins GDF as a soldier, renders for a while,
-receives SIGTERM, and must exit 0. The metrics the backend prints at shutdown
+is asked to shut down cleanly (SIGTERM on POSIX, stdin 'quit' on Windows), and must exit 0. The metrics the backend prints at shutdown
 are asserted:
   - frames presented, world draws, MegaTexture (terrain) draws > 0
   - light interaction draws > 0; stencil shadow draws > 0 whenever a shadow-casting
@@ -24,7 +24,6 @@ import json
 import os
 import queue
 import re
-import signal
 import subprocess
 import sys
 import threading
@@ -110,7 +109,7 @@ def run_map(client, data, map_name, render_seconds, log_path, team="gdf", at=Non
                 pass
             moved = True
         if active is not None and not sent and time.time() - active >= render_seconds:
-            proc.send_signal(signal.SIGTERM)
+            h.graceful_terminate(proc)
             sent = True
         if proc.poll() is not None and (sent or line is None):
             break
@@ -118,7 +117,7 @@ def run_map(client, data, map_name, render_seconds, log_path, team="gdf", at=Non
         proc.wait(timeout=30.0)
     except subprocess.TimeoutExpired:
         proc.kill()
-        result["error"] = "client did not exit within 30 s of SIGTERM"
+        result["error"] = "client did not exit within 30 s of the shutdown request"
     while True:
         try:
             line = q.get(timeout=0.5)
@@ -156,7 +155,7 @@ def check(r):
     if not r.get("map_loaded"):
         fails.append("map never loaded")
     if not r.get("sigterm_sent"):
-        fails.append("never reached the rendering window (no SIGTERM sent)")
+        fails.append("never reached the rendering window (no shutdown request sent)")
     if r.get("exit_code") != 0:
         fails.append(f"exit code {r.get('exit_code')}")
     for key in ("frames", "world_draws", "megatexture_draws", "light_interactions"):

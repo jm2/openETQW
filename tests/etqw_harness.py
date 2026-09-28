@@ -98,6 +98,26 @@ def install_signal_handlers() -> None:
                 pass
 
 
+def graceful_terminate(proc: subprocess.Popen) -> str:
+    """Ask an engine process to shut down cleanly (it must exit 0).
+
+    POSIX sends SIGTERM, which the engine turns into a clean shutdown.
+    On Windows there is no SIGTERM: send_signal would TerminateProcess and
+    the exit code would not be 0, so ask over stdin instead (the engine
+    reads console input from stdin on every platform).  Returns the
+    request that was used."""
+    if os.name == "nt":
+        try:
+            proc.stdin.write("quit\n")
+            proc.stdin.flush()
+        except (BrokenPipeError, OSError, ValueError):
+            proc.terminate()
+            return "terminate (stdin unavailable)"
+        return "quit over stdin"
+    proc.send_signal(signal.SIGTERM)
+    return "SIGTERM"
+
+
 # ---------------------------------------------------------------------------
 # Binary discovery and retail data
 # ---------------------------------------------------------------------------

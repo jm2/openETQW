@@ -4,7 +4,7 @@
 
 Validates:
 1. Quick startup, swapchain initialization, SDL3 audio initialization, and clean quit (+quit) with exit code 0.
-2. Full Valley map loading, MegaTexture terrain streaming, world geometry rendering, continuous Vulkan frame presentation, and clean shutdown on SIGTERM with exit code 0.
+2. Full Valley map loading, MegaTexture terrain streaming, world geometry rendering, continuous Vulkan frame presentation, and clean shutdown (SIGTERM on POSIX, stdin 'quit' on Windows) with exit code 0.
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ from __future__ import annotations
 import os
 import queue
 import re
-import signal
 import subprocess
 import sys
 import threading
@@ -205,14 +204,14 @@ def test_valley_render_lifecycle() -> None:
         if game_running_time is not None and not sigterm_sent:
             elapsed_in_game = time.time() - game_running_time
             if elapsed_in_game >= 6.0:
-                print(f"  [TEST] Rendered in Valley for {elapsed_in_game:.1f}s. Sending SIGTERM for graceful shutdown...")
-                proc.send_signal(signal.SIGTERM)
+                request = h.graceful_terminate(proc)
+                print(f"  [TEST] Rendered in Valley for {elapsed_in_game:.1f}s. Sent {request} for graceful shutdown...")
                 sigterm_sent = True
                 try:
                     proc.wait(timeout=15.0)
                 except subprocess.TimeoutExpired:
                     proc.kill()
-                    raise TimeoutError("Client failed to shutdown gracefully within 15s after SIGTERM")
+                    raise TimeoutError("Client failed to shutdown gracefully within 15s after the shutdown request")
                 break
 
     # Drain remaining output
@@ -230,7 +229,7 @@ def test_valley_render_lifecycle() -> None:
             proc.kill()
             proc.wait(timeout=10.0)
             raise TimeoutError(f"the player never became active in Valley within 90 s (map loaded: {map_loaded})")
-        raise RuntimeError(f"Client exited with non-zero exit code {exit_code} after SIGTERM")
+        raise RuntimeError(f"Client exited with non-zero exit code {exit_code} after the shutdown request")
 
     full_output = "\n".join(output_lines)
 

@@ -12,7 +12,7 @@ Validates:
 4. Active streaming and submission of dynamic stencil shadow volumes (shadow draws > 0).
 5. Dynamic light interaction passes masked by the stencil buffer (light interactions > 0).
 6. Continuous MoltenVK swapchain presentation (frames presented >= 50).
-7. Graceful shutdown via SIGTERM with exit code 0.
+7. Graceful shutdown (SIGTERM on POSIX, stdin 'quit' on Windows) with exit code 0.
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ from __future__ import annotations
 import os
 import queue
 import re
-import signal
 import subprocess
 import sys
 import threading
@@ -151,14 +150,14 @@ def test_vulkan_shadows_lifecycle() -> None:
         if game_running_time is not None and not sigterm_sent:
             elapsed_in_game = time.time() - game_running_time
             if elapsed_in_game >= 6.0:
-                print(f"  [TEST] Rendered in Valley with Vulkan shadows for {elapsed_in_game:.1f}s. Sending SIGTERM...")
-                proc.send_signal(signal.SIGTERM)
+                request = h.graceful_terminate(proc)
+                print(f"  [TEST] Rendered in Valley with Vulkan shadows for {elapsed_in_game:.1f}s. Sent {request}...")
                 sigterm_sent = True
                 try:
                     proc.wait(timeout=15.0)
                 except subprocess.TimeoutExpired:
                     proc.kill()
-                    raise TimeoutError("Client failed to shutdown gracefully within 15s after SIGTERM")
+                    raise TimeoutError("Client failed to shutdown gracefully within 15s after the shutdown request")
                 break
 
     # Drain remaining output
@@ -176,7 +175,7 @@ def test_vulkan_shadows_lifecycle() -> None:
             proc.kill()
             proc.wait(timeout=10.0)
             raise TimeoutError(f"the player never became active in Valley within 90 s (map loaded: {map_loaded})")
-        raise RuntimeError(f"Client exited with non-zero exit code {exit_code} after SIGTERM")
+        raise RuntimeError(f"Client exited with non-zero exit code {exit_code} after the shutdown request")
 
     full_output = "\n".join(output_lines)
 
