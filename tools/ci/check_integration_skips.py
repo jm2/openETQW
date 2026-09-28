@@ -196,6 +196,15 @@ echo "OPENETQW CI STUB: not a real engine; the test should have skipped (exit 77
 exit 1
 """
 
+STUB_SCRIPT_CMD = """@echo off
+rem Stub engine binary written by tools/ci/check_integration_skips.py.
+>>"%~dp0stub-invocations.log" echo %~nx0 %*
+echo OPENETQW CI STUB: not a real engine; the test should have skipped (exit 77) before launching it 1>&2
+exit /b 1
+"""
+
+STUB_SUFFIX = ".cmd" if os.name == "nt" else ""
+
 
 def neutralise_hardcoded_paths(tests_dir: Path, absent: Path) -> int:
     """Point hard-coded absolute paths in the sandbox copies at a missing dir.
@@ -234,13 +243,20 @@ def build_sandbox(root: Path, sandbox: Path, keep_hardcoded: bool) -> Path:
     for name in ("src", "tools", "meson.build", "meson_options.txt"):
         source = root / name
         if source.exists():
-            (sandbox / name).symlink_to(source, target_is_directory=source.is_dir())
+            link = sandbox / name
+            try:
+                link.symlink_to(source, target_is_directory=source.is_dir())
+            except OSError:
+                if source.is_dir():
+                    shutil.copytree(source, link)
+                else:
+                    shutil.copy2(source, link)
     build = sandbox / "build"
     build.mkdir()
     for stem in STUB_NAMES:
         for arch in STUB_ARCHES:
-            stub = build / f"{stem}_{arch}"
-            stub.write_text(STUB_SCRIPT, encoding="utf-8")
+            stub = build / f"{stem}_{arch}{STUB_SUFFIX}"
+            stub.write_text(STUB_SCRIPT_CMD if STUB_SUFFIX else STUB_SCRIPT, encoding="utf-8")
             stub.chmod(0o755)
     (sandbox / "home").mkdir()
     return build / "stub-invocations.log"
@@ -252,8 +268,8 @@ def run_one(sandbox: Path, test: str, scenario: str, timeout: float, log_dir: Pa
     env["USERPROFILE"] = str(sandbox / "home")
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     env["PYTHONUNBUFFERED"] = "1"
-    env["OPENETQW_DED_BINARY"] = str(sandbox / "build" / "openETQW-ded_x64")
-    env["OPENETQW_CLIENT_BINARY"] = str(sandbox / "build" / "openETQW-client_x64")
+    env["OPENETQW_DED_BINARY"] = str(sandbox / "build" / f"openETQW-ded_x64{STUB_SUFFIX}")
+    env["OPENETQW_CLIENT_BINARY"] = str(sandbox / "build" / f"openETQW-client_x64{STUB_SUFFIX}")
     if scenario == "missing-dir":
         env["ETQW_DATA_PATH"] = str(sandbox / "no-retail-data-here")
     before = stub_log.read_text(encoding="utf-8").splitlines() if stub_log.exists() else []
@@ -276,7 +292,15 @@ def run_one(sandbox: Path, test: str, scenario: str, timeout: float, log_dir: Pa
     except subprocess.TimeoutExpired:
         timed_out = True
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
+            if os.name == "posix":
+                os.killpg(proc.pid, signal.SIGKILL)
+            else:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                proc.kill()
         except OSError:
             proc.kill()
         output, _ = proc.communicate()
@@ -383,9 +407,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
     root = args.root.resolve()
-    if os.name != "posix":
-        print("check_integration_skips: POSIX only (stub binaries are shell scripts)", file=sys.stderr)
-        return 2
     tests, hardcoded = discover(root)
     if args.only:
         wanted = {item if item.startswith("tests/") else f"tests/{item}" for item in args.only}
