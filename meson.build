@@ -389,6 +389,26 @@ if game_repo_root != ''
   )
 endif
 
+if host_system == 'windows'
+  win_runtime_dll_deps = [zlib_dep]
+  if build_engine
+    win_runtime_dll_deps += [sdl3_dep]
+  endif
+  copied_runtime_dlls = []
+  foreach dep : win_runtime_dll_deps
+    dep_libdir = dep.get_variable(pkgconfig: 'libdir', default_value: '')
+    if dep_libdir != ''
+      foreach dll : ['z.dll', 'SDL3.dll']
+        dll_path = fs_mod.parent(dep_libdir) / 'bin' / dll
+        if fs_mod.is_file(dll_path) and dll not in copied_runtime_dlls
+          fs_mod.copyfile(dll_path, dll)
+          copied_runtime_dlls += [dll]
+        endif
+      endforeach
+    endif
+  endforeach
+endif
+
 if build_tests
   subdir('tests')
   test(
