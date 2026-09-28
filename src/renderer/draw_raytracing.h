@@ -69,6 +69,12 @@ struct sdRayTracingViewContext {
 	VkRect2D		viewport;
 };
 
+// Routes a module's vkAllocateMemory/vkFreeMemory through the backend's counting
+// thunks (VulkanBackend.cpp), so the shutdown metrics count every live
+// VkDeviceMemory on the device, not only the backend's own.
+void R_VkTrackMemoryFunctions( PFN_vkAllocateMemory& allocateMemory,
+	PFN_vkFreeMemory& freeMemory );
+
 bool R_RayTracingRequested();
 void R_RayTracingResetBackendSelection();
 void R_RayTracingSelectStencilFallback( const char* reason );

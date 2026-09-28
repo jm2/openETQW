@@ -314,6 +314,9 @@ bool LoadRayTracingFunctions( sdRayTracingState& state ) {
 	LOAD_RT_FUNCTION( CmdCopyImage );
 	LOAD_RT_FUNCTION( CmdDispatch );
 #undef LOAD_RT_FUNCTION
+	if ( loaded ) {
+		R_VkTrackMemoryFunctions( state.AllocateMemory, state.FreeMemory );
+	}
 	return loaded;
 }
 

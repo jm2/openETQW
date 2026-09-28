@@ -363,6 +363,14 @@ void AppendRayTracingInstances( idList< sdRayTracingGeometry >& destination,
 
 } // namespace
 
+void R_VkTrackMemoryFunctions( PFN_vkAllocateMemory& allocateMemory,
+	PFN_vkFreeMemory& freeMemory ) {
+	if ( vkAllocateMemoryReal != NULL && vkFreeMemoryReal != NULL ) {
+		allocateMemory = TrackedAllocateMemory;
+		freeMemory = TrackedFreeMemory;
+	}
+}
+
 struct sdVulkanBackendState {
 	void*					vulkanLibrary;
 	void*					nativeWindow;
@@ -372,6 +380,7 @@ struct sdVulkanBackendState {
 	VkSurfaceKHR				surface;
 	VkPhysicalDevice			physicalDevice;
 	VkPhysicalDeviceMemoryProperties memoryProperties;
+	unsigned int				maxMemoryAllocationCount;
 	VkDevice				device;
 	VkQueue					graphicsQueue;
 	unsigned int				queueFamilyIndex;
@@ -663,6 +672,7 @@ struct sdVulkanBackendState {
 		surface = VK_NULL_HANDLE;
 		physicalDevice = VK_NULL_HANDLE;
 		memset( &memoryProperties, 0, sizeof( memoryProperties ) );
+		maxMemoryAllocationCount = 0;
 		device = VK_NULL_HANDLE;
 		graphicsQueue = VK_NULL_HANDLE;
 		queueFamilyIndex = UINT_MAX;
@@ -1416,6 +1426,7 @@ bool SelectPhysicalDevice( sdVulkanBackendState& state ) {
 			state.jointUniformAlignment =
 				properties.limits.minUniformBufferOffsetAlignment > 1 ?
 				properties.limits.minUniformBufferOffsetAlignment : 1;
+			state.maxMemoryAllocationCount = properties.limits.maxMemoryAllocationCount;
 		}
 	}
 
@@ -5243,8 +5254,10 @@ void sdVulkanBackend::Shutdown() {
 		state->worldShadowDrawCalls, state->worldInteractionDrawCalls );
 	common->Printf( "Vulkan shadow lights: %u shadow-casting light views, %u with shadow casters\n",
 		r_shadowLightViews, r_shadowLightViewsWithCasters );
-	common->Printf( "Vulkan memory allocations: %u live, %u peak\n",
-		r_vkMemoryAllocations, r_vkMemoryAllocationPeak );
+	common->Printf( "Vulkan memory allocations: %u live, %u peak (device limit %u); "
+		"%d buffer resources, %d images live\n",
+		r_vkMemoryAllocations, r_vkMemoryAllocationPeak, state->maxMemoryAllocationCount,
+		state->bufferResources.Num(), state->imageResources.Num() );
 	common->Printf( "Vulkan world coverage: %u attempts, %u recorded views, %u surfaces, %u cache-ready, "
 		"%u material-ready, %u resource-ready\n", state->worldViewAttempts, state->worldViews,
 		state->worldSurfaceCandidates, state->worldCacheReady,
