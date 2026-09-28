@@ -12,6 +12,8 @@ are asserted:
     light with shadow casters was in view (the "Vulkan shadow lights" diagnostic)
   - no Vulkan validation error / VK_ERROR / device loss, no ERROR banner,
     no fatal signal, no MegaTexture open failure
+  - peak device-memory allocations under 4096, the maxMemoryAllocationCount many
+    Windows drivers report
 The client runs with r_vkValidation 1 (off by default), so Vulkan validation messages
 appear wherever VK_LAYER_KHRONOS_validation is installed; the test reports whether it
 was active.
@@ -143,6 +145,7 @@ def run_map(client, data, map_name, render_seconds, log_path, team="gdf", at=Non
     s = SPECIAL_RE.search(text)
     if s:
         result.update(megatexture_draws=int(s.group(2)), sky_draws=int(s.group(5)), water_draws=int(s.group(7)))
+    result["vk_allocation_peak"] = h.vk_allocation_peak(text)
     bad = sorted({mk for mk in BAD_MARKERS if mk in text})
     errors = [l for i, l in enumerate(lines) if l.startswith("ERROR:") and i > 0 and lines[i - 1].startswith("********")]
     result["bad_markers"] = bad
@@ -167,6 +170,12 @@ def check(r):
         fails.append("no 'Vulkan shadow lights' diagnostics line")
     elif r["shadow_light_views_with_casters"] > 0 and not r.get("shadow_draws"):
         fails.append(f"{r['shadow_light_views_with_casters']} shadow-casting light views had casters but shadow_draws = 0")
+    peak = r.get("vk_allocation_peak")
+    if peak is None:
+        fails.append("no 'Vulkan memory allocations' diagnostics line")
+    elif peak >= h.PORTABLE_VK_ALLOCATION_LIMIT:
+        fails.append(f"peak Vulkan memory allocations {peak} reach the {h.PORTABLE_VK_ALLOCATION_LIMIT} "
+                     "maxMemoryAllocationCount many Windows drivers report")
     if r.get("bad_markers"):
         fails.append(f"bad markers: {r['bad_markers']}")
     if r.get("error_banners"):

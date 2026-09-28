@@ -130,6 +130,19 @@ def graceful_terminate(proc: subprocess.Popen, console_group: bool = False) -> s
     return "SIGTERM"
 
 
+# The Vulkan client's device-memory allocations, from its shutdown metrics.  Many
+# Windows drivers (NVIDIA, Intel) report maxMemoryAllocationCount 4096, so the
+# client must stay under that on every host, whatever the local driver allows.
+VK_ALLOCATIONS_RE = re.compile(r"Vulkan memory allocations:\s*(\d+) live,\s*(\d+) peak")
+PORTABLE_VK_ALLOCATION_LIMIT = 4096
+
+
+def vk_allocation_peak(output: str) -> Optional[int]:
+    """The peak device-memory allocation count the client printed, or None."""
+    match = VK_ALLOCATIONS_RE.search(output)
+    return int(match.group(2)) if match else None
+
+
 # ---------------------------------------------------------------------------
 # Binary discovery and retail data
 # ---------------------------------------------------------------------------

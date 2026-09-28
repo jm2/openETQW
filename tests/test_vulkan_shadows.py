@@ -216,6 +216,12 @@ def test_vulkan_shadows_lifecycle() -> None:
     assert shadow_draws > 0, f"Expected active shadow volume draws (worldShadowDrawCalls > 0), got {shadow_draws}"
     assert light_interactions > 0, f"Expected dynamic light interactions (worldInteractionDrawCalls > 0), got {light_interactions}"
     assert world_draws > 0, f"Expected active world draw calls, got {world_draws}"
+    allocation_peak = h.vk_allocation_peak(full_output)
+    print(f"  Device memory allocations (peak): {allocation_peak}")
+    assert allocation_peak is not None, "Failed to parse the Vulkan memory allocations line"
+    assert allocation_peak < h.PORTABLE_VK_ALLOCATION_LIMIT, (
+        f"Peak Vulkan memory allocations {allocation_peak} reach the {h.PORTABLE_VK_ALLOCATION_LIMIT} "
+        "maxMemoryAllocationCount that many Windows drivers report")
 
     print(f"  [VERIFIED] Shadow volume draws issued: {shadow_draws} > 0")
     print(f"  [VERIFIED] Dynamic light interactions executed: {light_interactions} > 0")
