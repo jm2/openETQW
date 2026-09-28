@@ -188,6 +188,32 @@ const char* VkResultName( VkResult result ) {
 	}
 }
 
+PFN_vkAllocateMemory vkAllocateMemoryReal = NULL;
+PFN_vkFreeMemory vkFreeMemoryReal = NULL;
+unsigned int r_vkMemoryAllocations = 0;
+unsigned int r_vkMemoryAllocationPeak = 0;
+
+VkResult VKAPI_PTR TrackedAllocateMemory( VkDevice device,
+	const VkMemoryAllocateInfo* allocateInfo,
+	const VkAllocationCallbacks* allocator, VkDeviceMemory* memory ) {
+	const VkResult result = vkAllocateMemoryReal( device, allocateInfo, allocator, memory );
+	if ( result == VK_SUCCESS ) {
+		++r_vkMemoryAllocations;
+		if ( r_vkMemoryAllocations > r_vkMemoryAllocationPeak ) {
+			r_vkMemoryAllocationPeak = r_vkMemoryAllocations;
+		}
+	}
+	return result;
+}
+
+void VKAPI_PTR TrackedFreeMemory( VkDevice device, VkDeviceMemory memory,
+	const VkAllocationCallbacks* allocator ) {
+	if ( memory != VK_NULL_HANDLE && r_vkMemoryAllocations > 0 ) {
+		--r_vkMemoryAllocations;
+	}
+	vkFreeMemoryReal( device, memory, allocator );
+}
+
 bool CheckVulkanResult( VkResult result, const char* operation ) {
 	if ( result == VK_SUCCESS ) {
 		return true;
@@ -1060,6 +1086,10 @@ bool LoadDeviceFunctions( sdVulkanBackendState& state ) {
 	LOAD_DEVICE_FUNCTION( GetImageMemoryRequirements );
 	LOAD_DEVICE_FUNCTION( AllocateMemory );
 	LOAD_DEVICE_FUNCTION( FreeMemory );
+	vkAllocateMemoryReal = state.AllocateMemory;
+	state.AllocateMemory = TrackedAllocateMemory;
+	vkFreeMemoryReal = state.FreeMemory;
+	state.FreeMemory = TrackedFreeMemory;
 	LOAD_DEVICE_FUNCTION( BindImageMemory );
 	LOAD_DEVICE_FUNCTION( CreateSampler );
 	LOAD_DEVICE_FUNCTION( DestroySampler );
@@ -5213,6 +5243,8 @@ void sdVulkanBackend::Shutdown() {
 		state->worldShadowDrawCalls, state->worldInteractionDrawCalls );
 	common->Printf( "Vulkan shadow lights: %u shadow-casting light views, %u with shadow casters\n",
 		r_shadowLightViews, r_shadowLightViewsWithCasters );
+	common->Printf( "Vulkan memory allocations: %u live, %u peak\n",
+		r_vkMemoryAllocations, r_vkMemoryAllocationPeak );
 	common->Printf( "Vulkan world coverage: %u attempts, %u recorded views, %u surfaces, %u cache-ready, "
 		"%u material-ready, %u resource-ready\n", state->worldViewAttempts, state->worldViews,
 		state->worldSurfaceCandidates, state->worldCacheReady,
