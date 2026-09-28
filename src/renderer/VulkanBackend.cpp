@@ -152,6 +152,27 @@ struct sdVulkanBufferResource {
 	void*				mapped;
 	VkDeviceSize		bytes;
 	bool				indexBuffer;
+	// Memory sub-allocated from a shared block (CreatePooledBuffer): poolBlock is
+	// the block's index + 1, or 0 when the buffer owns its memory.
+	int					poolBlock;
+	VkDeviceSize		poolOffset;
+	VkDeviceSize		poolBytes;
+};
+
+struct sdVulkanMemoryRange {
+	VkDeviceSize	offset;
+	VkDeviceSize	bytes;
+};
+
+// One VkDeviceMemory that many buffers are bound into.  Host-visible blocks
+// stay mapped for their lifetime.
+struct sdVulkanMemoryBlock {
+	VkDeviceMemory					memory;
+	unsigned int					memoryType;
+	bool							deviceAddress;
+	void*							mapped;
+	int								liveAllocations;
+	idList< sdVulkanMemoryRange >	freeRanges;	// sorted by offset, never adjacent
 };
 
 struct sdVulkanMaterialDescriptor {
@@ -507,6 +528,9 @@ struct sdVulkanBackendState {
 	idList< sdRayTracingGeometry > rayTracingWaterGeometryScratch;
 	idList< sdVulkanImageResource > imageResources;
 	idList< sdVulkanBufferResource > bufferResources;
+	// Blocks the vertex-cache buffers are sub-allocated from; a freed block
+	// leaves a NULL slot so the indexes in sdVulkanBufferResource stay valid.
+	idList< sdVulkanMemoryBlock* > bufferMemoryBlocks;
 	sdVulkanResourceLookup		imageResourceLookup;
 	sdVulkanResourceLookup		bufferResourceLookup;
 	idList< sdVulkanMaterialDescriptor > materialDescriptors;
@@ -2366,8 +2390,139 @@ void DestroyAllToolRenderTargets( sdVulkanBackendState& state ) {
 	state.activeToolRenderTarget = NULL;
 }
 
+/*
+Vertex-cache buffers (UploadBuffer) are bound into shared blocks of device
+memory.  Each cache block used to own a VkDeviceMemory, about 3,700 of them on
+valley, while many Windows drivers allow 4096 allocations in total
+(maxMemoryAllocationCount), images and the rest of the backend included.  A
+buffer keeps its own VkBuffer, bound at an offset into a block; larger requests
+still get their own allocation.
+*/
+const VkDeviceSize VULKAN_BUFFER_BLOCK_BYTES = 32 * 1024 * 1024;
+const VkDeviceSize VULKAN_BUFFER_POOLED_MAX_BYTES = VULKAN_BUFFER_BLOCK_BYTES / 4;
+
+bool AllocateFromMemoryBlock( sdVulkanMemoryBlock& block, VkDeviceSize bytes,
+	VkDeviceSize alignment, VkDeviceSize& offset ) {
+	if ( alignment == 0 ) {
+		alignment = 1;
+	}
+	for ( int i = 0; i < block.freeRanges.Num(); ++i ) {
+		sdVulkanMemoryRange& range = block.freeRanges[ i ];
+		const VkDeviceSize start = ( range.offset + alignment - 1 ) / alignment * alignment;
+		const VkDeviceSize end = range.offset + range.bytes;
+		if ( start + bytes > end ) {
+			continue;
+		}
+		sdVulkanMemoryRange tail;
+		tail.offset = start + bytes;
+		tail.bytes = end - tail.offset;
+		if ( start > range.offset ) {
+			// the alignment padding in front stays free
+			range.bytes = start - range.offset;
+			if ( tail.bytes > 0 ) {
+				block.freeRanges.Insert( tail, i + 1 );
+			}
+		} else if ( tail.bytes > 0 ) {
+			range = tail;
+		} else {
+			block.freeRanges.RemoveIndex( i );
+		}
+		offset = start;
+		++block.liveAllocations;
+		return true;
+	}
+	return false;
+}
+
+void FreeToMemoryBlock( sdVulkanMemoryBlock& block, VkDeviceSize offset,
+	VkDeviceSize bytes ) {
+	int index = 0;
+	while ( index < block.freeRanges.Num() && block.freeRanges[ index ].offset < offset ) {
+		++index;
+	}
+	sdVulkanMemoryRange range;
+	range.offset = offset;
+	range.bytes = bytes;
+	block.freeRanges.Insert( range, index );
+	if ( index + 1 < block.freeRanges.Num() && block.freeRanges[ index ].offset +
+		block.freeRanges[ index ].bytes == block.freeRanges[ index + 1 ].offset ) {
+		block.freeRanges[ index ].bytes += block.freeRanges[ index + 1 ].bytes;
+		block.freeRanges.RemoveIndex( index + 1 );
+	}
+	if ( index > 0 && block.freeRanges[ index - 1 ].offset +
+		block.freeRanges[ index - 1 ].bytes == block.freeRanges[ index ].offset ) {
+		block.freeRanges[ index - 1 ].bytes += block.freeRanges[ index ].bytes;
+		block.freeRanges.RemoveIndex( index );
+	}
+	--block.liveAllocations;
+}
+
+void DestroyMemoryBlock( sdVulkanBackendState& state, int blockIndex ) {
+	sdVulkanMemoryBlock* block = state.bufferMemoryBlocks[ blockIndex ];
+	if ( block->mapped != NULL ) {
+		state.UnmapMemory( state.device, block->memory );
+	}
+	state.FreeMemory( state.device, block->memory, NULL );
+	delete block;
+	state.bufferMemoryBlocks[ blockIndex ] = NULL;
+}
+
+// Returns a buffer's range to its block.  An empty block is freed unless it is
+// the only empty one of its kind, which is kept for the next frame's buffers.
+void ReleasePooledBufferMemory( sdVulkanBackendState& state, int blockIndex,
+	VkDeviceSize offset, VkDeviceSize bytes ) {
+	sdVulkanMemoryBlock* block = state.bufferMemoryBlocks[ blockIndex ];
+	FreeToMemoryBlock( *block, offset, bytes );
+	if ( block->liveAllocations > 0 ) {
+		return;
+	}
+	for ( int i = 0; i < state.bufferMemoryBlocks.Num(); ++i ) {
+		const sdVulkanMemoryBlock* other = state.bufferMemoryBlocks[ i ];
+		if ( i != blockIndex && other != NULL && other->liveAllocations == 0 &&
+			other->memoryType == block->memoryType &&
+			other->deviceAddress == block->deviceAddress ) {
+			DestroyMemoryBlock( state, blockIndex );
+			return;
+		}
+	}
+}
+
+void DestroyBufferMemoryBlocks( sdVulkanBackendState& state ) {
+	for ( int i = 0; i < state.bufferMemoryBlocks.Num(); ++i ) {
+		if ( state.bufferMemoryBlocks[ i ] == NULL ) {
+			continue;
+		}
+		if ( state.bufferMemoryBlocks[ i ]->liveAllocations != 0 ) {
+			common->Warning( "Vulkan buffer memory block %d freed with %d live buffers", i,
+				state.bufferMemoryBlocks[ i ]->liveAllocations );
+		}
+		DestroyMemoryBlock( state, i );
+	}
+	state.bufferMemoryBlocks.Clear();
+}
+
+int LiveBufferMemoryBlocks( const sdVulkanBackendState& state ) {
+	int count = 0;
+	for ( int i = 0; i < state.bufferMemoryBlocks.Num(); ++i ) {
+		if ( state.bufferMemoryBlocks[ i ] != NULL ) {
+			++count;
+		}
+	}
+	return count;
+}
+
 void DestroyBufferResource( sdVulkanBackendState& state,
 	sdVulkanBufferResource& resource ) {
+	if ( resource.poolBlock > 0 ) {
+		// the buffer goes first: its range may be reused as soon as it is free
+		if ( resource.buffer != VK_NULL_HANDLE ) {
+			state.DestroyBuffer( state.device, resource.buffer, NULL );
+		}
+		ReleasePooledBufferMemory( state, resource.poolBlock - 1, resource.poolOffset,
+			resource.poolBytes );
+		memset( &resource, 0, sizeof( resource ) );
+		return;
+	}
 	if ( resource.mapped != NULL ) {
 		state.UnmapMemory( state.device, resource.memory );
 		resource.mapped = NULL;
@@ -2477,6 +2632,134 @@ bool CreateBufferAllocation( sdVulkanBackendState& state, VkDeviceSize bytes,
 		state.DestroyBuffer( state.device, buffer, NULL );
 		buffer = VK_NULL_HANDLE;
 		memory = VK_NULL_HANDLE;
+		return false;
+	}
+	return true;
+}
+
+// Creates resource.buffer (resource.bytes long) with memory from a shared block,
+// or with its own allocation when the request is large.  When memoryFlags ask for
+// host-visible memory, resource.mapped points at the buffer's bytes; otherwise it
+// stays NULL even if the chosen type is host-visible, so updates keep going
+// through the staged upload.
+bool CreatePooledBuffer( sdVulkanBackendState& state, VkBufferUsageFlags usage,
+	VkMemoryPropertyFlags memoryFlags, sdVulkanBufferResource& resource ) {
+	resource.buffer = VK_NULL_HANDLE;
+	resource.memory = VK_NULL_HANDLE;
+	resource.mapped = NULL;
+	resource.poolBlock = 0;
+	VkBufferCreateInfo bufferInfo;
+	memset( &bufferInfo, 0, sizeof( bufferInfo ) );
+	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	bufferInfo.size = resource.bytes;
+	bufferInfo.usage = usage;
+	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	if ( !CheckVulkanResult( state.CreateBuffer( state.device, &bufferInfo, NULL,
+		&resource.buffer ), "vkCreateBuffer" ) ) {
+		resource.buffer = VK_NULL_HANDLE;
+		return false;
+	}
+	VkMemoryRequirements requirements;
+	state.GetBufferMemoryRequirements( state.device, resource.buffer, &requirements );
+	unsigned int memoryType = UINT_MAX;
+	if ( !FindMemoryType( state, requirements.memoryTypeBits, memoryFlags, memoryType ) ) {
+		common->Warning( "No Vulkan buffer memory type satisfies flags 0x%x",
+			static_cast< unsigned int >( memoryFlags ) );
+		state.DestroyBuffer( state.device, resource.buffer, NULL );
+		resource.buffer = VK_NULL_HANDLE;
+		return false;
+	}
+	const bool wantMapped = ( memoryFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT ) != 0;
+	const bool deviceAddress = ( usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT ) != 0;
+	VkMemoryAllocateFlagsInfo addressFlags;
+	memset( &addressFlags, 0, sizeof( addressFlags ) );
+	addressFlags.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
+	addressFlags.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
+	VkMemoryAllocateInfo allocateInfo;
+	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
+	allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	allocateInfo.pNext = deviceAddress ? &addressFlags : NULL;
+	allocateInfo.memoryTypeIndex = memoryType;
+
+	if ( requirements.size <= VULKAN_BUFFER_POOLED_MAX_BYTES ) {
+		int blockIndex = -1;
+		VkDeviceSize offset = 0;
+		for ( int i = 0; i < state.bufferMemoryBlocks.Num() && blockIndex < 0; ++i ) {
+			sdVulkanMemoryBlock* block = state.bufferMemoryBlocks[ i ];
+			if ( block != NULL && block->memoryType == memoryType &&
+				block->deviceAddress == deviceAddress &&
+				AllocateFromMemoryBlock( *block, requirements.size, requirements.alignment, offset ) ) {
+				blockIndex = i;
+			}
+		}
+		if ( blockIndex < 0 ) {
+			allocateInfo.allocationSize = VULKAN_BUFFER_BLOCK_BYTES;
+			VkDeviceMemory memory = VK_NULL_HANDLE;
+			void* mapped = NULL;
+			const bool hostVisible = ( state.memoryProperties.memoryTypes[ memoryType ].propertyFlags &
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT ) != 0;
+			if ( CheckVulkanResult( state.AllocateMemory( state.device, &allocateInfo, NULL,
+				&memory ), "vkAllocateMemory(buffer block)" ) ) {
+				if ( hostVisible && !CheckVulkanResult( state.MapMemory( state.device, memory, 0,
+					VK_WHOLE_SIZE, 0, &mapped ), "vkMapMemory(buffer block)" ) ) {
+					state.FreeMemory( state.device, memory, NULL );
+					memory = VK_NULL_HANDLE;
+				}
+			}
+			if ( memory != VK_NULL_HANDLE ) {
+				sdVulkanMemoryBlock* block = new sdVulkanMemoryBlock;
+				block->memory = memory;
+				block->memoryType = memoryType;
+				block->deviceAddress = deviceAddress;
+				block->mapped = mapped;
+				block->liveAllocations = 0;
+				sdVulkanMemoryRange whole;
+				whole.offset = 0;
+				whole.bytes = VULKAN_BUFFER_BLOCK_BYTES;
+				block->freeRanges.Append( whole );
+				blockIndex = state.bufferMemoryBlocks.FindIndex( NULL );
+				if ( blockIndex < 0 ) {
+					blockIndex = state.bufferMemoryBlocks.Append( block );
+				} else {
+					state.bufferMemoryBlocks[ blockIndex ] = block;
+				}
+				AllocateFromMemoryBlock( *block, requirements.size, requirements.alignment, offset );
+			}
+		}
+		if ( blockIndex >= 0 ) {
+			sdVulkanMemoryBlock* block = state.bufferMemoryBlocks[ blockIndex ];
+			if ( !CheckVulkanResult( state.BindBufferMemory( state.device, resource.buffer,
+				block->memory, offset ), "vkBindBufferMemory(buffer block)" ) ) {
+				state.DestroyBuffer( state.device, resource.buffer, NULL );
+				resource.buffer = VK_NULL_HANDLE;
+				ReleasePooledBufferMemory( state, blockIndex, offset, requirements.size );
+				return false;
+			}
+			resource.poolBlock = blockIndex + 1;
+			resource.poolOffset = offset;
+			resource.poolBytes = requirements.size;
+			if ( wantMapped ) {
+				resource.mapped = static_cast< byte* >( block->mapped ) + offset;
+			}
+			return true;
+		}
+		// no block could be allocated: try a buffer-sized allocation below
+	}
+
+	allocateInfo.allocationSize = requirements.size;
+	if ( !CheckVulkanResult( state.AllocateMemory( state.device, &allocateInfo, NULL,
+		&resource.memory ), "vkAllocateMemory(buffer)" ) ||
+		!CheckVulkanResult( state.BindBufferMemory( state.device, resource.buffer,
+			resource.memory, 0 ), "vkBindBufferMemory" ) ||
+		( wantMapped && !CheckVulkanResult( state.MapMemory( state.device, resource.memory, 0,
+			resource.bytes, 0, &resource.mapped ), "vkMapMemory(buffer)" ) ) ) {
+		resource.mapped = NULL;
+		if ( resource.memory != VK_NULL_HANDLE ) {
+			state.FreeMemory( state.device, resource.memory, NULL );
+			resource.memory = VK_NULL_HANDLE;
+		}
+		state.DestroyBuffer( state.device, resource.buffer, NULL );
+		resource.buffer = VK_NULL_HANDLE;
 		return false;
 	}
 	return true;
@@ -5255,9 +5538,10 @@ void sdVulkanBackend::Shutdown() {
 	common->Printf( "Vulkan shadow lights: %u shadow-casting light views, %u with shadow casters\n",
 		r_shadowLightViews, r_shadowLightViewsWithCasters );
 	common->Printf( "Vulkan memory allocations: %u live, %u peak (device limit %u); "
-		"%d buffer resources, %d images live\n",
+		"%d buffer resources in %d shared blocks, %d images live\n",
 		r_vkMemoryAllocations, r_vkMemoryAllocationPeak, state->maxMemoryAllocationCount,
-		state->bufferResources.Num(), state->imageResources.Num() );
+		state->bufferResources.Num(), LiveBufferMemoryBlocks( *state ),
+		state->imageResources.Num() );
 	common->Printf( "Vulkan world coverage: %u attempts, %u recorded views, %u surfaces, %u cache-ready, "
 		"%u material-ready, %u resource-ready\n", state->worldViewAttempts, state->worldViews,
 		state->worldSurfaceCandidates, state->worldCacheReady,
@@ -5281,6 +5565,7 @@ void sdVulkanBackend::Shutdown() {
 	DestroyAllToolRenderTargets( *state );
 	DestroyAllImageResources( *state );
 	DestroyAllBufferResources( *state );
+	DestroyBufferMemoryBlocks( *state );
 	DestroyGuiResources( *state );
 	DestroyFrames( *state );
 	DestroySwapchain( *state );
@@ -7671,22 +7956,14 @@ bool sdVulkanBackend::UploadBuffer( const void* owner, const void* data,
 			VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
 	}
 	bool uploaded = false;
-	if ( frameTemporary && CreateBufferAllocation( *state, resource.bytes, usage,
+	if ( frameTemporary && CreatePooledBuffer( *state, usage,
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-		resource.buffer, resource.memory ) &&
-		CheckVulkanResult( state->MapMemory( state->device, resource.memory, 0,
-			resource.bytes, 0, &resource.mapped ), "vkMapMemory(frame vertex buffer)" ) ) {
+		resource ) ) {
 		memcpy( resource.mapped, data, static_cast< size_t >( resource.bytes ) );
 		uploaded = true;
 	}
-	if ( !uploaded && resource.buffer != VK_NULL_HANDLE ) {
-		DestroyBufferResource( *state, resource );
-		resource.owner = owner;
-		resource.bytes = static_cast< VkDeviceSize >( bytes );
-		resource.indexBuffer = indexBuffer;
-	}
-	if ( !uploaded && CreateBufferAllocation( *state, resource.bytes, usage,
-		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, resource.buffer, resource.memory ) ) {
+	if ( !uploaded && CreatePooledBuffer( *state, usage,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, resource ) ) {
 		uploaded = UploadBufferBytes( *state, resource.buffer, 0, data,
 			resource.bytes, indexBuffer );
 	}
