@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Desktop Entry]
+Type=Application
+Name=openETQW
+GenericName=Enemy Territory: QUAKE Wars engine
+Comment=Open-source engine for Enemy Territory: QUAKE Wars (needs the retail game data)
+Exec=openetqw
+Icon=openetqw
+Categories=Game;ActionGame;
+Terminal=false
