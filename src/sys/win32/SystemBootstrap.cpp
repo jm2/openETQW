@@ -1185,31 +1185,59 @@ const char *Sys_DefaultBasePath() {
 	return Win_ExeDirectoryWith( basepath, BASE_GAMEDIR );
 }
 
-const char *Sys_DefaultSavePath() {
-	// per-user configs and logs in %LOCALAPPDATA%\openETQW, as openQ4: an
-	// installed engine's own directory (Program Files) is not writable
-	static idStr savepath;
-	PWSTR knownFolder = NULL;
-	if ( SUCCEEDED( SHGetKnownFolderPath( FOLDERID_LocalAppData, KF_FLAG_DEFAULT, NULL, &knownFolder ) )
-		&& knownFolder != NULL ) {
-		char narrow[ SYSTEM_MAX_OS_PATH ];
-		// the file system opens paths with the ANSI code page
-		const int length = WideCharToMultiByte( CP_ACP, 0, knownFolder, -1, narrow, sizeof( narrow ), NULL, NULL );
-		CoTaskMemFree( knownFolder );
-		if ( length > 0 ) {
-			savepath = narrow;
-			savepath.AppendPath( "openETQW" );
-			return savepath.c_str();
+// A wide path in the ANSI code page, which the file system opens paths with.
+// A name the code page cannot hold is not replaced by look-alikes or '?': its
+// 8.3 short form (ASCII where 8.3 names exist) is tried, else it fails.
+static bool Win_NarrowPath( const wchar_t *wide, idStr &narrow ) {
+	const UINT codePage = GetACP();
+	const bool utf8 = codePage == CP_UTF8;	// lossless, and takes no lossy flag
+	wchar_t shortPath[ SYSTEM_MAX_OS_PATH ];
+	const wchar_t *source = wide;
+	for ( int attempt = 0; attempt < 2; attempt++ ) {
+		if ( attempt == 1 ) {
+			const DWORD length = GetShortPathNameW( wide, shortPath, SYSTEM_MAX_OS_PATH );
+			if ( length == 0 || length >= SYSTEM_MAX_OS_PATH ) {
+				return false;
+			}
+			source = shortPath;
 		}
-	} else if ( knownFolder != NULL ) {
-		CoTaskMemFree( knownFolder );
+		char buffer[ SYSTEM_MAX_OS_PATH ];
+		BOOL lossy = FALSE;
+		const int length = WideCharToMultiByte( codePage, utf8 ? 0 : WC_NO_BEST_FIT_CHARS, source, -1,
+			buffer, sizeof( buffer ), NULL, utf8 ? NULL : &lossy );
+		if ( length > 0 && !lossy ) {
+			narrow = buffer;
+			return true;
+		}
 	}
-	const char *localAppData = getenv( "LOCALAPPDATA" );
-	if ( localAppData != NULL && localAppData[ 0 ] != '\0' ) {
+	return false;
+}
+
+const char *Sys_DefaultSavePath() {
+	// per-user configs, logs and the shader cache in %LOCALAPPDATA%\openETQW, as
+	// openQ4: an installed engine's own directory (Program Files) is not
+	// writable. The environment first (the tests point it at a private
+	// directory), then the known folder.
+	static idStr savepath;
+	idStr localAppData;
+	wchar_t environment[ SYSTEM_MAX_OS_PATH ];
+	const DWORD environmentLength = GetEnvironmentVariableW( L"LOCALAPPDATA", environment, SYSTEM_MAX_OS_PATH );
+	bool found = environmentLength > 0 && environmentLength < SYSTEM_MAX_OS_PATH
+		&& Win_NarrowPath( environment, localAppData );
+	if ( !found ) {
+		PWSTR knownFolder = NULL;
+		if ( SUCCEEDED( SHGetKnownFolderPath( FOLDERID_LocalAppData, KF_FLAG_DEFAULT, NULL, &knownFolder ) )
+			&& knownFolder != NULL ) {
+			found = Win_NarrowPath( knownFolder, localAppData );
+		}
+		CoTaskMemFree( knownFolder );	// NULL is allowed
+	}
+	if ( found ) {
 		savepath = localAppData;
 		savepath.AppendPath( "openETQW" );
 		return savepath.c_str();
 	}
+	// the local application data folder has no name the ANSI file system can open
 	return Sys_DefaultBasePath();
 }
 
