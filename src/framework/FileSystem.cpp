@@ -85,8 +85,9 @@ to the current directory, but it can be overridden with "+set fs_cdpath g:\doom"
 command line.
 
 The "dev path" is the path to an alternate hierarchy where the editors and tools used
-during development (Radiant, AF editor, dmap, runAAS) will write files to. It defaults to
-the cd path, but can be overridden with a "+set fs_devpath c:\doom" on the command line.
+during development (Radiant, AF editor, dmap, runAAS) will write files to, and where the
+Vulkan renderer keeps its SPIR-V cache. It defaults to the save path, which an installed
+engine can write, but can be overridden with a "+set fs_devpath c:\doom" on the command line.
 
 If a user runs the game directly from a CD, the base path would be on the CD. This
 should still function correctly, but all file writes will fail (harmlessly).
@@ -3500,11 +3501,9 @@ void idFileSystemLocal::Init( bool quiet ) {
 	}
 
 	if ( fs_devpath.GetString()[0] == '\0' ) {
-#ifdef WIN32
-		fs_devpath.SetString( fs_cdpath.GetString()[0] ? fs_cdpath.GetString() : fs_basepath.GetString() );
-#else
+		// Every platform writes here, never next to the executable: an installed
+		// Windows engine (Program Files) cannot write its own directory either.
 		fs_devpath.SetString( fs_savepath.GetString() );
-#endif
 	}
 
 	// try to start up normally
