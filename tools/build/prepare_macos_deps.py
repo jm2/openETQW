@@ -12,7 +12,8 @@ deployment target:
   SDL3             (libSDL3.0.dylib, sdl3.pc)
   Vulkan-Headers + Vulkan-Loader  (libvulkan.1.dylib, vulkan.pc)
 and fetches the pinned, checksum-verified MoltenVK release (libMoltenVK.dylib,
-a universal binary Khronos builds for macOS 10.15+).
+a universal binary). MoltenVK stays at 1.4.1, as openQ4's: 1.4.2's dylib needs
+macOS 12.0 (its LC_BUILD_VERSION minos), 1.4.1's 11.0.
 
 The engine and the game are then configured against --prefix
 (PKG_CONFIG_PATH=<prefix>/lib/pkgconfig, appended to $GITHUB_ENV when set),
@@ -42,9 +43,9 @@ SOURCES = {
     "Vulkan-Headers": ("https://github.com/KhronosGroup/Vulkan-Headers.git", "v1.4.364", "b0c3dd6851e22621f194306d511b9253e4c1577f"),
     "Vulkan-Loader": ("https://github.com/KhronosGroup/Vulkan-Loader.git", "v1.4.364", "3270cf8a1349306f0ddee1b500ee2b0d552e1c82"),
 }
-MOLTENVK_VERSION = "v1.4.2"
+MOLTENVK_VERSION = "v1.4.1"
 MOLTENVK_URL = f"https://github.com/KhronosGroup/MoltenVK/releases/download/{MOLTENVK_VERSION}/MoltenVK-macos.tar"
-MOLTENVK_SHA256 = "f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e"
+MOLTENVK_SHA256 = "5ea0c259df7ded9a275444820f09cced54d6e5a7c7a31d262de62a5cdb7e15cf"
 ARCHITECTURES = {"arm64": "arm64", "x64": "x86_64", "universal2": "arm64;x86_64"}
 
 
@@ -113,6 +114,11 @@ def fetch_moltenvk(prefix: Path, work: Path) -> None:
     os.chmod(prefix / "lib" / "libMoltenVK.dylib", 0o755)
 
 
+def minimum_os(path: Path) -> list[str]:
+    commands = subprocess.run(["otool", "-arch", "all", "-l", str(path)], capture_output=True, text=True, check=True).stdout
+    return sorted({line.split()[1] for line in commands.splitlines() if line.strip().startswith("minos ")})
+
+
 def check_output(prefix: Path, arch: str) -> None:
     expected = sorted(ARCHITECTURES[arch].split(";"))
     for library in ("libSDL3.0.dylib", "libvulkan.1.dylib", "libMoltenVK.dylib"):
@@ -120,6 +126,9 @@ def check_output(prefix: Path, arch: str) -> None:
         archs = sorted(subprocess.run(["lipo", "-archs", str(path)], capture_output=True, text=True, check=True).stdout.split())
         if not set(expected) <= set(archs):
             raise SystemExit(f"prepare_macos_deps: {library} has {archs}, needs {expected}")
+        minos = minimum_os(path)
+        if not minos or any(tuple(map(int, v.split("."))) > tuple(map(int, MACOS_DEPLOYMENT_TARGET.split("."))) for v in minos):
+            raise SystemExit(f"prepare_macos_deps: {library} needs macOS {minos}, above {MACOS_DEPLOYMENT_TARGET}")
     for pc in ("sdl3.pc", "vulkan.pc"):
         if not (prefix / "lib" / "pkgconfig" / pc).is_file():
             raise SystemExit(f"prepare_macos_deps: no {pc} in {prefix}/lib/pkgconfig")

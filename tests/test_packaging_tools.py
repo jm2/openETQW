@@ -112,15 +112,40 @@ def test_validator(tmp: Path) -> None:
     check(any("licence" in f for f in failures_of(validate, tree, "linux", "x64")), "a missing licence text is rejected")
     licence.write_text("licence\n", encoding="utf-8")
 
-    (tree / "link").symlink_to("openETQW-ded_x64")
-    check(any("symlink" in f for f in failures_of(validate, tree, "linux", "x64")), "a symlink is rejected")
-    (tree / "link").unlink()
+    try:
+        (tree / "link").symlink_to("openETQW-ded_x64")
+    except OSError:
+        pass  # Windows without the symlink privilege
+    else:
+        check(any("symlink" in f for f in failures_of(validate, tree, "linux", "x64")), "a symlink is rejected")
+        (tree / "link").unlink()
 
+    pe = tmp / "pe"
+    pe.mkdir()
+    for arch, machine in (("x64", 0x8664), ("arm64", 0xAA64)):
+        header = bytearray(512)
+        header[0:2] = b"MZ"
+        header[0x3C:0x40] = (0x80).to_bytes(4, "little")
+        header[0x80:0x84] = b"PE\0\0"
+        header[0x84:0x86] = machine.to_bytes(2, "little")
+        (pe / f"{arch}.dll").write_bytes(bytes(header))
+    failures: list[str] = []
+    validate.check_windows_binary(pe / "x64.dll", "x64", failures)
+    check(failures == [], "an x64 PE passes the x64 check")
+    validate.check_windows_binary(pe / "arm64.dll", "x64", failures)
+    check(len(failures) == 1 and "0xaa64" in failures[0], "an ARM64 PE fails the x64 check")
+    (pe / "text.dll").write_bytes(b"not a PE")
+    failures = []
+    validate.check_windows_binary(pe / "text.dll", "arm64", failures)
+    check(len(failures) == 1, "a file that is not a PE fails")
+
+    # macOS and Windows file systems are usually case-insensitive: two such names are one file
     (tree / "README.txt").write_text("a", encoding="utf-8")
-    (tree / "readme.TXT").write_text("b", encoding="utf-8")
-    check(any("case" in f for f in failures_of(validate, tree, "linux", "x64")), "names differing only in case are rejected")
+    if not (tree / "readme.TXT").exists():
+        (tree / "readme.TXT").write_text("b", encoding="utf-8")
+        check(any("case" in f for f in failures_of(validate, tree, "linux", "x64")), "names differing only in case are rejected")
+        (tree / "readme.TXT").unlink()
     (tree / "README.txt").unlink()
-    (tree / "readme.TXT").unlink()
 
     (tree / "openETQW-client_x64").unlink()
     check(any("client" in f for f in failures_of(validate, tree, "linux", "x64")), "a missing client is rejected")
@@ -171,7 +196,9 @@ def test_package_release(tmp: Path) -> None:
         members = {m.name: m for m in archive.getmembers()}
     check(sorted(members) == ["top", "top/base", "top/base/vkprogs", "top/base/vkprogs/a.glsl", "top/notes.txt", "top/run"],
           "tar members sit under one top directory")
-    check(members["top/run"].mode == 0o755 and members["top/notes.txt"].mode == 0o644, "tar keeps the executable bit, normalizes the rest")
+    if os.name != "nt":  # Windows files carry no executable bit
+        check(members["top/run"].mode == 0o755 and members["top/notes.txt"].mode == 0o644,
+              "tar keeps the executable bit, normalizes the rest")
     check(all(m.uid == 0 and m.gid == 0 and m.mtime == 1700000000 for m in members.values()), "tar owners and times are normalized")
 
     gz = tmp / "c.tar.gz"
@@ -255,7 +282,8 @@ def main() -> int:
         tmp = Path(temporary)
         test_validator(tmp)
         test_package_release(tmp)
-        test_apprun(tmp)
+        if os.name != "nt":  # the AppImage's AppRun is a POSIX shell script
+            test_apprun(tmp)
     if FAILURES:
         print(f"packaging tools: {len(FAILURES)} of {CHECKS} checks failed")
         return 1

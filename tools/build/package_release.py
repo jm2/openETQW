@@ -287,6 +287,8 @@ def package_windows(args, install: Path, work: Path, licenses: dict[str, Path], 
         log(f"bundled the MSVC runtime app-locally: {', '.join(d.name for d in crt)}")
     add_licenses(package, package / "licenses", "windows", licenses)
     write_readme(package / "README.txt", "windows", arch, args.version_tag, sources)
+    for pdb in args.extra_pdb:  # the game module's, which meson install does not stage
+        copy_file(pdb, package / pdb.name)
     archive = args.output_dir / f"{top}.zip"
     pdb_archive = args.output_dir / f"{top}-pdb.zip"
     write_zip(package, top, archive, args.source_date_epoch, select=lambda rel: rel.suffix.lower() != ".pdb")
@@ -329,7 +331,7 @@ def macho_rpaths(binary: Path) -> list[str]:
     return rpaths
 
 
-def resolve_dependency(reference: str, referrer: Path, referrer_source: Path) -> Path | None:
+def resolve_dependency(reference: str, referrer: Path, referrer_source: Path, lib_dirs: list[Path]) -> Path | None:
     if reference.startswith(SYSTEM_PREFIXES):
         return None
     if reference.startswith("@rpath/"):
@@ -338,7 +340,12 @@ def resolve_dependency(reference: str, referrer: Path, referrer_source: Path) ->
             base = rpath.replace("@loader_path", str(referrer_source.parent)).replace("@executable_path", str(referrer_source.parent))
             if (Path(base) / leaf).is_file():
                 return (Path(base) / leaf).resolve()
-        raise PackageError(f"{referrer.name}: cannot resolve {reference} through its rpaths")
+        # `meson install` drops the build tree's rpaths, so the staged engine
+        # names @rpath libraries it has no LC_RPATH for: --macos-lib-dir
+        for directory in lib_dirs:
+            if (directory / leaf).is_file():
+                return (directory / leaf).resolve()
+        raise PackageError(f"{referrer.name}: cannot resolve {reference} through its rpaths or --macos-lib-dir")
     if reference.startswith(("@loader_path/", "@executable_path/")):
         return None  # already bundle-relative
     if not Path(reference).is_file():
@@ -346,25 +353,56 @@ def resolve_dependency(reference: str, referrer: Path, referrer_source: Path) ->
     return Path(reference).resolve()
 
 
-def bundle_macos_dependencies(images: list[Path], frameworks: Path) -> list[str]:
+def bundle_macos_dependencies(images: list[Path], frameworks: Path, lib_dirs: list[Path]) -> list[str]:
     """Copy every non-system library the images need into Frameworks and point them at @rpath."""
     bundled: dict[str, Path] = {}
     queue = [(image, image) for image in images]  # (bundled path, where its references resolve)
     while queue:
         image, source = queue.pop()
         for reference in macho_dependencies(image):
-            resolved = resolve_dependency(reference, image, source)
-            if resolved is None:
+            if reference.startswith(SYSTEM_PREFIXES) or reference.startswith(("@loader_path/", "@executable_path/")):
                 continue
             leaf = Path(reference).name
             target = frameworks / leaf
-            if leaf not in bundled:
+            if leaf not in bundled and not target.is_file():
+                resolved = resolve_dependency(reference, image, source, lib_dirs)
                 copy_file(resolved, target, 0o755)
                 run(["install_name_tool", "-id", f"@rpath/{leaf}", str(target)])
                 bundled[leaf] = resolved
                 queue.append((target, resolved))
-            run(["install_name_tool", "-change", reference, f"@rpath/{leaf}", str(image)])
+            if reference != f"@rpath/{leaf}":
+                run(["install_name_tool", "-change", reference, f"@rpath/{leaf}", str(image)])
     return sorted(bundled)
+
+
+def version_tuple(value: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in value.split("."))
+
+
+def check_bundle(app: Path) -> None:
+    """Every Mach-O in the app resolves its libraries inside it and runs on MACOS_MIN_OS."""
+    frameworks = app / "Contents" / "Frameworks"
+    images = sorted(p for d in (app / "Contents" / "MacOS", frameworks) for p in d.iterdir() if p.is_file())
+    problems = []
+    for image in images:
+        for reference in macho_dependencies(image):
+            if reference.startswith(SYSTEM_PREFIXES):
+                continue
+            if reference.startswith("@rpath/"):
+                if not (frameworks / reference[len("@rpath/"):]).is_file():
+                    problems.append(f"{image.name} needs {reference}, which is not in Contents/Frameworks")
+            elif reference.startswith(("@executable_path/", "@loader_path/")):
+                base = app / "Contents" / "MacOS" if reference.startswith("@executable_path/") else image.parent
+                if not (base / reference.split("/", 1)[1]).resolve().is_file():
+                    problems.append(f"{image.name} needs {reference}, which is not in the app")
+            else:
+                problems.append(f"{image.name} needs {reference}, outside the app")
+        commands = run(["otool", "-arch", "all", "-l", str(image)], capture=True)
+        minos = {line.split()[1] for line in commands.splitlines() if line.strip().startswith("minos ")}
+        if not minos or any(version_tuple(v) > version_tuple(MACOS_MIN_OS) for v in minos):
+            problems.append(f"{image.name} needs macOS {sorted(minos) or 'unknown'}, above {MACOS_MIN_OS}")
+    if problems:
+        raise PackageError("the app bundle is not self-contained:\n  " + "\n  ".join(problems))
 
 
 def add_rpath(binary: Path, rpath: str) -> None:
@@ -406,7 +444,8 @@ def package_macos(args, install: Path, work: Path, licenses: dict[str, Path], so
     for exe in executables:
         add_rpath(exe, "@executable_path/../Frameworks")
     images = executables + [frameworks / m.name for m in modules]
-    bundled = bundle_macos_dependencies(images, frameworks)
+    lib_dirs = [d.resolve() for d in args.macos_lib_dir]
+    bundled = bundle_macos_dependencies(images, frameworks, lib_dirs)
     log(f"bundled libraries: {', '.join(bundled) or 'none'}")
     # the build machine's library directories must not be searched on a user's Mac
     for image in images + [frameworks / name for name in bundled]:
@@ -431,8 +470,9 @@ def package_macos(args, install: Path, work: Path, licenses: dict[str, Path], so
             "is_portability_driver": True,
         },
     }, indent=4) + "\n", encoding="utf-8")
-    for extra in bundle_macos_dependencies([frameworks / "libMoltenVK.dylib"], frameworks):
+    for extra in bundle_macos_dependencies([frameworks / "libMoltenVK.dylib"], frameworks, lib_dirs):
         log(f"MoltenVK needs {extra}")
+    check_bundle(app)
 
     with open(app / "Contents" / "Info.plist", "wb") as plist:
         plistlib.dump({
@@ -509,7 +549,10 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--linux-sdl3", type=Path, default=None, help="libSDL3.so.0 to bundle (default: what the client resolves)")
     parser.add_argument("--objcopy", default=None)
     parser.add_argument("--windows-crt-dir", type=Path, default=None, help="Microsoft.VC14x.CRT directory to bundle app-locally")
+    parser.add_argument("--extra-pdb", type=Path, action="append", default=[], help="Windows: another PDB for the -pdb.zip")
     parser.add_argument("--macos-moltenvk", type=Path, default=None, help="libMoltenVK.dylib to bundle")
+    parser.add_argument("--macos-lib-dir", type=Path, action="append", default=[],
+                        help="where @rpath libraries the staged engine names are found (prepare_macos_deps.py's <prefix>/lib)")
     parser.add_argument("--macos-sign-identity", default="-", help="codesign identity (default '-': ad hoc)")
     parser.add_argument("--macos-dmg", action="store_true", help="make a DMG instead of the unsigned tar.gz")
     args = parser.parse_args(argv)

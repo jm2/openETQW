@@ -32,7 +32,8 @@ licence texts every package carries; no symlinks and no names that differ only
 in case; the binaries' architecture; Linux: full RELRO, BIND_NOW, a
 non-executable stack and a $ORIGIN RUNPATH on the engine (a package bundles
 SDL3 next to it); macOS: the architecture and minimum OS of every Mach-O;
-Windows: the runtime DLLs the engine needs next to it.
+Windows: the runtime DLLs the engine needs next to it, and the PE machine of
+every executable and DLL there.
 
 Exit codes: 0 pass, 1 a check failed, 2 usage or environment error.
 """
@@ -124,13 +125,15 @@ def is_meson_build_dir(path: Path) -> bool:
     return (path / "meson-private" / "coredata.dat").is_file()
 
 
-def setup(source: Path, build: Path, options: list[str], *, clean: bool, vsenv: bool, dry_run: bool) -> None:
+def setup(source: Path, build: Path, options: list[str], *, clean: bool, vsenv: bool, dry_run: bool,
+          env: dict[str, str]) -> None:
     command = meson_command() + ["setup", str(build), str(source)] + options
     if vsenv:
         command.append("--vsenv")
     if is_meson_build_dir(build):
         command.append("--wipe" if clean else "--reconfigure")
-    run(command, cwd=source, dry_run=dry_run)
+    # the engine's configure finds the game through OPENETQW_GAME_REPO
+    run(command, cwd=source, env=env, dry_run=dry_run)
 
 
 def game_repo_default() -> Path:
@@ -227,6 +230,26 @@ def check_macos_binary(path: Path, arch: str, failures: list[str]) -> None:
         failures.append(f"{path.name}: minimum macOS {minos or 'unknown'}, expected {MACOS_MIN_OS}")
 
 
+PE_MACHINE = {"x64": 0x8664, "arm64": 0xAA64}
+
+
+def pe_machine(path: Path) -> int | None:
+    with open(path, "rb") as handle:
+        header = handle.read(4096)
+    if header[:2] != b"MZ" or len(header) < 0x40:
+        return None
+    offset = int.from_bytes(header[0x3C:0x40], "little")
+    if offset + 6 > len(header) or header[offset:offset + 4] != b"PE\0\0":
+        return None
+    return int.from_bytes(header[offset + 4:offset + 6], "little")
+
+
+def check_windows_binary(path: Path, arch: str, failures: list[str]) -> None:
+    machine = pe_machine(path)
+    if machine != PE_MACHINE[arch]:
+        failures.append(f"{path.name}: PE machine {machine if machine is None else hex(machine)}, expected {hex(PE_MACHINE[arch])} ({arch})")
+
+
 def check_windows_payload(install: Path, client_expected: bool, failures: list[str]) -> None:
     for dll in WINDOWS_RUNTIME_DLLS:
         if dll == "SDL3.dll" and not client_expected:
@@ -249,6 +272,9 @@ def validate_payload(install: Path, arch: str, system: str, client_expected: boo
             check_macos_binary(binary, arch, failures)
     if system == "windows":
         check_windows_payload(install, client_expected, failures)
+        # every executable and DLL beside the engine, the runtime DLLs included
+        for binary in sorted(install.glob("*.exe")) + sorted(install.glob("*.dll")):
+            check_windows_binary(binary, arch, failures)
     for failure in failures:
         print(f"  FAIL {failure}")
     if failures:
@@ -322,7 +348,7 @@ def main(argv: list[str]) -> int:
     try:
         if not args.skip_game_build:
             section("game: setup and compile")
-            setup(game_repo, game_build, common, clean=args.clean, vsenv=vsenv, dry_run=args.dry_run)
+            setup(game_repo, game_build, common, clean=args.clean, vsenv=vsenv, dry_run=args.dry_run, env=env)
             run(meson_command() + ["compile", "-C", str(game_build)], cwd=game_repo, dry_run=args.dry_run)
 
         section("engine: setup and compile")
@@ -332,7 +358,7 @@ def main(argv: list[str]) -> int:
             f"-Dbuild_tests={'false' if args.no_tests else 'true'}",
             f"-Dinstall_root={install}",
         ] + [f"-D{o}" for o in args.meson_option]
-        setup(ROOT, build, options, clean=args.clean, vsenv=vsenv, dry_run=args.dry_run)
+        setup(ROOT, build, options, clean=args.clean, vsenv=vsenv, dry_run=args.dry_run, env=env)
         run(meson_command() + ["compile", "-C", str(build)], cwd=ROOT, env=env, dry_run=args.dry_run)
 
         if not args.no_tests:
