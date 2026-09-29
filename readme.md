@@ -32,7 +32,7 @@ This follows openQ4: retail 1.5 network compatibility is not a goal. Retail 1.5 
 
 ## Status
 
-As of 2026-09-25, every engine build and every runtime result comes from one host: macOS arm64 (Apple Silicon, Apple Clang 21, debug builds). The game module alone also compiled in hosted CI on Linux, Windows and macOS x64 before the Actions minutes ran out. On that host the dedicated server loads every stock map with its scripts and navigation, and bots move. The Vulkan client (through MoltenVK) has rendered five maps, checked by draw counters rather than images. A dedicated server has hosted two clients over loopback, through a reconnect, a map restart and a 10-minute lossy session, and the Vulkan client has joined a dedicated server and hosted a listen server (automated tests, 2026-09-25). Since 2026-09-25 the runtime results come from the retail data patched to 1.5 (the full suite passes on it); earlier ones came from the unpatched DVD data. The engine has not yet been configured or compiled on Linux or Windows. [`STATUS.md`](STATUS.md) has the evidence levels, the exact commands and the open items.
+Until 2026-09-25, every engine build and every runtime result came from one host: macOS arm64 (Apple Silicon, Apple Clang 21, debug builds). The game module alone also compiled in hosted CI on Linux, Windows and macOS x64 before the Actions minutes ran out. On that host the dedicated server loads every stock map with its scripts and navigation, and bots move. The Vulkan client (through MoltenVK) has rendered five maps, checked by draw counters rather than images. A dedicated server has hosted two clients over loopback, through a reconnect, a map restart and a 10-minute lossy session, and the Vulkan client has joined a dedicated server and hosted a listen server (automated tests, 2026-09-25). Since 2026-09-25 the runtime results come from the retail data patched to 1.5 (the full suite passes on it); earlier ones came from the unpatched DVD data. Since then the engine has also been built and run on Linux x86_64 (Fedora 44, GCC, 2026-09-26) and Windows 11 x64 (MSVC, 2026-09-28), where the full retail suite runs too ([`STATUS.md`](STATUS.md) has the results and the known failures). [`STATUS.md`](STATUS.md) has the evidence levels, the exact commands and the open items.
 
 ## Build on macOS
 
@@ -60,6 +60,31 @@ ln -s "$PWD/../openETQW-game/build/game_arm64.dylib" build/game_arm64.dylib
 This produces `build/openETQW-client_arm64` and `build/openETQW-ded_arm64`.
 
 Configuring the engine copies headers and a few sources from the game repository into `.tmp/gamelibs_stage`. After changing idLib or interface headers in the game repository, run `meson setup --reconfigure build` in the engine, or it keeps using the old copies.
+
+## Build on Windows
+
+The Windows host uses Windows 11 x64, Visual Studio 2026 (MSVC 19.51, the "Desktop development with C++" workload), Python 3 with `meson` and `ninja`, the Vulkan SDK (the client compiles its shaders with its `glslangValidator`), and vcpkg (triplet `x64-windows`) with `sdl3[vulkan]`, `zlib`, `vulkan-headers`, `vulkan-loader` and `pkgconf`.
+
+```bat
+rem vcpkg's prefix; PKG_CONFIG lets Meson find SDL3 and zlib through pkg-config
+set VCPKG=%USERPROFILE%\vcpkg\installed\x64-windows
+set PKG_CONFIG=%VCPKG%\tools\pkgconf\pkgconf.exe
+set PKG_CONFIG_PATH=%VCPKG%\lib\pkgconfig;%VCPKG%\share\pkgconfig
+
+rem 1. Game module and SDK idLib (build this first)
+cd openETQW-game
+meson setup build --vsenv
+meson compile -C build
+
+rem 2. Engine client, dedicated server and tests
+cd ..\openETQW
+meson setup build --vsenv -Dbuild_engine=true -Dbuild_dedicated=true -Dbuild_tests=true -Dcmake_prefix_path=%VCPKG%
+meson compile -C build
+```
+
+This produces `build\openETQW-client_x64.exe` and `build\openETQW-ded_x64.exe`. The engine build copies `game_x64.dll`, `SDL3.dll` and `z.dll` next to them, and copies the game module again whenever the game build replaces it. Start the client from the repository root: it finds its Vulkan shaders (`base\vkprogs`) through the current directory.
+
+The engine links the idLib in the game repository's `build` directory, so for an optimized build configure both with the same `--buildtype` (for example `debugoptimized`). MSVC 19.51 miscompiles an inlined `strncpy` at `/O2`; the game repository works around it (`src/idlib/text/StrBuilder.h`). The dedicated server stops cleanly on Ctrl+C or Ctrl+Break, as on SIGTERM elsewhere.
 
 ## Test
 
