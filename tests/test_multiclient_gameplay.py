@@ -391,9 +391,11 @@ def run_multiclient_test():
     # server's positions.  A remote player's view trails the server by the one-way
     # delay plus interpolation: sampled right after a landing under the simulated
     # 80-120 ms link, it is still a few frames up the fall (the errors seen were
-    # 2-5 server frames of it).  Resample until the views agree or the time is up.
+    # 2-5 server frames of it).  Resample until the views agree or the time is up;
+    # the window is short, so a replication stall longer than that still fails.
     MAX_TOLERANCE = 2.0
-    converge_deadline = time.time() + 5.0
+    converge_start = time.time()
+    converge_deadline = converge_start + 2.0
     samples = 0
     while True:
         samples += 1
@@ -426,7 +428,7 @@ def run_multiclient_test():
     print(f"  Spatial Replication Error (Client 2 viewing Client 0): {err_c0_from_c1:.4f} units")
     print(f"  Local Reconciliation Error Client 0:                   {err_local_c0:.4f} units")
     print(f"  Local Reconciliation Error Client 1:                   {err_local_c1:.4f} units")
-    print(f"  ({samples} sample(s))")
+    print(f"  ({samples} sample(s), {time.time() - converge_start:.2f} s)")
 
     if err_c1_from_c2 > MAX_TOLERANCE or err_c0_from_c1 > MAX_TOLERANCE:
         raise ValueError(f"Replication error exceeds tolerance ({MAX_TOLERANCE} u): c1_view={err_c1_from_c2:.4f}, c2_view={err_c0_from_c1:.4f}")
