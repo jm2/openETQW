@@ -56,3 +56,24 @@ option(
   value: '',
   description: 'Where `meson install` stages the portable engine tree (the binaries, the game module, base/vkprogs and licenses/ together, as a package ships them). Empty: <source>/.install, as openQ4.',
 )
+
+option(
+  'version_track',
+  type: 'string',
+  value: 'dev',
+  description: 'Version track embedded into the build (as openQ4): stable for release builds, dev for local builds, or labels such as beta/rc for prerelease builds.',
+)
+
+option(
+  'version_iteration',
+  type: 'string',
+  value: '',
+  description: 'Optional dot-separated track iteration (for example 20260307.1). Only used for prerelease tracks.',
+)
+
+option(
+  'version_base_override',
+  type: 'string',
+  value: '',
+  description: 'Optional release version override used for generated build metadata without changing meson.build.',
+)

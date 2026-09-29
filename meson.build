@@ -33,6 +33,43 @@ engine_ded_binary_name = 'openETQW-ded_' + binary_arch
 game_module_binary_name = 'game_' + binary_arch
 
 py = find_program('python3', 'python', native: true, required: true)
+
+# Version metadata, as openQ4 (tools/build/openetqw_version.py): project(version:)
+# is a floor, raised to the newest v* tag; release builds pin it with
+# -Dversion_base_override and -Dversion_track=stable. The header is regenerated
+# on every build (git state changes without meson.build changing) and only
+# rewritten when its contents change.
+version_metadata_command = [
+  py,
+  meson.project_source_root() / 'tools' / 'build' / 'openetqw_version.py',
+  '--source-root', meson.project_source_root(),
+  '--track', get_option('version_track').strip(),
+]
+if get_option('version_base_override').strip() != ''
+  version_metadata_command += ['--base-version', get_option('version_base_override').strip()]
+endif
+if get_option('version_iteration').strip() != ''
+  version_metadata_command += ['--iteration', get_option('version_iteration').strip()]
+endif
+version_metadata_result = run_command(
+  version_metadata_command + ['--header-out', meson.current_build_dir() / 'openetqw_version_generated.h'],
+  check: true,
+)
+generated_version_header = custom_target(
+  'openetqw_version_generated',
+  output: 'openetqw_version_generated.h',
+  command: version_metadata_command + ['--header-out', '@OUTPUT@'],
+  depend_files: files('tools/build/openetqw_version.py'),
+  build_always_stale: true,
+  build_by_default: true,
+)
+openetqw_product_version_full = meson.project_name() + ' ' + meson.project_version()
+foreach version_line : version_metadata_result.stdout().strip().split('\n')
+  version_pair = version_line.split('=')
+  if version_pair.length() == 2 and version_pair[0] == 'product_version_full'
+    openetqw_product_version_full = version_pair[1]
+  endif
+endforeach
 fs_mod = import('fs')
 
 # `meson install` stages the portable tree a package ships, as openQ4 does: the
@@ -326,6 +363,7 @@ if build_engine
   executable(
     engine_client_binary_name,
     openetqw_client_sources,
+    generated_version_header,
     include_directories: engine_include_dirs,
     c_args: engine_c_args,
     cpp_args: client_cpp_args,
@@ -365,6 +403,7 @@ if build_dedicated
   executable(
     engine_ded_binary_name,
     openetqw_ded_sources,
+    generated_version_header,
     include_directories: engine_include_dirs,
     c_args: engine_c_args,
     cpp_args: ded_cpp_args,

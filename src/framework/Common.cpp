@@ -5,6 +5,7 @@
 // Microsoft PDB and the matching retail executable disassembly.
 
 #include "../idlib/precompiled.h"
+#include "openetqw_version_generated.h"
 #pragma hdrstop
 
 #if !defined( _WIN32 )
@@ -66,6 +67,9 @@ struct versionString_t {
 static versionString_t versionString;
 
 idCVar com_version( "si_version", versionString.string, CVAR_SYSTEM | CVAR_ROM | CVAR_SERVERINFO, "engine version" );
+// the openETQW build (tools/build/openetqw_version.py); si_version keeps the
+// retail format servers advertise
+idCVar com_openetqwVersion( "openetqw_version", OPENETQW_PRODUCT_VERSION_FULL, CVAR_SYSTEM | CVAR_ROM, "openETQW build version" );
 idCVar com_skipRenderer( "com_skipRenderer", "0", CVAR_BOOL | CVAR_SYSTEM, "skip renderer initialization" );
 idCVar com_machineSpec( "com_machineSpec", "-1", CVAR_INTEGER | CVAR_ARCHIVE | CVAR_SYSTEM, "hardware quality classification", -1, 3 );
 idCVar com_gpuSpec( "com_gpuSpec", "3", CVAR_INTEGER | CVAR_ARCHIVE | CVAR_SYSTEM,
@@ -1154,7 +1158,7 @@ static void Com_Quit_f( const idCmdArgs& ) {
 
 static void Com_Status_f( const idCmdArgs& ) {
 	common->Printf( "ETQW Dedicated Server Status:\n" );
-	common->Printf( "  Version: %s\n", versionString.string );
+	common->Printf( "  Version: %s (%s)\n", versionString.string, OPENETQW_PRODUCT_VERSION_FULL );
 	common->Printf( "  Dedicated: %s\n", cvarSystem->GetCVarBool( "dedicated" ) ? "Yes" : "No" );
 	common->Printf( "  State: Running (Headless Dedicated)\n" );
 	idAsyncNetwork::server.PrintClientSlots();
@@ -1462,6 +1466,7 @@ void idCommonLocal::Init( int argc, const char** argv, const char* cmdline ) {
 		Sys_InitNetworking();
 		StartupVariable( NULL );
 		Printf( "%s\n", versionString.string );
+		Printf( "%s\n", OPENETQW_PRODUCT_VERSION_FULL );
 		InitCommands();
 		InitSIMD();
 		InitGame( false );
