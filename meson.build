@@ -322,6 +322,19 @@ elif fs_mod.is_file(game_repo_root / 'build' / 'idLib.lib')
 else
   error('Neither libidLib.a nor idLib.lib found in ' + game_repo_root / 'build' + '. Build openETQW-game first.')
 endif
+# Full RELRO on Linux, as the game module has and openQ4's validation requires:
+# the dynamic relocations are resolved at load and made read-only.
+if host_system == 'linux'
+  foreach hardening_arg : ['-Wl,-z,relro', '-Wl,-z,now']
+    if cpp.has_link_argument(hardening_arg)
+      engine_common_link_args += [hardening_arg]
+    endif
+  endforeach
+endif
+# An installed Linux engine finds the libraries a package bundles next to it
+# (SDL3; tools/build/package_release.py) through a $ORIGIN RUNPATH. The build
+# tree keeps the rpaths Meson sets.
+engine_install_rpath = host_system == 'linux' ? '$ORIGIN' : ''
 
 if build_engine
   engine_source_discovery = run_command(
@@ -374,6 +387,7 @@ if build_engine
     win_subsystem: host_system == 'windows' ? 'windows' : 'console',
     install: true,
     install_dir: install_root,
+    install_rpath: engine_install_rpath,
   )
 endif
 
@@ -414,6 +428,7 @@ if build_dedicated
     win_subsystem: 'console',
     install: true,
     install_dir: install_root,
+    install_rpath: engine_install_rpath,
   )
 endif
 
