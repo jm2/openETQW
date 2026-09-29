@@ -18,6 +18,7 @@
 #endif
 
 #include <winsock2.h>
+#include <mswsock.h>
 #include <timeapi.h>
 #include <direct.h>
 #include <io.h>
@@ -1317,6 +1318,14 @@ bool idPort::InitForPort( int portNumber ) {
 	if ( socketHandle == INVALID_SOCKET ) {
 		return false;
 	}
+	// By default a Windows UDP socket turns an ICMP port-unreachable (a peer that
+	// went away) into a WSAECONNRESET from the next recvfrom, which ended the
+	// frame's receive loop early while that client timed out.  POSIX reports
+	// nothing on an unconnected UDP socket; do the same.
+	BOOL reportConnectionReset = FALSE;
+	DWORD returned = 0;
+	WSAIoctl( socketHandle, SIO_UDP_CONNRESET, &reportConnectionReset, sizeof( reportConnectionReset ),
+		NULL, 0, &returned, NULL, NULL );
 	u_long nonBlocking = 1;
 	ioctlsocket( socketHandle, FIONBIO, &nonBlocking );
 	BOOL broadcast = TRUE;
