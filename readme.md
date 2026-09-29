@@ -61,6 +61,12 @@ This produces `build/openETQW-client_arm64` and `build/openETQW-ded_arm64`.
 
 Configuring the engine copies headers and a few sources from the game repository into `.tmp/gamelibs_stage`. After changing idLib or interface headers in the game repository, run `meson setup --reconfigure build` in the engine, or it keeps using the old copies.
 
+## Build on Linux
+
+The Linux host (`antec`) runs Fedora 44 with GCC 16, Python 3, Meson and Ninja, and these packages: `gcc-c++`, `meson`, `ninja-build`, `pkgconf`, `SDL3-devel`, `vulkan-loader-devel`, `vulkan-headers`, `zlib-ng-compat-devel`, `mesa-libGL-devel`, plus `glslang` (the client compiles its shaders with `glslangValidator`) and `vulkan-validation-layers` for the tests. Ubuntu 24.04 has no SDL3 package; `tools/ci/linux_deps.sh` installs the rest and builds SDL3 into a private prefix, as CI does.
+
+The commands are the macOS ones, with `game_x64.so` in the symlink step.
+
 ## Build on Windows
 
 The Windows host uses Windows 11 x64, Visual Studio 2026 (MSVC 19.51, the "Desktop development with C++" workload), Python 3 with `meson` and `ninja`, the Vulkan SDK (the client compiles its shaders with its `glslangValidator`), and vcpkg (triplet `x64-windows`) with `sdl3[vulkan]`, `zlib`, `vulkan-headers`, `vulkan-loader` and `pkgconf`.
@@ -85,6 +91,12 @@ meson compile -C build
 This produces `build\openETQW-client_x64.exe` and `build\openETQW-ded_x64.exe`. The engine build copies `game_x64.dll`, `SDL3.dll` and `z.dll` next to them, and copies the game module again whenever the game build replaces it. Start the client from the repository root: it finds its Vulkan shaders (`base\vkprogs`) through the current directory.
 
 The engine links the idLib in the game repository's `build` directory, so for an optimized build configure both with the same `--buildtype` (for example `debugoptimized`). MSVC 19.51 miscompiles an inlined `strncpy` at `/O2`; the game repository works around it (`src/idlib/text/StrBuilder.h`). The dedicated server stops cleanly on Ctrl+C or Ctrl+Break, as on SIGTERM elsewhere.
+
+## Install and packages
+
+`meson install -C build` stages a portable engine tree in `.install/` (or `-Dinstall_root=<dir>`): the client, the dedicated server, the game module, `base/vkprogs` and `licenses/`. That tree runs from anywhere: the engine finds its shaders and its game module next to its executable, and keeps configs, logs and the shader cache in the per-user directory (`~/.local/share/openetqw`, `%LOCALAPPDATA%\openETQW`, `~/Library/Application Support/openETQW`). Point it at the retail data with `+set fs_basepath`, or put the tree in the ET:QW install directory.
+
+`python3 tools/validation/openetqw_validate.py pr` builds both repositories, runs the unit suite, stages the tree and checks it, as CI does. [`docs/releasing.md`](docs/releasing.md) describes the CI workflows, the packages and how a release is made.
 
 ## Test
 
@@ -129,3 +141,4 @@ The release gate has six items: a redistributable license for jmarshall's code (
 - [`CONTRIBUTING.md`](CONTRIBUTING.md): merge gates and local checks.
 - [`docs/compat-ledger.md`](docs/compat-ledger.md): deliberate deviations from retail 1.5.
 - [`docs/provenance.md`](docs/provenance.md): file origins and licenses.
+- [`docs/releasing.md`](docs/releasing.md): CI workflows, packages and releases.
