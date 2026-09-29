@@ -132,6 +132,15 @@ test(
   timeout: 30,
 )
 
+# Release tooling: version bumps, changelog, asset set, source provenance, installer
+test(
+  'release-tools',
+  py,
+  args: [meson.project_source_root() / 'tests' / 'test_release_tools.py'],
+  suite: 'unit',
+  timeout: 60,
+)
+
 # Packaging and validation tooling: staged-payload checks, archives, AppRun
 test(
   'packaging-tools',
