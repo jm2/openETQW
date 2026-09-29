@@ -1489,6 +1489,12 @@ bool Sys_StringToNetAdr( const char *text, netadr_t *address, bool doDNSResolve 
 		port = atoi( portText );
 	}
 	address->port = static_cast< unsigned short >( port );
+	// "localhost" with a port too, without a DNS lookup (callers may pass
+	// doDNSResolve false)
+	if ( idStr::Icmp( host, "localhost" ) == 0 ) {
+		address->type = NA_LOOPBACK;
+		return true;
+	}
 
 	unsigned long parsed = inet_addr( host );
 	if ( parsed == INADDR_NONE && doDNSResolve ) {
@@ -1539,12 +1545,20 @@ bool Sys_IsLANAddress( const netadr_t& address ) {
 		  address.ip[ 0 ] == 127 );
 }
 
+// "localhost" and "127.0.0.1" parse to NA_LOOPBACK, but packets from the local
+// host arrive as NA_IP 127.x (received addresses are always NA_IP): the same
+// machine either way.  Without this, "connect localhost" never matched the
+// server's replies.  (As posix_net.cpp.)
+static bool Net_IsLocalHost( const netadr_t& address ) {
+	return address.type == NA_LOOPBACK || ( address.type == NA_IP && address.ip[ 0 ] == 127 );
+}
+
 bool Sys_CompareNetAdrBase( const netadr_t& a, const netadr_t& b ) {
+	if ( a.type == NA_LOOPBACK || b.type == NA_LOOPBACK ) {
+		return Net_IsLocalHost( a ) && Net_IsLocalHost( b );
+	}
 	if ( a.type != b.type ) {
 		return false;
-	}
-	if ( a.type == NA_LOOPBACK ) {
-		return true;
 	}
 	return memcmp( a.ip, b.ip, sizeof( a.ip ) ) == 0;
 }
