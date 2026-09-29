@@ -1,0 +1,153 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# macOS Debug (manual; as openQ4's macos-debug.yml, with one build: the Vulkan
+# renderer on MoltenVK over Metal, which is the default on every platform).
+# A debug build of the game and the engine through the 'push' profile of
+# tools/validation/openetqw_validate.py (unit suite, integration skips, install,
+# staged-payload checks, dedicated-server smoke), plus host diagnostics and, on
+# request, a MoltenVK capability probe (vulkaninfo). The staged debug payload
+# is published for symbolicating reports from macOS testers.
+#
+# Evidence scope: a hosted build and assetless checks only, never a gameplay
+# sign-off; the retail-data suite runs on a Mac with the data (CONTRIBUTING.md).
+
+name: macOS Debug
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: "Architecture to build"
+        required: true
+        default: arm64
+        type: choice
+        options:
+          - arm64
+          - x64
+          - both
+      moltenvk_probe:
+        description: "Run vulkaninfo against MoltenVK on the runner (best effort: a hosted runner may have no usable Metal device)"
+        required: true
+        default: false
+        type: boolean
+      companion_ref:
+        description: "openETQW-game full commit SHA, branch or tag instead of tools/ci/companion.ref (empty: use the pin)"
+        required: false
+        default: ""
+        type: string
+      retention_days:
+        description: "Artifact retention days"
+        required: true
+        default: "14"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openetqw-macos-debug-${{ github.ref }}-${{ inputs.arch }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  MESON_VERSION: "1.12.1"
+  NINJA_VERSION: "1.13.2"
+  SDL3_TAG: release-3.4.16
+  OPENETQW_COMPANION_REPO: jm2/openETQW-game
+
+jobs:
+  macos-debug:
+    name: macOS ${{ matrix.arch }} Debug (Vulkan/MoltenVK)
+    runs-on: ${{ matrix.arch == 'arm64' && 'macos-15' || 'macos-15-intel' }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(inputs.arch == 'both' && '["arm64","x64"]' || format('["{0}"]', inputs.arch)) }}
+    env:
+      OPENETQW_GAME_REPO: ${{ github.workspace }}/openETQW-game
+    defaults:
+      run:
+        shell: bash
+        working-directory: openETQW
+    steps:
+      - name: Checkout openETQW
+        uses: actions/checkout@v7
+        with:
+          path: openETQW
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
+      - name: Prepare build (companion, Meson, dependencies)
+        id: prepare
+        uses: ./openETQW/.github/actions/prepare
+        with:
+          platform: macos
+          companion-ref: ${{ inputs.companion_ref }}
+          cross-repo-token: ${{ secrets.OPENETQW_CROSS_REPO_TOKEN }}
+          companion-required: ${{ vars.OPENETQW_COMPANION_REQUIRED }}
+          repository-private: ${{ github.event.repository.private }}
+          meson-version: ${{ env.MESON_VERSION }}
+          ninja-version: ${{ env.NINJA_VERSION }}
+          sdl3-tag: ${{ env.SDL3_TAG }}
+          release-tools: "true"
+
+      - name: Host diagnostics
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/macos-debug
+          {
+            echo "## Host"
+            sw_vers
+            uname -a
+            echo
+            echo "## Xcode"
+            xcodebuild -version || true
+            xcode-select -p || true
+            echo
+            echo "## Displays"
+            system_profiler SPDisplaysDataType || true
+            echo
+            echo "## Sources"
+            echo "openETQW $(git rev-parse HEAD)$([ -n "$(git status --porcelain)" ] && echo ' (dirty)')"
+            if [ -d "${OPENETQW_GAME_REPO}/.git" ]; then
+              echo "openETQW-game $(git -C "${OPENETQW_GAME_REPO}" rev-parse HEAD)"
+            fi
+            echo "evidence scope: hosted build and assetless checks only; not a gameplay sign-off"
+          } | tee .tmp/macos-debug/host.txt
+
+      - name: Validate (push profile, debug build)
+        if: steps.prepare.outputs.available == 'true'
+        run: python tools/validation/openetqw_validate.py push --build-dir build --buildtype debug
+
+      - name: MoltenVK capability probe
+        if: steps.prepare.outputs.available == 'true' && inputs.moltenvk_probe
+        continue-on-error: true
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: |
+          set -euo pipefail
+          brew install vulkan-tools
+          icd="$(brew --prefix molten-vk)/etc/vulkan/icd.d/MoltenVK_icd.json"
+          VK_ICD_FILENAMES="${icd}" vulkaninfo --summary 2>&1 | tee .tmp/macos-debug/vulkaninfo-summary.txt
+          VK_ICD_FILENAMES="${icd}" vulkaninfo 2>&1 > .tmp/macos-debug/vulkaninfo.txt || true
+
+      - name: Publish debug artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-debug-${{ matrix.arch }}
+          path: |
+            openETQW/.tmp/macos-debug
+            openETQW/.tmp/ci
+            openETQW/build/meson-logs
+            openETQW/build/install
+            openETQW-game/build/meson-logs
+          if-no-files-found: warn
+          retention-days: ${{ fromJSON(inputs.retention_days) }}
+          include-hidden-files: true

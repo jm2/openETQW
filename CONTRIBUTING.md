@@ -40,9 +40,14 @@ get CI back: both stay private until the owner decides to publish.
    explained in the PR.
 6. **Merge commit.** Branches are merged with a merge commit, which keeps the per-fix history.
 
-When Actions minutes are available again, the `CI` workflow (`.github/workflows/ci.yml`)
-must also be green. Its build legs skip while `openETQW-game` is private, and experimental
-legs report without blocking.
+When Actions minutes are available again, **Commit Validation**
+(`.github/workflows/commit-validation.yml`) and **Linux ARM64 Cross Build** must also be
+green on the PR. Their build jobs skip while `openETQW-game` is private, and experimental
+legs report without blocking. Every build job runs `tools/validation/openetqw_validate.py`
+(`validate_pr.sh` / `validate_pr.ps1`), so the same check runs locally:
+`python3 tools/validation/openetqw_validate.py pr` builds the game and the engine, runs the
+unit suite and the integration skip check, stages the install tree with `meson install`,
+checks the staged payload and runs the dedicated-server smoke on it.
 
 ## Cross-repo changes
 The engine builds against the game at the commit pinned in `tools/ci/companion.ref`.

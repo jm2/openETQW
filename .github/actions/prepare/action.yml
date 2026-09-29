@@ -1,0 +1,172 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Shared job preparation for every workflow that builds openETQW: fetch the
+# openETQW-game companion at its pin, apply the companion availability policy,
+# install Meson and Ninja, and install the platform's build dependencies.
+#
+# The caller checks openETQW out into ./openETQW, sets up Python, and sets
+# OPENETQW_GAME_REPO (normally ${{ github.workspace }}/openETQW-game) and
+# OPENETQW_COMPANION_REPO in the job environment.
+#
+# Companion. tools/ci/fetch_companion.py fetches it anonymously and, only if
+# the cross-repo-token input is non-empty, retries with that token. While the
+# repositories are private and no token is set, `available` is false: the
+# caller skips its build steps and the job stays green with a notice. Once this
+# repository is public a skipped companion is a warning, and the repository
+# variable OPENETQW_COMPANION_REQUIRED=true (passed as companion-required) makes
+# it an error.
+#
+# release-tools: also install what a package bundles, glslangValidator (the
+# engine compiles its SPIR-V at run time) and, on macOS, MoltenVK.
+
+name: Prepare openETQW build
+description: Fetch the companion, install Meson/Ninja and the platform build dependencies
+
+inputs:
+  platform:
+    description: "linux, macos or windows; none installs no platform dependencies (a cross build brings its own)"
+    required: true
+  vcpkg-triplet:
+    description: vcpkg triplet (Windows only)
+    required: false
+    default: ""
+  companion-ref:
+    description: companion commit, branch or tag instead of tools/ci/companion.ref (empty uses the pin)
+    required: false
+    default: ""
+  cross-repo-token:
+    description: optional token for a private companion (secrets.OPENETQW_CROSS_REPO_TOKEN)
+    required: false
+    default: ""
+  companion-required:
+    description: "'true' makes an inaccessible companion an error (vars.OPENETQW_COMPANION_REQUIRED)"
+    required: false
+    default: ""
+  repository-private:
+    description: "github.event.repository.private, as a string"
+    required: false
+    default: ""
+  meson-version:
+    description: Meson version to install
+    required: true
+  ninja-version:
+    description: Ninja version to install
+    required: true
+  sdl3-tag:
+    description: SDL3 release tag built on Linux (Ubuntu 24.04 ships none)
+    required: true
+  release-tools:
+    description: "'true' also installs glslangValidator and, on macOS, MoltenVK"
+    required: false
+    default: "false"
+
+outputs:
+  available:
+    description: "'true' when the companion was fetched"
+    value: ${{ steps.companion.outputs.available }}
+  companion-sha:
+    description: the companion commit that was fetched
+    value: ${{ steps.companion.outputs.sha }}
+
+runs:
+  using: composite
+  steps:
+    - name: Fetch openETQW-game companion
+      id: companion
+      shell: bash
+      working-directory: openETQW
+      env:
+        OPENETQW_COMPANION_REF: ${{ inputs.companion-ref }}
+        OPENETQW_CROSS_REPO_TOKEN: ${{ inputs.cross-repo-token }}
+      run: python tools/ci/fetch_companion.py --dest "${OPENETQW_GAME_REPO}" --skip-if-unavailable
+
+    # A skipped companion leaves the job green without building anything: fine
+    # while both repositories are private, a silent hole once this one is public.
+    - name: Companion availability policy
+      if: steps.companion.outputs.available != 'true'
+      shell: bash
+      env:
+        COMPANION_REQUIRED: ${{ inputs.companion-required }}
+        REPO_PRIVATE: ${{ inputs.repository-private }}
+      run: |
+        if [ "${COMPANION_REQUIRED}" = "true" ]; then
+          echo "::error title=Companion required::${OPENETQW_COMPANION_REPO} is not accessible but OPENETQW_COMPANION_REQUIRED=true"
+          exit 1
+        fi
+        if [ "${REPO_PRIVATE}" = "false" ]; then
+          echo "::warning title=Companion skipped::this repository is public but ${OPENETQW_COMPANION_REPO} is not reachable anonymously, so nothing was built (check tools/ci/companion.ref and OPENETQW_COMPANION_REPO)"
+        fi
+
+    - name: Install Meson and Ninja
+      if: steps.companion.outputs.available == 'true'
+      shell: bash
+      env:
+        MESON_VERSION: ${{ inputs.meson-version }}
+        NINJA_VERSION: ${{ inputs.ninja-version }}
+      run: |
+        set -euo pipefail
+        python -m pip install --upgrade pip
+        python -m pip install "meson==${MESON_VERSION}" "ninja==${NINJA_VERSION}"
+        meson --version
+        ninja --version
+
+    - name: Install Linux dependencies and SDL3
+      if: steps.companion.outputs.available == 'true' && inputs.platform == 'linux'
+      shell: bash
+      working-directory: openETQW
+      env:
+        SDL3_TAG: ${{ inputs.sdl3-tag }}
+        RELEASE_TOOLS: ${{ inputs.release-tools }}
+      run: |
+        set -euo pipefail
+        bash tools/ci/linux_deps.sh "${SDL3_TAG}"
+        if [ "${RELEASE_TOOLS}" = "true" ]; then
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends glslang-tools file
+          glslangValidator --version | head -1
+        fi
+
+    - name: Install macOS dependencies
+      if: steps.companion.outputs.available == 'true' && inputs.platform == 'macos'
+      shell: bash
+      env:
+        HOMEBREW_NO_AUTO_UPDATE: "1"
+        HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        RELEASE_TOOLS: ${{ inputs.release-tools }}
+      run: |
+        set -euo pipefail
+        packages=(sdl3 vulkan-headers vulkan-loader)
+        if [ "${RELEASE_TOOLS}" = "true" ]; then
+          packages+=(glslang molten-vk)
+        fi
+        brew install "${packages[@]}"
+        prefix="$(brew --prefix)"
+        echo "PKG_CONFIG_PATH=${prefix}/lib/pkgconfig:${prefix}/share/pkgconfig${PKG_CONFIG_PATH:+:${PKG_CONFIG_PATH}}" >> "${GITHUB_ENV}"
+        pkg-config --modversion sdl3 vulkan
+
+    - name: Install Windows dependencies (vcpkg)
+      if: steps.companion.outputs.available == 'true' && inputs.platform == 'windows'
+      shell: pwsh
+      env:
+        VCPKG_TRIPLET: ${{ inputs.vcpkg-triplet }}
+        RELEASE_TOOLS: ${{ inputs.release-tools }}
+      run: |
+        $ErrorActionPreference = "Stop"
+        $PSNativeCommandUseErrorActionPreference = $true
+        $root = $env:VCPKG_INSTALLATION_ROOT
+        if (-not $root -or -not (Test-Path (Join-Path $root "vcpkg.exe"))) {
+          $root = Join-Path $env:RUNNER_TEMP "vcpkg"
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git $root
+          & (Join-Path $root "bootstrap-vcpkg.bat") -disableMetrics
+        }
+        $packages = @("sdl3[vulkan]", "vulkan-headers", "vulkan-loader", "zlib", "pkgconf")
+        if ($env:RELEASE_TOOLS -eq "true") { $packages += "glslang[tools]" }
+        & (Join-Path $root "vcpkg.exe") install --triplet $env:VCPKG_TRIPLET --clean-after-build @packages
+        $installed = (Join-Path $root "installed/$env:VCPKG_TRIPLET") -replace '\\', '/'
+        "PKG_CONFIG=$installed/tools/pkgconf/pkgconf.exe" >> $env:GITHUB_ENV
+        "PKG_CONFIG_PATH=$installed/lib/pkgconfig;$installed/share/pkgconfig" >> $env:GITHUB_ENV
+        "CMAKE_PREFIX_PATH=$installed" >> $env:GITHUB_ENV
+        "VULKAN_SDK=$installed" >> $env:GITHUB_ENV
+        ($installed + "/bin") -replace '/', '\' >> $env:GITHUB_PATH
+        if ($env:RELEASE_TOOLS -eq "true") {
+          ($installed + "/tools/glslang") -replace '/', '\' >> $env:GITHUB_PATH
+        }

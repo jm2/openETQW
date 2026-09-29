@@ -1,0 +1,111 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Linux ARM64 Cross Build (as openQ4's linux-arm64-cross.yml): the game and the
+# engine cross-compiled for aarch64 on an x86_64 runner (tools/cross/linux-arm64.ini),
+# then installed and put through the staged-payload checks of
+# tools/validation/openetqw_validate.py (AArch64 ELF, full RELRO, BIND_NOW,
+# non-executable stack, layout, vkprogs, licences). Nothing runs: the native
+# ARM64 legs of commit-validation.yml and push-verification.yml run the tests.
+#
+# Companion policy: as commit-validation.yml.
+
+name: Linux ARM64 Cross Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      companion_ref:
+        description: "openETQW-game full commit SHA, branch or tag to build against instead of tools/ci/companion.ref (empty: use the pin)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openetqw-arm64-cross-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  MESON_VERSION: "1.12.1"
+  NINJA_VERSION: "1.13.2"
+  SDL3_TAG: release-3.4.16
+  OPENETQW_COMPANION_REPO: jm2/openETQW-game
+
+jobs:
+  cross-build:
+    name: Linux ARM64 Cross Build (x64 host)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    # never run: experimental until it passes on main
+    continue-on-error: true
+    env:
+      OPENETQW_GAME_REPO: ${{ github.workspace }}/openETQW-game
+      PKG_CONFIG_ALLOW_CROSS: "1"
+    defaults:
+      run:
+        shell: bash
+        working-directory: openETQW
+    steps:
+      - name: Checkout openETQW
+        uses: actions/checkout@v7
+        with:
+          path: openETQW
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
+      # the native dependencies are not needed: platform 'none' fetches the
+      # companion and installs Meson only
+      - name: Prepare build (companion, Meson)
+        id: prepare
+        uses: ./openETQW/.github/actions/prepare
+        with:
+          platform: none
+          companion-ref: ${{ inputs.companion_ref }}
+          cross-repo-token: ${{ secrets.OPENETQW_CROSS_REPO_TOKEN }}
+          companion-required: ${{ vars.OPENETQW_COMPANION_REQUIRED }}
+          repository-private: ${{ github.event.repository.private }}
+          meson-version: ${{ env.MESON_VERSION }}
+          ninja-version: ${{ env.NINJA_VERSION }}
+          sdl3-tag: ${{ env.SDL3_TAG }}
+
+      - name: Install the aarch64 toolchain, arm64 packages and SDL3
+        if: steps.prepare.outputs.available == 'true'
+        run: bash tools/ci/linux_deps.sh "${SDL3_TAG}" arm64
+
+      - name: Cross-build, install and check the staged payload
+        if: steps.prepare.outputs.available == 'true'
+        run: >-
+          python tools/validation/openetqw_validate.py push --build-dir builddir-arm64-cross
+          --cross-file tools/cross/linux-arm64.ini --arch arm64
+          --meson-option "pkg_config_path=${SDL3_PKG_CONFIG_DIR}"
+
+      - name: Note experimental failure
+        if: failure()
+        working-directory: .
+        run: |
+          echo "::warning title=Experimental job failed::the Linux ARM64 cross build failed; it has never run and does not fail the run"
+          echo "### Linux ARM64 cross build: failed (experimental, never run before)" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-arm64-cross-logs
+          path: |
+            openETQW/builddir-arm64-cross/meson-logs
+            openETQW-game/build/meson-logs
+          if-no-files-found: ignore
+          retention-days: 14
+          include-hidden-files: true

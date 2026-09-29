@@ -1,0 +1,382 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Commit Validation: every pull request (as openQ4's commit-validation.yml).
+#
+#   lint          actionlint (+ shellcheck of tools/ci and tools/validation)
+#   script-smoke  Python hygiene, include case, Zero-SDK audit, Meson source-manifest
+#                 stress, "every integration test skips without retail data", and a
+#                 dry run of both validation profiles
+#   validate      the 'pr' profile of tools/validation/openetqw_validate.py on Linux
+#                 x64 GCC/Clang, Linux ARM64, macOS arm64, Windows x64/ARM64: game and
+#                 engine build, unit suite, integration suite must SKIP, meson install,
+#                 staged-payload checks (layout, vkprogs, licences, RELRO/NOW/NX,
+#                 Mach-O arch and minimum OS, runtime DLLs), the assetless
+#                 dedicated-server smoke on the staged binary, and a clean tree after
+#   sanitizer     the same profile, Linux x64 Clang, ASan+UBSan
+#
+# The macOS build is the Vulkan one (MoltenVK over Metal): r_renderAPI defaults
+# to vulkan everywhere, with OpenGL as the runtime fallback, so there is one
+# macOS build per architecture rather than openQ4's OpenGL and Metal pair.
+#
+# Push Verification (push-verification.yml) runs the 'push' profile on main and
+# publishes the staged payloads; the release is manual-release.yml.
+#
+# The companion (openETQW-game at tools/ci/companion.ref) is fetched by
+# .github/actions/prepare; while both repositories are private and no
+# OPENETQW_CROSS_REPO_TOKEN is set, the build jobs skip cleanly (see there).
+# Retail ET:QW data is never on a hosted runner: the integration tests must exit
+# 77 (skip) and the smoke uses only files it generates.
+#
+# Experimental legs (experimental: true) run and show their own failure but
+# cannot fail the run. Flip one to false once it has passed on main; `blocker`
+# says why it is experimental.
+
+name: Commit Validation
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      companion_ref:
+        description: "openETQW-game full commit SHA, branch or tag to build against instead of tools/ci/companion.ref (empty: use the pin)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openetqw-validation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  # Tool pins; bump deliberately.
+  MESON_VERSION: "1.12.1"
+  NINJA_VERSION: "1.13.2"
+  PYFLAKES_VERSION: "4.0.0"
+  SDL3_TAG: release-3.4.16
+  OPENETQW_COMPANION_REPO: jm2/openETQW-game
+
+jobs:
+  lint:
+    name: Workflow lint (actionlint)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install actionlint
+        shell: bash
+        env:
+          ACTIONLINT_VERSION: "1.7.12"
+          ACTIONLINT_SHA256_AMD64: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+          ACTIONLINT_SHA256_ARM64: 325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64) arch=amd64; sha256="${ACTIONLINT_SHA256_AMD64}" ;;
+            aarch64) arch=arm64; sha256="${ACTIONLINT_SHA256_ARM64}" ;;
+            *) echo "unsupported runner architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_${arch}.tar.gz"
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/${archive}" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          echo "${sha256}  ${RUNNER_TEMP}/${archive}" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/actionlint"
+          tar -xzf "${RUNNER_TEMP}/${archive}" -C "${RUNNER_TEMP}/actionlint" actionlint
+          echo "${RUNNER_TEMP}/actionlint" >> "${GITHUB_PATH}"
+
+      - name: Run actionlint
+        shell: bash
+        run: |
+          set -euo pipefail
+          actionlint -version
+          # The runner's preinstalled ShellCheck also lints every run: block.
+          actionlint -color
+
+      - name: Run shellcheck on the CI and validation scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          shellcheck --version
+          shellcheck -S style tools/ci/*.sh tools/validation/*.sh
+
+  script-smoke:
+    name: Script smoke (Python, Zero-SDK, integration skips, profiles)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
+      - name: Install pyflakes
+        run: python -m pip install "pyflakes==${PYFLAKES_VERSION}"
+
+      - name: Python syntax and pyflakes (tests/, tools/)
+        run: python tools/ci/check_python.py
+
+      - name: Include letter case (Linux is case-sensitive; macOS is not)
+        run: python tools/ci/check_include_case.py
+
+      - name: Zero-SDK cleanroom audit (blocking)
+        run: python tests/test_zero_sdk.py
+
+      - name: Meson source-manifest stress
+        run: python tests/test_meson_sources_stress.py
+
+      - name: Integration tests skip without retail data (exit 77)
+        run: python tools/ci/check_integration_skips.py --output-dir .tmp/ci/integration-skips
+
+      - name: Dry-run the validation profiles
+        run: |
+          set -euo pipefail
+          # the profiles need a game checkout to name; the dry run builds nothing
+          mkdir -p "${RUNNER_TEMP}/openETQW-game"
+          touch "${RUNNER_TEMP}/openETQW-game/meson.build"
+          for profile in push pr; do
+            python tools/validation/openetqw_validate.py "${profile}" --dry-run \
+              --game-repo "${RUNNER_TEMP}/openETQW-game"
+          done
+
+      - name: Upload script-smoke reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: validation-script-smoke
+          path: |
+            .tmp/ci/integration-skips
+            .agents/challenger_m1_1/stress_results.json
+          if-no-files-found: ignore
+          retention-days: 14
+          include-hidden-files: true
+
+  validate:
+    name: ${{ matrix.name }} Commit Validation
+    needs: script-smoke
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x64 runs the full retail suite locally (Fedora 44, GCC 16, 2026-09-27)
+          # but has never run on a hosted runner (Ubuntu 24.04): experimental until it does.
+          - id: linux-x64-gcc
+            name: Linux x64 GCC
+            os: ubuntu-24.04
+            platform: linux
+            cc: gcc
+            cxx: g++
+            vcpkg_triplet: ""
+            experimental: true
+            blocker: "never run on a hosted runner; built and tested locally on Fedora 44 (GCC 16) only"
+          - id: linux-x64-clang
+            name: Linux x64 Clang
+            os: ubuntu-24.04
+            platform: linux
+            cc: clang
+            cxx: clang++
+            vcpkg_triplet: ""
+            experimental: true
+            blocker: "never run on a hosted runner; Clang has not built the engine on Linux"
+          - id: linux-arm64-gcc
+            name: Linux ARM64 GCC
+            os: ubuntu-24.04-arm
+            platform: linux
+            cc: gcc
+            cxx: g++
+            vcpkg_triplet: ""
+            experimental: true
+            blocker: "the Linux ARM64 engine build has never compiled"
+          - id: macos-arm64
+            name: macOS arm64 (Vulkan/MoltenVK)
+            os: macos-15
+            platform: macos
+            cc: clang
+            cxx: clang++
+            vcpkg_triplet: ""
+            experimental: true
+            blocker: "the install and staged-payload steps are new and have not run on macOS"
+          # Windows x64 builds and runs the retail suite locally (VS 2026, MSVC 19.51,
+          # 2026-09-28) but has never run on a hosted runner: experimental until it does.
+          - id: windows-x64-msvc
+            name: Windows x64 MSVC
+            os: windows-2025-vs2026
+            platform: windows
+            cc: cl
+            cxx: cl
+            vcpkg_triplet: x64-windows
+            experimental: true
+            blocker: "never run on a hosted runner; built and tested locally with VS 2026 (MSVC 19.51) only"
+          - id: windows-arm64-msvc
+            name: Windows ARM64 MSVC
+            os: windows-11-arm
+            platform: windows
+            cc: cl
+            cxx: cl
+            vcpkg_triplet: arm64-windows
+            experimental: true
+            blocker: "the Windows ARM64 engine build has never compiled (x64 builds locally with VS 2026)"
+    env:
+      OPENETQW_GAME_REPO: ${{ github.workspace }}/openETQW-game
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+      LEG: ${{ matrix.name }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: openETQW
+    steps:
+      - name: Checkout openETQW
+        uses: actions/checkout@v7
+        with:
+          path: openETQW
+          # the version stamp counts commits and names the nearest tag
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
+      - name: Prepare build (companion, Meson, dependencies)
+        id: prepare
+        uses: ./openETQW/.github/actions/prepare
+        with:
+          platform: ${{ matrix.platform }}
+          vcpkg-triplet: ${{ matrix.vcpkg_triplet }}
+          companion-ref: ${{ inputs.companion_ref }}
+          cross-repo-token: ${{ secrets.OPENETQW_CROSS_REPO_TOKEN }}
+          companion-required: ${{ vars.OPENETQW_COMPANION_REQUIRED }}
+          repository-private: ${{ github.event.repository.private }}
+          meson-version: ${{ env.MESON_VERSION }}
+          ninja-version: ${{ env.NINJA_VERSION }}
+          sdl3-tag: ${{ env.SDL3_TAG }}
+
+      - name: Validate (pr profile)
+        if: steps.prepare.outputs.available == 'true'
+        run: python tools/validation/openetqw_validate.py pr --build-dir build
+
+      - name: Note experimental leg failure
+        if: ${{ failure() && matrix.experimental }}
+        env:
+          BLOCKER: ${{ matrix.blocker }}
+        working-directory: .
+        run: |
+          echo "::warning title=Experimental leg failed::${LEG} failed; this leg is experimental and does not fail the run. Known blocker: ${BLOCKER}"
+          {
+            echo "### ${LEG}: failed (experimental, does not fail the run)"
+            echo "Known blocker: ${BLOCKER}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: validation-${{ matrix.id }}-logs
+          path: |
+            openETQW/build/meson-logs
+            openETQW-game/build/meson-logs
+            openETQW/.tmp/ci
+            openETQW/.tmp/gamelibs_stage/openetqw_gamelibs_stage_manifest.json
+          if-no-files-found: ignore
+          retention-days: 14
+          include-hidden-files: true
+
+  sanitizer:
+    name: Linux x64 Clang ASan+UBSan Commit Validation
+    needs: script-smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    continue-on-error: true
+    env:
+      OPENETQW_GAME_REPO: ${{ github.workspace }}/openETQW-game
+      CC: clang
+      CXX: clang++
+      LEG: Linux x64 Clang ASan+UBSan
+      BLOCKER: "never run on a hosted runner (the idBlockAlloc::Free UBSan report is fixed in the pinned companion)"
+      # idLib is linked statically into both the engine and the game module (as
+      # in retail), so the same globals legitimately exist twice; only report
+      # ODR violations whose sizes differ.
+      ASAN_OPTIONS: halt_on_error=1:abort_on_error=1:detect_leaks=0:detect_odr_violation=1:suppressions=${{ github.workspace }}/openETQW/tools/ci/asan.supp
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1:suppressions=${{ github.workspace }}/openETQW/tools/ci/ubsan.supp
+    defaults:
+      run:
+        shell: bash
+        working-directory: openETQW
+    steps:
+      - name: Checkout openETQW
+        uses: actions/checkout@v7
+        with:
+          path: openETQW
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
+      - name: Prepare build (companion, Meson, dependencies)
+        id: prepare
+        uses: ./openETQW/.github/actions/prepare
+        with:
+          platform: linux
+          companion-ref: ${{ inputs.companion_ref }}
+          cross-repo-token: ${{ secrets.OPENETQW_CROSS_REPO_TOKEN }}
+          companion-required: ${{ vars.OPENETQW_COMPANION_REQUIRED }}
+          repository-private: ${{ github.event.repository.private }}
+          meson-version: ${{ env.MESON_VERSION }}
+          ninja-version: ${{ env.NINJA_VERSION }}
+          sdl3-tag: ${{ env.SDL3_TAG }}
+
+      - name: Allow ASan shadow mapping
+        if: steps.prepare.outputs.available == 'true'
+        # Recent runner kernels randomize mmap with more bits than older ASan
+        # runtimes can map around ("AddressSanitizer:DEADLYSIGNAL" at startup).
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+
+      - name: Validate (pr profile, ASan+UBSan)
+        if: steps.prepare.outputs.available == 'true'
+        run: python tools/validation/openetqw_validate.py pr --build-dir build --sanitize address,undefined
+
+      - name: Note experimental leg failure
+        if: failure()
+        working-directory: .
+        run: |
+          echo "::warning title=Experimental leg failed::${LEG} failed; this leg is experimental and does not fail the run. Known blocker: ${BLOCKER}"
+          {
+            echo "### ${LEG}: failed (experimental, does not fail the run)"
+            echo "Known blocker: ${BLOCKER}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload sanitizer logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: validation-linux-x64-clang-asan-ubsan-logs
+          path: |
+            openETQW/build/meson-logs
+            openETQW-game/build/meson-logs
+            openETQW/.tmp/ci
+          if-no-files-found: ignore
+          retention-days: 14
+          include-hidden-files: true
