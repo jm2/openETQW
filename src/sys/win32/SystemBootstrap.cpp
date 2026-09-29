@@ -1213,6 +1213,20 @@ static bool Win_NarrowPath( const wchar_t *wide, idStr &narrow ) {
 	return false;
 }
 
+// true when a file can be created in the directory (a probe, deleted on close)
+static bool Win_DirectoryIsWritable( const char *path ) {
+	idStr probe = path;
+	probe.AppendPath( "openetqw-write-probe.tmp" );
+	probe.SlashesToBackSlashes();
+	HANDLE file = CreateFileA( probe.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
+		FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, NULL );
+	if ( file == INVALID_HANDLE_VALUE ) {
+		return false;
+	}
+	CloseHandle( file );
+	return true;
+}
+
 const char *Sys_DefaultSavePath() {
 	// per-user configs, logs and the shader cache in %LOCALAPPDATA%\openETQW, as
 	// openQ4: an installed engine's own directory (Program Files) is not
@@ -1237,8 +1251,23 @@ const char *Sys_DefaultSavePath() {
 		savepath.AppendPath( "openETQW" );
 		return savepath.c_str();
 	}
-	// the local application data folder has no name the ANSI file system can open
-	return Sys_DefaultBasePath();
+	// %LOCALAPPDATA% has no name the ANSI file system can open (a user name
+	// outside the code page, without an 8.3 alias): a directory the engine can
+	// name and write, the base path (a portable install) or the current one
+	const char *fallbacks[] = { Sys_DefaultBasePath(), Win_Cwd() };
+	for ( int i = 0; i < 2; i++ ) {
+		if ( Win_DirectoryIsWritable( fallbacks[ i ] ) ) {
+			common->Warning( "%%LOCALAPPDATA%% cannot be named in the ANSI code page; saving to %s "
+				"(start with +set fs_savepath <directory> to choose another)", fallbacks[ i ] );
+			savepath = fallbacks[ i ];
+			return savepath.c_str();
+		}
+	}
+	common->Warning( "no writable save path: %%LOCALAPPDATA%% cannot be named in the ANSI code page, "
+		"and neither %s nor %s is writable; start with +set fs_savepath <a writable directory>",
+		fallbacks[ 0 ], fallbacks[ 1 ] );
+	savepath = fallbacks[ 0 ];
+	return savepath.c_str();
 }
 
 const char *Sys_DefaultUserPath() { return Sys_DefaultBasePath(); }
