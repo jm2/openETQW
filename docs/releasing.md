@@ -104,10 +104,11 @@ Run **Manual Releases** (`manual-release.yml`) from `main`:
 The workflow computes the version, checks that an existing tag of that name points at
 the commit being released, builds and validates every platform with the release
 version stamped in (`version_track=stable`), packages, checks the exact asset set
-(names, archive members, sizes and SHA-256), writes the changelog, creates or
-updates the GitHub release (a re-run retargets it to the commit, sets both flags
-and removes assets this run did not make), and checks that GitHub holds exactly
-those bytes.
+(names, archive members, sizes and SHA-256), writes the changelog, and creates or
+updates the GitHub release as a draft (a re-run turns it back into one,
+retargets it to the commit and removes assets this run did not make). Only when
+GitHub is shown to hold exactly those bytes does it set the pre-release flag and,
+unless `draft` is set, publish.
 
 Secrets and variables, all optional:
 

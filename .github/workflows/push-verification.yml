@@ -199,14 +199,17 @@ jobs:
         if: steps.prepare.outputs.available == 'true'
         env:
           LEG_ID: ${{ matrix.id }}
-        run: tar -czf "${RUNNER_TEMP}/openetqw-${LEG_ID}-payload.tar.gz" -C build install
+        # a relative path: Windows' GNU tar reads RUNNER_TEMP's D: as a remote host
+        run: |
+          mkdir -p .tmp/ci
+          tar -czf ".tmp/ci/openetqw-${LEG_ID}-payload.tar.gz" -C build install
 
       - name: Publish staged payload
         if: steps.prepare.outputs.available == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: push-${{ matrix.id }}-payload
-          path: ${{ runner.temp }}/openetqw-${{ matrix.id }}-payload.tar.gz
+          path: openETQW/.tmp/ci/openetqw-${{ matrix.id }}-payload.tar.gz
           if-no-files-found: warn
           retention-days: 14
           include-hidden-files: true

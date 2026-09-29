@@ -360,8 +360,13 @@ jobs:
           security import "${RUNNER_TEMP}/developer-id.p12" -k "${keychain}" -P "${CERT_PASSWORD}" -T /usr/bin/codesign
           rm -f "${RUNNER_TEMP}/developer-id.p12"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${keychain_password}" "${keychain}" >/dev/null
-          mapfile -t keychains < <(security list-keychains -d user | tr -d '" ')
-          security list-keychains -d user -s "${keychain}" "${keychains[@]}"
+          # macOS runners have bash 3.2: no mapfile
+          keychains=()
+          while IFS= read -r line; do
+            keychains+=("$(printf '%s' "${line}" | sed 's/^ *"//; s/"$//')")
+          done < <(security list-keychains -d user)
+          # (bash 3.2 with set -u rejects "${a[@]}" of an empty array)
+          security list-keychains -d user -s "${keychain}" ${keychains[@]+"${keychains[@]}"}
           xcrun notarytool store-credentials openetqw-notary --apple-id "${NOTARY_APPLE_ID}" \
             --team-id "${NOTARY_TEAM_ID}" --password "${NOTARY_PASSWORD}" --keychain "${keychain}"
           echo "NOTARY_KEYCHAIN=${keychain}" >> "${GITHUB_ENV}"
@@ -374,7 +379,9 @@ jobs:
           SIGN_IDENTITY: ${{ secrets.MACOS_DEVELOPER_ID_APPLICATION_IDENTITY }}
         run: |
           set -euo pipefail
-          mapfile -t license_args < "${RUNNER_TEMP}/license-args.txt"
+          # macOS runners have bash 3.2: no mapfile
+          license_args=()
+          while IFS= read -r line; do license_args+=("${line}"); done < "${RUNNER_TEMP}/license-args.txt"
           platform="$(echo "${RUNNER_OS}" | tr '[:upper:]' '[:lower:]')"
           args=(--platform "${platform}" --arch "${ARCH}" --install-dir build/install
                 --version-tag "${VERSION_TAG}" --output-dir "${RUNNER_TEMP}/dist"
@@ -565,10 +572,12 @@ jobs:
           assets=()
           for name in "${expected[@]}"; do assets+=("${RUNNER_TEMP}/dist/${name}"); done
           repo=(--repo "${GITHUB_REPOSITORY}")
+          # Everything happens on a draft; it is published (when asked) only
+          # after GitHub is shown to hold exactly the approved bytes.
           if gh release view "${RELEASE_TAG}" "${repo[@]}" >/dev/null 2>&1; then
-            # a re-run: this commit, these flags, and only this run's assets
-            gh release edit "${RELEASE_TAG}" "${repo[@]}" --title "${RELEASE_NAME}" --target "${SOURCE_SHA}" \
-              --notes-file "${RUNNER_TEMP}/release-changelog.md" --draft="${DRAFT}" --prerelease="${PRERELEASE}"
+            # a re-run: back to a draft, this commit, and only this run's assets
+            gh release edit "${RELEASE_TAG}" "${repo[@]}" --draft=true --title "${RELEASE_NAME}" \
+              --target "${SOURCE_SHA}" --notes-file "${RUNNER_TEMP}/release-changelog.md"
             mapfile -t existing < <(gh release view "${RELEASE_TAG}" "${repo[@]}" --json assets --jq '.assets[].name')
             for name in "${existing[@]}"; do
               if ! grep -qxF -- "${name}" "${RUNNER_TEMP}/expected-assets.txt"; then
@@ -578,10 +587,8 @@ jobs:
             gh release upload "${RELEASE_TAG}" "${assets[@]}" "${repo[@]}" --clobber
           else
             gh release create "${RELEASE_TAG}" "${assets[@]}" "${repo[@]}" --target "${SOURCE_SHA}" \
-              --title "${RELEASE_NAME}" --notes-file "${RUNNER_TEMP}/release-changelog.md" \
-              --draft="${DRAFT}" --prerelease="${PRERELEASE}"
+              --title "${RELEASE_NAME}" --notes-file "${RUNNER_TEMP}/release-changelog.md" --draft=true
           fi
-          # GitHub holds exactly the approved bytes
           release_id="$(gh release view "${RELEASE_TAG}" "${repo[@]}" --json databaseId --jq .databaseId)"
           gh api --paginate "repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets" --jq '.[]' \
             | jq -s '.' > "${RUNNER_TEMP}/published-assets.json"
@@ -589,6 +596,7 @@ jobs:
           for name in "${expected[@]}"; do expected_args+=(--expected "${name}"); done
           python tools/build/verify_release_asset_set.py --artifact-dir "${RUNNER_TEMP}/dist" \
             --published-assets "${RUNNER_TEMP}/published-assets.json" "${expected_args[@]}"
+          gh release edit "${RELEASE_TAG}" "${repo[@]}" --prerelease="${PRERELEASE}" --draft="${DRAFT}"
           {
             echo "### ${RELEASE_NAME}: $([ "${DRAFT}" = "true" ] && echo "draft" || echo "published")"
             printf -- '- %s\n' "${assets[@]##*/}"
