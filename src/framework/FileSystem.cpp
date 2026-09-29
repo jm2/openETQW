@@ -32,6 +32,7 @@ If you have questions concerning this license or the applicable additional terms
 #include "minizip/unzip.h"
 #include "minizip/unzip_internal.h"
 #include "../renderer/Image.h"
+#include "../sys/sys_package.h"
 
 extern idCVar com_developer;
 
@@ -4785,11 +4786,20 @@ void idFileSystemLocal::FindDLL( const char *name, char _dllPath[ MAX_OSPATH ], 
 #else
 	if ( !serverPaks.Num() ) {
 #endif
-		// from executable directory first - this is handy for developement
-		dllPath = Sys_EXEPath( );
-		dllPath.StripFilename( );
-		dllPath.AppendPath( dllName );
-		dllFile = OpenExplicitFileRead( dllPath );
+		// a package's module root first (macOS: the app's Contents/Frameworks),
+		// then the executable's directory - this is handy for developement
+		char moduleRoot[ MAX_OSPATH ];
+		if ( Sys_GetGameModuleRootDirectory( moduleRoot, sizeof( moduleRoot ) ) ) {
+			dllPath = moduleRoot;
+			dllPath.AppendPath( dllName );
+			dllFile = OpenExplicitFileRead( dllPath );
+		}
+		if ( !dllFile ) {
+			dllPath = Sys_EXEPath( );
+			dllPath.StripFilename( );
+			dllPath.AppendPath( dllName );
+			dllFile = OpenExplicitFileRead( dllPath );
+		}
 	}
 	if ( !dllFile ) {
 		if ( !serverPaks.Num() ) {

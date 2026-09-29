@@ -26,6 +26,8 @@
 #include <sys/stat.h>
 #include <process.h>
 #include <shellapi.h>
+#include <shlobj.h>
+#include "../sys_package.h"
 
 // Instantiation of system localization and sysLocal interfaces for Windows builds
 const char * sysLanguageNames[] = {
@@ -1146,22 +1148,80 @@ long Sys_FileTimeStamp( FILE *file ) {
 	return _fstat( _fileno( file ), &status ) == 0 ? static_cast< long >( status.st_mtime ) : 0;
 }
 
-const char *Sys_DefaultCDPath() {
+static const char *Win_Cwd() {
 	static char path[ SYSTEM_MAX_OS_PATH ];
 	_getcwd( path, sizeof( path ) );
 	path[ sizeof( path ) - 1 ] = '\0';
 	return path;
+}
+
+// The executable's directory when it holds relative (an installed or packaged
+// engine: the binaries, the game module and base/ together), else the current
+// directory (a development build runs from the repository root).
+static const char *Win_ExeDirectoryWith( idStr &storage, const char *relative ) {
+	storage = Sys_EXEPath();
+	if ( storage.Length() > 0 ) {
+		storage.StripFilename();
+		idStr probe = storage;
+		probe.AppendPath( relative );
+		probe.SlashesToBackSlashes();
+		const DWORD attributes = GetFileAttributesA( probe.c_str() );
+		if ( attributes != INVALID_FILE_ATTRIBUTES && ( attributes & FILE_ATTRIBUTE_DIRECTORY ) != 0 ) {
+			return storage.c_str();
+		}
+	}
+	return Win_Cwd();
+}
+
+const char *Sys_DefaultCDPath() {
+	// the engine's own loose content (base/vkprogs/)
+	static idStr cdpath;
+	return Win_ExeDirectoryWith( cdpath, BASE_GAMEDIR "/vkprogs" );
 }
 
 const char *Sys_DefaultBasePath() {
-	static char path[ SYSTEM_MAX_OS_PATH ];
-	_getcwd( path, sizeof( path ) );
-	path[ sizeof( path ) - 1 ] = '\0';
-	return path;
+	// as openQ4: the executable's directory if it has base/, else the current one
+	static idStr basepath;
+	return Win_ExeDirectoryWith( basepath, BASE_GAMEDIR );
 }
 
-const char *Sys_DefaultSavePath() { return Sys_DefaultBasePath(); }
+const char *Sys_DefaultSavePath() {
+	// per-user configs and logs in %LOCALAPPDATA%\openETQW, as openQ4: an
+	// installed engine's own directory (Program Files) is not writable
+	static idStr savepath;
+	PWSTR knownFolder = NULL;
+	if ( SUCCEEDED( SHGetKnownFolderPath( FOLDERID_LocalAppData, KF_FLAG_DEFAULT, NULL, &knownFolder ) )
+		&& knownFolder != NULL ) {
+		char narrow[ SYSTEM_MAX_OS_PATH ];
+		// the file system opens paths with the ANSI code page
+		const int length = WideCharToMultiByte( CP_ACP, 0, knownFolder, -1, narrow, sizeof( narrow ), NULL, NULL );
+		CoTaskMemFree( knownFolder );
+		if ( length > 0 ) {
+			savepath = narrow;
+			savepath.AppendPath( "openETQW" );
+			return savepath.c_str();
+		}
+	} else if ( knownFolder != NULL ) {
+		CoTaskMemFree( knownFolder );
+	}
+	const char *localAppData = getenv( "LOCALAPPDATA" );
+	if ( localAppData != NULL && localAppData[ 0 ] != '\0' ) {
+		savepath = localAppData;
+		savepath.AppendPath( "openETQW" );
+		return savepath.c_str();
+	}
+	return Sys_DefaultBasePath();
+}
+
 const char *Sys_DefaultUserPath() { return Sys_DefaultBasePath(); }
+
+bool Sys_GetGameModuleRootDirectory( char *moduleRoot, int moduleRootSize ) {
+	// Windows packages keep the module next to the executable (FindDLL's first try)
+	if ( moduleRoot != NULL && moduleRootSize > 0 ) {
+		moduleRoot[ 0 ] = '\0';
+	}
+	return false;
+}
 
 const char *Sys_EXEPath() {
 	static char path[ SYSTEM_MAX_OS_PATH ];

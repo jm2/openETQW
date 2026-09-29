@@ -30,6 +30,7 @@ If you have questions concerning this license or the applicable additional terms
 #import "framework/precompiled.h"
 
 #include "../posix/posix_public.h"
+#include "../sys_package.h"
 
 #import <AppKit/AppKit.h>
 #import <OpenGL/OpenGL.h>
