@@ -391,20 +391,38 @@ endif
 
 if host_system == 'windows'
   win_runtime_dll_deps = [zlib_dep]
+  win_runtime_dlls = ['z.dll']
   if build_engine
     win_runtime_dll_deps += [sdl3_dep]
+    win_runtime_dlls += ['SDL3.dll']
   endif
-  copied_runtime_dlls = []
+  # The DLLs sit in <prefix>/bin.  A pkg-config dependency names its libdir; one
+  # found through CMake (no PKG_CONFIG set) does not, so the configured prefixes
+  # are searched as well.
+  runtime_dll_dirs = []
   foreach dep : win_runtime_dll_deps
     dep_libdir = dep.get_variable(pkgconfig: 'libdir', default_value: '')
     if dep_libdir != ''
-      foreach dll : ['z.dll', 'SDL3.dll']
-        dll_path = fs_mod.parent(dep_libdir) / 'bin' / dll
-        if fs_mod.is_file(dll_path) and dll not in copied_runtime_dlls
-          fs_mod.copyfile(dll_path, dll)
-          copied_runtime_dlls += [dll]
-        endif
-      endforeach
+      runtime_dll_dirs += [fs_mod.parent(dep_libdir) / 'bin']
+    endif
+  endforeach
+  foreach prefix : get_option('cmake_prefix_path')
+    runtime_dll_dirs += [prefix / 'bin']
+  endforeach
+  foreach pc_dir : get_option('pkg_config_path')
+    runtime_dll_dirs += [fs_mod.parent(fs_mod.parent(pc_dir)) / 'bin']
+  endforeach
+  foreach dll : win_runtime_dlls
+    found_dll = false
+    foreach dir : runtime_dll_dirs
+      if not found_dll and fs_mod.is_file(dir / dll)
+        fs_mod.copyfile(dir / dll, dll)
+        found_dll = true
+      endif
+    endforeach
+    if not found_dll
+      warning(dll + ' was not found next to its dependency; copy it next to the binaries, ' +
+        'or set PKG_CONFIG / -Dcmake_prefix_path to the prefix that holds it')
     endif
   endforeach
   # The engine loads the game module from its executable's directory.  POSIX
