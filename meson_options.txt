@@ -49,3 +49,10 @@ option(
   value: '11.0',
   description: 'macOS minimum deployment target.',
 )
+
+option(
+  'install_root',
+  type: 'string',
+  value: '',
+  description: 'Where `meson install` stages the portable engine tree (the binaries, the game module, base/vkprogs and licenses/ together, as a package ships them). Empty: <source>/.install, as openQ4.',
+)

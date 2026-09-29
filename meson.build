@@ -34,6 +34,15 @@ game_module_binary_name = 'game_' + binary_arch
 
 py = find_program('python3', 'python', native: true, required: true)
 fs_mod = import('fs')
+
+# `meson install` stages the portable tree a package ships, as openQ4 does: the
+# binaries, the game module and base/vkprogs together (the engine finds its
+# content and the module next to its executable), the licence texts under
+# licenses/. tools/build packages it; nothing here installs into a system prefix.
+install_root = get_option('install_root')
+if install_root == ''
+  install_root = meson.project_source_root() / '.install'
+endif
 cc = meson.get_compiler('c')
 cpp = meson.get_compiler('cpp')
 
@@ -326,6 +335,7 @@ if build_engine
     export_dynamic: true,
     win_subsystem: host_system == 'windows' ? 'windows' : 'console',
     install: true,
+    install_dir: install_root,
   )
 endif
 
@@ -364,6 +374,7 @@ if build_dedicated
     export_dynamic: true,
     win_subsystem: 'console',
     install: true,
+    install_dir: install_root,
   )
 endif
 
@@ -373,20 +384,43 @@ endif
 # and the notices of the third-party code compiled in. SDL3, Vulkan and zlib are
 # system dependencies; a package that bundles them adds their notices.
 # tools/ci/check_install_licenses.py checks this list.
-install_data('LICENSE', install_dir: 'licenses' / 'openETQW')
+install_data('LICENSE', install_dir: install_root / 'licenses' / 'openETQW')
 install_data(
   'src' / 'imgui' / 'LICENSE.txt',
   'src' / 'recast' / 'License.txt',
   'LICENSES' / 'third-party' / 'minizip.txt',
   rename: ['imgui.txt', 'recastnavigation.txt', 'minizip.txt'],
-  install_dir: 'licenses' / 'openETQW' / 'third-party',
+  install_dir: install_root / 'licenses' / 'openETQW' / 'third-party',
 )
 if game_repo_root != ''
   install_data(
     game_repo_root / 'EULA_SDK_ETQW.txt',
     game_repo_root / 'legal' / 'EULA SDK ETQW.rtf',
-    install_dir: 'licenses' / 'ETQW-SDK',
+    install_dir: install_root / 'licenses' / 'ETQW-SDK',
   )
+endif
+
+if build_engine or build_dedicated
+  # the engine's own loose content; the runtime shader cache is generated
+  install_subdir(
+    'base' / 'vkprogs',
+    install_dir: install_root / 'base',
+    exclude_directories: ['cache'],
+  )
+  # the game module, from the companion's build (engine and module ship together)
+  game_module_suffix = '.so'
+  if host_system == 'windows'
+    game_module_suffix = '.dll'
+  elif host_system == 'darwin'
+    game_module_suffix = '.dylib'
+  endif
+  game_module_built = game_repo_root / 'build' / game_module_binary_name + game_module_suffix
+  if game_repo_root != '' and fs_mod.is_file(game_module_built)
+    install_data(game_module_built, install_dir: install_root)
+  else
+    warning('the game module ' + game_module_binary_name + game_module_suffix +
+      ' is not built yet; `meson install` will not stage it (build the game first)')
+  endif
 endif
 
 if host_system == 'windows'
@@ -417,6 +451,7 @@ if host_system == 'windows'
     foreach dir : runtime_dll_dirs
       if not found_dll and fs_mod.is_file(dir / dll)
         fs_mod.copyfile(dir / dll, dll)
+        install_data(dir / dll, install_dir: install_root)
         found_dll = true
       endif
     endforeach
