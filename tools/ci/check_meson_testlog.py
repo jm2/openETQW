@@ -9,7 +9,7 @@ This reads the machine-readable log meson writes next to the text log
 (<builddir>/meson-logs/<logbase>.json, one JSON object per line) and requires
 every result to be one of --expect.
 
-Examples (as used by .github/workflows/ci.yml):
+Examples (as used by tools/validation/openetqw_validate.py):
 
   meson test -C build --suite integration --logbase testlog-integration ...
   check_meson_testlog.py build/meson-logs/testlog-integration.json --expect SKIP
