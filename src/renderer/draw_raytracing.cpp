@@ -1612,13 +1612,18 @@ void ResumeDynamicRendering( sdRayTracingState& state,
 	colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	// The same depth and stencil attachments as the backend's own rendering
+	// instances (VulkanBackend.cpp): every pipeline drawn after this was created
+	// with the stencil format, and TransitionForRayTracing returns the image to
+	// DEPTH_STENCIL_ATTACHMENT_OPTIMAL.
 	VkRenderingAttachmentInfo depthAttachment;
 	memset( &depthAttachment, 0, sizeof( depthAttachment ) );
 	depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 	depthAttachment.imageView = context.depthImageView;
-	depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+	depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 	depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	VkRenderingAttachmentInfo stencilAttachment = depthAttachment;
 	VkRenderingInfo renderingInfo;
 	memset( &renderingInfo, 0, sizeof( renderingInfo ) );
 	renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
@@ -1627,6 +1632,7 @@ void ResumeDynamicRendering( sdRayTracingState& state,
 	renderingInfo.colorAttachmentCount = 1;
 	renderingInfo.pColorAttachments = &colorAttachment;
 	renderingInfo.pDepthAttachment = &depthAttachment;
+	renderingInfo.pStencilAttachment = &stencilAttachment;
 	state.CmdBeginRendering( context.commandBuffer, &renderingInfo );
 }
 
