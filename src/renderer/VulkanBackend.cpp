@@ -61,6 +61,9 @@ const VkDeviceSize VULKAN_IMAGE_UPLOAD_BYTES = 32 * 1024 * 1024;
 // new world areas enter the view.  Keep those copies separate from the
 // MegaTexture arena so neither streaming system can starve the other.
 const VkDeviceSize VULKAN_BUFFER_UPLOAD_BYTES = 32 * 1024 * 1024;
+// Buffer uploads made outside a frame wait for the next frame, up to this many
+// bytes; beyond it they are copied at once, in one batch (see UploadBufferBytes).
+const VkDeviceSize VULKAN_PENDING_BUFFER_UPLOAD_BYTES = VULKAN_BUFFER_UPLOAD_BYTES / 2;
 const VkDeviceSize VULKAN_JOINT_BUFFER_BYTES = 4 * 1024 * 1024;
 const VkDeviceSize VULKAN_JOINT_PALETTE_BYTES =
 	MAX_JOINTS_PER_MESH * sizeof( idJointMat );
@@ -162,6 +165,15 @@ struct sdVulkanBufferResource {
 struct sdVulkanMemoryRange {
 	VkDeviceSize	offset;
 	VkDeviceSize	bytes;
+};
+
+// A buffer upload made outside a frame, held until the next one (or a batch).
+struct sdVulkanPendingBufferUpload {
+	VkBuffer		destination;
+	VkDeviceSize	offset;
+	VkDeviceSize	bytes;
+	bool			indexBuffer;
+	byte*			data;		// Mem_Alloc'd copy, owned by the pending list
 };
 
 // One VkDeviceMemory that many buffers are bound into.  Host-visible blocks
@@ -531,6 +543,8 @@ struct sdVulkanBackendState {
 	// Blocks the vertex-cache buffers are sub-allocated from; a freed block
 	// leaves a NULL slot so the indexes in sdVulkanBufferResource stay valid.
 	idList< sdVulkanMemoryBlock* > bufferMemoryBlocks;
+	idList< sdVulkanPendingBufferUpload > pendingBufferUploads;
+	VkDeviceSize				pendingBufferUploadBytes;
 	sdVulkanResourceLookup		imageResourceLookup;
 	sdVulkanResourceLookup		bufferResourceLookup;
 	idList< sdVulkanMaterialDescriptor > materialDescriptors;
@@ -697,6 +711,7 @@ struct sdVulkanBackendState {
 		physicalDevice = VK_NULL_HANDLE;
 		memset( &memoryProperties, 0, sizeof( memoryProperties ) );
 		maxMemoryAllocationCount = 0;
+		pendingBufferUploadBytes = 0;
 		device = VK_NULL_HANDLE;
 		graphicsQueue = VK_NULL_HANDLE;
 		queueFamilyIndex = UINT_MAX;
@@ -2868,28 +2883,41 @@ bool QueueFrameBufferUpload( sdVulkanBackendState& state, VkBuffer destination,
 	return true;
 }
 
-bool UploadBufferBytes( sdVulkanBackendState& state, VkBuffer destination,
-	VkDeviceSize destinationOffset, const void* data, VkDeviceSize bytes,
-	bool indexBuffer ) {
-	if ( state.frameActive ) {
-		return QueueFrameBufferUpload( state, destination, destinationOffset,
-			data, bytes, indexBuffer );
+// Copies the uploads into their buffers now: one staging buffer, one submission
+// and one wait for the whole batch.
+bool SubmitBufferUploadsNow( sdVulkanBackendState& state,
+	const sdVulkanPendingBufferUpload* uploads, int count ) {
+	if ( count <= 0 ) {
+		return true;
+	}
+	VkDeviceSize totalBytes = 0;
+	for ( int i = 0; i < count; ++i ) {
+		totalBytes = ( ( totalBytes + 15 ) & ~15ULL ) + uploads[ i ].bytes;
 	}
 	VkBuffer stagingBuffer = VK_NULL_HANDLE;
 	VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
-	if ( !CreateBufferAllocation( state, bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+	if ( !CreateBufferAllocation( state, totalBytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 		stagingBuffer, stagingMemory ) ) {
 		return false;
 	}
 	void* mapped = NULL;
 	if ( !CheckVulkanResult( state.MapMemory( state.device, stagingMemory, 0,
-		bytes, 0, &mapped ), "vkMapMemory(buffer upload)" ) ) {
+		totalBytes, 0, &mapped ), "vkMapMemory(buffer upload)" ) ) {
 		state.DestroyBuffer( state.device, stagingBuffer, NULL );
 		state.FreeMemory( state.device, stagingMemory, NULL );
 		return false;
 	}
-	memcpy( mapped, data, static_cast< size_t >( bytes ) );
+	idList< VkDeviceSize > sourceOffsets;
+	sourceOffsets.SetNum( count );
+	VkDeviceSize offset = 0;
+	for ( int i = 0; i < count; ++i ) {
+		offset = ( offset + 15 ) & ~15ULL;
+		sourceOffsets[ i ] = offset;
+		memcpy( static_cast< byte* >( mapped ) + offset, uploads[ i ].data,
+			static_cast< size_t >( uploads[ i ].bytes ) );
+		offset += uploads[ i ].bytes;
+	}
 	state.UnmapMemory( state.device, stagingMemory );
 
 	VkCommandPool commandPool = VK_NULL_HANDLE;
@@ -2920,29 +2948,27 @@ bool UploadBufferBytes( sdVulkanBackendState& state, VkBuffer destination,
 			&beginInfo ), "vkBeginCommandBuffer(buffer upload)" );
 	}
 	if ( succeeded ) {
-		VkBufferCopy copy;
-		copy.srcOffset = 0;
-		copy.dstOffset = destinationOffset;
-		copy.size = bytes;
-		state.CmdCopyBuffer( commandBuffer, stagingBuffer, destination, 1, &copy );
-		VkBufferMemoryBarrier2 barrier;
+		for ( int i = 0; i < count; ++i ) {
+			VkBufferCopy copy;
+			copy.srcOffset = sourceOffsets[ i ];
+			copy.dstOffset = uploads[ i ].offset;
+			copy.size = uploads[ i ].bytes;
+			state.CmdCopyBuffer( commandBuffer, stagingBuffer, uploads[ i ].destination, 1, &copy );
+		}
+		// the copies must land before any later read: vertex/index fetch, or
+		// acceleration-structure build input
+		VkMemoryBarrier2 barrier;
 		memset( &barrier, 0, sizeof( barrier ) );
-		barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+		barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
 		barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 		barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-		barrier.dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
-		barrier.dstAccessMask = indexBuffer ? VK_ACCESS_2_INDEX_READ_BIT :
-			VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
-		barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		barrier.buffer = destination;
-		barrier.offset = destinationOffset;
-		barrier.size = bytes;
+		barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+		barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT;
 		VkDependencyInfo dependencyInfo;
 		memset( &dependencyInfo, 0, sizeof( dependencyInfo ) );
 		dependencyInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-		dependencyInfo.bufferMemoryBarrierCount = 1;
-		dependencyInfo.pBufferMemoryBarriers = &barrier;
+		dependencyInfo.memoryBarrierCount = 1;
+		dependencyInfo.pMemoryBarriers = &barrier;
 		state.CmdPipelineBarrier2( commandBuffer, &dependencyInfo );
 		succeeded = SubmitImmediate( state, commandPool, commandBuffer );
 		commandPool = VK_NULL_HANDLE;
@@ -2953,6 +2979,91 @@ bool UploadBufferBytes( sdVulkanBackendState& state, VkBuffer destination,
 	state.DestroyBuffer( state.device, stagingBuffer, NULL );
 	state.FreeMemory( state.device, stagingMemory, NULL );
 	return succeeded;
+}
+
+void ClearPendingBufferUploads( sdVulkanBackendState& state ) {
+	for ( int i = 0; i < state.pendingBufferUploads.Num(); ++i ) {
+		Mem_Free( state.pendingBufferUploads[ i ].data );
+	}
+	state.pendingBufferUploads.Clear();
+	state.pendingBufferUploadBytes = 0;
+}
+
+// Copies every pending upload now, in one batch.
+bool FlushPendingBufferUploadsNow( sdVulkanBackendState& state ) {
+	const bool succeeded = SubmitBufferUploadsNow( state,
+		state.pendingBufferUploads.Begin(), state.pendingBufferUploads.Num() );
+	ClearPendingBufferUploads( state );
+	return succeeded;
+}
+
+// A buffer that is being destroyed takes its pending uploads with it.
+void DropPendingBufferUploads( sdVulkanBackendState& state, VkBuffer buffer ) {
+	for ( int i = state.pendingBufferUploads.Num() - 1; i >= 0; --i ) {
+		if ( state.pendingBufferUploads[ i ].destination == buffer ) {
+			state.pendingBufferUploadBytes -= state.pendingBufferUploads[ i ].bytes;
+			Mem_Free( state.pendingBufferUploads[ i ].data );
+			state.pendingBufferUploads.RemoveIndex( i );
+		}
+	}
+}
+
+// At the start of a frame, before anything is drawn: the pending uploads go into
+// this frame's upload command buffer, which is submitted ahead of the frame's own,
+// so nothing waits for them.  What does not fit the frame's arena is copied at
+// once instead.
+void FlushPendingBufferUploadsIntoFrame( sdVulkanBackendState& state ) {
+	if ( state.pendingBufferUploads.Num() == 0 ) {
+		return;
+	}
+	const sdVulkanFrame& frame = state.frames[ state.frameIndex ];
+	VkDeviceSize needed = frame.bufferUploadOffset;
+	for ( int i = 0; i < state.pendingBufferUploads.Num(); ++i ) {
+		needed = ( ( needed + 15 ) & ~15ULL ) + state.pendingBufferUploads[ i ].bytes;
+	}
+	if ( frame.bufferUploadMapped == NULL || needed > VULKAN_BUFFER_UPLOAD_BYTES ) {
+		FlushPendingBufferUploadsNow( state );
+		return;
+	}
+	for ( int i = 0; i < state.pendingBufferUploads.Num(); ++i ) {
+		const sdVulkanPendingBufferUpload& upload = state.pendingBufferUploads[ i ];
+		QueueFrameBufferUpload( state, upload.destination, upload.offset, upload.data,
+			upload.bytes, upload.indexBuffer );
+	}
+	ClearPendingBufferUploads( state );
+}
+
+bool UploadBufferBytes( sdVulkanBackendState& state, VkBuffer destination,
+	VkDeviceSize destinationOffset, const void* data, VkDeviceSize bytes,
+	bool indexBuffer ) {
+	if ( state.frameActive ) {
+		return QueueFrameBufferUpload( state, destination, destinationOffset,
+			data, bytes, indexBuffer );
+	}
+	// Outside a frame (map loading, or a listen server's game frame spawning an
+	// entity) every upload used to submit on its own and wait for the queue to go
+	// idle: 120-200 ms for one vehicle's models on the Windows host.  Hold them for
+	// the next frame instead; a burst larger than VULKAN_PENDING_BUFFER_UPLOAD_BYTES
+	// is copied at once, as one batch.  The copies keep their order.
+	sdVulkanPendingBufferUpload upload;
+	upload.destination = destination;
+	upload.offset = destinationOffset;
+	upload.bytes = bytes;
+	upload.indexBuffer = indexBuffer;
+	upload.data = static_cast< byte* >( const_cast< void* >( data ) );
+	if ( bytes > VULKAN_PENDING_BUFFER_UPLOAD_BYTES ) {
+		const bool flushed = FlushPendingBufferUploadsNow( state );
+		return SubmitBufferUploadsNow( state, &upload, 1 ) && flushed;
+	}
+	if ( state.pendingBufferUploadBytes + bytes > VULKAN_PENDING_BUFFER_UPLOAD_BYTES &&
+		!FlushPendingBufferUploadsNow( state ) ) {
+		return false;
+	}
+	upload.data = static_cast< byte* >( Mem_Alloc( static_cast< int >( bytes ) ) );
+	memcpy( upload.data, data, static_cast< size_t >( bytes ) );
+	state.pendingBufferUploads.Append( upload );
+	state.pendingBufferUploadBytes += bytes;
+	return true;
 }
 
 bool CompileVulkanShaderSource( sdVulkanBackendState& state,
@@ -5564,6 +5675,7 @@ void sdVulkanBackend::Shutdown() {
 	DestroyToolWindows( *state );
 	DestroyAllToolRenderTargets( *state );
 	DestroyAllImageResources( *state );
+	ClearPendingBufferUploads( *state );
 	DestroyAllBufferResources( *state );
 	DestroyBufferMemoryBlocks( *state );
 	DestroyGuiResources( *state );
@@ -5814,6 +5926,8 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 	scissor.extent = state->extent;
 	state->CmdSetScissor( frame.commandBuffer, 0, 1, &scissor );
 	state->frameActive = true;
+	// uploads made since the last frame, ahead of this frame's draws
+	FlushPendingBufferUploadsIntoFrame( *state );
 	return true;
 }
 
@@ -8029,6 +8143,7 @@ void sdVulkanBackend::DestroyBuffer( const void* owner ) {
 		state->toolFrameActive ? state->frameIndex :
 		( state->frameIndex + NUM_VULKAN_FRAMES - 1 ) % NUM_VULKAN_FRAMES;
 	state->frameRetiredBufferResources[ retireFrame ].Append( removed );
+	DropPendingBufferUploads( *state, removed.buffer );
 }
 
 static void VulkanCreateShadowCache( srfTriangles_t* tri ) {
