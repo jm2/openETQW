@@ -591,10 +591,15 @@ static DWORD WINAPI Win_ConsoleReaderThread( LPVOID parm ) {
 			LeaveCriticalSection( &consoleReaderLock );
 			return 0;
 		}
-		// Keep what fits if the main thread has not drained for a while.
-		const int count = Min( static_cast< int >( read ), static_cast< int >( sizeof( consoleReaderText ) ) - consoleReaderLength );
-		memcpy( consoleReaderText + consoleReaderLength, chunk, count );
-		consoleReaderLength += count;
+		// If the main thread has not drained for a while (a long map load), wait for
+		// room instead of dropping what was typed or pasted.
+		while ( consoleReaderLength + static_cast< int >( read ) > static_cast< int >( sizeof( consoleReaderText ) ) ) {
+			LeaveCriticalSection( &consoleReaderLock );
+			Sleep( 10 );
+			EnterCriticalSection( &consoleReaderLock );
+		}
+		memcpy( consoleReaderText + consoleReaderLength, chunk, read );
+		consoleReaderLength += static_cast< int >( read );
 		LeaveCriticalSection( &consoleReaderLock );
 	}
 }
