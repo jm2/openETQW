@@ -539,12 +539,14 @@ endif
 
 # Tests never touch the developer's per-user directory: an engine with no
 # fs_savepath of its own saves under $XDG_DATA_HOME (Linux) or %LOCALAPPDATA%
-# (Windows), which these point into the build directory. (macOS saves under
-# ~/Library/Application Support, as it did before the installed-engine paths.)
+# (Windows), which these point into the build directory; tests/etqw_harness.py
+# does the same for scripts run by hand. (macOS saves under ~/Library/Application
+# Support, as it did before the installed-engine paths.)
 test_home = meson.project_build_root() / 'test-home'
 add_test_setup(
   'isolated',
   env: {
+    'OPENETQW_TEST_HOME': test_home,
     'XDG_DATA_HOME': test_home / 'xdg-data',
     'LOCALAPPDATA': test_home / 'localappdata',
   },

@@ -47,6 +47,18 @@ EXIT_PASS = 0
 EXIT_FAIL = 1
 EXIT_SKIP = 77  # meson 'exitcode' protocol: 77 == SKIP
 
+# An engine started without a fs_savepath of its own saves under the per-user
+# directory: $XDG_DATA_HOME/openetqw on Linux, %LOCALAPPDATA%\openETQW on Windows.
+# Every process a test starts gets a test directory instead, so no test reads or
+# writes the developer's own configs, logs or downloaded paks: under Meson the
+# build directory's (OPENETQW_TEST_HOME, set by the default test setup), when a
+# script runs by hand a fixed one in the temporary directory. Windows always sets
+# LOCALAPPDATA, so both are overridden rather than defaulted. macOS saves under
+# ~/Library/Application Support, as it always has.
+TEST_USER_HOME = Path(os.environ.get("OPENETQW_TEST_HOME") or Path(tempfile.gettempdir()) / "openetqw-test-home")
+os.environ["XDG_DATA_HOME"] = str(TEST_USER_HOME / "xdg-data")
+os.environ["LOCALAPPDATA"] = str(TEST_USER_HOME / "localappdata")
+
 STOCK_MAPS = (
     "area22", "ark", "canyon", "island", "outskirts", "quarry",
     "refinery", "salvage", "sewer", "slipgate", "volcano",
