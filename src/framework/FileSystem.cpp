@@ -4785,17 +4785,19 @@ void idFileSystemLocal::FindDLL( const char *name, char _dllPath[ MAX_OSPATH ], 
 #else
 	if ( !serverPaks.Num() ) {
 #endif
-		// a package's module root first (macOS: the app's Contents/Frameworks),
-		// then the executable's directory - this is handy for developement
+		// the executable's directory first, as openQ4 - this is handy for
+		// developement, and a module beside a loose binary wins over a package's
+		// copy - then the package's module root (macOS: the app's
+		// Contents/Frameworks)
+		idStr exeDirectory = Sys_EXEPath( );
+		exeDirectory.StripFilename( );
+		dllPath = exeDirectory;
+		dllPath.AppendPath( dllName );
+		dllFile = OpenExplicitFileRead( dllPath );
 		char moduleRoot[ MAX_OSPATH ];
-		if ( Sys_GetGameModuleRootDirectory( moduleRoot, sizeof( moduleRoot ) ) ) {
+		if ( !dllFile && Sys_GetGameModuleRootDirectory( moduleRoot, sizeof( moduleRoot ) )
+			&& exeDirectory.Icmp( moduleRoot ) != 0 ) {
 			dllPath = moduleRoot;
-			dllPath.AppendPath( dllName );
-			dllFile = OpenExplicitFileRead( dllPath );
-		}
-		if ( !dllFile ) {
-			dllPath = Sys_EXEPath( );
-			dllPath.StripFilename( );
 			dllPath.AppendPath( dllName );
 			dllFile = OpenExplicitFileRead( dllPath );
 		}
