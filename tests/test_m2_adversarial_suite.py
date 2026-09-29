@@ -128,6 +128,10 @@ def wait_for_marker(proc: subprocess.Popen, marker: str, timeout: float = 30.0) 
 def wait_draining(proc: subprocess.Popen, timeout: float) -> int:
     """Wait for exit while reading stdout: a server blocked on a full pipe never exits
     (Windows pipes hold a few KB, and shutdown prints more than that)."""
+    if proc.stdin is not None and proc.stdin.closed:
+        # a test closed stdin to send EOF: detach it, so communicate() does not
+        # flush a closed file (recent Pythons ignore that; not every version does)
+        proc.stdin = None
     proc.communicate(timeout=timeout)
     return proc.returncode
 
