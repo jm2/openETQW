@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-3.0-only
 """Verify that a release build used the exact approved source commits.
 
 Adapted from openQ4's tools/build/verify_release_source_provenance.py at

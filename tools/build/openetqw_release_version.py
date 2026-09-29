@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-3.0-only
 """Compute the next openETQW manual release version.
 
 Adapted from openQ4's tools/build/openq4_release_version.py at jm2/openQ4

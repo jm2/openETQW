@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-3.0-only
 """Generate release notes for openETQW manual releases.
 
 Adapted from openQ4's tools/build/generate_release_changelog.py at jm2/openQ4
