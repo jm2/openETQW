@@ -2867,7 +2867,8 @@ bool QueueFrameBufferUpload( sdVulkanBackendState& state, VkBuffer destination,
 	// input.  Cover every later read in the main frame command buffer, not just
 	// fixed-function vertex/index fetch.
 	barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-	barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT;
+	// and a later upload's copy into the same range lands after this one
+	barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT;
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.buffer = destination;
@@ -2948,7 +2949,26 @@ bool SubmitBufferUploadsNow( sdVulkanBackendState& state,
 			&beginInfo ), "vkBeginCommandBuffer(buffer upload)" );
 	}
 	if ( succeeded ) {
+		// a buffer written twice in one batch (partial updates) gets its writes in order
+		idList< VkBuffer > written;
 		for ( int i = 0; i < count; ++i ) {
+			if ( written.FindIndex( uploads[ i ].destination ) >= 0 ) {
+				VkMemoryBarrier2 writeOrder;
+				memset( &writeOrder, 0, sizeof( writeOrder ) );
+				writeOrder.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+				writeOrder.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+				writeOrder.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+				writeOrder.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+				writeOrder.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+				VkDependencyInfo writeDependency;
+				memset( &writeDependency, 0, sizeof( writeDependency ) );
+				writeDependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+				writeDependency.memoryBarrierCount = 1;
+				writeDependency.pMemoryBarriers = &writeOrder;
+				state.CmdPipelineBarrier2( commandBuffer, &writeDependency );
+				written.Clear();
+			}
+			written.Append( uploads[ i ].destination );
 			VkBufferCopy copy;
 			copy.srcOffset = sourceOffsets[ i ];
 			copy.dstOffset = uploads[ i ].offset;
@@ -2989,10 +3009,19 @@ void ClearPendingBufferUploads( sdVulkanBackendState& state ) {
 	state.pendingBufferUploadBytes = 0;
 }
 
+void WarnFailedBufferUploads( int count, VkDeviceSize bytes ) {
+	common->Warning( "Vulkan: %d deferred vertex-cache upload(s) (%u KiB) failed; "
+		"those buffers keep undefined contents", count,
+		static_cast< unsigned int >( bytes / 1024 ) );
+}
+
 // Copies every pending upload now, in one batch.
 bool FlushPendingBufferUploadsNow( sdVulkanBackendState& state ) {
 	const bool succeeded = SubmitBufferUploadsNow( state,
 		state.pendingBufferUploads.Begin(), state.pendingBufferUploads.Num() );
+	if ( !succeeded ) {
+		WarnFailedBufferUploads( state.pendingBufferUploads.Num(), state.pendingBufferUploadBytes );
+	}
 	ClearPendingBufferUploads( state );
 	return succeeded;
 }
@@ -3025,10 +3054,18 @@ void FlushPendingBufferUploadsIntoFrame( sdVulkanBackendState& state ) {
 		FlushPendingBufferUploadsNow( state );
 		return;
 	}
+	int failed = 0;
+	VkDeviceSize failedBytes = 0;
 	for ( int i = 0; i < state.pendingBufferUploads.Num(); ++i ) {
 		const sdVulkanPendingBufferUpload& upload = state.pendingBufferUploads[ i ];
-		QueueFrameBufferUpload( state, upload.destination, upload.offset, upload.data,
-			upload.bytes, upload.indexBuffer );
+		if ( !QueueFrameBufferUpload( state, upload.destination, upload.offset, upload.data,
+			upload.bytes, upload.indexBuffer ) ) {
+			++failed;
+			failedBytes += upload.bytes;
+		}
+	}
+	if ( failed > 0 ) {
+		WarnFailedBufferUploads( failed, failedBytes );
 	}
 	ClearPendingBufferUploads( state );
 }
@@ -3051,13 +3088,13 @@ bool UploadBufferBytes( sdVulkanBackendState& state, VkBuffer destination,
 	upload.bytes = bytes;
 	upload.indexBuffer = indexBuffer;
 	upload.data = static_cast< byte* >( const_cast< void* >( data ) );
+	// (a failed flush of the earlier uploads warns there; it is not this upload's result)
 	if ( bytes > VULKAN_PENDING_BUFFER_UPLOAD_BYTES ) {
-		const bool flushed = FlushPendingBufferUploadsNow( state );
-		return SubmitBufferUploadsNow( state, &upload, 1 ) && flushed;
+		FlushPendingBufferUploadsNow( state );
+		return SubmitBufferUploadsNow( state, &upload, 1 );
 	}
-	if ( state.pendingBufferUploadBytes + bytes > VULKAN_PENDING_BUFFER_UPLOAD_BYTES &&
-		!FlushPendingBufferUploadsNow( state ) ) {
-		return false;
+	if ( state.pendingBufferUploadBytes + bytes > VULKAN_PENDING_BUFFER_UPLOAD_BYTES ) {
+		FlushPendingBufferUploadsNow( state );
 	}
 	upload.data = static_cast< byte* >( Mem_Alloc( static_cast< int >( bytes ) ) );
 	memcpy( upload.data, data, static_cast< size_t >( bytes ) );
@@ -6054,6 +6091,8 @@ bool sdVulkanBackend::BeginToolWindow( void* nativeWindow, int width, int height
 		state->frameActive || state->toolFrameActive ) {
 		return false;
 	}
+	// tool windows draw outside the main frame: fill the buffers they may use now
+	FlushPendingBufferUploadsNow( *state );
 	HWND window = static_cast< HWND >( nativeWindow );
 	RECT clientRect;
 	if ( GetClientRect( window, &clientRect ) ) {
