@@ -124,7 +124,7 @@ jobs:
       - name: Upload the thin build
         uses: actions/upload-artifact@v7
         with:
-          name: universal2-thin-${{ matrix.arch }}
+          name: universal2-payload-${{ matrix.arch }}
           path: ${{ runner.temp }}/thin-${{ matrix.arch }}.tar.gz
           if-no-files-found: error
           retention-days: ${{ fromJSON(inputs.retention_days) }}
@@ -167,14 +167,14 @@ jobs:
       - name: Install Meson and Ninja
         run: python -m pip install "meson==${MESON_VERSION}" "ninja==${NINJA_VERSION}"
 
-      # the same prefix path as the thin builds, whose binaries name it in LC_RPATH
+      # the libraries the staged engine names by @rpath, bundled into the app
       - name: Build the universal2 dependencies (SDL3, Vulkan loader, MoltenVK)
         run: python tools/build/prepare_macos_deps.py --arch universal2 --prefix "${RUNNER_TEMP}/macos-deps"
 
       - name: Download the thin builds
         uses: actions/download-artifact@v7
         with:
-          pattern: universal2-thin-*
+          pattern: universal2-payload-*
           path: ${{ runner.temp }}/thin
           merge-multiple: true
 
@@ -203,7 +203,7 @@ jobs:
             --version-tag "${version}-universal2.${GITHUB_RUN_NUMBER}" \
             --output-dir "${RUNNER_TEMP}/dist" \
             --glslang-dir "${RUNNER_TEMP}/glslang" \
-            --macos-moltenvk "${deps}/lib/libMoltenVK.dylib" \
+            --macos-moltenvk "${deps}/lib/libMoltenVK.dylib" --macos-lib-dir "${deps}/lib" \
             --license "glslang=${RUNNER_TEMP}/glslang/LICENSE.txt" \
             --license "SDL3=${deps}/share/licenses/SDL3/LICENSE.txt" \
             --license "Vulkan-Loader=${deps}/share/licenses/Vulkan-Loader/LICENSE.txt" \

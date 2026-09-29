@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-3.0-only
 #
 # Manual Releases (as openQ4's manual-release.yml; docs/releasing.md).
 #
@@ -102,18 +102,17 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Fetch tags
-        run: git fetch --force --tags origin
-
       - name: Resolve the source commit
         id: source
         env:
           DRAFT: ${{ inputs.draft }}
         run: |
           set -euo pipefail
+          # fetch-depth 0 brought every branch and tag; the checkout keeps no
+          # credentials, so a private repository cannot be fetched again here
           source_sha="$(git rev-parse --verify "${GITHUB_SHA}^{commit}")"
           test "$(git rev-parse --verify 'HEAD^{commit}')" = "${source_sha}"
-          git fetch --force origin refs/heads/main:refs/remotes/origin/main
+          git rev-parse --verify refs/remotes/origin/main >/dev/null
           if [ "${DRAFT}" != "true" ]; then
             if [ "${GITHUB_REF}" != "refs/heads/main" ] || ! git merge-base --is-ancestor "${source_sha}" refs/remotes/origin/main; then
               echo "::error::a published release must be dispatched from main (got ${GITHUB_REF})"
@@ -361,7 +360,8 @@ jobs:
           security import "${RUNNER_TEMP}/developer-id.p12" -k "${keychain}" -P "${CERT_PASSWORD}" -T /usr/bin/codesign
           rm -f "${RUNNER_TEMP}/developer-id.p12"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${keychain_password}" "${keychain}" >/dev/null
-          security list-keychains -d user -s "${keychain}" $(security list-keychains -d user | tr -d '"')
+          mapfile -t keychains < <(security list-keychains -d user | tr -d '" ')
+          security list-keychains -d user -s "${keychain}" "${keychains[@]}"
           xcrun notarytool store-credentials openetqw-notary --apple-id "${NOTARY_APPLE_ID}" \
             --team-id "${NOTARY_TEAM_ID}" --password "${NOTARY_PASSWORD}" --keychain "${keychain}"
           echo "NOTARY_KEYCHAIN=${keychain}" >> "${GITHUB_ENV}"
@@ -380,9 +380,13 @@ jobs:
                 --version-tag "${VERSION_TAG}" --output-dir "${RUNNER_TEMP}/dist"
                 --glslang-dir "${RUNNER_TEMP}/glslang" --source-date-epoch "${SOURCE_DATE_EPOCH}")
           case "${platform}" in
-            windows) args+=(--windows-crt-dir "${CRT_DIR}") ;;
+            windows)
+              args+=(--windows-crt-dir "${CRT_DIR}")
+              game_pdb="${OPENETQW_GAME_REPO}/build/game_${ARCH}.pdb"
+              if [ -f "${game_pdb}" ]; then args+=(--extra-pdb "${game_pdb}"); fi ;;
             macos)
-              args+=(--macos-moltenvk "${RUNNER_TEMP}/macos-deps/lib/libMoltenVK.dylib")
+              args+=(--macos-moltenvk "${RUNNER_TEMP}/macos-deps/lib/libMoltenVK.dylib"
+                     --macos-lib-dir "${RUNNER_TEMP}/macos-deps/lib")
               if [ "${MACOS_SIGNED}" = "true" ]; then
                 args+=(--macos-sign-identity "${SIGN_IDENTITY}" --macos-dmg)
               fi ;;
@@ -411,7 +415,13 @@ jobs:
             macOS) exe="${PACKAGE_DIR}/openETQW.app/Contents/MacOS/openETQW-ded_${ARCH}"
                    module="${PACKAGE_DIR}/openETQW.app/Contents/Frameworks/game_${ARCH}.dylib" ;;
           esac
-          # the stripped, re-linked, re-signed binaries, as users get them
+          # the stripped, re-linked, re-signed binaries, as users get them. The
+          # smoke runs a copy of the server elsewhere, so on Windows the package
+          # directory replaces vcpkg's bin on PATH: its own DLLs must do
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            PATH="$(cygpath -u "${PACKAGE_DIR}"):$(printf '%s' "${PATH}" | tr ':' '\n' | grep -vi 'vcpkg' | paste -sd: -)"
+            export PATH
+          fi
           python tools/ci/dedicated_server_smoke.py --executable "${exe}" --game-module "${module}" \
             --arch "${ARCH}" --output-root .tmp/ci/package-smoke
 
@@ -526,6 +536,7 @@ jobs:
           else
             expected+=("openetqw-${v}-macos-arm64-unsigned.tar.gz")
           fi
+          printf '%s\n' "${expected[@]}" > "${RUNNER_TEMP}/expected-assets.txt"
           expected_args=()
           for name in "${expected[@]}"; do expected_args+=(--expected "${name}"); done
           python tools/build/verify_release_asset_set.py --artifact-dir "${RUNNER_TEMP}/dist" \
@@ -550,19 +561,34 @@ jobs:
           PRERELEASE: ${{ inputs.prerelease }}
         run: |
           set -euo pipefail
-          mapfile -t assets < <(find "${RUNNER_TEMP}/dist" -maxdepth 1 -type f -name 'openetqw-*' | sort)
-          flags=()
-          if [ "${DRAFT}" = "true" ]; then flags+=(--draft); fi
-          if [ "${PRERELEASE}" = "true" ]; then flags+=(--prerelease); fi
-          if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            gh release edit "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --title "${RELEASE_NAME}" \
-              --notes-file "${RUNNER_TEMP}/release-changelog.md" "${flags[@]}"
-            gh release upload "${RELEASE_TAG}" "${assets[@]}" --repo "${GITHUB_REPOSITORY}" --clobber
+          mapfile -t expected < "${RUNNER_TEMP}/expected-assets.txt"
+          assets=()
+          for name in "${expected[@]}"; do assets+=("${RUNNER_TEMP}/dist/${name}"); done
+          repo=(--repo "${GITHUB_REPOSITORY}")
+          if gh release view "${RELEASE_TAG}" "${repo[@]}" >/dev/null 2>&1; then
+            # a re-run: this commit, these flags, and only this run's assets
+            gh release edit "${RELEASE_TAG}" "${repo[@]}" --title "${RELEASE_NAME}" --target "${SOURCE_SHA}" \
+              --notes-file "${RUNNER_TEMP}/release-changelog.md" --draft="${DRAFT}" --prerelease="${PRERELEASE}"
+            mapfile -t existing < <(gh release view "${RELEASE_TAG}" "${repo[@]}" --json assets --jq '.assets[].name')
+            for name in "${existing[@]}"; do
+              if ! grep -qxF -- "${name}" "${RUNNER_TEMP}/expected-assets.txt"; then
+                gh release delete-asset "${RELEASE_TAG}" "${name}" "${repo[@]}" --yes
+              fi
+            done
+            gh release upload "${RELEASE_TAG}" "${assets[@]}" "${repo[@]}" --clobber
           else
-            gh release create "${RELEASE_TAG}" "${assets[@]}" --repo "${GITHUB_REPOSITORY}" \
-              --target "${SOURCE_SHA}" --title "${RELEASE_NAME}" \
-              --notes-file "${RUNNER_TEMP}/release-changelog.md" "${flags[@]}"
+            gh release create "${RELEASE_TAG}" "${assets[@]}" "${repo[@]}" --target "${SOURCE_SHA}" \
+              --title "${RELEASE_NAME}" --notes-file "${RUNNER_TEMP}/release-changelog.md" \
+              --draft="${DRAFT}" --prerelease="${PRERELEASE}"
           fi
+          # GitHub holds exactly the approved bytes
+          release_id="$(gh release view "${RELEASE_TAG}" "${repo[@]}" --json databaseId --jq .databaseId)"
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets" --jq '.[]' \
+            | jq -s '.' > "${RUNNER_TEMP}/published-assets.json"
+          expected_args=()
+          for name in "${expected[@]}"; do expected_args+=(--expected "${name}"); done
+          python tools/build/verify_release_asset_set.py --artifact-dir "${RUNNER_TEMP}/dist" \
+            --published-assets "${RUNNER_TEMP}/published-assets.json" "${expected_args[@]}"
           {
             echo "### ${RELEASE_NAME}: $([ "${DRAFT}" = "true" ] && echo "draft" || echo "published")"
             printf -- '- %s\n' "${assets[@]##*/}"

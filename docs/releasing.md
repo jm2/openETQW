@@ -46,8 +46,8 @@ Options: `--sanitize address,undefined`, `--cross-file tools/cross/linux-arm64.i
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `commit-validation.yml` | pull request | actionlint and shellcheck; script smoke (pyflakes, include case, Zero-SDK, integration skips, profile dry runs); the `pr` profile on Linux x64 GCC and Clang, Linux ARM64, macOS arm64, Windows x64 and ARM64; the `pr` profile under ASan+UBSan on Linux x64 Clang |
-| `push-verification.yml` | push to `main` | the `push` profile on Linux x64 and ARM64, macOS arm64 and Intel x64, Windows x64 and ARM64; publishes each staged payload as an artifact |
+| `commit-validation.yml` | pull request | actionlint and shellcheck; script smoke (pyflakes, include case, Zero-SDK, integration skips, profile dry runs); the `pr` profile on Linux x64 GCC and Clang, Linux ARM64, macOS arm64 and Intel x64, Windows x64 and ARM64; the `pr` profile under ASan+UBSan on Linux x64 Clang |
+| `push-verification.yml` | push to `main` | the `push` profile on Linux x64 and ARM64, macOS arm64 and Intel x64, Windows x64 and ARM64; publishes each staged payload as a tarball artifact (modes kept) |
 | `linux-arm64-cross.yml` | pull request, push to `main` | the game and the engine cross-compiled for Linux ARM64 on an x64 runner, installed and checked |
 | `macos-debug.yml` | manual | a debug build through the `push` profile, host diagnostics, an optional MoltenVK `vulkaninfo` probe; publishes the debug payload |
 | `macos-sanitizer.yml` | manual | ASan+UBSan build, instrumentation check, unit suite and smoke |
@@ -75,7 +75,7 @@ and one text per bundled binary) and a README.
 |---|---|---|
 | Windows x64, ARM64 | `openetqw-<v>-windows-<arch>.zip`, `openetqw-<v>-windows-<arch>-setup.exe` (Inno Setup, per-user install) | SDL3, zlib, the MSVC runtime |
 | Linux x64, ARM64 | `openetqw-<v>-linux-<arch>.tar.xz`, `-debug.tar.xz` (split symbols), `openetqw-<v>-<x86_64\|aarch64>.AppImage` | SDL3 (the rest is the system's: Vulkan, OpenGL, zlib) |
-| macOS arm64 | `openetqw-<v>-macos-arm64.dmg` when signed and notarized, else `openetqw-<v>-macos-arm64-unsigned.tar.gz` | SDL3, the Vulkan loader and MoltenVK, built or fetched from pinned sources for macOS 11.0 (`tools/build/prepare_macos_deps.py`) |
+| macOS arm64 | `openetqw-<v>-macos-arm64.dmg` when signed and notarized, else `openetqw-<v>-macos-arm64-unsigned.tar.gz` | SDL3, the Vulkan loader and MoltenVK, built or fetched from pinned sources for macOS 11.0 (`tools/build/prepare_macos_deps.py`; MoltenVK stays at 1.4.1, whose dylib runs on 11.0, where 1.4.2's needs 12.0); the packager checks that every library the app names is inside it and runs on 11.0 |
 
 The macOS app is `openETQW.app` in the self-contained layout the engine expects
 (`OpenETQWRuntimeLayout` = `self-contained-v1`): the engine's content in
@@ -104,8 +104,10 @@ Run **Manual Releases** (`manual-release.yml`) from `main`:
 The workflow computes the version, checks that an existing tag of that name points at
 the commit being released, builds and validates every platform with the release
 version stamped in (`version_track=stable`), packages, checks the exact asset set
-(names, archive members, sizes and SHA-256), writes the changelog, and creates or
-updates the GitHub release.
+(names, archive members, sizes and SHA-256), writes the changelog, creates or
+updates the GitHub release (a re-run retargets it to the commit, sets both flags
+and removes assets this run did not make), and checks that GitHub holds exactly
+those bytes.
 
 Secrets and variables, all optional:
 

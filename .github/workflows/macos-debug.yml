@@ -135,7 +135,15 @@ jobs:
           brew install vulkan-tools
           icd="$(brew --prefix molten-vk)/etc/vulkan/icd.d/MoltenVK_icd.json"
           VK_ICD_FILENAMES="${icd}" vulkaninfo --summary 2>&1 | tee .tmp/macos-debug/vulkaninfo-summary.txt
-          VK_ICD_FILENAMES="${icd}" vulkaninfo 2>&1 > .tmp/macos-debug/vulkaninfo.txt || true
+          VK_ICD_FILENAMES="${icd}" vulkaninfo > .tmp/macos-debug/vulkaninfo.txt 2>&1 || true
+
+      # upload-artifact zips without file modes: the payload goes in a tarball
+      - name: Archive the staged debug payload with its modes
+        if: always() && steps.prepare.outputs.available == 'true'
+        run: |
+          if [ -d build/install ]; then
+            tar -czf .tmp/macos-debug/payload.tar.gz -C build install
+          fi
 
       - name: Publish debug artifacts
         if: always()
@@ -146,7 +154,6 @@ jobs:
             openETQW/.tmp/macos-debug
             openETQW/.tmp/ci
             openETQW/build/meson-logs
-            openETQW/build/install
             openETQW-game/build/meson-logs
           if-no-files-found: warn
           retention-days: ${{ fromJSON(inputs.retention_days) }}

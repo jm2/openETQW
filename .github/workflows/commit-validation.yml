@@ -7,7 +7,7 @@
 #                 stress, "every integration test skips without retail data", and a
 #                 dry run of both validation profiles
 #   validate      the 'pr' profile of tools/validation/openetqw_validate.py on Linux
-#                 x64 GCC/Clang, Linux ARM64, macOS arm64, Windows x64/ARM64: game and
+#                 x64 GCC/Clang, Linux ARM64, macOS arm64 and Intel x64, Windows x64/ARM64: game and
 #                 engine build, unit suite, integration suite must SKIP, meson install,
 #                 staged-payload checks (layout, vkprogs, licences, RELRO/NOW/NX,
 #                 Mach-O arch and minimum OS, runtime DLLs), the assetless
@@ -208,6 +208,16 @@ jobs:
           - id: macos-arm64
             name: macOS arm64 (Vulkan/MoltenVK)
             os: macos-15
+            platform: macos
+            cc: clang
+            cxx: clang++
+            vcpkg_triplet: ""
+            experimental: true
+            blocker: "the install and staged-payload steps are new and have not run on macOS"
+          # keeps the x64 slice of the universal2 candidate building
+          - id: macos-x64
+            name: macOS Intel x64 (Vulkan/MoltenVK)
+            os: macos-15-intel
             platform: macos
             cc: clang
             cxx: clang++

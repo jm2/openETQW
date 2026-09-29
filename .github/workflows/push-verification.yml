@@ -194,12 +194,19 @@ jobs:
             echo "Known blocker: ${BLOCKER}"
           } >> "${GITHUB_STEP_SUMMARY}"
 
+      # upload-artifact zips without file modes: the payload goes in a tarball
+      - name: Archive the staged payload with its modes
+        if: steps.prepare.outputs.available == 'true'
+        env:
+          LEG_ID: ${{ matrix.id }}
+        run: tar -czf "${RUNNER_TEMP}/openetqw-${LEG_ID}-payload.tar.gz" -C build install
+
       - name: Publish staged payload
         if: steps.prepare.outputs.available == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: push-${{ matrix.id }}-payload
-          path: openETQW/build/install
+          path: ${{ runner.temp }}/openetqw-${{ matrix.id }}-payload.tar.gz
           if-no-files-found: warn
           retention-days: 14
           include-hidden-files: true
