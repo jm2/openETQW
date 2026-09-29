@@ -23,6 +23,9 @@
 #include <SDL3/SDL_vulkan.h>
 #define VK_ENABLE_BETA_EXTENSIONS
 #define VK_NO_PROTOTYPES
+#if defined( _WIN32 )
+#define VK_USE_PLATFORM_WIN32_KHR
+#endif
 #include <vulkan/vulkan.h>
 
 #if defined( _WIN32 )
@@ -58,6 +61,9 @@ const VkDeviceSize VULKAN_IMAGE_UPLOAD_BYTES = 32 * 1024 * 1024;
 // new world areas enter the view.  Keep those copies separate from the
 // MegaTexture arena so neither streaming system can starve the other.
 const VkDeviceSize VULKAN_BUFFER_UPLOAD_BYTES = 32 * 1024 * 1024;
+// Buffer uploads made outside a frame wait for the next frame, up to this many
+// bytes; beyond it they are copied at once, in one batch (see UploadBufferBytes).
+const VkDeviceSize VULKAN_PENDING_BUFFER_UPLOAD_BYTES = VULKAN_BUFFER_UPLOAD_BYTES / 2;
 const VkDeviceSize VULKAN_JOINT_BUFFER_BYTES = 4 * 1024 * 1024;
 const VkDeviceSize VULKAN_JOINT_PALETTE_BYTES =
 	MAX_JOINTS_PER_MESH * sizeof( idJointMat );
@@ -149,6 +155,36 @@ struct sdVulkanBufferResource {
 	void*				mapped;
 	VkDeviceSize		bytes;
 	bool				indexBuffer;
+	// Memory sub-allocated from a shared block (CreatePooledBuffer): poolBlock is
+	// the block's index + 1, or 0 when the buffer owns its memory.
+	int					poolBlock;
+	VkDeviceSize		poolOffset;
+	VkDeviceSize		poolBytes;
+};
+
+struct sdVulkanMemoryRange {
+	VkDeviceSize	offset;
+	VkDeviceSize	bytes;
+};
+
+// A buffer upload made outside a frame, held until the next one (or a batch).
+struct sdVulkanPendingBufferUpload {
+	VkBuffer		destination;
+	VkDeviceSize	offset;
+	VkDeviceSize	bytes;
+	bool			indexBuffer;
+	byte*			data;		// Mem_Alloc'd copy, owned by the pending list
+};
+
+// One VkDeviceMemory that many buffers are bound into.  Host-visible blocks
+// stay mapped for their lifetime.
+struct sdVulkanMemoryBlock {
+	VkDeviceMemory					memory;
+	unsigned int					memoryType;
+	bool							deviceAddress;
+	void*							mapped;
+	int								liveAllocations;
+	idList< sdVulkanMemoryRange >	freeRanges;	// sorted by offset, never adjacent
 };
 
 struct sdVulkanMaterialDescriptor {
@@ -183,6 +219,32 @@ const char* VkResultName( VkResult result ) {
 		case VK_ERROR_OUT_OF_DATE_KHR: return "VK_ERROR_OUT_OF_DATE_KHR";
 		default: return "unknown VkResult";
 	}
+}
+
+PFN_vkAllocateMemory vkAllocateMemoryReal = NULL;
+PFN_vkFreeMemory vkFreeMemoryReal = NULL;
+unsigned int r_vkMemoryAllocations = 0;
+unsigned int r_vkMemoryAllocationPeak = 0;
+
+VkResult VKAPI_PTR TrackedAllocateMemory( VkDevice device,
+	const VkMemoryAllocateInfo* allocateInfo,
+	const VkAllocationCallbacks* allocator, VkDeviceMemory* memory ) {
+	const VkResult result = vkAllocateMemoryReal( device, allocateInfo, allocator, memory );
+	if ( result == VK_SUCCESS ) {
+		++r_vkMemoryAllocations;
+		if ( r_vkMemoryAllocations > r_vkMemoryAllocationPeak ) {
+			r_vkMemoryAllocationPeak = r_vkMemoryAllocations;
+		}
+	}
+	return result;
+}
+
+void VKAPI_PTR TrackedFreeMemory( VkDevice device, VkDeviceMemory memory,
+	const VkAllocationCallbacks* allocator ) {
+	if ( memory != VK_NULL_HANDLE && r_vkMemoryAllocations > 0 ) {
+		--r_vkMemoryAllocations;
+	}
+	vkFreeMemoryReal( device, memory, allocator );
 }
 
 bool CheckVulkanResult( VkResult result, const char* operation ) {
@@ -334,6 +396,14 @@ void AppendRayTracingInstances( idList< sdRayTracingGeometry >& destination,
 
 } // namespace
 
+void R_VkTrackMemoryFunctions( PFN_vkAllocateMemory& allocateMemory,
+	PFN_vkFreeMemory& freeMemory ) {
+	if ( vkAllocateMemoryReal != NULL && vkFreeMemoryReal != NULL ) {
+		allocateMemory = TrackedAllocateMemory;
+		freeMemory = TrackedFreeMemory;
+	}
+}
+
 struct sdVulkanBackendState {
 	void*					vulkanLibrary;
 	void*					nativeWindow;
@@ -343,6 +413,7 @@ struct sdVulkanBackendState {
 	VkSurfaceKHR				surface;
 	VkPhysicalDevice			physicalDevice;
 	VkPhysicalDeviceMemoryProperties memoryProperties;
+	unsigned int				maxMemoryAllocationCount;
 	VkDevice				device;
 	VkQueue					graphicsQueue;
 	unsigned int				queueFamilyIndex;
@@ -362,6 +433,7 @@ struct sdVulkanBackendState {
 	idList< VkImage >			depthImages;
 	idList< VkDeviceMemory >	depthMemory;
 	idList< VkImageView >		depthViews;
+	idList< VkImageView >		depthSampleViews;
 	idList< byte >			depthInitialized;
 	bool					swapchainDirty;
 	bool					swapchainTransferSource;
@@ -468,6 +540,11 @@ struct sdVulkanBackendState {
 	idList< sdRayTracingGeometry > rayTracingWaterGeometryScratch;
 	idList< sdVulkanImageResource > imageResources;
 	idList< sdVulkanBufferResource > bufferResources;
+	// Blocks the vertex-cache buffers are sub-allocated from; a freed block
+	// leaves a NULL slot so the indexes in sdVulkanBufferResource stay valid.
+	idList< sdVulkanMemoryBlock* > bufferMemoryBlocks;
+	idList< sdVulkanPendingBufferUpload > pendingBufferUploads;
+	VkDeviceSize				pendingBufferUploadBytes;
 	sdVulkanResourceLookup		imageResourceLookup;
 	sdVulkanResourceLookup		bufferResourceLookup;
 	idList< sdVulkanMaterialDescriptor > materialDescriptors;
@@ -633,6 +710,8 @@ struct sdVulkanBackendState {
 		surface = VK_NULL_HANDLE;
 		physicalDevice = VK_NULL_HANDLE;
 		memset( &memoryProperties, 0, sizeof( memoryProperties ) );
+		maxMemoryAllocationCount = 0;
+		pendingBufferUploadBytes = 0;
 		device = VK_NULL_HANDLE;
 		graphicsQueue = VK_NULL_HANDLE;
 		queueFamilyIndex = UINT_MAX;
@@ -1056,6 +1135,10 @@ bool LoadDeviceFunctions( sdVulkanBackendState& state ) {
 	LOAD_DEVICE_FUNCTION( GetImageMemoryRequirements );
 	LOAD_DEVICE_FUNCTION( AllocateMemory );
 	LOAD_DEVICE_FUNCTION( FreeMemory );
+	vkAllocateMemoryReal = state.AllocateMemory;
+	state.AllocateMemory = TrackedAllocateMemory;
+	vkFreeMemoryReal = state.FreeMemory;
+	state.FreeMemory = TrackedFreeMemory;
 	LOAD_DEVICE_FUNCTION( BindImageMemory );
 	LOAD_DEVICE_FUNCTION( CreateSampler );
 	LOAD_DEVICE_FUNCTION( DestroySampler );
@@ -1224,11 +1307,25 @@ bool CreateVulkanInstance( sdVulkanBackendState& state ) {
 
 bool CreateVulkanSurface( sdVulkanBackendState& state ) {
 	VkSurfaceKHR surface = VK_NULL_HANDLE;
+#if defined( _WIN32 )
+	HWND window = static_cast< HWND >( state.nativeWindow );
+	VkWin32SurfaceCreateInfoKHR surfaceInfo;
+	memset( &surfaceInfo, 0, sizeof( surfaceInfo ) );
+	surfaceInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+	surfaceInfo.hinstance = GetModuleHandleA( NULL );
+	surfaceInfo.hwnd = window;
+	if ( !CheckVulkanResult( state.CreateWin32SurfaceKHR( state.instance,
+		&surfaceInfo, NULL, &surface ),
+		"vkCreateWin32SurfaceKHR" ) ) {
+		return false;
+	}
+#else
 	if ( !SDL_Vulkan_CreateSurface( static_cast< SDL_Window* >( state.nativeWindow ),
 		state.instance, NULL, &surface ) ) {
 		common->Warning( "SDL_Vulkan_CreateSurface failed: %s", SDL_GetError() );
 		return false;
 	}
+#endif
 	state.surface = surface;
 	return true;
 }
@@ -1368,6 +1465,7 @@ bool SelectPhysicalDevice( sdVulkanBackendState& state ) {
 			state.jointUniformAlignment =
 				properties.limits.minUniformBufferOffsetAlignment > 1 ?
 				properties.limits.minUniformBufferOffsetAlignment : 1;
+			state.maxMemoryAllocationCount = properties.limits.maxMemoryAllocationCount;
 		}
 	}
 
@@ -1628,6 +1726,11 @@ void DestroyDepthResources( sdVulkanBackendState& state ) {
 				state.DestroyImageView( state.device, state.depthViews[ i ], NULL );
 			}
 		}
+		for ( int i = 0; i < state.depthSampleViews.Num(); ++i ) {
+			if ( state.depthSampleViews[ i ] != VK_NULL_HANDLE ) {
+				state.DestroyImageView( state.device, state.depthSampleViews[ i ], NULL );
+			}
+		}
 		for ( int i = 0; i < state.depthImages.Num(); ++i ) {
 			if ( state.depthImages[ i ] != VK_NULL_HANDLE ) {
 				state.DestroyImage( state.device, state.depthImages[ i ], NULL );
@@ -1640,6 +1743,7 @@ void DestroyDepthResources( sdVulkanBackendState& state ) {
 	state.depthImages.Clear();
 	state.depthMemory.Clear();
 	state.depthViews.Clear();
+	state.depthSampleViews.Clear();
 	state.depthInitialized.Clear();
 }
 
@@ -1673,13 +1777,18 @@ void DestroySwapchain( sdVulkanBackendState& state ) {
 
 bool CreateDepthResources( sdVulkanBackendState& state, unsigned int count,
 	VkExtent2D extent, idList< VkImage >& images,
-	idList< VkDeviceMemory >& memory, idList< VkImageView >& views ) {
+	idList< VkDeviceMemory >& memory, idList< VkImageView >& views,
+	idList< VkImageView >* sampleViews = NULL ) {
 	images.SetNum( count );
 	memory.SetNum( count );
 	views.SetNum( count );
 	memset( images.Begin(), 0, count * sizeof( VkImage ) );
 	memset( memory.Begin(), 0, count * sizeof( VkDeviceMemory ) );
 	memset( views.Begin(), 0, count * sizeof( VkImageView ) );
+	if ( sampleViews != NULL ) {
+		sampleViews->SetNum( count );
+		memset( sampleViews->Begin(), 0, count * sizeof( VkImageView ) );
+	}
 	const VkFormat depthFormat = state.depthStencilFormat != VK_FORMAT_UNDEFINED ?
 		state.depthStencilFormat : VK_FORMAT_D32_SFLOAT_S8_UINT;
 	for ( unsigned int i = 0; i < count; ++i ) {
@@ -1734,12 +1843,22 @@ bool CreateDepthResources( sdVulkanBackendState& state, unsigned int count,
 			&viewInfo, NULL, &views[ i ] ), "vkCreateImageView(depth)" ) ) {
 			break;
 		}
+		if ( sampleViews != NULL ) {
+			viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+			if ( !CheckVulkanResult( state.CreateImageView( state.device,
+				&viewInfo, NULL, &( *sampleViews )[ i ] ), "vkCreateImageView(depth sample)" ) ) {
+				break;
+			}
+		}
 	}
 	for ( unsigned int i = 0; i < count; ++i ) {
 		if ( views[ i ] == VK_NULL_HANDLE ) {
 			for ( unsigned int j = 0; j < count; ++j ) {
 				if ( views[ j ] != VK_NULL_HANDLE ) {
 					state.DestroyImageView( state.device, views[ j ], NULL );
+				}
+				if ( sampleViews != NULL && ( *sampleViews )[ j ] != VK_NULL_HANDLE ) {
+					state.DestroyImageView( state.device, ( *sampleViews )[ j ], NULL );
 				}
 				if ( images[ j ] != VK_NULL_HANDLE ) {
 					state.DestroyImage( state.device, images[ j ], NULL );
@@ -1751,6 +1870,9 @@ bool CreateDepthResources( sdVulkanBackendState& state, unsigned int count,
 			images.Clear();
 			memory.Clear();
 			views.Clear();
+			if ( sampleViews != NULL ) {
+				sampleViews->Clear();
+			}
 			return false;
 		}
 	}
@@ -1910,8 +2032,9 @@ bool CreateSwapchain( sdVulkanBackendState& state, int requestedWidth,
 	idList< VkImage > newDepthImages;
 	idList< VkDeviceMemory > newDepthMemory;
 	idList< VkImageView > newDepthViews;
+	idList< VkImageView > newDepthSampleViews;
 	if ( !CreateDepthResources( state, newImageCount, extent, newDepthImages,
-		newDepthMemory, newDepthViews ) ) {
+		newDepthMemory, newDepthViews, &newDepthSampleViews ) ) {
 		for ( unsigned int i = 0; i < newImageCount; ++i ) {
 			state.DestroyImageView( state.device, newViews[ i ], NULL );
 		}
@@ -1922,6 +2045,7 @@ bool CreateSwapchain( sdVulkanBackendState& state, int requestedWidth,
 	if ( !CreateSemaphoreList( state, newImageCount, newPresentSemaphores,
 		"vkCreateSemaphore(present)" ) ) {
 		for ( unsigned int i = 0; i < newImageCount; ++i ) {
+			state.DestroyImageView( state.device, newDepthSampleViews[ i ], NULL );
 			state.DestroyImageView( state.device, newDepthViews[ i ], NULL );
 			state.DestroyImage( state.device, newDepthImages[ i ], NULL );
 			state.FreeMemory( state.device, newDepthMemory[ i ], NULL );
@@ -1938,6 +2062,7 @@ bool CreateSwapchain( sdVulkanBackendState& state, int requestedWidth,
 		surfaceFormat.format, extent, newCurrentRenderResource ) ) {
 		DestroySemaphoreList( state, newPresentSemaphores );
 		for ( unsigned int i = 0; i < newImageCount; ++i ) {
+			state.DestroyImageView( state.device, newDepthSampleViews[ i ], NULL );
 			state.DestroyImageView( state.device, newDepthViews[ i ], NULL );
 			state.DestroyImage( state.device, newDepthImages[ i ], NULL );
 			state.FreeMemory( state.device, newDepthMemory[ i ], NULL );
@@ -1965,6 +2090,7 @@ bool CreateSwapchain( sdVulkanBackendState& state, int requestedWidth,
 	state.depthImages = newDepthImages;
 	state.depthMemory = newDepthMemory;
 	state.depthViews = newDepthViews;
+	state.depthSampleViews = newDepthSampleViews;
 	state.depthInitialized.SetNum( newImageCount );
 	memset( state.depthInitialized.Begin(), 0, newImageCount );
 	state.currentRenderResource = newCurrentRenderResource;
@@ -2279,8 +2405,139 @@ void DestroyAllToolRenderTargets( sdVulkanBackendState& state ) {
 	state.activeToolRenderTarget = NULL;
 }
 
+/*
+Vertex-cache buffers (UploadBuffer) are bound into shared blocks of device
+memory.  Each cache block used to own a VkDeviceMemory, about 3,700 of them on
+valley, while many Windows drivers allow 4096 allocations in total
+(maxMemoryAllocationCount), images and the rest of the backend included.  A
+buffer keeps its own VkBuffer, bound at an offset into a block; larger requests
+still get their own allocation.
+*/
+const VkDeviceSize VULKAN_BUFFER_BLOCK_BYTES = 32 * 1024 * 1024;
+const VkDeviceSize VULKAN_BUFFER_POOLED_MAX_BYTES = VULKAN_BUFFER_BLOCK_BYTES / 4;
+
+bool AllocateFromMemoryBlock( sdVulkanMemoryBlock& block, VkDeviceSize bytes,
+	VkDeviceSize alignment, VkDeviceSize& offset ) {
+	if ( alignment == 0 ) {
+		alignment = 1;
+	}
+	for ( int i = 0; i < block.freeRanges.Num(); ++i ) {
+		sdVulkanMemoryRange& range = block.freeRanges[ i ];
+		const VkDeviceSize start = ( range.offset + alignment - 1 ) / alignment * alignment;
+		const VkDeviceSize end = range.offset + range.bytes;
+		if ( start + bytes > end ) {
+			continue;
+		}
+		sdVulkanMemoryRange tail;
+		tail.offset = start + bytes;
+		tail.bytes = end - tail.offset;
+		if ( start > range.offset ) {
+			// the alignment padding in front stays free
+			range.bytes = start - range.offset;
+			if ( tail.bytes > 0 ) {
+				block.freeRanges.Insert( tail, i + 1 );
+			}
+		} else if ( tail.bytes > 0 ) {
+			range = tail;
+		} else {
+			block.freeRanges.RemoveIndex( i );
+		}
+		offset = start;
+		++block.liveAllocations;
+		return true;
+	}
+	return false;
+}
+
+void FreeToMemoryBlock( sdVulkanMemoryBlock& block, VkDeviceSize offset,
+	VkDeviceSize bytes ) {
+	int index = 0;
+	while ( index < block.freeRanges.Num() && block.freeRanges[ index ].offset < offset ) {
+		++index;
+	}
+	sdVulkanMemoryRange range;
+	range.offset = offset;
+	range.bytes = bytes;
+	block.freeRanges.Insert( range, index );
+	if ( index + 1 < block.freeRanges.Num() && block.freeRanges[ index ].offset +
+		block.freeRanges[ index ].bytes == block.freeRanges[ index + 1 ].offset ) {
+		block.freeRanges[ index ].bytes += block.freeRanges[ index + 1 ].bytes;
+		block.freeRanges.RemoveIndex( index + 1 );
+	}
+	if ( index > 0 && block.freeRanges[ index - 1 ].offset +
+		block.freeRanges[ index - 1 ].bytes == block.freeRanges[ index ].offset ) {
+		block.freeRanges[ index - 1 ].bytes += block.freeRanges[ index ].bytes;
+		block.freeRanges.RemoveIndex( index );
+	}
+	--block.liveAllocations;
+}
+
+void DestroyMemoryBlock( sdVulkanBackendState& state, int blockIndex ) {
+	sdVulkanMemoryBlock* block = state.bufferMemoryBlocks[ blockIndex ];
+	if ( block->mapped != NULL ) {
+		state.UnmapMemory( state.device, block->memory );
+	}
+	state.FreeMemory( state.device, block->memory, NULL );
+	delete block;
+	state.bufferMemoryBlocks[ blockIndex ] = NULL;
+}
+
+// Returns a buffer's range to its block.  An empty block is freed unless it is
+// the only empty one of its kind, which is kept for the next frame's buffers.
+void ReleasePooledBufferMemory( sdVulkanBackendState& state, int blockIndex,
+	VkDeviceSize offset, VkDeviceSize bytes ) {
+	sdVulkanMemoryBlock* block = state.bufferMemoryBlocks[ blockIndex ];
+	FreeToMemoryBlock( *block, offset, bytes );
+	if ( block->liveAllocations > 0 ) {
+		return;
+	}
+	for ( int i = 0; i < state.bufferMemoryBlocks.Num(); ++i ) {
+		const sdVulkanMemoryBlock* other = state.bufferMemoryBlocks[ i ];
+		if ( i != blockIndex && other != NULL && other->liveAllocations == 0 &&
+			other->memoryType == block->memoryType &&
+			other->deviceAddress == block->deviceAddress ) {
+			DestroyMemoryBlock( state, blockIndex );
+			return;
+		}
+	}
+}
+
+void DestroyBufferMemoryBlocks( sdVulkanBackendState& state ) {
+	for ( int i = 0; i < state.bufferMemoryBlocks.Num(); ++i ) {
+		if ( state.bufferMemoryBlocks[ i ] == NULL ) {
+			continue;
+		}
+		if ( state.bufferMemoryBlocks[ i ]->liveAllocations != 0 ) {
+			common->Warning( "Vulkan buffer memory block %d freed with %d live buffers", i,
+				state.bufferMemoryBlocks[ i ]->liveAllocations );
+		}
+		DestroyMemoryBlock( state, i );
+	}
+	state.bufferMemoryBlocks.Clear();
+}
+
+int LiveBufferMemoryBlocks( const sdVulkanBackendState& state ) {
+	int count = 0;
+	for ( int i = 0; i < state.bufferMemoryBlocks.Num(); ++i ) {
+		if ( state.bufferMemoryBlocks[ i ] != NULL ) {
+			++count;
+		}
+	}
+	return count;
+}
+
 void DestroyBufferResource( sdVulkanBackendState& state,
 	sdVulkanBufferResource& resource ) {
+	if ( resource.poolBlock > 0 ) {
+		// the buffer goes first: its range may be reused as soon as it is free
+		if ( resource.buffer != VK_NULL_HANDLE ) {
+			state.DestroyBuffer( state.device, resource.buffer, NULL );
+		}
+		ReleasePooledBufferMemory( state, resource.poolBlock - 1, resource.poolOffset,
+			resource.poolBytes );
+		memset( &resource, 0, sizeof( resource ) );
+		return;
+	}
 	if ( resource.mapped != NULL ) {
 		state.UnmapMemory( state.device, resource.memory );
 		resource.mapped = NULL;
@@ -2395,6 +2652,134 @@ bool CreateBufferAllocation( sdVulkanBackendState& state, VkDeviceSize bytes,
 	return true;
 }
 
+// Creates resource.buffer (resource.bytes long) with memory from a shared block,
+// or with its own allocation when the request is large.  When memoryFlags ask for
+// host-visible memory, resource.mapped points at the buffer's bytes; otherwise it
+// stays NULL even if the chosen type is host-visible, so updates keep going
+// through the staged upload.
+bool CreatePooledBuffer( sdVulkanBackendState& state, VkBufferUsageFlags usage,
+	VkMemoryPropertyFlags memoryFlags, sdVulkanBufferResource& resource ) {
+	resource.buffer = VK_NULL_HANDLE;
+	resource.memory = VK_NULL_HANDLE;
+	resource.mapped = NULL;
+	resource.poolBlock = 0;
+	VkBufferCreateInfo bufferInfo;
+	memset( &bufferInfo, 0, sizeof( bufferInfo ) );
+	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	bufferInfo.size = resource.bytes;
+	bufferInfo.usage = usage;
+	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	if ( !CheckVulkanResult( state.CreateBuffer( state.device, &bufferInfo, NULL,
+		&resource.buffer ), "vkCreateBuffer" ) ) {
+		resource.buffer = VK_NULL_HANDLE;
+		return false;
+	}
+	VkMemoryRequirements requirements;
+	state.GetBufferMemoryRequirements( state.device, resource.buffer, &requirements );
+	unsigned int memoryType = UINT_MAX;
+	if ( !FindMemoryType( state, requirements.memoryTypeBits, memoryFlags, memoryType ) ) {
+		common->Warning( "No Vulkan buffer memory type satisfies flags 0x%x",
+			static_cast< unsigned int >( memoryFlags ) );
+		state.DestroyBuffer( state.device, resource.buffer, NULL );
+		resource.buffer = VK_NULL_HANDLE;
+		return false;
+	}
+	const bool wantMapped = ( memoryFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT ) != 0;
+	const bool deviceAddress = ( usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT ) != 0;
+	VkMemoryAllocateFlagsInfo addressFlags;
+	memset( &addressFlags, 0, sizeof( addressFlags ) );
+	addressFlags.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
+	addressFlags.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
+	VkMemoryAllocateInfo allocateInfo;
+	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
+	allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	allocateInfo.pNext = deviceAddress ? &addressFlags : NULL;
+	allocateInfo.memoryTypeIndex = memoryType;
+
+	if ( requirements.size <= VULKAN_BUFFER_POOLED_MAX_BYTES ) {
+		int blockIndex = -1;
+		VkDeviceSize offset = 0;
+		for ( int i = 0; i < state.bufferMemoryBlocks.Num() && blockIndex < 0; ++i ) {
+			sdVulkanMemoryBlock* block = state.bufferMemoryBlocks[ i ];
+			if ( block != NULL && block->memoryType == memoryType &&
+				block->deviceAddress == deviceAddress &&
+				AllocateFromMemoryBlock( *block, requirements.size, requirements.alignment, offset ) ) {
+				blockIndex = i;
+			}
+		}
+		if ( blockIndex < 0 ) {
+			allocateInfo.allocationSize = VULKAN_BUFFER_BLOCK_BYTES;
+			VkDeviceMemory memory = VK_NULL_HANDLE;
+			void* mapped = NULL;
+			const bool hostVisible = ( state.memoryProperties.memoryTypes[ memoryType ].propertyFlags &
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT ) != 0;
+			if ( CheckVulkanResult( state.AllocateMemory( state.device, &allocateInfo, NULL,
+				&memory ), "vkAllocateMemory(buffer block)" ) ) {
+				if ( hostVisible && !CheckVulkanResult( state.MapMemory( state.device, memory, 0,
+					VK_WHOLE_SIZE, 0, &mapped ), "vkMapMemory(buffer block)" ) ) {
+					state.FreeMemory( state.device, memory, NULL );
+					memory = VK_NULL_HANDLE;
+				}
+			}
+			if ( memory != VK_NULL_HANDLE ) {
+				sdVulkanMemoryBlock* block = new sdVulkanMemoryBlock;
+				block->memory = memory;
+				block->memoryType = memoryType;
+				block->deviceAddress = deviceAddress;
+				block->mapped = mapped;
+				block->liveAllocations = 0;
+				sdVulkanMemoryRange whole;
+				whole.offset = 0;
+				whole.bytes = VULKAN_BUFFER_BLOCK_BYTES;
+				block->freeRanges.Append( whole );
+				blockIndex = state.bufferMemoryBlocks.FindIndex( NULL );
+				if ( blockIndex < 0 ) {
+					blockIndex = state.bufferMemoryBlocks.Append( block );
+				} else {
+					state.bufferMemoryBlocks[ blockIndex ] = block;
+				}
+				AllocateFromMemoryBlock( *block, requirements.size, requirements.alignment, offset );
+			}
+		}
+		if ( blockIndex >= 0 ) {
+			sdVulkanMemoryBlock* block = state.bufferMemoryBlocks[ blockIndex ];
+			if ( !CheckVulkanResult( state.BindBufferMemory( state.device, resource.buffer,
+				block->memory, offset ), "vkBindBufferMemory(buffer block)" ) ) {
+				state.DestroyBuffer( state.device, resource.buffer, NULL );
+				resource.buffer = VK_NULL_HANDLE;
+				ReleasePooledBufferMemory( state, blockIndex, offset, requirements.size );
+				return false;
+			}
+			resource.poolBlock = blockIndex + 1;
+			resource.poolOffset = offset;
+			resource.poolBytes = requirements.size;
+			if ( wantMapped ) {
+				resource.mapped = static_cast< byte* >( block->mapped ) + offset;
+			}
+			return true;
+		}
+		// no block could be allocated: try a buffer-sized allocation below
+	}
+
+	allocateInfo.allocationSize = requirements.size;
+	if ( !CheckVulkanResult( state.AllocateMemory( state.device, &allocateInfo, NULL,
+		&resource.memory ), "vkAllocateMemory(buffer)" ) ||
+		!CheckVulkanResult( state.BindBufferMemory( state.device, resource.buffer,
+			resource.memory, 0 ), "vkBindBufferMemory" ) ||
+		( wantMapped && !CheckVulkanResult( state.MapMemory( state.device, resource.memory, 0,
+			resource.bytes, 0, &resource.mapped ), "vkMapMemory(buffer)" ) ) ) {
+		resource.mapped = NULL;
+		if ( resource.memory != VK_NULL_HANDLE ) {
+			state.FreeMemory( state.device, resource.memory, NULL );
+			resource.memory = VK_NULL_HANDLE;
+		}
+		state.DestroyBuffer( state.device, resource.buffer, NULL );
+		resource.buffer = VK_NULL_HANDLE;
+		return false;
+	}
+	return true;
+}
+
 bool SubmitImmediate( sdVulkanBackendState& state, VkCommandPool commandPool,
 	VkCommandBuffer commandBuffer ) {
 	if ( !CheckVulkanResult( state.EndCommandBuffer( commandBuffer ),
@@ -2482,7 +2867,8 @@ bool QueueFrameBufferUpload( sdVulkanBackendState& state, VkBuffer destination,
 	// input.  Cover every later read in the main frame command buffer, not just
 	// fixed-function vertex/index fetch.
 	barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-	barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT;
+	// and a later upload's copy into the same range lands after this one
+	barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT;
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.buffer = destination;
@@ -2498,28 +2884,41 @@ bool QueueFrameBufferUpload( sdVulkanBackendState& state, VkBuffer destination,
 	return true;
 }
 
-bool UploadBufferBytes( sdVulkanBackendState& state, VkBuffer destination,
-	VkDeviceSize destinationOffset, const void* data, VkDeviceSize bytes,
-	bool indexBuffer ) {
-	if ( state.frameActive ) {
-		return QueueFrameBufferUpload( state, destination, destinationOffset,
-			data, bytes, indexBuffer );
+// Copies the uploads into their buffers now: one staging buffer, one submission
+// and one wait for the whole batch.
+bool SubmitBufferUploadsNow( sdVulkanBackendState& state,
+	const sdVulkanPendingBufferUpload* uploads, int count ) {
+	if ( count <= 0 ) {
+		return true;
+	}
+	VkDeviceSize totalBytes = 0;
+	for ( int i = 0; i < count; ++i ) {
+		totalBytes = ( ( totalBytes + 15 ) & ~15ULL ) + uploads[ i ].bytes;
 	}
 	VkBuffer stagingBuffer = VK_NULL_HANDLE;
 	VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
-	if ( !CreateBufferAllocation( state, bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+	if ( !CreateBufferAllocation( state, totalBytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 		stagingBuffer, stagingMemory ) ) {
 		return false;
 	}
 	void* mapped = NULL;
 	if ( !CheckVulkanResult( state.MapMemory( state.device, stagingMemory, 0,
-		bytes, 0, &mapped ), "vkMapMemory(buffer upload)" ) ) {
+		totalBytes, 0, &mapped ), "vkMapMemory(buffer upload)" ) ) {
 		state.DestroyBuffer( state.device, stagingBuffer, NULL );
 		state.FreeMemory( state.device, stagingMemory, NULL );
 		return false;
 	}
-	memcpy( mapped, data, static_cast< size_t >( bytes ) );
+	idList< VkDeviceSize > sourceOffsets;
+	sourceOffsets.SetNum( count );
+	VkDeviceSize offset = 0;
+	for ( int i = 0; i < count; ++i ) {
+		offset = ( offset + 15 ) & ~15ULL;
+		sourceOffsets[ i ] = offset;
+		memcpy( static_cast< byte* >( mapped ) + offset, uploads[ i ].data,
+			static_cast< size_t >( uploads[ i ].bytes ) );
+		offset += uploads[ i ].bytes;
+	}
 	state.UnmapMemory( state.device, stagingMemory );
 
 	VkCommandPool commandPool = VK_NULL_HANDLE;
@@ -2550,29 +2949,46 @@ bool UploadBufferBytes( sdVulkanBackendState& state, VkBuffer destination,
 			&beginInfo ), "vkBeginCommandBuffer(buffer upload)" );
 	}
 	if ( succeeded ) {
-		VkBufferCopy copy;
-		copy.srcOffset = 0;
-		copy.dstOffset = destinationOffset;
-		copy.size = bytes;
-		state.CmdCopyBuffer( commandBuffer, stagingBuffer, destination, 1, &copy );
-		VkBufferMemoryBarrier2 barrier;
+		// a buffer written twice in one batch (partial updates) gets its writes in order
+		idList< VkBuffer > written;
+		for ( int i = 0; i < count; ++i ) {
+			if ( written.FindIndex( uploads[ i ].destination ) >= 0 ) {
+				VkMemoryBarrier2 writeOrder;
+				memset( &writeOrder, 0, sizeof( writeOrder ) );
+				writeOrder.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+				writeOrder.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+				writeOrder.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+				writeOrder.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+				writeOrder.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+				VkDependencyInfo writeDependency;
+				memset( &writeDependency, 0, sizeof( writeDependency ) );
+				writeDependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+				writeDependency.memoryBarrierCount = 1;
+				writeDependency.pMemoryBarriers = &writeOrder;
+				state.CmdPipelineBarrier2( commandBuffer, &writeDependency );
+				written.Clear();
+			}
+			written.Append( uploads[ i ].destination );
+			VkBufferCopy copy;
+			copy.srcOffset = sourceOffsets[ i ];
+			copy.dstOffset = uploads[ i ].offset;
+			copy.size = uploads[ i ].bytes;
+			state.CmdCopyBuffer( commandBuffer, stagingBuffer, uploads[ i ].destination, 1, &copy );
+		}
+		// the copies must land before any later read: vertex/index fetch, or
+		// acceleration-structure build input
+		VkMemoryBarrier2 barrier;
 		memset( &barrier, 0, sizeof( barrier ) );
-		barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+		barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
 		barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
 		barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-		barrier.dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
-		barrier.dstAccessMask = indexBuffer ? VK_ACCESS_2_INDEX_READ_BIT :
-			VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
-		barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		barrier.buffer = destination;
-		barrier.offset = destinationOffset;
-		barrier.size = bytes;
+		barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+		barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT;
 		VkDependencyInfo dependencyInfo;
 		memset( &dependencyInfo, 0, sizeof( dependencyInfo ) );
 		dependencyInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-		dependencyInfo.bufferMemoryBarrierCount = 1;
-		dependencyInfo.pBufferMemoryBarriers = &barrier;
+		dependencyInfo.memoryBarrierCount = 1;
+		dependencyInfo.pMemoryBarriers = &barrier;
 		state.CmdPipelineBarrier2( commandBuffer, &dependencyInfo );
 		succeeded = SubmitImmediate( state, commandPool, commandBuffer );
 		commandPool = VK_NULL_HANDLE;
@@ -2583,6 +2999,108 @@ bool UploadBufferBytes( sdVulkanBackendState& state, VkBuffer destination,
 	state.DestroyBuffer( state.device, stagingBuffer, NULL );
 	state.FreeMemory( state.device, stagingMemory, NULL );
 	return succeeded;
+}
+
+void ClearPendingBufferUploads( sdVulkanBackendState& state ) {
+	for ( int i = 0; i < state.pendingBufferUploads.Num(); ++i ) {
+		Mem_Free( state.pendingBufferUploads[ i ].data );
+	}
+	state.pendingBufferUploads.Clear();
+	state.pendingBufferUploadBytes = 0;
+}
+
+void WarnFailedBufferUploads( int count, VkDeviceSize bytes ) {
+	common->Warning( "Vulkan: %d deferred vertex-cache upload(s) (%u KiB) failed; "
+		"those buffers keep undefined contents", count,
+		static_cast< unsigned int >( bytes / 1024 ) );
+}
+
+// Copies every pending upload now, in one batch.
+bool FlushPendingBufferUploadsNow( sdVulkanBackendState& state ) {
+	const bool succeeded = SubmitBufferUploadsNow( state,
+		state.pendingBufferUploads.Begin(), state.pendingBufferUploads.Num() );
+	if ( !succeeded ) {
+		WarnFailedBufferUploads( state.pendingBufferUploads.Num(), state.pendingBufferUploadBytes );
+	}
+	ClearPendingBufferUploads( state );
+	return succeeded;
+}
+
+// A buffer that is being destroyed takes its pending uploads with it.
+void DropPendingBufferUploads( sdVulkanBackendState& state, VkBuffer buffer ) {
+	for ( int i = state.pendingBufferUploads.Num() - 1; i >= 0; --i ) {
+		if ( state.pendingBufferUploads[ i ].destination == buffer ) {
+			state.pendingBufferUploadBytes -= state.pendingBufferUploads[ i ].bytes;
+			Mem_Free( state.pendingBufferUploads[ i ].data );
+			state.pendingBufferUploads.RemoveIndex( i );
+		}
+	}
+}
+
+// At the start of a frame, before anything is drawn: the pending uploads go into
+// this frame's upload command buffer, which is submitted ahead of the frame's own,
+// so nothing waits for them.  What does not fit the frame's arena is copied at
+// once instead.
+void FlushPendingBufferUploadsIntoFrame( sdVulkanBackendState& state ) {
+	if ( state.pendingBufferUploads.Num() == 0 ) {
+		return;
+	}
+	const sdVulkanFrame& frame = state.frames[ state.frameIndex ];
+	VkDeviceSize needed = frame.bufferUploadOffset;
+	for ( int i = 0; i < state.pendingBufferUploads.Num(); ++i ) {
+		needed = ( ( needed + 15 ) & ~15ULL ) + state.pendingBufferUploads[ i ].bytes;
+	}
+	if ( frame.bufferUploadMapped == NULL || needed > VULKAN_BUFFER_UPLOAD_BYTES ) {
+		FlushPendingBufferUploadsNow( state );
+		return;
+	}
+	int failed = 0;
+	VkDeviceSize failedBytes = 0;
+	for ( int i = 0; i < state.pendingBufferUploads.Num(); ++i ) {
+		const sdVulkanPendingBufferUpload& upload = state.pendingBufferUploads[ i ];
+		if ( !QueueFrameBufferUpload( state, upload.destination, upload.offset, upload.data,
+			upload.bytes, upload.indexBuffer ) ) {
+			++failed;
+			failedBytes += upload.bytes;
+		}
+	}
+	if ( failed > 0 ) {
+		WarnFailedBufferUploads( failed, failedBytes );
+	}
+	ClearPendingBufferUploads( state );
+}
+
+bool UploadBufferBytes( sdVulkanBackendState& state, VkBuffer destination,
+	VkDeviceSize destinationOffset, const void* data, VkDeviceSize bytes,
+	bool indexBuffer ) {
+	if ( state.frameActive ) {
+		return QueueFrameBufferUpload( state, destination, destinationOffset,
+			data, bytes, indexBuffer );
+	}
+	// Outside a frame (map loading, or a listen server's game frame spawning an
+	// entity) every upload used to submit on its own and wait for the queue to go
+	// idle: 120-200 ms for one vehicle's models on the Windows host.  Hold them for
+	// the next frame instead; a burst larger than VULKAN_PENDING_BUFFER_UPLOAD_BYTES
+	// is copied at once, as one batch.  The copies keep their order.
+	sdVulkanPendingBufferUpload upload;
+	upload.destination = destination;
+	upload.offset = destinationOffset;
+	upload.bytes = bytes;
+	upload.indexBuffer = indexBuffer;
+	upload.data = static_cast< byte* >( const_cast< void* >( data ) );
+	// (a failed flush of the earlier uploads warns there; it is not this upload's result)
+	if ( bytes > VULKAN_PENDING_BUFFER_UPLOAD_BYTES ) {
+		FlushPendingBufferUploadsNow( state );
+		return SubmitBufferUploadsNow( state, &upload, 1 );
+	}
+	if ( state.pendingBufferUploadBytes + bytes > VULKAN_PENDING_BUFFER_UPLOAD_BYTES ) {
+		FlushPendingBufferUploadsNow( state );
+	}
+	upload.data = static_cast< byte* >( Mem_Alloc( static_cast< int >( bytes ) ) );
+	memcpy( upload.data, data, static_cast< size_t >( bytes ) );
+	state.pendingBufferUploads.Append( upload );
+	state.pendingBufferUploadBytes += bytes;
+	return true;
 }
 
 bool CompileVulkanShaderSource( sdVulkanBackendState& state,
@@ -5167,6 +5685,11 @@ void sdVulkanBackend::Shutdown() {
 		state->worldShadowDrawCalls, state->worldInteractionDrawCalls );
 	common->Printf( "Vulkan shadow lights: %u shadow-casting light views, %u with shadow casters\n",
 		r_shadowLightViews, r_shadowLightViewsWithCasters );
+	common->Printf( "Vulkan memory allocations: %u live, %u peak (device limit %u); "
+		"%d buffer resources in %d shared blocks, %d images live\n",
+		r_vkMemoryAllocations, r_vkMemoryAllocationPeak, state->maxMemoryAllocationCount,
+		state->bufferResources.Num(), LiveBufferMemoryBlocks( *state ),
+		state->imageResources.Num() );
 	common->Printf( "Vulkan world coverage: %u attempts, %u recorded views, %u surfaces, %u cache-ready, "
 		"%u material-ready, %u resource-ready\n", state->worldViewAttempts, state->worldViews,
 		state->worldSurfaceCandidates, state->worldCacheReady,
@@ -5189,7 +5712,9 @@ void sdVulkanBackend::Shutdown() {
 	DestroyToolWindows( *state );
 	DestroyAllToolRenderTargets( *state );
 	DestroyAllImageResources( *state );
+	ClearPendingBufferUploads( *state );
 	DestroyAllBufferResources( *state );
+	DestroyBufferMemoryBlocks( *state );
 	DestroyGuiResources( *state );
 	DestroyFrames( *state );
 	DestroySwapchain( *state );
@@ -5438,6 +5963,8 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 	scissor.extent = state->extent;
 	state->CmdSetScissor( frame.commandBuffer, 0, 1, &scissor );
 	state->frameActive = true;
+	// uploads made since the last frame, ahead of this frame's draws
+	FlushPendingBufferUploadsIntoFrame( *state );
 	return true;
 }
 
@@ -5564,6 +6091,8 @@ bool sdVulkanBackend::BeginToolWindow( void* nativeWindow, int width, int height
 		state->frameActive || state->toolFrameActive ) {
 		return false;
 	}
+	// tool windows draw outside the main frame: fill the buffers they may use now
+	FlushPendingBufferUploadsNow( *state );
 	HWND window = static_cast< HWND >( nativeWindow );
 	RECT clientRect;
 	if ( GetClientRect( window, &clientRect ) ) {
@@ -7580,22 +8109,14 @@ bool sdVulkanBackend::UploadBuffer( const void* owner, const void* data,
 			VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
 	}
 	bool uploaded = false;
-	if ( frameTemporary && CreateBufferAllocation( *state, resource.bytes, usage,
+	if ( frameTemporary && CreatePooledBuffer( *state, usage,
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-		resource.buffer, resource.memory ) &&
-		CheckVulkanResult( state->MapMemory( state->device, resource.memory, 0,
-			resource.bytes, 0, &resource.mapped ), "vkMapMemory(frame vertex buffer)" ) ) {
+		resource ) ) {
 		memcpy( resource.mapped, data, static_cast< size_t >( resource.bytes ) );
 		uploaded = true;
 	}
-	if ( !uploaded && resource.buffer != VK_NULL_HANDLE ) {
-		DestroyBufferResource( *state, resource );
-		resource.owner = owner;
-		resource.bytes = static_cast< VkDeviceSize >( bytes );
-		resource.indexBuffer = indexBuffer;
-	}
-	if ( !uploaded && CreateBufferAllocation( *state, resource.bytes, usage,
-		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, resource.buffer, resource.memory ) ) {
+	if ( !uploaded && CreatePooledBuffer( *state, usage,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, resource ) ) {
 		uploaded = UploadBufferBytes( *state, resource.buffer, 0, data,
 			resource.bytes, indexBuffer );
 	}
@@ -7661,6 +8182,7 @@ void sdVulkanBackend::DestroyBuffer( const void* owner ) {
 		state->toolFrameActive ? state->frameIndex :
 		( state->frameIndex + NUM_VULKAN_FRAMES - 1 ) % NUM_VULKAN_FRAMES;
 	state->frameRetiredBufferResources[ retireFrame ].Append( removed );
+	DropPendingBufferUploads( *state, removed.buffer );
 }
 
 static void VulkanCreateShadowCache( srfTriangles_t* tri ) {
@@ -9281,6 +9803,8 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 		rayTracingView.colorImageView = state->swapchainViews[ state->imageIndex ];
 		rayTracingView.depthImage = state->depthImages[ state->imageIndex ];
 		rayTracingView.depthImageView = state->depthViews[ state->imageIndex ];
+		rayTracingView.depthSampleView = state->depthSampleViews.Num() > static_cast< int >( state->imageIndex ) ?
+			state->depthSampleViews[ state->imageIndex ] : VK_NULL_HANDLE;
 		if ( currentRenderCopied && state->currentRenderInitialized ) {
 			rayTracingView.reflectionImage = state->currentRenderResource.image;
 			rayTracingView.reflectionImageView = state->currentRenderResource.view;

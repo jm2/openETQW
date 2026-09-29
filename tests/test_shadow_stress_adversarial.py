@@ -25,7 +25,6 @@ from __future__ import annotations
 import os
 import queue
 import re
-import signal
 import subprocess
 import sys
 import threading
@@ -326,14 +325,14 @@ def run_live_mode_test(external_mode: int, duration_sec: float = 5.0) -> dict:
         if game_running_time is not None and not sigterm_sent:
             elapsed = time.time() - game_running_time
             if elapsed >= duration_sec:
-                print(f"  [TEST] Rendered for {elapsed:.1f}s. Sending SIGTERM...")
-                proc.send_signal(signal.SIGTERM)
+                request = h.graceful_terminate(proc)
+                print(f"  [TEST] Rendered for {elapsed:.1f}s. Sent {request}...")
                 sigterm_sent = True
                 try:
                     proc.wait(timeout=15.0)
                 except subprocess.TimeoutExpired:
                     proc.kill()
-                    raise TimeoutError("Client failed to shutdown gracefully within 15s after SIGTERM")
+                    raise TimeoutError("Client failed to shutdown gracefully within 15s after the shutdown request")
                 break
 
     while True:

@@ -61,12 +61,19 @@ struct sdRayTracingViewContext {
 	VkImageView	colorImageView;
 	VkImage			depthImage;
 	VkImageView	depthImageView;
+	VkImageView	depthSampleView;
 	VkImage			reflectionImage;
 	VkImageView	reflectionImageView;
 	VkSampler		reflectionSampler;
 	VkExtent2D		framebufferExtent;
 	VkRect2D		viewport;
 };
+
+// Routes a module's vkAllocateMemory/vkFreeMemory through the backend's counting
+// thunks (VulkanBackend.cpp), so the shutdown metrics count every live
+// VkDeviceMemory on the device, not only the backend's own.
+void R_VkTrackMemoryFunctions( PFN_vkAllocateMemory& allocateMemory,
+	PFN_vkFreeMemory& freeMemory );
 
 bool R_RayTracingRequested();
 void R_RayTracingResetBackendSelection();

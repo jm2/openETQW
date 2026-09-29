@@ -48,6 +48,9 @@ DATA_PATH = h.env_data_path()
 SERVER_PORT = 27795
 
 def _find_dedicated_binary() -> Path:
+    override = os.environ.get("OPENETQW_DED_BINARY")
+    if override:
+        return Path(override)
     candidates = [
         REPO_ROOT / "build" / "openETQW-ded_arm64",
         REPO_ROOT / "build" / "openETQW-ded_x64",

@@ -2,10 +2,10 @@
 //
 
 
-#include "../../../idlib/precompiled.h"
+#include "idlib/precompiled.h"
 #pragma hdrstop
 
-#include "../../sys_local.h"
+#include "sys_local.h"
 #include "../win_local.h"
 #include "win_dinput.h"
 #include "win_xinput.h"

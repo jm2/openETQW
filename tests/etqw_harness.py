@@ -98,6 +98,51 @@ def install_signal_handlers() -> None:
                 pass
 
 
+# Popen creationflags for a dedicated server that graceful_terminate() should stop
+# with CTRL_BREAK_EVENT on Windows (a console control event needs its own process
+# group); 0 on POSIX.
+CONSOLE_SIGNAL_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+
+
+def graceful_terminate(proc: subprocess.Popen, console_group: bool = False) -> str:
+    """Ask an engine process to shut down cleanly (it must exit 0).
+
+    POSIX sends SIGTERM, which the engine turns into a clean shutdown.
+    On Windows there is no SIGTERM (send_signal would TerminateProcess and
+    the exit code would not be 0).  A dedicated server started with
+    creationflags=CONSOLE_SIGNAL_GROUP (console_group=True) gets
+    CTRL_BREAK_EVENT, which it handles like SIGTERM; otherwise, as for the
+    GUI client, which has no console, the request goes over stdin (the
+    engine reads console input from stdin on every platform).  Returns the
+    request that was used."""
+    if os.name == "nt" and console_group:
+        proc.send_signal(signal.CTRL_BREAK_EVENT)
+        return "CTRL_BREAK_EVENT"
+    if os.name == "nt":
+        try:
+            proc.stdin.write("quit\n")
+            proc.stdin.flush()
+        except (BrokenPipeError, OSError, ValueError):
+            proc.terminate()
+            return "terminate (stdin unavailable)"
+        return "quit over stdin"
+    proc.send_signal(signal.SIGTERM)
+    return "SIGTERM"
+
+
+# The Vulkan client's device-memory allocations, from its shutdown metrics.  Many
+# Windows drivers (NVIDIA, Intel) report maxMemoryAllocationCount 4096, so the
+# client must stay under that on every host, whatever the local driver allows.
+VK_ALLOCATIONS_RE = re.compile(r"Vulkan memory allocations:\s*(\d+) live,\s*(\d+) peak")
+PORTABLE_VK_ALLOCATION_LIMIT = 4096
+
+
+def vk_allocation_peak(output: str) -> Optional[int]:
+    """The peak device-memory allocation count the client printed, or None."""
+    match = VK_ALLOCATIONS_RE.search(output)
+    return int(match.group(2)) if match else None
+
+
 # ---------------------------------------------------------------------------
 # Binary discovery and retail data
 # ---------------------------------------------------------------------------
@@ -127,12 +172,27 @@ def ded_binary_candidates(build_dir: Optional[Path] = None) -> list[Path]:
 
 
 def build_binary(kind: str) -> Path:
-    """The first existing build/openETQW-<kind>_<arch>[.exe], else the host
-    architecture's name (so a missing-binary message names what was expected).
+    """$OPENETQW_CLIENT_BINARY / $OPENETQW_DED_BINARY when set (tests/meson.build
+    passes the binaries of the build directory it runs from, which need not be
+    build/), else the first existing build/openETQW-<kind>_<arch>[.exe], else the
+    host architecture's name (so a missing-binary message names what was expected).
     For standalone tests that build their command lines at import time; pair
     with skip_unless_available()."""
+    requested = os.environ.get("OPENETQW_DED_BINARY" if kind == "ded" else "OPENETQW_CLIENT_BINARY")
+    if requested:
+        return Path(requested).expanduser()
     candidates = binary_candidates(kind)
     return next((c for c in candidates if c.is_file()), candidates[0])
+
+
+def private_savepath(prefix: str) -> Path:
+    """An empty fs_savepath for this test run, removed at exit.  The engine writes
+    the archived cvars a test sets with +set (r_rayTracing, r_vkValidation,
+    com_maxFPS, ...) to <savepath>/base/etqwconfig.cfg; with the shared default
+    (the repository's base/) they carry into later runs and other tests."""
+    path = Path(tempfile.mkdtemp(prefix=prefix))
+    atexit.register(shutil.rmtree, path, True)
+    return path
 
 
 def find_ded_binary(explicit: Optional[str] = None) -> Path:

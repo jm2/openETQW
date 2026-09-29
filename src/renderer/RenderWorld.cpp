@@ -554,7 +554,8 @@ void idRenderWorldLocal::PerformRenderScene( const renderView_t *renderView ) {
 	RENDER_METRIC_SCOPE( "Render scene" );
 	SetRenderView( renderView );
 #if defined( _WIN32 )
-	if ( renderView == NULL || !glConfig.isInitialized || wglGetCurrentContext() == NULL ) {
+	if ( renderView == NULL || !glConfig.isInitialized ||
+		( !R_UseVulkanBackend() && wglGetCurrentContext() == NULL ) ) {
 #else
 	if ( renderView == NULL || !glConfig.isInitialized ) {
 #endif

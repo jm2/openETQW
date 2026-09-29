@@ -97,6 +97,10 @@ int		IN_DIMapKey( int key );
 
 void	DisableTaskKeys( BOOL bDisable, BOOL bBeep, BOOL bTaskMgr );
 
+// Win32 performance-counter queries (win_perfquery.cpp)
+void	PQ_Init( void );
+void	PQ_ShutDown( void );
+
 void	Sys_ProcessSDLEvents( void );
 void	Sys_QueueSDLKeyEvent( const SDL_KeyboardEvent& event );
 void	Sys_QueueSDLTextEvent( const SDL_TextInputEvent& event );

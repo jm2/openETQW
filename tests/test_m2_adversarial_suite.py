@@ -12,8 +12,6 @@ Tests:
 5. Verification of clean exit code 0 across all scenarios.
 """
 
-import os
-import signal
 import subprocess
 import sys
 import time
@@ -36,9 +34,58 @@ COMMON_ARGS = [
 ]
 
 
-def get_process_rss_kb(pid: int) -> int:
-    """Get Resident Set Size in Kilobytes for a PID on macOS."""
+def _windows_process(pid: int):
+    """kernel32 and a query handle for pid (Windows only); the caller closes the handle."""
+    import ctypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = ctypes.c_void_p
+    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        raise OSError(ctypes.get_last_error(), "OpenProcess")
+    return kernel32, ctypes.c_void_p(handle)
+
+
+def _windows_working_set_kb(pid: int) -> int:
+    import ctypes
+    import ctypes.wintypes as wt
+
+    class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+        _fields_ = [("cb", wt.DWORD), ("PageFaultCount", wt.DWORD)] + [
+            (name, ctypes.c_size_t) for name in (
+                "PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage", "QuotaPagedPoolUsage",
+                "QuotaPeakNonPagedPoolUsage", "QuotaNonPagedPoolUsage", "PagefileUsage", "PeakPagefileUsage")]
+
+    kernel32, handle = _windows_process(pid)
     try:
+        counters = PROCESS_MEMORY_COUNTERS()
+        counters.cb = ctypes.sizeof(counters)
+        if not kernel32.K32GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb):
+            raise OSError(ctypes.get_last_error(), "K32GetProcessMemoryInfo")
+        return counters.WorkingSetSize // 1024
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _windows_cpu_seconds(pid: int) -> float:
+    import ctypes
+    import ctypes.wintypes as wt
+    kernel32, handle = _windows_process(pid)
+    try:
+        times = [wt.FILETIME() for _ in range(4)]
+        if not kernel32.GetProcessTimes(handle, *[ctypes.byref(t) for t in times]):
+            raise OSError(ctypes.get_last_error(), "GetProcessTimes")
+        kernel, user = times[2], times[3]
+        return ((kernel.dwHighDateTime + user.dwHighDateTime) * 2**32
+                + kernel.dwLowDateTime + user.dwLowDateTime) / 1e7
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def get_process_rss_kb(pid: int) -> int:
+    """Resident set size in KB (ps on POSIX, the working set on Windows)."""
+    try:
+        if sys.platform == "win32":
+            return _windows_working_set_kb(pid)
         out = subprocess.check_output(["ps", "-o", "rss=", "-p", str(pid)]).decode().strip()
         return int(out)
     except Exception:
@@ -46,8 +93,12 @@ def get_process_rss_kb(pid: int) -> int:
 
 
 def get_process_cpu_percent(pid: int) -> float:
-    """Get CPU percentage for a PID on macOS."""
+    """CPU use in percent of one core (ps on POSIX; a one-second sample on Windows)."""
     try:
+        if sys.platform == "win32":
+            before = _windows_cpu_seconds(pid)
+            time.sleep(1.0)
+            return (_windows_cpu_seconds(pid) - before) * 100.0
         out = subprocess.check_output(["ps", "-o", "%cpu=", "-p", str(pid)]).decode().strip()
         return float(out)
     except Exception:
@@ -72,6 +123,17 @@ def wait_for_marker(proc: subprocess.Popen, marker: str, timeout: float = 30.0) 
         if marker in line:
             return True
     return False
+
+
+def wait_draining(proc: subprocess.Popen, timeout: float) -> int:
+    """Wait for exit while reading stdout: a server blocked on a full pipe never exits
+    (Windows pipes hold a few KB, and shutdown prints more than that)."""
+    if proc.stdin is not None and proc.stdin.closed:
+        # a test closed stdin to send EOF: detach it, so communicate() does not
+        # flush a closed file (recent Pythons ignore that; not every version does)
+        proc.stdin = None
+    proc.communicate(timeout=timeout)
+    return proc.returncode
 
 
 def test_rapid_console_burst():
@@ -108,7 +170,7 @@ def test_rapid_console_burst():
         proc.stdin.write("quit\n")
         proc.stdin.flush()
 
-        rc = proc.wait(timeout=15.0)
+        rc = wait_draining(proc, timeout=15.0)
         assert rc == 0, f"Expected exit code 0, got {rc}"
         print(f"[PASSED] Test 1 completed successfully with exit code {rc}.")
         return True
@@ -165,7 +227,7 @@ def test_multi_cycle_restart_and_memory():
         proc.stdin.write("status\nquit\n")
         proc.stdin.flush()
 
-        rc = proc.wait(timeout=15.0)
+        rc = wait_draining(proc, timeout=15.0)
         assert rc == 0, f"Expected exit code 0, got {rc}"
         print(f"[PASSED] Test 2 completed successfully. Exit code {rc}, memory stable.")
         return True
@@ -200,7 +262,7 @@ def test_piped_stdin_immediate_eof():
 
 
 def test_piped_stdin_active_eof_and_signal():
-    """Test piped stdin EOF during active simulation, verify no spinlock, and clean SIGTERM shutdown."""
+    """Test piped stdin EOF during active simulation, verify no spinlock, and clean shutdown."""
     print("\n--- [TEST 3B] Active Piped stdin EOF & Graceful Signal Handling ---")
     proc = subprocess.Popen(
         COMMON_ARGS,
@@ -208,7 +270,8 @@ def test_piped_stdin_active_eof_and_signal():
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
-        bufsize=1
+        bufsize=1,
+        creationflags=h.CONSOLE_SIGNAL_GROUP,
     )
 
     try:
@@ -231,12 +294,13 @@ def test_piped_stdin_active_eof_and_signal():
         cpu = get_process_cpu_percent(proc.pid)
         print(f"Process alive after EOF. Current CPU usage: {cpu:.1f}%")
 
-        print("[4] Sending SIGTERM to test graceful signal shutdown...")
-        os.kill(proc.pid, signal.SIGTERM)
-
-        rc = proc.wait(timeout=15.0)
-        assert rc == 0, f"Expected exit code 0 on graceful SIGTERM, got {rc}"
-        print(f"[PASSED] Test 3B completed successfully. EOF handled without spinlock, clean SIGTERM exit code {rc}.")
+        # stdin is closed, so this is the signal path: SIGTERM on POSIX,
+        # CTRL_BREAK_EVENT on Windows
+        print("[4] Sending the shutdown signal...")
+        request = h.graceful_terminate(proc, console_group=True)
+        rc = wait_draining(proc, timeout=15.0)
+        assert rc == 0, f"Expected exit code 0 on graceful {request}, got {rc}"
+        print(f"[PASSED] Test 3B completed successfully. EOF handled without spinlock, clean {request} exit code {rc}.")
         return True
     finally:
         if proc.poll() is None:
@@ -298,7 +362,7 @@ def test_malformed_and_hostile_inputs():
         proc.stdin.write("quit\n")
         proc.stdin.flush()
 
-        rc = proc.wait(timeout=15.0)
+        rc = wait_draining(proc, timeout=15.0)
         assert rc == 0, f"Expected exit code 0 after hostile inputs, got {rc}"
         print(f"[PASSED] Test 4 completed successfully. Engine survived all hostile inputs with exit code {rc}.")
         return True

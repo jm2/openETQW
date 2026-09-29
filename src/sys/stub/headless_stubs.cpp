@@ -596,7 +596,7 @@ sdRenderBindings		renderBindings;
 sdRenderBindings*		rbinds = &renderBindings;
 
 const renderView_t*		RB_GetDrawView() { return NULL; }
-const idRenderWorldLocal* RB_GetDrawWorld() { return NULL; }
+idRenderWorldLocal* RB_GetDrawWorld() { return NULL; }
 
 void idMegaTexture::UpdateMapping( const idRenderWorldLocal* ) {}
 void idMegaTexture::UpdateForViewOrigin( const idVec3&, int ) {}

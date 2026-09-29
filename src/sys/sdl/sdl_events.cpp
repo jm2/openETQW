@@ -6,6 +6,8 @@
 #include "sys_local.h"
 #include "keynum.h"
 
+SDL_Window* Sys_GetGameSDLWindow( void );
+
 namespace {
 
 keyNum_t MapSDLScancode( SDL_Scancode scancode ) {
@@ -115,8 +117,9 @@ public:
 	virtual void Deactivate() override { active = false; }
 
 	virtual void GrabCursor( bool grab ) override {
-		if ( sys3D != NULL && sys3D->GetGameWindowHandle() != NULL ) {
-			SDL_SetWindowRelativeMouseMode( static_cast< SDL_Window* >( sys3D->GetGameWindowHandle() ), grab );
+		SDL_Window* window = Sys_GetGameSDLWindow();
+		if ( window != NULL ) {
+			SDL_SetWindowRelativeMouseMode( window, grab );
 		}
 	}
 

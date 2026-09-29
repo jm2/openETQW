@@ -384,40 +384,52 @@ def run_multiclient_test():
 
     print("\n[6] Verifying Mutual Spatial Replication Across UDP Snapshots...")
 
-    # Query authoritative server coordinates
-    srv_pos0 = query_player_pos(server_proc, "SERVER", output_queue, timeout=3.0, client_num=0)
-    srv_pos1 = query_player_pos(server_proc, "SERVER", output_queue, timeout=3.0, client_num=1)
-    print(f"  [SERVER] Client 0 (GDF)    Authoritative: {srv_pos0['org']}")
-    print(f"  [SERVER] Client 1 (Strogg) Authoritative: {srv_pos1['org']}")
-
-    # Query Client 1's view of local GDF (slot 0) and replicated Strogg (slot 1)
-    c1_pos0 = query_player_pos(client1_proc, "CLIENT_1", output_queue, timeout=3.0, client_num=0)
-    c1_pos1 = query_player_pos(client1_proc, "CLIENT_1", output_queue, timeout=3.0, client_num=1)
-    print(f"  [CLIENT 1] Local Client 0:      {c1_pos0['org']}")
-    print(f"  [CLIENT 1] Replicated Client 1: {c1_pos1['org']}")
-
-    # Query Client 2's view of local Strogg (slot 1) and replicated GDF (slot 0)
-    c2_pos1 = query_player_pos(client2_proc, "CLIENT_2", output_queue, timeout=3.0, client_num=1)
-    c2_pos0 = query_player_pos(client2_proc, "CLIENT_2", output_queue, timeout=3.0, client_num=0)
-    print(f"  [CLIENT 2] Local Client 1:      {c2_pos1['org']}")
-    print(f"  [CLIENT 2] Replicated Client 0: {c2_pos0['org']}")
-
-    # Calculate replication error
     def dist(p1, p2):
         return math.sqrt(sum((a - b) ** 2 for a, b in zip(p1, p2)))
 
-    # Error between Server authoritative pos and Client replicated pos
-    err_c1_from_c2 = dist(srv_pos1["org"], c1_pos1["org"])
-    err_c0_from_c1 = dist(srv_pos0["org"], c2_pos0["org"])
-    err_local_c0 = dist(srv_pos0["org"], c1_pos0["org"])
-    err_local_c1 = dist(srv_pos1["org"], c2_pos1["org"])
+    # Both players stand still once grounded, so every view must converge on the
+    # server's positions.  A remote player's view trails the server by the one-way
+    # delay plus interpolation: sampled right after a landing under the simulated
+    # 80-120 ms link, it is still a few frames up the fall (the errors seen were
+    # 2-5 server frames of it).  Resample until the views agree or the time is up;
+    # the window is short, so a replication stall longer than that still fails.
+    MAX_TOLERANCE = 2.0
+    converge_start = time.time()
+    converge_deadline = converge_start + 2.0
+    samples = 0
+    while True:
+        samples += 1
+        # authoritative server coordinates
+        srv_pos0 = query_player_pos(server_proc, "SERVER", output_queue, timeout=3.0, client_num=0)
+        srv_pos1 = query_player_pos(server_proc, "SERVER", output_queue, timeout=3.0, client_num=1)
+        # Client 1's view of local GDF (slot 0) and replicated Strogg (slot 1)
+        c1_pos0 = query_player_pos(client1_proc, "CLIENT_1", output_queue, timeout=3.0, client_num=0)
+        c1_pos1 = query_player_pos(client1_proc, "CLIENT_1", output_queue, timeout=3.0, client_num=1)
+        # Client 2's view of local Strogg (slot 1) and replicated GDF (slot 0)
+        c2_pos1 = query_player_pos(client2_proc, "CLIENT_2", output_queue, timeout=3.0, client_num=1)
+        c2_pos0 = query_player_pos(client2_proc, "CLIENT_2", output_queue, timeout=3.0, client_num=0)
+        # Error between Server authoritative pos and Client replicated pos
+        err_c1_from_c2 = dist(srv_pos1["org"], c1_pos1["org"])
+        err_c0_from_c1 = dist(srv_pos0["org"], c2_pos0["org"])
+        err_local_c0 = dist(srv_pos0["org"], c1_pos0["org"])
+        err_local_c1 = dist(srv_pos1["org"], c2_pos1["org"])
+        converged = err_c1_from_c2 <= MAX_TOLERANCE and err_c0_from_c1 <= MAX_TOLERANCE
+        if converged or time.time() >= converge_deadline:
+            break
+        time.sleep(0.25)
 
+    print(f"  [SERVER] Client 0 (GDF)    Authoritative: {srv_pos0['org']}")
+    print(f"  [SERVER] Client 1 (Strogg) Authoritative: {srv_pos1['org']}")
+    print(f"  [CLIENT 1] Local Client 0:      {c1_pos0['org']}")
+    print(f"  [CLIENT 1] Replicated Client 1: {c1_pos1['org']}")
+    print(f"  [CLIENT 2] Local Client 1:      {c2_pos1['org']}")
+    print(f"  [CLIENT 2] Replicated Client 0: {c2_pos0['org']}")
     print(f"  Spatial Replication Error (Client 1 viewing Client 2): {err_c1_from_c2:.4f} units")
     print(f"  Spatial Replication Error (Client 2 viewing Client 0): {err_c0_from_c1:.4f} units")
     print(f"  Local Reconciliation Error Client 0:                   {err_local_c0:.4f} units")
     print(f"  Local Reconciliation Error Client 1:                   {err_local_c1:.4f} units")
+    print(f"  ({samples} sample(s), {time.time() - converge_start:.2f} s)")
 
-    MAX_TOLERANCE = 2.0
     if err_c1_from_c2 > MAX_TOLERANCE or err_c0_from_c1 > MAX_TOLERANCE:
         raise ValueError(f"Replication error exceeds tolerance ({MAX_TOLERANCE} u): c1_view={err_c1_from_c2:.4f}, c2_view={err_c0_from_c1:.4f}")
     print(f"  >>> [PASSED] Mutual spatial replication verified (all errors < {MAX_TOLERANCE} units)")

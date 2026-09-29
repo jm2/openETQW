@@ -314,6 +314,9 @@ bool LoadRayTracingFunctions( sdRayTracingState& state ) {
 	LOAD_RT_FUNCTION( CmdCopyImage );
 	LOAD_RT_FUNCTION( CmdDispatch );
 #undef LOAD_RT_FUNCTION
+	if ( loaded ) {
+		R_VkTrackMemoryFunctions( state.AllocateMemory, state.FreeMemory );
+	}
 	return loaded;
 }
 
@@ -1427,14 +1430,16 @@ void UpdateRayTracingDescriptors( sdRayTracingState& state,
 	VkDescriptorImageInfo depthInfo;
 	memset( &depthInfo, 0, sizeof( depthInfo ) );
 	depthInfo.sampler = state.depthSampler;
-	depthInfo.imageView = context.depthImageView;
+	depthInfo.imageView = context.depthSampleView != VK_NULL_HANDLE ?
+		context.depthSampleView : context.depthImageView;
 	depthInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	VkDescriptorImageInfo reflectionInfo;
 	memset( &reflectionInfo, 0, sizeof( reflectionInfo ) );
 	reflectionInfo.sampler = context.reflectionSampler != VK_NULL_HANDLE ?
 		context.reflectionSampler : state.depthSampler;
 	reflectionInfo.imageView = context.reflectionImageView != VK_NULL_HANDLE ?
-		context.reflectionImageView : context.depthImageView;
+		context.reflectionImageView : ( context.depthSampleView != VK_NULL_HANDLE ?
+			context.depthSampleView : context.depthImageView );
 	reflectionInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	VkDescriptorBufferInfo lightingInfo;
 	memset( &lightingInfo, 0, sizeof( lightingInfo ) );
@@ -1477,7 +1482,8 @@ void TransitionForRayTracing( sdRayTracingState& state,
 	barriers[ 1 ].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barriers[ 1 ].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barriers[ 1 ].image = context.depthImage;
-	barriers[ 1 ].subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+	barriers[ 1 ].subresourceRange.aspectMask =
+		VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
 	barriers[ 1 ].subresourceRange.levelCount = 1;
 	barriers[ 1 ].subresourceRange.layerCount = 1;
 	if ( toRayTracing ) {
@@ -1493,7 +1499,7 @@ void TransitionForRayTracing( sdRayTracingState& state,
 		barriers[ 1 ].srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 		barriers[ 1 ].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
 		barriers[ 1 ].dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-		barriers[ 1 ].oldLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+		barriers[ 1 ].oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 		barriers[ 1 ].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	} else {
 		barriers[ 0 ].srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
@@ -1510,7 +1516,7 @@ void TransitionForRayTracing( sdRayTracingState& state,
 		barriers[ 1 ].dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
 			VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 		barriers[ 1 ].oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		barriers[ 1 ].newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+		barriers[ 1 ].newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	}
 	VkDependencyInfo dependency;
 	memset( &dependency, 0, sizeof( dependency ) );
@@ -1606,13 +1612,18 @@ void ResumeDynamicRendering( sdRayTracingState& state,
 	colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	// The same depth and stencil attachments as the backend's own rendering
+	// instances (VulkanBackend.cpp): every pipeline drawn after this was created
+	// with the stencil format, and TransitionForRayTracing returns the image to
+	// DEPTH_STENCIL_ATTACHMENT_OPTIMAL.
 	VkRenderingAttachmentInfo depthAttachment;
 	memset( &depthAttachment, 0, sizeof( depthAttachment ) );
 	depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 	depthAttachment.imageView = context.depthImageView;
-	depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+	depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 	depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	VkRenderingAttachmentInfo stencilAttachment = depthAttachment;
 	VkRenderingInfo renderingInfo;
 	memset( &renderingInfo, 0, sizeof( renderingInfo ) );
 	renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
@@ -1621,6 +1632,7 @@ void ResumeDynamicRendering( sdRayTracingState& state,
 	renderingInfo.colorAttachmentCount = 1;
 	renderingInfo.pColorAttachments = &colorAttachment;
 	renderingInfo.pDepthAttachment = &depthAttachment;
+	renderingInfo.pStencilAttachment = &stencilAttachment;
 	state.CmdBeginRendering( context.commandBuffer, &renderingInfo );
 }
 

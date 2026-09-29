@@ -4,14 +4,16 @@
 
 North America: outskirts, Northern Europe: ark, South Pacific: canyon,
 Africa: refinery (override with --maps). For each map the Vulkan client loads
-the map (+devmap, r_shadows 1), joins GDF as a soldier, renders for a while,
-receives SIGTERM, and must exit 0. The metrics the backend prints at shutdown
+the map (+devmap, r_shadows 1, the stencil path with r_rayTracing 0), joins GDF as a soldier, renders for a while,
+is asked to shut down cleanly (SIGTERM on POSIX, stdin 'quit' on Windows), and must exit 0. The metrics the backend prints at shutdown
 are asserted:
   - frames presented, world draws, MegaTexture (terrain) draws > 0
   - light interaction draws > 0; stencil shadow draws > 0 whenever a shadow-casting
     light with shadow casters was in view (the "Vulkan shadow lights" diagnostic)
   - no Vulkan validation error / VK_ERROR / device loss, no ERROR banner,
     no fatal signal, no MegaTexture open failure
+  - peak device-memory allocations under 4096, the maxMemoryAllocationCount many
+    Windows drivers report
 The client runs with r_vkValidation 1 (off by default), so Vulkan validation messages
 appear wherever VK_LAYER_KHRONOS_validation is installed; the test reports whether it
 was active.
@@ -24,7 +26,6 @@ import json
 import os
 import queue
 import re
-import signal
 import subprocess
 import sys
 import threading
@@ -51,6 +52,8 @@ SPECIAL_RE = re.compile(r"special draws:\s*(\d+) depth,\s*(\d+) MegaTexture,\s*(
 # the game's spawn line for a non-spectator ("Player N (...) spawned at ... spectating 0"),
 # or script debug prints that only the unpatched DVD scripts make
 ACTIVE_MARKERS = ("spectating 0", "parachute::Idle", "weaponRestored", "RespawnWaves_")
+# r_rayTracing 0 and r_vkValidation 1 below are archived: keep them out of other runs
+SAVEPATH = h.private_savepath("etqw-campaign-")
 BAD_MARKERS = ("Vulkan validation error", "VK_ERROR_", "DEVICE_LOST", "FATAL ERROR", "FATAL SIGNAL CAUGHT",
                "idMegaTexture::OpenFile: failed", "idMegaTexture::OpenFile: truncated", "idMegaTexture::OpenFile: unsupported")
 
@@ -69,8 +72,9 @@ def find_client(explicit):
 
 def run_map(client, data, map_name, render_seconds, log_path, team="gdf", at=None):
     args = [str(client), "+set", "fs_basepath", str(data), "+set", "fs_game", "base",
+            "+set", "fs_savepath", str(SAVEPATH),
             "+set", "si_rules", "sdGameRulesObjective", "+set", "r_renderAPI", "vulkan", "+set", "r_shadows", "1",
-            "+set", "r_vkValidation", "1",
+            "+set", "r_rayTracing", "0", "+set", "r_vkValidation", "1",
             "+devmap", map_name, "+clientTeam", team, "+clientClass", "soldier", "+closeLimbo"]
     lines = []
     q = queue.Queue()
@@ -110,7 +114,7 @@ def run_map(client, data, map_name, render_seconds, log_path, team="gdf", at=Non
                 pass
             moved = True
         if active is not None and not sent and time.time() - active >= render_seconds:
-            proc.send_signal(signal.SIGTERM)
+            h.graceful_terminate(proc)
             sent = True
         if proc.poll() is not None and (sent or line is None):
             break
@@ -118,7 +122,7 @@ def run_map(client, data, map_name, render_seconds, log_path, team="gdf", at=Non
         proc.wait(timeout=30.0)
     except subprocess.TimeoutExpired:
         proc.kill()
-        result["error"] = "client did not exit within 30 s of SIGTERM"
+        result["error"] = "client did not exit within 30 s of the shutdown request"
     while True:
         try:
             line = q.get(timeout=0.5)
@@ -133,7 +137,8 @@ def run_map(client, data, map_name, render_seconds, log_path, team="gdf", at=Non
     result["exit_code"] = proc.returncode
     result["sigterm_sent"] = sent
     result["map_loaded"] = map_seen is not None
-    result["validation_layer"] = "not installed" if "VK_LAYER_KHRONOS_validation is not installed" in text else "active or not reported"
+    result["validation_layer"] = ("not installed" if "VK_LAYER_KHRONOS_validation is not installed" in text else
+                                  "active" if "Vulkan validation warning" in text else "active or not reported")
     m = METRICS_RE.search(text)
     if m:
         result.update(frames=int(m.group(1)), world_draws=int(m.group(2)), gui_draws=int(m.group(3)),
@@ -144,6 +149,7 @@ def run_map(client, data, map_name, render_seconds, log_path, team="gdf", at=Non
     s = SPECIAL_RE.search(text)
     if s:
         result.update(megatexture_draws=int(s.group(2)), sky_draws=int(s.group(5)), water_draws=int(s.group(7)))
+    result["vk_allocation_peak"] = h.vk_allocation_peak(text)
     bad = sorted({mk for mk in BAD_MARKERS if mk in text})
     errors = [l for i, l in enumerate(lines) if l.startswith("ERROR:") and i > 0 and lines[i - 1].startswith("********")]
     result["bad_markers"] = bad
@@ -156,7 +162,7 @@ def check(r):
     if not r.get("map_loaded"):
         fails.append("map never loaded")
     if not r.get("sigterm_sent"):
-        fails.append("never reached the rendering window (no SIGTERM sent)")
+        fails.append("never reached the rendering window (no shutdown request sent)")
     if r.get("exit_code") != 0:
         fails.append(f"exit code {r.get('exit_code')}")
     for key in ("frames", "world_draws", "megatexture_draws", "light_interactions"):
@@ -168,6 +174,12 @@ def check(r):
         fails.append("no 'Vulkan shadow lights' diagnostics line")
     elif r["shadow_light_views_with_casters"] > 0 and not r.get("shadow_draws"):
         fails.append(f"{r['shadow_light_views_with_casters']} shadow-casting light views had casters but shadow_draws = 0")
+    peak = r.get("vk_allocation_peak")
+    if peak is None:
+        fails.append("no 'Vulkan memory allocations' diagnostics line")
+    elif peak >= h.PORTABLE_VK_ALLOCATION_LIMIT:
+        fails.append(f"peak Vulkan memory allocations {peak} reach the {h.PORTABLE_VK_ALLOCATION_LIMIT} "
+                     "maxMemoryAllocationCount many Windows drivers report")
     if r.get("bad_markers"):
         fails.append(f"bad markers: {r['bad_markers']}")
     if r.get("error_banners"):

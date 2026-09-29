@@ -8,7 +8,7 @@ project(
   default_options: [
     'c_std=c11',
     'cpp_std=c++20',
-    'b_vscrt=static_from_buildtype',
+    'b_vscrt=from_buildtype',
   ],
 )
 
@@ -247,6 +247,11 @@ elif host_system == 'windows'
   version_dep = cpp.find_library('version', required: true)
   ole32_dep = cpp.find_library('ole32', required: true)
   shell32_dep = cpp.find_library('shell32', required: true)
+  # win_perfquery.cpp (PDH), win_dinput.cpp (c_dfDIJoystick2/GUID_*/SysAllocString)
+  pdh_dep = cpp.find_library('pdh', required: true)
+  dinput8_dep = cpp.find_library('dinput8', required: true)
+  dxguid_dep = cpp.find_library('dxguid', required: true)
+  oleaut32_dep = cpp.find_library('oleaut32', required: true)
   engine_common_deps += [
     ws2_32_dep,
     winmm_dep,
@@ -254,6 +259,10 @@ elif host_system == 'windows'
     version_dep,
     ole32_dep,
     shell32_dep,
+    pdh_dep,
+    dinput8_dep,
+    dxguid_dep,
+    oleaut32_dep,
   ]
 endif
 
@@ -297,6 +306,10 @@ if build_engine
   client_cpp_args = common_engine_defs + engine_pch_args + ['-DVK_ENABLE_BETA_EXTENSIONS', '-DUSE_SDL3']
   if host_system == 'linux'
     gl_dep = dependency('gl', required: true)
+    client_deps += [gl_dep]
+    client_cpp_args += ['-DID_GL_HARDLINK']
+  elif host_system == 'windows'
+    gl_dep = cpp.find_library('opengl32', required: true)
     client_deps += [gl_dep]
     client_cpp_args += ['-DID_GL_HARDLINK']
   endif
@@ -376,12 +389,63 @@ if game_repo_root != ''
   )
 endif
 
+if host_system == 'windows'
+  win_runtime_dll_deps = [zlib_dep]
+  win_runtime_dlls = ['z.dll']
+  if build_engine
+    win_runtime_dll_deps += [sdl3_dep]
+    win_runtime_dlls += ['SDL3.dll']
+  endif
+  # The DLLs sit in <prefix>/bin.  A pkg-config dependency names its libdir; one
+  # found through CMake (no PKG_CONFIG set) does not, so the configured prefixes
+  # are searched as well.
+  runtime_dll_dirs = []
+  foreach dep : win_runtime_dll_deps
+    dep_libdir = dep.get_variable(pkgconfig: 'libdir', default_value: '')
+    if dep_libdir != ''
+      runtime_dll_dirs += [fs_mod.parent(dep_libdir) / 'bin']
+    endif
+  endforeach
+  foreach prefix : get_option('cmake_prefix_path')
+    runtime_dll_dirs += [prefix / 'bin']
+  endforeach
+  foreach pc_dir : get_option('pkg_config_path')
+    runtime_dll_dirs += [fs_mod.parent(fs_mod.parent(pc_dir)) / 'bin']
+  endforeach
+  foreach dll : win_runtime_dlls
+    found_dll = false
+    foreach dir : runtime_dll_dirs
+      if not found_dll and fs_mod.is_file(dir / dll)
+        fs_mod.copyfile(dir / dll, dll)
+        found_dll = true
+      endif
+    endforeach
+    if not found_dll
+      warning(dll + ' was not found next to its dependency; copy it next to the binaries, ' +
+        'or set PKG_CONFIG / -Dcmake_prefix_path to the prefix that holds it')
+    endif
+  endforeach
+  # The engine loads the game module from its executable's directory.  POSIX
+  # hosts symlink it (readme); on Windows, where a symlink needs privileges, the
+  # build copies it, again whenever the game build replaces it.
+  game_module_dll = game_repo_root / 'build' / game_module_binary_name + '.dll'
+  if game_repo_root != '' and fs_mod.is_file(game_module_dll)
+    fs_mod.copyfile(game_module_dll, game_module_binary_name + '.dll')
+  endif
+endif
+
 if build_tests
   subdir('tests')
+  # the dedicated server of this build directory (the scripts default to <source>/build)
+  bot_test_ded = meson.project_build_root() / engine_ded_binary_name
+  if host_system == 'windows'
+    bot_test_ded += '.exe'
+  endif
   test(
     'bot-gameplay',
     py,
     args: [meson.project_source_root() / 'tests' / 'test_bot_gameplay.py'],
+    env: {'OPENETQW_DED_BINARY': bot_test_ded},
     workdir: meson.project_source_root(),
     suite: 'integration',
     timeout: 120,
@@ -390,6 +454,7 @@ if build_tests
     'valley-match',
     py,
     args: [meson.project_source_root() / 'tests' / 'test_valley_match.py', '--log', meson.project_build_root() / 'meson-logs' / 'valley-match-server.log'],
+    env: {'OPENETQW_DED_BINARY': bot_test_ded},
     workdir: meson.project_source_root(),
     suite: 'integration',
     timeout: 180,

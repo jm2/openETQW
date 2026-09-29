@@ -8,11 +8,11 @@ Validates:
    - worldShadowPassPipeline (two-sided depth-pass)
    - worldShadowFailPipeline (two-sided Carmack's Reverse depth-fail)
    - worldInteractionPipeline (additive blending masked by stencil == 0)
-3. Full stock map Valley (maps/valley.world) loading with r_renderAPI vulkan and r_shadows 1.
+3. Full stock map Valley (maps/valley.world) loading with r_renderAPI vulkan, r_shadows 1 and the stencil path (r_rayTracing 0; Win64 defaults to ray-query lighting).
 4. Active streaming and submission of dynamic stencil shadow volumes (shadow draws > 0).
 5. Dynamic light interaction passes masked by the stencil buffer (light interactions > 0).
 6. Continuous MoltenVK swapchain presentation (frames presented >= 50).
-7. Graceful shutdown via SIGTERM with exit code 0.
+7. Graceful shutdown (SIGTERM on POSIX, stdin 'quit' on Windows) with exit code 0.
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ from __future__ import annotations
 import os
 import queue
 import re
-import signal
 import subprocess
 import sys
 import threading
@@ -39,22 +38,9 @@ def is_active_marker(line: str) -> bool:
     return ("spawned at" in line and "spectating 0" in line) or any(
         m in line for m in ("parachute::Idle", "weaponRestored", "RespawnWaves_"))
 
-def _find_client_binary() -> Path:
-    candidates = [
-        REPO_ROOT / "build" / "openETQW-client_arm64",
-        REPO_ROOT / "build" / "openETQW-client_x64",
-        REPO_ROOT / "build" / "openETQW-client_x64.exe",
-        REPO_ROOT / "build" / "openETQW-client_arm64.exe",
-        REPO_ROOT / "build" / "openETQW-client",
-        REPO_ROOT / "build" / "openETQW-client.exe",
-    ]
-    for c in candidates:
-        if c.is_file():
-            return c
-    return candidates[0]
-
-
-CLIENT_BIN = _find_client_binary()
+CLIENT_BIN = h.build_binary("client")
+# archived cvars this test sets must not reach other runs (etqw_harness.private_savepath)
+SAVEPATH = h.private_savepath("etqw-client-test-")
 
 
 def stream_reader(pipe, q: queue.Queue[str]) -> None:
@@ -79,10 +65,12 @@ def test_vulkan_shadows_lifecycle() -> None:
     args = [
         str(CLIENT_BIN),
         "+set", "fs_basepath", str(DATA_PATH),
+        "+set", "fs_savepath", str(SAVEPATH),
         "+set", "fs_game", "base",
         "+set", "si_rules", "sdGameRulesObjective",
         "+set", "r_renderAPI", "vulkan",
         "+set", "r_shadows", "1",
+        "+set", "r_rayTracing", "0",
         "+devmap", "valley",
         "+clientTeam", "gdf",
         "+clientClass", "soldier",
@@ -151,14 +139,14 @@ def test_vulkan_shadows_lifecycle() -> None:
         if game_running_time is not None and not sigterm_sent:
             elapsed_in_game = time.time() - game_running_time
             if elapsed_in_game >= 6.0:
-                print(f"  [TEST] Rendered in Valley with Vulkan shadows for {elapsed_in_game:.1f}s. Sending SIGTERM...")
-                proc.send_signal(signal.SIGTERM)
+                request = h.graceful_terminate(proc)
+                print(f"  [TEST] Rendered in Valley with Vulkan shadows for {elapsed_in_game:.1f}s. Sent {request}...")
                 sigterm_sent = True
                 try:
                     proc.wait(timeout=15.0)
                 except subprocess.TimeoutExpired:
                     proc.kill()
-                    raise TimeoutError("Client failed to shutdown gracefully within 15s after SIGTERM")
+                    raise TimeoutError("Client failed to shutdown gracefully within 15s after the shutdown request")
                 break
 
     # Drain remaining output
@@ -176,7 +164,7 @@ def test_vulkan_shadows_lifecycle() -> None:
             proc.kill()
             proc.wait(timeout=10.0)
             raise TimeoutError(f"the player never became active in Valley within 90 s (map loaded: {map_loaded})")
-        raise RuntimeError(f"Client exited with non-zero exit code {exit_code} after SIGTERM")
+        raise RuntimeError(f"Client exited with non-zero exit code {exit_code} after the shutdown request")
 
     full_output = "\n".join(output_lines)
 
@@ -216,6 +204,12 @@ def test_vulkan_shadows_lifecycle() -> None:
     assert shadow_draws > 0, f"Expected active shadow volume draws (worldShadowDrawCalls > 0), got {shadow_draws}"
     assert light_interactions > 0, f"Expected dynamic light interactions (worldInteractionDrawCalls > 0), got {light_interactions}"
     assert world_draws > 0, f"Expected active world draw calls, got {world_draws}"
+    allocation_peak = h.vk_allocation_peak(full_output)
+    print(f"  Device memory allocations (peak): {allocation_peak}")
+    assert allocation_peak is not None, "Failed to parse the Vulkan memory allocations line"
+    assert allocation_peak < h.PORTABLE_VK_ALLOCATION_LIMIT, (
+        f"Peak Vulkan memory allocations {allocation_peak} reach the {h.PORTABLE_VK_ALLOCATION_LIMIT} "
+        "maxMemoryAllocationCount that many Windows drivers report")
 
     print(f"  [VERIFIED] Shadow volume draws issued: {shadow_draws} > 0")
     print(f"  [VERIFIED] Dynamic light interactions executed: {light_interactions} > 0")

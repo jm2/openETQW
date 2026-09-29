@@ -9,6 +9,8 @@
 
 #include "sys_local.h"
 #include "sys_render.h"
+#define SDL_MAIN_HANDLED
+#include <SDL3/SDL_main.h>
 #include "win_local.h"
 #include "win_soundthread.h"
 #ifdef ETQW_WITH_RADIANT
@@ -16,6 +18,8 @@
 #endif
 
 #include <winsock2.h>
+#include <mswsock.h>
+#include <timeapi.h>
 #include <direct.h>
 #include <io.h>
 #include <locale.h>
@@ -35,10 +39,6 @@ idSysLocal			sysLocal;
 idSys *				sys = &sysLocal;
 
 Win32Vars_t win32 = {};
-
-void PQ_Init() {}
-void PQ_ShutDown() {}
-sdSoundThread* sys_soundThread = NULL;
 
 #ifdef ID_DEDICATED
 void Sys_ProcessSDLEvents( void ) {}
@@ -83,7 +83,6 @@ const int SYSTEM_MAX_OS_PATH = 256;
 const int SYSTEM_EDITOR_RADIANT = BIT( 1 );
 #endif
 
-volatile LONG quitRequested;
 LARGE_INTEGER timerFrequency;
 LARGE_INTEGER timerBase;
 bool networkingInitialized;
@@ -155,7 +154,7 @@ void SockaddrFromNetadr( const netadr_t& address, sockaddr_in& socketAddress ) {
 }
 
 void NetadrFromSockaddr( const sockaddr_in& socketAddress, netadr_t& address ) {
-	address.type = ( ntohl( socketAddress.sin_addr.s_addr ) == INADDR_LOOPBACK ) ? NA_LOOPBACK : NA_IP;
+	address.type = NA_IP;
 	memcpy( address.ip, &socketAddress.sin_addr, sizeof( address.ip ) );
 	address.port = ntohs( socketAddress.sin_port );
 }
@@ -196,9 +195,21 @@ void idSysLocal::Init() {
 	QueryPerformanceFrequency( &timerFrequency );
 	QueryPerformanceCounter( &timerBase );
 	Sys_EnsureThreadingInitialized();
+	timeBeginPeriod( 1 );
 #ifndef ID_DEDICATED
 	SDL_SetMainReady();
-	SDL_SetHint( SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2" );
+	// SDL2's SDL_HINT_WINDOWS_DPI_AWARENESS ("permonitorv2") is gone in SDL3.
+	// SetProcessDpiAwarenessContext exists from Windows 10 1703 on, so it is
+	// resolved at run time; without it the process DPI mode stays as created.
+	{
+		typedef BOOL (WINAPI *SetProcessDpiAwarenessContext_t)( DPI_AWARENESS_CONTEXT );
+		SetProcessDpiAwarenessContext_t setDpiContext =
+			reinterpret_cast< SetProcessDpiAwarenessContext_t >( GetProcAddress(
+				GetModuleHandleA( "user32.dll" ), "SetProcessDpiAwarenessContext" ) );
+		if ( setDpiContext != NULL ) {
+			setDpiContext( DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 );
+		}
+	}
 	SDL_SetHint( SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1" );
 	if ( !SDL_Init( SDL_INIT_VIDEO | SDL_INIT_EVENTS ) ) {
 		Sys_Error( "SDL3 initialization failed: %s", SDL_GetError() );
@@ -226,11 +237,31 @@ void idSysLocal::Shutdown() {
 	PQ_ShutDown();
 	SDL_Quit();
 #endif
+	timeEndPeriod( 1 );
 	Sys_ShutdownThreading();
+}
+
+void idSysLocal::DebugPrintf( const char *fmt, ... ) {
+	va_list argptr;
+	va_start( argptr, fmt );
+	Sys_DebugVPrintf( fmt, argptr );
+	va_end( argptr );
+}
+
+void idSysLocal::DebugVPrintf( const char *fmt, va_list arg ) {
+	Sys_DebugVPrintf( fmt, arg );
 }
 
 void idSysLocal::GetCPUInfo( cpuInfo_t& info ) {
 	Sys_CPUInfo( info );
+}
+
+double idSysLocal::GetClockTicks( void ) {
+	return Sys_GetClockTicks();
+}
+
+double idSysLocal::ClockTicksPerSecond( void ) {
+	return Sys_ClockTicksPerSecond();
 }
 
 void idSysLocal::Sleep( int msec ) {
@@ -281,6 +312,76 @@ void idSysLocal::GetProcessMemoryStatus( sysProcessMemoryStats_t &stats ) {
 	Sys_GetProcessMemoryStatus( stats );
 }
 
+cpuid_t idSysLocal::GetProcessorId( void ) {
+	return Sys_GetProcessorId();
+}
+
+const char *idSysLocal::GetProcessorString( void ) {
+	return Sys_GetProcessorString();
+}
+
+const char *idSysLocal::FPU_GetState( void ) {
+	return Sys_FPU_GetState();
+}
+
+bool idSysLocal::FPU_StackIsEmpty( void ) {
+	return Sys_FPU_StackIsEmpty();
+}
+
+void idSysLocal::FPU_SetFTZ( bool enable ) {
+	Sys_FPU_SetFTZ( enable );
+}
+
+void idSysLocal::FPU_SetDAZ( bool enable ) {
+	Sys_FPU_SetDAZ( enable );
+}
+
+void idSysLocal::FPU_EnableExceptions( int exceptions ) {
+	Sys_FPU_EnableExceptions( exceptions );
+}
+
+void idSysLocal::GetCurCallStack( address_t *callStack, const int callStackSize ) {
+	if ( callStack != NULL && callStackSize > 0 ) {
+		memset( callStack, 0, callStackSize * sizeof( address_t ) );
+	}
+}
+
+const char *idSysLocal::GetCurCallStackStr( int depth ) {
+	return "";
+}
+
+const char *idSysLocal::GetCallStackStr( const address_t *callStack, const int callStackSize ) {
+	return "";
+}
+
+void idSysLocal::ShutdownSymbols( void ) {
+}
+
+void *idSysLocal::DLL_Load( const char *dllName, bool checkFullPathMatch ) {
+	return Sys_DLL_Load( dllName, checkFullPathMatch );
+}
+
+void *idSysLocal::DLL_GetProcAddress( void *dllHandle, const char *procName ) {
+	return Sys_DLL_GetProcAddress( dllHandle, procName );
+}
+
+void idSysLocal::DLL_Unload( void *dllHandle ) {
+	Sys_DLL_Unload( dllHandle );
+}
+
+void idSysLocal::DLL_GetFileName( const char *baseName, char *dllName, int maxLength ) {
+#if defined( _M_ARM64 )
+	#define SYS_ARCH_SUFFIX "_arm64"
+#elif defined( _M_X64 )
+	#define SYS_ARCH_SUFFIX "_x64"
+#elif defined( _M_IX86 )
+	#define SYS_ARCH_SUFFIX "_x86"
+#else
+	#define SYS_ARCH_SUFFIX ""
+#endif
+	idStr::snPrintf( dllName, maxLength, "%s%s.dll", baseName, SYS_ARCH_SUFFIX );
+}
+
 const char *idSysLocal::GetFunctionName( const address_t function ) {
 	return Sys_GetFunctionName( function );
 }
@@ -320,6 +421,20 @@ const sdSysEvent* idSysLocal::GenerateKeyEvent( keyNum_t key, bool down ) {
 	sdScopedLock< true > queueLock( eventLock );
 	sdSysEvent* event = eventAllocator.Alloc();
 	event->Init( SE_KEY, SE_KEY_VALUE( key, key ), SE_KEY_VALUE2( down, false ), 0, NULL );
+	return event;
+}
+
+const sdSysEvent *idSysLocal::GenerateMouseButtonEvent( int button, bool down ) {
+	sdScopedLock< true > queueLock( eventLock );
+	sdSysEvent *event = eventAllocator.Alloc();
+	event->Init( SE_MOUSE_BUTTON, button, down, 0, NULL );
+	return event;
+}
+
+const sdSysEvent *idSysLocal::GenerateMouseMoveEvent( int deltax, int deltay ) {
+	sdScopedLock< true > queueLock( eventLock );
+	sdSysEvent *event = eventAllocator.Alloc();
+	event->Init( SE_MOUSE, deltax, deltay, 0, NULL );
 	return event;
 }
 
@@ -364,11 +479,18 @@ void idSysLocal::QueEvent( sysEventType_t type, int value, int value2, int ptrLe
 
 void idSysLocal::ClearEvents() {
 	sdScopedLock< true > queueLock( eventLock );
-	while ( !eventQue.IsListEmpty() ) {
-		sdSysEvent* event = eventQue.Next();
-		event->GetNode().Remove();
-		event->FreeData();
-		eventAllocator.Free( event );
+	// SE_CONSOLE events are command lines (stdin for the dedicated server) and
+	// are never stale: dropping them loses the command written right after a
+	// map-changing one ("nextMap\necho ..." lost the echo).  Same rule as the
+	// POSIX Sys_FreeQueuedEvents( ..., keepConsoleEvents = true ).
+	for ( sdSysEvent* event = eventQue.Next(); event != NULL; ) {
+		sdSysEvent* next = event->GetNode().Next();
+		if ( !event->IsConsoleEvent() ) {
+			event->GetNode().Remove();
+			event->FreeData();
+			eventAllocator.Free( event );
+		}
+		event = next;
 	}
 }
 
@@ -404,7 +526,174 @@ int idSysLocal::MessageBox( const char* title, const char* buffer, messageBoxTyp
 	return Sys_MessageBox( title, buffer, type );
 }
 
+/*
+==============================================================
+Stdin console input
+
+The dedicated server and the test harness drive commands through
+stdin.  POSIX assembles them in Posix_ConsoleInput; this is the same
+line assembly so commands like 'quit' and 'map valley' reach the
+console parser as SE_CONSOLE events.
+==============================================================
+*/
+static char consoleLine[ 1024 ];
+static int consolePos = 0;
+static bool consoleEOF = false;
+
+static void Win_QueueConsoleLine() {
+	const int len = consolePos + 1;
+	char* buf = static_cast< char* >( Mem_Alloc( len ) );
+	memcpy( buf, consoleLine, len );
+	sysLocal.QueEvent( SE_CONSOLE, 0, 0, len, buf );
+}
+
+static bool Win_ConsoleReady( HANDLE stdinHandle ) {
+	const DWORD type = GetFileType( stdinHandle );
+	if ( type == FILE_TYPE_PIPE ) {
+		DWORD available = 0;
+		if ( !PeekNamedPipe( stdinHandle, NULL, 0, NULL, &available, NULL ) ) {
+			// Broken pipe: ReadFile reports the EOF below.
+			return true;
+		}
+		return available > 0;
+	}
+	return true;
+}
+
+/*
+An interactive console cannot be polled like a pipe: its handle is signaled by
+any input record (a focus change, a mouse move, the key-up of the Enter that
+started the process), and a ReadFile in line mode then blocks until the user
+presses Enter, which would stop the server's frames while an admin types.  A
+reader thread does the blocking reads instead, keeping the console's own echo
+and line editing, and hands the text to the main thread.
+*/
+static CRITICAL_SECTION consoleReaderLock;
+static char consoleReaderText[ 4096 ];
+static int consoleReaderLength = 0;
+static bool consoleReaderEOF = false;
+static bool consoleReaderStarted = false;
+
+static DWORD WINAPI Win_ConsoleReaderThread( LPVOID parm ) {
+	const HANDLE stdinHandle = static_cast< HANDLE >( parm );
+	for ( ;; ) {
+		char chunk[ 256 ];
+		DWORD read = 0;
+		SetLastError( ERROR_SUCCESS );
+		const BOOL ok = ReadFile( stdinHandle, chunk, sizeof( chunk ), &read, NULL );
+		if ( ( !ok || read == 0 ) && GetLastError() == ERROR_OPERATION_ABORTED ) {
+			// Ctrl+C interrupted the read; the control handler deals with it.
+			continue;
+		}
+		EnterCriticalSection( &consoleReaderLock );
+		if ( !ok || read == 0 ) {
+			// Ctrl+Z at the start of a line, or the console went away.
+			consoleReaderEOF = true;
+			LeaveCriticalSection( &consoleReaderLock );
+			return 0;
+		}
+		// If the main thread has not drained for a while (a long map load), wait for
+		// room instead of dropping what was typed or pasted.
+		while ( consoleReaderLength + static_cast< int >( read ) > static_cast< int >( sizeof( consoleReaderText ) ) ) {
+			LeaveCriticalSection( &consoleReaderLock );
+			Sleep( 10 );
+			EnterCriticalSection( &consoleReaderLock );
+		}
+		memcpy( consoleReaderText + consoleReaderLength, chunk, read );
+		consoleReaderLength += static_cast< int >( read );
+		LeaveCriticalSection( &consoleReaderLock );
+	}
+}
+
+// Returns the number of bytes copied into chunk; sets eof once the reader has stopped.
+static int Win_TakeConsoleReaderText( HANDLE stdinHandle, char* chunk, int chunkSize, bool& eof ) {
+	if ( !consoleReaderStarted ) {
+		consoleReaderStarted = true;
+		InitializeCriticalSection( &consoleReaderLock );
+		const HANDLE thread = CreateThread( NULL, 0, Win_ConsoleReaderThread, stdinHandle, 0, NULL );
+		if ( thread == NULL ) {
+			eof = true;
+			return 0;
+		}
+		CloseHandle( thread );
+	}
+	EnterCriticalSection( &consoleReaderLock );
+	const int count = Min( chunkSize, consoleReaderLength );
+	memcpy( chunk, consoleReaderText, count );
+	memmove( consoleReaderText, consoleReaderText + count, consoleReaderLength - count );
+	consoleReaderLength -= count;
+	eof = consoleReaderEOF && consoleReaderLength == 0;
+	LeaveCriticalSection( &consoleReaderLock );
+	return count;
+}
+
+void Win_ConsoleInput( void ) {
+	if ( consoleEOF ) {
+		return;
+	}
+	HANDLE stdinHandle = GetStdHandle( STD_INPUT_HANDLE );
+	if ( stdinHandle == INVALID_HANDLE_VALUE || stdinHandle == NULL ) {
+		consoleEOF = true;
+		return;
+	}
+	char chunk[ 256 ];
+	DWORD read = 0;
+	bool eof = false;
+	if ( GetFileType( stdinHandle ) == FILE_TYPE_CHAR ) {
+		read = static_cast< DWORD >( Win_TakeConsoleReaderText( stdinHandle, chunk, sizeof( chunk ), eof ) );
+	} else if ( Win_ConsoleReady( stdinHandle ) ) {
+		if ( !ReadFile( stdinHandle, chunk, sizeof( chunk ), &read, NULL ) || read == 0 ) {
+			read = 0;
+			eof = true;
+		}
+	}
+	for ( DWORD i = 0; i < read; i++ ) {
+		const char ch = chunk[ i ];
+		if ( ch == '\r' || ch == '\n' ) {
+			if ( consolePos > 0 ) {
+				consoleLine[ consolePos ] = '\0';
+				Win_QueueConsoleLine();
+				consolePos = 0;
+			}
+			continue;
+		}
+		if ( ch == '\b' || ch == 127 ) {
+			if ( consolePos > 0 ) {
+				consolePos--;
+			}
+			continue;
+		}
+		if ( consolePos < static_cast< int >( sizeof( consoleLine ) - 1 ) ) {
+			consoleLine[ consolePos++ ] = ch;
+		}
+	}
+	if ( eof ) {
+		// EOF: flush any partial line, like Posix_ConsoleInput.
+		if ( consolePos > 0 ) {
+			consoleLine[ consolePos ] = '\0';
+			Win_QueueConsoleLine();
+			consolePos = 0;
+		}
+		consoleEOF = true;
+	}
+}
+
+static sdLock inputPollLock;
+
+sdLock& IN_GetPollLock() {
+	return inputPollLock;
+}
+
+void Sys_InitInput( void ) {
+	consolePos = 0;
+	consoleEOF = false;
+}
+
+void Sys_ShutdownInput( void ) {
+}
+
 void idSysLocal::ProcessOSEvents() {
+	Win_ConsoleInput();
 #ifndef ID_DEDICATED
 	Sys_ProcessSDLEvents();
 #endif
@@ -445,19 +734,71 @@ void idSysLocal::FlushServerInfo() {
 
 void idSysLocal::InitInput() {
 	Keyboard().Init();
-	ime.Init();
+	IME().Init();
 	controllerManager.Init();
 }
 
 void idSysLocal::ShutdownInput() {
 	controllerManager.Shutdown();
-	ime.Shutdown();
+	IME().Shutdown();
 	Keyboard().Shutdown();
+}
+
+#ifdef ID_DEDICATED
+// The SDL3 layer (sdl_events.cpp) provides the real Keyboard/Mouse/IME for the
+// client.  The dedicated build has no SDL input stack, so it gets headless
+// implementations, mirroring sys_local.cpp.
+namespace {
+
+class idKeyboardHeadless : public idKeyboard {
+public:
+	virtual ~idKeyboardHeadless() {}
+	virtual bool Init() { return true; }
+	virtual void Shutdown() {}
+	virtual void Activate() {}
+	virtual void Deactivate() {}
+	virtual int PollInputEvents( bool ) { return 0; }
+	virtual int ReturnInputEvent( const int, keyNum_t&, bool& ) { return 0; }
+	virtual void EndInputEvents() {}
+	virtual keyNum_t ConvertScanToKey( unsigned int ) const { return K_INVALID; }
+	virtual keyNum_t ConvertCharToKey( char ) const { return K_INVALID; }
+	virtual char ConvertScanToChar( unsigned int ) const { return 0; }
+	virtual unsigned int ConvertCharToScan( char ) const { return 0; }
+	virtual char ConvertKeyToChar( const keyNum_t ) const { return 0; }
+	virtual bool IsConsoleKey( const sdSysEvent& ) const { return false; }
+};
+
+class idMouseHeadless : public idMouse {
+public:
+	virtual ~idMouseHeadless() {}
+	virtual bool Init() { return true; }
+	virtual void Shutdown() {}
+	virtual bool IsActive() const { return false; }
+	virtual void Activate() {}
+	virtual void Deactivate() {}
+	virtual void GrabCursor( bool ) {}
+	virtual int PollInputEvents( bool ) { return 0; }
+	virtual int ReturnInputEvent( const int, int&, int& ) { return 0; }
+	virtual void EndInputEvents() {}
+};
+
+idKeyboardHeadless headlessKeyboard;
+idMouseHeadless headlessMouse;
+
+} // namespace
+
+idKeyboard& idSysLocal::Keyboard() {
+	return headlessKeyboard;
+}
+
+idMouse& idSysLocal::Mouse() {
+	return headlessMouse;
 }
 
 sdIME& idSysLocal::IME() {
 	return ime;
 }
+#endif
 
 void idSysLocal::SetSystemLocale() {
 	Sys_SetSystemLocale();
@@ -514,13 +855,31 @@ void Sys_Error( const char *error, ... ) {
 	OutputDebugStringA( text );
 	fprintf( stderr, "%s\n", text );
 	fflush( stderr );
-	MessageBoxA( NULL, text, GAME_NAME, MB_OK | MB_ICONERROR );
+#ifndef ID_DEDICATED
+	// A launcher or test harness that captures or discards stderr (a pipe, a file,
+	// NUL) gets the message there; a modal dialog would hold the process until the
+	// harness times out.  NUL is a character device like a console, which is how
+	// they are told apart.
+	const HANDLE errorHandle = GetStdHandle( STD_ERROR_HANDLE );
+	const DWORD errorType = ( errorHandle != NULL && errorHandle != INVALID_HANDLE_VALUE ) ?
+		GetFileType( errorHandle ) : FILE_TYPE_UNKNOWN;
+	DWORD consoleMode = 0;
+	const bool redirected = errorType == FILE_TYPE_PIPE || errorType == FILE_TYPE_DISK ||
+		( errorType == FILE_TYPE_CHAR && !GetConsoleMode( errorHandle, &consoleMode ) );
+	if ( !redirected ) {
+		MessageBoxA( NULL, text, GAME_NAME, MB_OK | MB_ICONERROR );
+	}
+#endif
+	fflush( NULL );
 	ExitProcess( 1 );
 }
 
+// Does not return, like posix_main.cpp's _exit: idCommonLocal::Quit calls this
+// after Shutdown, and the frame that ran the quit command must not continue on
+// the freed state.
 void Sys_Quit() {
-	InterlockedExchange( &quitRequested, 1 );
-	PostQuitMessage( 0 );
+	fflush( NULL );
+	ExitProcess( 0 );
 }
 
 bool Sys_AlreadyRunning() {
@@ -741,6 +1100,12 @@ void Sys_ShowWindow( bool show ) {
 	}
 }
 
+// The splash bitmap (IDB_ETQW_SPLASH) is purged retail content and cannot
+// ship, so there is no splash to show on Windows either; the POSIX layer
+// stubs this the same way.  win32/splashscreen.cpp keeps the window code.
+void Sys_ShowSplashScreen( bool show ) {
+}
+
 bool Sys_IsWindowVisible() {
 	if ( sys3D == NULL ) {
 		return false;
@@ -781,7 +1146,12 @@ long Sys_FileTimeStamp( FILE *file ) {
 	return _fstat( _fileno( file ), &status ) == 0 ? static_cast< long >( status.st_mtime ) : 0;
 }
 
-const char *Sys_DefaultCDPath() { return ""; }
+const char *Sys_DefaultCDPath() {
+	static char path[ SYSTEM_MAX_OS_PATH ];
+	_getcwd( path, sizeof( path ) );
+	path[ sizeof( path ) - 1 ] = '\0';
+	return path;
+}
 
 const char *Sys_DefaultBasePath() {
 	static char path[ SYSTEM_MAX_OS_PATH ];
@@ -877,6 +1247,56 @@ void Sys_SetClipboardData( const wchar_t *string ) {
 	CloseClipboard();
 }
 
+idCVar net_forceDrop( "net_forceDrop", "0", CVAR_SYSTEM | CVAR_INTEGER, "percentage packet loss" );	// as win_net.cpp: outgoing packets
+idCVar net_forceLatency( "net_forceLatency", "0", CVAR_SYSTEM | CVAR_INTEGER, "milliseconds latency added to received packets" );
+idCVar net_forceJitter( "net_forceJitter", "0", CVAR_SYSTEM | CVAR_INTEGER, "up to this many more milliseconds of random latency per received packet (order kept)" );
+
+// Received packets held back by net_forceLatency / net_forceJitter (network testing).
+// Keyed by socket, so idPort (shared with the game module) is unchanged.
+struct delayedPacket_t {
+	int				socket;
+	int				releaseTime;
+	netadr_t		from;
+	idList< byte >	data;
+};
+static idList< delayedPacket_t* > delayedPackets;
+
+// last release time per socket: jitter varies the delay but keeps the arrival
+// order, like queueing on a real path (independent per-packet delays reordered
+// the fragments of every large message, which the channel then dropped)
+struct socketRelease_t {
+	int		socket;
+	int		releaseTime;
+};
+static idList< socketRelease_t > socketReleases;
+
+static int Net_ReleaseTime( int netSocket, int wanted ) {
+	for ( int i = 0; i < socketReleases.Num(); i++ ) {
+		if ( socketReleases[ i ].socket == netSocket ) {
+			socketReleases[ i ].releaseTime = Max( wanted, socketReleases[ i ].releaseTime );
+			return socketReleases[ i ].releaseTime;
+		}
+	}
+	socketRelease_t release = { netSocket, wanted };
+	socketReleases.Append( release );
+	return wanted;
+}
+
+// a closed socket's descriptor is reused by the next one opened
+static void Net_PurgeSocket( int netSocket ) {
+	for ( int i = delayedPackets.Num() - 1; i >= 0; i-- ) {
+		if ( delayedPackets[ i ]->socket == netSocket ) {
+			delete delayedPackets[ i ];
+			delayedPackets.RemoveIndex( i );
+		}
+	}
+	for ( int i = socketReleases.Num() - 1; i >= 0; i-- ) {
+		if ( socketReleases[ i ].socket == netSocket ) {
+			socketReleases.RemoveIndex( i );
+		}
+	}
+}
+
 idPort::idPort() :
 	netSocket( -1 ),
 	silent( false ),
@@ -898,6 +1318,14 @@ bool idPort::InitForPort( int portNumber ) {
 	if ( socketHandle == INVALID_SOCKET ) {
 		return false;
 	}
+	// By default a Windows UDP socket turns an ICMP port-unreachable (a peer that
+	// went away) into a WSAECONNRESET from the next recvfrom, which ended the
+	// frame's receive loop early while that client timed out.  POSIX reports
+	// nothing on an unconnected UDP socket; do the same.
+	BOOL reportConnectionReset = FALSE;
+	DWORD returned = 0;
+	WSAIoctl( socketHandle, SIO_UDP_CONNRESET, &reportConnectionReset, sizeof( reportConnectionReset ),
+		NULL, 0, &returned, NULL, NULL );
 	u_long nonBlocking = 1;
 	ioctlsocket( socketHandle, FIONBIO, &nonBlocking );
 	BOOL broadcast = TRUE;
@@ -922,6 +1350,7 @@ bool idPort::InitForPort( int portNumber ) {
 
 void idPort::Close() {
 	if ( netSocket != -1 ) {
+		Net_PurgeSocket( netSocket );
 		closesocket( static_cast< SOCKET >( netSocket ) );
 		netSocket = -1;
 	}
@@ -934,16 +1363,59 @@ bool idPort::GetPacket( netadr_t &from, void *data, int &size, int maxSize ) {
 	if ( netSocket == -1 || data == NULL || maxSize <= 0 ) {
 		return false;
 	}
+
+	const int latency = Max( 0, net_forceLatency.GetInteger() );
+	const int jitter = Max( 0, net_forceJitter.GetInteger() );
+	if ( latency == 0 && jitter == 0 && delayedPackets.Num() == 0 ) {
+		sockaddr_in address;
+		int addressLength = sizeof( address );
+		const int received = recvfrom( static_cast< SOCKET >( netSocket ), static_cast< char* >( data ), maxSize, 0, reinterpret_cast< sockaddr* >( &address ), &addressLength );
+		if ( received == SOCKET_ERROR ) {
+			return false;
+		}
+		NetadrFromSockaddr( address, from );
+		size = received;
+		packetsRead++;
+		bytesRead += received;
+		return true;
+	}
+
+	// queue everything that has arrived, each with its own release time
+	const int now = Sys_Milliseconds();
+	netadr_t packetFrom;
+	int packetSize = 0;
 	sockaddr_in address;
 	int addressLength = sizeof( address );
-	const int received = recvfrom( static_cast< SOCKET >( netSocket ), static_cast< char* >( data ), maxSize, 0, reinterpret_cast< sockaddr* >( &address ), &addressLength );
-	if ( received == SOCKET_ERROR ) {
+	while ( ( packetSize = recvfrom( static_cast< SOCKET >( netSocket ), static_cast< char* >( data ), maxSize, 0, reinterpret_cast< sockaddr* >( &address ), &addressLength ) ) > 0 ) {
+		delayedPacket_t* packet = new delayedPacket_t;
+		packet->socket = netSocket;
+		packet->releaseTime = Net_ReleaseTime( netSocket, now + latency + ( jitter > 0 ? rand() % ( jitter + 1 ) : 0 ) );
+		NetadrFromSockaddr( address, packet->from );
+		packet->data.SetNum( packetSize );
+		memcpy( &packet->data[ 0 ], data, packetSize );
+		delayedPackets.Append( packet );
+		addressLength = sizeof( address );
+	}
+
+	// hand out the due packet of this socket that is released first
+	int best = -1;
+	for ( int i = 0; i < delayedPackets.Num(); i++ ) {
+		const delayedPacket_t* packet = delayedPackets[ i ];
+		if ( packet->socket == netSocket && packet->releaseTime <= now && ( best < 0 || packet->releaseTime < delayedPackets[ best ]->releaseTime ) ) {
+			best = i;
+		}
+	}
+	if ( best < 0 ) {
 		return false;
 	}
-	NetadrFromSockaddr( address, from );
-	size = received;
+	delayedPacket_t* packet = delayedPackets[ best ];
+	delayedPackets.RemoveIndex( best );
+	from = packet->from;
+	size = Min( packet->data.Num(), maxSize );
+	memcpy( data, &packet->data[ 0 ], size );
+	delete packet;
 	packetsRead++;
-	bytesRead += received;
+	bytesRead += size;
 	return true;
 }
 
@@ -951,15 +1423,28 @@ bool idPort::GetPacketBlocking( netadr_t &from, void *data, int &size, int maxSi
 	if ( netSocket == -1 ) {
 		return false;
 	}
+
+	// a packet held back by net_forceLatency / net_forceJitter can be due already,
+	// and the socket does not wake select when one becomes due
+	if ( GetPacket( from, data, size, maxSize ) ) {
+		return true;
+	}
+	const int now = Sys_Milliseconds();
+	for ( int i = 0; i < delayedPackets.Num(); i++ ) {
+		if ( delayedPackets[ i ]->socket == netSocket ) {
+			timeout = Min( timeout, Max( 0, delayedPackets[ i ]->releaseTime - now ) );
+		}
+	}
 	fd_set readSet;
 	FD_ZERO( &readSet );
 	FD_SET( static_cast< SOCKET >( netSocket ), &readSet );
 	timeval wait;
 	wait.tv_sec = timeout / 1000;
 	wait.tv_usec = ( timeout % 1000 ) * 1000;
-	if ( select( 0, &readSet, NULL, NULL, &wait ) <= 0 ) {
+	if ( select( 0, &readSet, NULL, NULL, &wait ) < 0 ) {
 		return false;
 	}
+	// on a timeout too: the wait may have been cut short for a held-back packet
 	return GetPacket( from, data, size, maxSize );
 }
 
@@ -967,6 +1452,14 @@ void idPort::SendPacket( const netadr_t to, const void *data, int size ) {
 	if ( silent || netSocket == -1 || data == NULL || size <= 0 ) {
 		return;
 	}
+
+	const int dropPercent = idMath::ClampInt( 0, 100, net_forceDrop.GetInteger() );
+	if ( dropPercent > 0 && rand() < dropPercent * ( RAND_MAX / 100 ) ) {
+		packetsWritten++;	// counted as sent, as a lost packet would be
+		bytesWritten += size;
+		return;
+	}
+
 	sockaddr_in address;
 	SockaddrFromNetadr( to, address );
 	const int sent = sendto( static_cast< SOCKET >( netSocket ), static_cast< const char* >( data ), size, 0, reinterpret_cast< sockaddr* >( &address ), sizeof( address ) );
@@ -977,9 +1470,16 @@ void idPort::SendPacket( const netadr_t to, const void *data, int size ) {
 }
 
 bool Sys_StringToNetAdr( const char *text, netadr_t *address, bool doDNSResolve ) {
-	if ( text == NULL || address == NULL ) {
+	if ( text == NULL || address == NULL || text[ 0 ] == '\0' ) {
 		return false;
 	}
+	memset( address, 0, sizeof( *address ) );
+
+	if ( idStr::Icmp( text, "localhost" ) == 0 || idStr::Icmp( text, "127.0.0.1" ) == 0 ) {
+		address->type = NA_LOOPBACK;
+		return true;
+	}
+
 	char host[ 256 ];
 	idStr::Copynz( host, text, sizeof( host ) );
 	char* portText = strrchr( host, ':' );
@@ -988,14 +1488,14 @@ bool Sys_StringToNetAdr( const char *text, netadr_t *address, bool doDNSResolve 
 		*portText++ = '\0';
 		port = atoi( portText );
 	}
-	memset( address, 0, sizeof( *address ) );
 	address->port = static_cast< unsigned short >( port );
+	// "localhost" with a port too, without a DNS lookup (callers may pass
+	// doDNSResolve false)
 	if ( idStr::Icmp( host, "localhost" ) == 0 ) {
 		address->type = NA_LOOPBACK;
-		address->ip[ 0 ] = 127;
-		address->ip[ 3 ] = 1;
 		return true;
 	}
+
 	unsigned long parsed = inet_addr( host );
 	if ( parsed == INADDR_NONE && doDNSResolve ) {
 		hostent* entry = gethostbyname( host );
@@ -1013,13 +1513,16 @@ bool Sys_StringToNetAdr( const char *text, netadr_t *address, bool doDNSResolve 
 }
 
 const char *Sys_NetAdrToString( const netadr_t& address ) {
-	static char text[ 64 ];
+	// rotating buffers, as posix_net.cpp: a caller may format two addresses in one print
+	static char text[ 4 ][ 64 ];
+	static int index = 0;
+	index = ( index + 1 ) & 3;
 	if ( address.type == NA_LOOPBACK ) {
-		idStr::snPrintf( text, sizeof( text ), "localhost:%u", address.port );
+		idStr::snPrintf( text[ index ], sizeof( text[ index ] ), "localhost:%u", address.port );
 	} else {
-		idStr::snPrintf( text, sizeof( text ), "%u.%u.%u.%u:%u", address.ip[ 0 ], address.ip[ 1 ], address.ip[ 2 ], address.ip[ 3 ], address.port );
+		idStr::snPrintf( text[ index ], sizeof( text[ index ] ), "%u.%u.%u.%u:%u", address.ip[ 0 ], address.ip[ 1 ], address.ip[ 2 ], address.ip[ 3 ], address.port );
 	}
-	return text;
+	return text[ index ];
 }
 
 bool Sys_NetAdrToHostName( const netadr_t& address, char** text ) {
@@ -1034,14 +1537,30 @@ bool Sys_IsLANAddress( const netadr_t& address ) {
 	if ( address.type == NA_LOOPBACK ) {
 		return true;
 	}
+	// received addresses are NA_IP, so 127.x is the local host (as posix_net.cpp)
 	return address.type == NA_IP &&
 		( address.ip[ 0 ] == 10 ||
 		  ( address.ip[ 0 ] == 172 && address.ip[ 1 ] >= 16 && address.ip[ 1 ] <= 31 ) ||
-		  ( address.ip[ 0 ] == 192 && address.ip[ 1 ] == 168 ) );
+		  ( address.ip[ 0 ] == 192 && address.ip[ 1 ] == 168 ) ||
+		  address.ip[ 0 ] == 127 );
+}
+
+// "localhost" and "127.0.0.1" parse to NA_LOOPBACK, but packets from the local
+// host arrive as NA_IP 127.x (received addresses are always NA_IP): the same
+// machine either way.  Without this, "connect localhost" never matched the
+// server's replies.  (As posix_net.cpp.)
+static bool Net_IsLocalHost( const netadr_t& address ) {
+	return address.type == NA_LOOPBACK || ( address.type == NA_IP && address.ip[ 0 ] == 127 );
 }
 
 bool Sys_CompareNetAdrBase( const netadr_t& a, const netadr_t& b ) {
-	return a.type == b.type && memcmp( a.ip, b.ip, sizeof( a.ip ) ) == 0;
+	if ( a.type == NA_LOOPBACK || b.type == NA_LOOPBACK ) {
+		return Net_IsLocalHost( a ) && Net_IsLocalHost( b );
+	}
+	if ( a.type != b.type ) {
+		return false;
+	}
+	return memcmp( a.ip, b.ip, sizeof( a.ip ) ) == 0;
 }
 
 int Sys_GetLocalIPCount() { return 1; }
@@ -1402,11 +1921,11 @@ int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE, LPSTR commandLine, int ) {
 			sys->Mouse().GrabCursor( true );
 		}
 	}
-	while ( InterlockedCompareExchange( &quitRequested, 0, 0 ) == 0 ) {
+	// "quit" ends the process: idCommonLocal::Quit shuts down, then Sys_Quit exits.
+	while ( 1 ) {
 		common->Frame();
 		Sys_Sleep( 1 );
 	}
-	common->Shutdown();
 	return 0;
 }
 #endif
@@ -1420,16 +1939,51 @@ int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE, LPSTR commandLine, int ) {
 */
 
 #ifdef ID_DEDICATED
+// Console control events arrive on a thread the system creates for them.  As
+// with the POSIX SIGINT/SIGTERM handler, the handler only records the request;
+// the main loop turns it into a "quit" command, so the shutdown runs on the main
+// thread between frames.
+static volatile LONG pendingCtrlEvent = -1;
+
+static const char *Sys_CtrlEventName( LONG ctrlType ) {
+	switch ( ctrlType ) {
+	case CTRL_C_EVENT:			return "CTRL_C_EVENT";
+	case CTRL_BREAK_EVENT:		return "CTRL_BREAK_EVENT";
+	case CTRL_CLOSE_EVENT:		return "CTRL_CLOSE_EVENT";
+	case CTRL_SHUTDOWN_EVENT:	return "CTRL_SHUTDOWN_EVENT";
+	default:					return "console control event";
+	}
+}
+
 static BOOL WINAPI Sys_ConsoleCtrlHandler( DWORD ctrlType ) {
 	switch ( ctrlType ) {
 	case CTRL_C_EVENT:
 	case CTRL_BREAK_EVENT:
+		InterlockedCompareExchange( &pendingCtrlEvent, static_cast< LONG >( ctrlType ), -1 );
+		return TRUE;
 	case CTRL_CLOSE_EVENT:
 	case CTRL_SHUTDOWN_EVENT:
-		Sys_Quit();
+		// The system ends the process as soon as this handler returns (or after
+		// its timeout), so hold this thread while the main thread shuts down;
+		// Sys_Quit's ExitProcess ends it.
+		InterlockedCompareExchange( &pendingCtrlEvent, static_cast< LONG >( ctrlType ), -1 );
+		Sleep( 10000 );
 		return TRUE;
 	default:
 		return FALSE;
+	}
+}
+
+static void Sys_HandlePendingCtrlEvent( void ) {
+	const LONG ctrlType = InterlockedExchange( &pendingCtrlEvent, -1 );
+	if ( ctrlType == -1 ) {
+		return;
+	}
+	common->Printf( "Received %s, shutting down...\n", Sys_CtrlEventName( ctrlType ) );
+	if ( cmdSystem != NULL ) {
+		cmdSystem->BufferCommandText( CMD_EXEC_NOW, "quit\n" );
+	} else {
+		common->Quit();
 	}
 }
 
@@ -1461,12 +2015,12 @@ int main( int argc, char **argv ) {
 		}
 	}
 
-	while ( InterlockedCompareExchange( &quitRequested, 0, 0 ) == 0 ) {
+	// "quit" ends the process: idCommonLocal::Quit shuts down, then Sys_Quit exits.
+	while ( 1 ) {
+		Sys_HandlePendingCtrlEvent();
 		common->Frame();
 		Sys_Sleep( 1 );
 	}
-
-	common->Shutdown();
 	return 0;
 }
 #endif

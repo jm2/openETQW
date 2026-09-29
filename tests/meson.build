@@ -101,6 +101,19 @@ usercmd_history_test = executable(
 )
 test('usercmd-history', usercmd_history_test, suite: 'unit', timeout: 30)
 
+# 5. sdStringBuilder grown past its base buffer on the stack (the MSVC 19.51 /O2
+#    strncpy miscompile the game repository works around; meaningful in optimized builds)
+strbuilder_test = executable(
+  'openetqw-strbuilder-test',
+  files('StrBuilderTest.cpp'),
+  include_directories: test_include_dirs,
+  cpp_args: ['-D__IDLIB__', '-DSD_SDK_BUILD', '-DSD_PUBLIC_BUILD'],
+  dependencies: test_deps,
+  link_args: test_link_args,
+  install: false,
+)
+test('strbuilder', strbuilder_test, suite: 'unit', timeout: 30)
+
 # Every package carries the licence texts (GPL, SDK EULA, third-party notices)
 test(
   'install-licenses',
@@ -122,13 +135,19 @@ test(
 # 6. Client lifecycle & graphics verification test
 if build_engine
   campaign_client = meson.project_build_root() / engine_client_binary_name
+  client_test_ded = meson.project_build_root() / engine_ded_binary_name
   if host_system == 'windows'
     campaign_client += '.exe'
+    client_test_ded += '.exe'
   endif
+  # the binaries of this build directory, for the tests that find theirs through
+  # etqw_harness.build_binary (the default is <source>/build)
+  client_test_env = {'OPENETQW_CLIENT_BINARY': campaign_client, 'OPENETQW_DED_BINARY': client_test_ded}
   test(
     'client-lifecycle',
     py,
     args: [meson.project_source_root() / 'tests' / 'test_client_lifecycle.py'],
+    env: client_test_env,
     workdir: meson.project_source_root(),
     suite: 'integration',
     timeout: 120,
@@ -150,6 +169,7 @@ if build_engine
     'high-refresh-determinism',
     py,
     args: [meson.project_source_root() / 'tests' / 'test_high_refresh_determinism.py'],
+    env: client_test_env,
     workdir: meson.project_source_root(),
     suite: 'integration',
     timeout: 180,
@@ -174,6 +194,7 @@ if build_engine
     'vulkan-shadows',
     py,
     args: [meson.project_source_root() / 'tests' / 'test_vulkan_shadows.py'],
+    env: client_test_env,
     workdir: meson.project_source_root(),
     suite: ['client', 'integration'],
     timeout: 120,
