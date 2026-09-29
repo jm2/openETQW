@@ -57,6 +57,8 @@ import etqw_harness as h
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = h.env_data_path()
 CLIENT_BIN = h.build_binary("client")
+# archived cvars this test sets (com_maxFPS, ...) must not reach other runs
+SAVEPATH = h.private_savepath("etqw-high-refresh-")
 DED_BIN = h.build_binary("ded")
 
 TEST_PROCS: list[subprocess.Popen] = []
@@ -185,6 +187,7 @@ def run_determinism_schedule(
     args = [
         str(bin_path),
         "+set", "fs_basepath", str(DATA_PATH),
+        "+set", "fs_savepath", str(SAVEPATH),
         "+set", "fs_game", "base",
         "+set", "si_rules", "sdGameRulesObjective",
         "+set", "r_swapInterval", "0",

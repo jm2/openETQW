@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Automated Client Lifecycle and Graphics Verification Test for OpenETQW on Apple Silicon.
+"""Automated Client Lifecycle and Graphics Verification Test for OpenETQW.
 
 Validates:
 1. Quick startup, swapchain initialization, SDL3 audio initialization, and clean quit (+quit) with exit code 0.
@@ -32,22 +32,9 @@ def is_active_marker(line: str) -> bool:
     return ("spawned at" in line and "spectating 0" in line) or any(
         m in line for m in ("parachute::Idle", "weaponRestored", "RespawnWaves_"))
 
-def _find_client_binary() -> Path:
-    candidates = [
-        REPO_ROOT / "build" / "openETQW-client_arm64",
-        REPO_ROOT / "build" / "openETQW-client_x64",
-        REPO_ROOT / "build" / "openETQW-client_x64.exe",
-        REPO_ROOT / "build" / "openETQW-client_arm64.exe",
-        REPO_ROOT / "build" / "openETQW-client",
-        REPO_ROOT / "build" / "openETQW-client.exe",
-    ]
-    for c in candidates:
-        if c.is_file():
-            return c
-    return candidates[0]
-
-
-CLIENT_BIN = _find_client_binary()
+CLIENT_BIN = h.build_binary("client")
+# archived cvars this test sets must not reach other runs (etqw_harness.private_savepath)
+SAVEPATH = h.private_savepath("etqw-client-test-")
 
 
 def stream_reader(pipe, q: queue.Queue[str]) -> None:
@@ -65,12 +52,13 @@ def stream_reader(pipe, q: queue.Queue[str]) -> None:
 def test_quick_quit() -> None:
     print("=================================================================")
     print(" Phase 1: Client Quick-Quit Lifecycle Test")
-    print(" Command: openETQW-client_arm64 +quit")
+    print(f" Command: {CLIENT_BIN.name} +quit")
     print("=================================================================")
 
     args = [
         str(CLIENT_BIN),
         "+set", "fs_basepath", str(DATA_PATH),
+        "+set", "fs_savepath", str(SAVEPATH),
         "+set", "fs_game", "base",
         "+quit",
     ]
@@ -137,6 +125,7 @@ def test_valley_render_lifecycle() -> None:
     args = [
         str(CLIENT_BIN),
         "+set", "fs_basepath", str(DATA_PATH),
+        "+set", "fs_savepath", str(SAVEPATH),
         "+set", "fs_game", "base",
         "+set", "si_rules", "sdGameRulesObjective",
         "+devmap", "valley",
@@ -259,7 +248,7 @@ def test_valley_render_lifecycle() -> None:
 
 def main() -> int:
     print("=================================================================")
-    print(" OpenETQW Native macOS Apple Silicon Client Lifecycle Test")
+    print(" OpenETQW Client Lifecycle Test")
     print(f" Binary: {CLIENT_BIN}")
     print(f" Retail Data: {DATA_PATH}")
     print("=================================================================")

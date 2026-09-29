@@ -436,10 +436,16 @@ endif
 
 if build_tests
   subdir('tests')
+  # the dedicated server of this build directory (the scripts default to <source>/build)
+  bot_test_ded = meson.project_build_root() / engine_ded_binary_name
+  if host_system == 'windows'
+    bot_test_ded += '.exe'
+  endif
   test(
     'bot-gameplay',
     py,
     args: [meson.project_source_root() / 'tests' / 'test_bot_gameplay.py'],
+    env: {'OPENETQW_DED_BINARY': bot_test_ded},
     workdir: meson.project_source_root(),
     suite: 'integration',
     timeout: 120,
@@ -448,6 +454,7 @@ if build_tests
     'valley-match',
     py,
     args: [meson.project_source_root() / 'tests' / 'test_valley_match.py', '--log', meson.project_build_root() / 'meson-logs' / 'valley-match-server.log'],
+    env: {'OPENETQW_DED_BINARY': bot_test_ded},
     workdir: meson.project_source_root(),
     suite: 'integration',
     timeout: 180,

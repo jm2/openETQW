@@ -52,6 +52,8 @@ SPECIAL_RE = re.compile(r"special draws:\s*(\d+) depth,\s*(\d+) MegaTexture,\s*(
 # the game's spawn line for a non-spectator ("Player N (...) spawned at ... spectating 0"),
 # or script debug prints that only the unpatched DVD scripts make
 ACTIVE_MARKERS = ("spectating 0", "parachute::Idle", "weaponRestored", "RespawnWaves_")
+# r_rayTracing 0 and r_vkValidation 1 below are archived: keep them out of other runs
+SAVEPATH = h.private_savepath("etqw-campaign-")
 BAD_MARKERS = ("Vulkan validation error", "VK_ERROR_", "DEVICE_LOST", "FATAL ERROR", "FATAL SIGNAL CAUGHT",
                "idMegaTexture::OpenFile: failed", "idMegaTexture::OpenFile: truncated", "idMegaTexture::OpenFile: unsupported")
 
@@ -70,6 +72,7 @@ def find_client(explicit):
 
 def run_map(client, data, map_name, render_seconds, log_path, team="gdf", at=None):
     args = [str(client), "+set", "fs_basepath", str(data), "+set", "fs_game", "base",
+            "+set", "fs_savepath", str(SAVEPATH),
             "+set", "si_rules", "sdGameRulesObjective", "+set", "r_renderAPI", "vulkan", "+set", "r_shadows", "1",
             "+set", "r_rayTracing", "0", "+set", "r_vkValidation", "1",
             "+devmap", map_name, "+clientTeam", team, "+clientClass", "soldier", "+closeLimbo"]
@@ -134,7 +137,8 @@ def run_map(client, data, map_name, render_seconds, log_path, team="gdf", at=Non
     result["exit_code"] = proc.returncode
     result["sigterm_sent"] = sent
     result["map_loaded"] = map_seen is not None
-    result["validation_layer"] = "not installed" if "VK_LAYER_KHRONOS_validation is not installed" in text else "active or not reported"
+    result["validation_layer"] = ("not installed" if "VK_LAYER_KHRONOS_validation is not installed" in text else
+                                  "active" if "Vulkan validation warning" in text else "active or not reported")
     m = METRICS_RE.search(text)
     if m:
         result.update(frames=int(m.group(1)), world_draws=int(m.group(2)), gui_draws=int(m.group(3)),

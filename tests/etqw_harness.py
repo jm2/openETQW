@@ -172,12 +172,27 @@ def ded_binary_candidates(build_dir: Optional[Path] = None) -> list[Path]:
 
 
 def build_binary(kind: str) -> Path:
-    """The first existing build/openETQW-<kind>_<arch>[.exe], else the host
-    architecture's name (so a missing-binary message names what was expected).
+    """$OPENETQW_CLIENT_BINARY / $OPENETQW_DED_BINARY when set (tests/meson.build
+    passes the binaries of the build directory it runs from, which need not be
+    build/), else the first existing build/openETQW-<kind>_<arch>[.exe], else the
+    host architecture's name (so a missing-binary message names what was expected).
     For standalone tests that build their command lines at import time; pair
     with skip_unless_available()."""
+    requested = os.environ.get("OPENETQW_DED_BINARY" if kind == "ded" else "OPENETQW_CLIENT_BINARY")
+    if requested:
+        return Path(requested).expanduser()
     candidates = binary_candidates(kind)
     return next((c for c in candidates if c.is_file()), candidates[0])
+
+
+def private_savepath(prefix: str) -> Path:
+    """An empty fs_savepath for this test run, removed at exit.  The engine writes
+    the archived cvars a test sets with +set (r_rayTracing, r_vkValidation,
+    com_maxFPS, ...) to <savepath>/base/etqwconfig.cfg; with the shared default
+    (the repository's base/) they carry into later runs and other tests."""
+    path = Path(tempfile.mkdtemp(prefix=prefix))
+    atexit.register(shutil.rmtree, path, True)
+    return path
 
 
 def find_ded_binary(explicit: Optional[str] = None) -> Path:
