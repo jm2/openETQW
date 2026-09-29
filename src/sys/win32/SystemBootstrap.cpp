@@ -855,12 +855,17 @@ void Sys_Error( const char *error, ... ) {
 	fprintf( stderr, "%s\n", text );
 	fflush( stderr );
 #ifndef ID_DEDICATED
-	// A launcher or test harness that captures stderr gets the message there; a
-	// modal dialog would hold the process until the harness times out.
+	// A launcher or test harness that captures or discards stderr (a pipe, a file,
+	// NUL) gets the message there; a modal dialog would hold the process until the
+	// harness times out.  NUL is a character device like a console, which is how
+	// they are told apart.
 	const HANDLE errorHandle = GetStdHandle( STD_ERROR_HANDLE );
 	const DWORD errorType = ( errorHandle != NULL && errorHandle != INVALID_HANDLE_VALUE ) ?
 		GetFileType( errorHandle ) : FILE_TYPE_UNKNOWN;
-	if ( errorType != FILE_TYPE_PIPE && errorType != FILE_TYPE_DISK ) {
+	DWORD consoleMode = 0;
+	const bool redirected = errorType == FILE_TYPE_PIPE || errorType == FILE_TYPE_DISK ||
+		( errorType == FILE_TYPE_CHAR && !GetConsoleMode( errorHandle, &consoleMode ) );
+	if ( !redirected ) {
 		MessageBoxA( NULL, text, GAME_NAME, MB_OK | MB_ICONERROR );
 	}
 #endif
