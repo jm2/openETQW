@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-3.0-only
 """Generate shared openETQW version metadata for builds and packaging.
 
 Adapted from openQ4 tools/build/openq4_version.py (jm2/openQ4 b37b1456,
@@ -181,7 +181,7 @@ def resolve_auto_iteration_date(auto_iteration_date: str) -> str:
 def run_git(source_root: Path, *git_args: str) -> str:
     try:
         completed = subprocess.run(
-            ["git", "-C", str(source_root), *git_args],
+            ["git", "--no-optional-locks", "-C", str(source_root), *git_args],
             check=True,
             capture_output=True,
             text=True,
@@ -384,7 +384,7 @@ def main(argv: list[str]) -> int:
         or run_git(source_root, "rev-parse", "--is-shallow-repository") != "false"
     ):
         raise SystemExit(
-            "stable builds require complete Git history for savegame build numbers; "
+            "stable builds require complete Git history for their commit count; "
             "use git fetch --unshallow or actions/checkout fetch-depth: 0"
         )
     prerelease = compose_prerelease(track, iteration)
