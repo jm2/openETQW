@@ -101,6 +101,19 @@ usercmd_history_test = executable(
 )
 test('usercmd-history', usercmd_history_test, suite: 'unit', timeout: 30)
 
+# 5. sdStringBuilder grown past its base buffer on the stack (the MSVC 19.51 /O2
+#    strncpy miscompile the game repository works around; meaningful in optimized builds)
+strbuilder_test = executable(
+  'openetqw-strbuilder-test',
+  files('StrBuilderTest.cpp'),
+  include_directories: test_include_dirs,
+  cpp_args: ['-D__IDLIB__', '-DSD_SDK_BUILD', '-DSD_PUBLIC_BUILD'],
+  dependencies: test_deps,
+  link_args: test_link_args,
+  install: false,
+)
+test('strbuilder', strbuilder_test, suite: 'unit', timeout: 30)
+
 # Every package carries the licence texts (GPL, SDK EULA, third-party notices)
 test(
   'install-licenses',
