@@ -545,7 +545,10 @@ def package_sources(root: Path, game: Path, install: Path, arch: str) -> dict[st
     info = install / "universal2-info.json"
     if arch == "universal2" and info.is_file():
         recorded = json.loads(info.read_text(encoding="utf-8"))
-        return {PRODUCT: recorded["openETQW"], "openETQW-game": recorded["openETQW-game"]}
+        missing = [key for key in (PRODUCT, "openETQW-game") if not recorded.get(key)]
+        if missing:
+            raise PackageError(f"{info} names no commit for {', '.join(missing)}")
+        return {PRODUCT: recorded[PRODUCT], "openETQW-game": recorded["openETQW-game"]}
     return {PRODUCT: git_head(root), "openETQW-game": git_head(game)}
 
 
@@ -589,9 +592,9 @@ def main(argv: list[str]) -> int:
     licenses = dict(args.license)
     root = Path(__file__).resolve().parents[2]
     game = args.game_repo or Path(os.environ.get("OPENETQW_GAME_REPO", "") or root.parent / "openETQW-game")
-    sources = package_sources(root, game, install, args.arch)
 
     try:
+        sources = package_sources(root, game, install, args.arch)
         check_staged(install, args.platform, args.arch)
         packager = {"linux": package_linux, "windows": package_windows, "macos": package_macos}[args.platform]
         outputs = packager(args, install, work, licenses, sources)
