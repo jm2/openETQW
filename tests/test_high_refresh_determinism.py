@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """High-Refresh Simulation Determinism Replay Test for OpenETQW Milestone 5.
 
-Verifies that decoupling Vulkan frame presentation (com_maxFPS 60, 120, 144, 240 Hz)
-from authoritative 30 Hz simulation (USERCMD_HZ = 30, USERCMD_MSEC = 33) produces
+Verifies that decoupling Vulkan frame presentation (com_maxFPS 30 to 240 Hz and uncapped,
+com_unlockFPS 0, and a cap changed during play) from authoritative 30 Hz simulation (USERCMD_HZ = 30, USERCMD_MSEC = 33) produces
 zero simulation drift or physics divergence on stock map Valley (maps/valley.world).
 
 Validates:
@@ -18,11 +18,14 @@ Validates:
    ticks (FRAME_TIMING draws= <= ticks=). Which schedules produce the same SIM_VIEW as
    cap 30 is reported (M5 step 6 is to make every cap match it).
    A further schedule changes the cap during play (M5 plan step 17): it starts at 60,
-   sets com_unlock_maxFPS 90 once tick 30 is logged and com_maxFPS 45 once tick 80 is
-   (over stdin, as a player would at the console). It is compared like the others; its
-   FRAME_TIMING windows must report the caps in that order (the alias carries
-   com_unlock_maxFPS into com_maxFPS), and each new cap must be held in a full window
-   at it, by the same rule as the fixed caps.
+   sets com_unlock_maxFPS 90 once tick 10 is logged and com_maxFPS 45 once tick 80 is
+   (over stdin, as a player would at the console), about 70 ticks at each so that a
+   FRAME_TIMING window of about a second falls wholly inside each whatever the phase.
+   It is compared like the others; its FRAME_TIMING windows must report the caps in
+   that order (the alias carries com_unlock_maxFPS into com_maxFPS), and each new cap
+   must be held in a full window at it, by the same rule as the fixed caps. (At cap 45
+   the entry tick has zero or one render-only frame, so its wlog leak, if any, has the
+   shape of cap 60's, which KNOWN_VIEW_LEAK's bounds were measured on.)
 2. Bit-for-bit identical CRC32 simulation hashes (SIM_HASH) across all schedules, and
    identical SIM_VIEW lines: state each tick produces that later ticks read back and that
    a render frame could write into (the view angles after UpdateViewAngles, the tick's
@@ -49,7 +52,9 @@ Validates:
    high-refresh hardware is part of testing. A cap above the uncapped rate is reported as
    unreachable on this host (on a 120 Hz display, presentation waits for the display, so
    144 and 240 run at about 120). The average rate and the longest frame are reported
-   too, and every FRAME_TIMING window must report the schedule's own cap.
+   too, and every FRAME_TIMING window must report the schedule's own cap (the cap-change
+   schedule's windows, the caps in order; the com_unlockFPS 0 schedule is checked by
+   draws instead, item 1).
 5. Clean shutdown with exit code 0.
 """
 
@@ -155,7 +160,9 @@ FRAME_TIMING_RE = re.compile(
 )
 LOCKED = -240           # the schedule at cap 240 with com_unlockFPS 0 (M5 plan step 11, D8)
 CHANGED = -1            # the schedule whose cap changes during play (M5 plan step 17)
-CAP_CHANGES = ((30, "com_unlock_maxFPS", 90), (80, "com_maxFPS", 45))  # (after tick, CVar, value); starts at 60
+CAP_START = 60
+CAP_CHANGES = ((10, "com_unlock_maxFPS", 90), (80, "com_maxFPS", 45))  # (after tick, CVar, value); starts at CAP_START
+CAP_ORDER = [CAP_START] + [value for _, _, value in CAP_CHANGES]
 PLAY_MIN_TICKS = 25     # a FRAME_TIMING window with fewer game ticks is loading or menus
 CAP_OVERSHOOT = 1.03    # a schedule may run at most this much above its cap
 PACED_FRACTION = 0.98   # a cap <= REACH_FRACTION x the uncapped rate must be held this closely
@@ -185,12 +192,12 @@ def play_timing(lines: list[str]) -> dict | None:
 
 def start_cap(fps: int) -> int:
     """The com_maxFPS a schedule starts with."""
-    return 60 if fps == CHANGED else abs(fps)
+    return CAP_START if fps == CHANGED else abs(fps)
 
 
 def cap_label(fps: int) -> str:
     if fps == CHANGED:
-        return "cap changed in play (" + ", ".join(str(c) for c in [60] + [v for _, _, v in CAP_CHANGES]) + ")"
+        return "cap changed in play (" + ", ".join(str(c) for c in CAP_ORDER) + ")"
     if fps < 0:
         return f"{-fps} Hz, com_unlockFPS 0"
     return "uncapped" if fps == 0 else f"{fps} Hz"
@@ -284,10 +291,15 @@ def run_determinism_schedule(
                 # the cap change during play (M5 plan step 17): each once its tick is logged
                 while fps == CHANGED and changes_sent < len(CAP_CHANGES) and tick >= CAP_CHANGES[changes_sent][0]:
                     _, cvar, value = CAP_CHANGES[changes_sent]
-                    proc.stdin.write(f"set {cvar} {value}\n")
-                    proc.stdin.flush()
-                    print(f"  [CAP] tick {tick}: set {cvar} {value}")
                     changes_sent += 1
+                    try:
+                        proc.stdin.write(f"set {cvar} {value}\n")
+                        proc.stdin.flush()
+                    except (BrokenPipeError, OSError) as e:
+                        # the client died: the schedule's missing ticks and exit code report it
+                        print(f"  [CAP] tick {tick}: could not send set {cvar} {value}: {e}")
+                        break
+                    print(f"  [CAP] tick {tick}: set {cvar} {value}")
 
         except queue.Empty:
             continue
@@ -529,7 +541,7 @@ def main() -> int:
     # the cap changed during play (M5 plan step 17): the windows report the caps in order,
     # and each new cap is held in a window that starts and ends at it
     windows = [m for ln in schedule_lines[CHANGED] if (m := FRAME_TIMING_RE.search(ln)) and int(m.group(3)) >= PLAY_MIN_TICKS]
-    order = [60] + [v for _, _, v in CAP_CHANGES]
+    order = CAP_ORDER
     seen = [int(m.group(4)) for m in windows]
     # (play windows need PLAY_MIN_TICKS ticks, so the short stretch at the starting cap may have
     # none; the fixed 60 Hz schedule covers that cap)
