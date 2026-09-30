@@ -84,9 +84,11 @@ the Vulkan loader through `Contents/Resources/vulkan/icd.d`. Without the Apple
 signing secrets it is signed ad hoc; macOS then asks the user to allow it on first
 launch.
 
-Every package needs the retail data: users extract it into their ET:QW directory, or
-pass `+set fs_basepath <ET:QW directory>` (the AppImage finds the data by itself when
-it is started from, or stored in, the ET:QW directory). Saves, configs and the shader
+Every package needs the retail data: users extract the Linux or Windows package into
+their ET:QW directory, or pass `+set fs_basepath <ET:QW directory>` (the AppImage finds
+the data by itself when it is started from, or stored in, the ET:QW directory). The
+macOS app always needs `+set fs_basepath`: it takes its content root from
+`Contents/Resources`, so a `base/` next to the app is not searched. Saves, configs and the shader
 cache go to the per-user directory (`~/.local/share/openetqw`,
 `%LOCALAPPDATA%\openETQW`, `~/Library/Application Support/openETQW`).
 
