@@ -270,6 +270,10 @@ def test_apprun(tmp: Path) -> None:
           "AppRun passes the retail data it finds in the start directory")
     given = subprocess.run([str(apprun), "+set", "fs_basepath", "/x"], capture_output=True, text=True, env=dict(env, OWD=str(data)))
     check(given.stdout.split() == ["+set", "fs_basepath", "/x"], "AppRun keeps an explicit fs_basepath")
+    lookalike = subprocess.run([str(apprun), "+map", "my_fs_basepath_map"], capture_output=True, text=True,
+                               env=dict(env, OWD=str(data)))
+    check(lookalike.stdout.split() == ["+set", "fs_basepath", str(data), "+map", "my_fs_basepath_map"],
+          "AppRun still finds the data when an argument only contains fs_basepath")
     none = subprocess.run([str(apprun), "+quit"], capture_output=True, text=True, env=dict(env, OWD=str(tmp), APPIMAGE=str(tmp / "a")))
     check(none.stdout.split() == ["+quit"], "AppRun adds nothing without retail data")
 

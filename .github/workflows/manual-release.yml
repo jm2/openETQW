@@ -142,12 +142,19 @@ jobs:
           fi
           python tools/build/openetqw_release_version.py "${args[@]}" | tee -a "${GITHUB_OUTPUT}"
 
-      - name: Check an existing tag targets this commit
+      - name: Check an existing tag targets this commit and is not a published release
         env:
           SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
           RELEASE_TAG: ${{ steps.version.outputs.release_tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          # fail before any build: a published release is never rebuilt in place
+          # (drafts are not visible to this read-only token, and may be re-run)
+          if [ "$(gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --json isDraft --jq .isDraft 2>/dev/null)" = "false" ]; then
+            echo "::error::${RELEASE_TAG} is already published; release a new version (bump_mode or version_override) instead"
+            exit 1
+          fi
           if git show-ref --verify --quiet "refs/tags/${RELEASE_TAG}"; then
             tagged="$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")"
             if [ "${tagged}" != "${SOURCE_SHA}" ]; then
@@ -575,7 +582,14 @@ jobs:
           # Everything happens on a draft; it is published (when asked) only
           # after GitHub is shown to hold exactly the approved bytes.
           if gh release view "${RELEASE_TAG}" "${repo[@]}" >/dev/null 2>&1; then
-            # a re-run: back to a draft, this commit, and only this run's assets
+            # only a draft may be re-run: a published release keeps its page,
+            # its tag and the bytes users downloaded (the version tool picks the
+            # latest tag again when auto finds no new commits)
+            if [ "$(gh release view "${RELEASE_TAG}" "${repo[@]}" --json isDraft --jq .isDraft)" != "true" ]; then
+              echo "::error::${RELEASE_TAG} is already published; release a new version (bump_mode or version_override) instead"
+              exit 1
+            fi
+            # a re-run of a draft: this commit, and only this run's assets
             gh release edit "${RELEASE_TAG}" "${repo[@]}" --draft=true --title "${RELEASE_NAME}" \
               --target "${SOURCE_SHA}" --notes-file "${RUNNER_TEMP}/release-changelog.md"
             mapfile -t existing < <(gh release view "${RELEASE_TAG}" "${repo[@]}" --json assets --jq '.assets[].name')

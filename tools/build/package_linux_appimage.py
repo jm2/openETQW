@@ -86,10 +86,13 @@ if [ ! -x "${{client}}" ] || [ ! -d "${{package_root}}/base" ]; then
     exit 127
 fi
 
-# the retail data: the directory this was started from, or the one holding the AppImage
-case " $* " in
-    *fs_basepath*) exec "${{client}}" "$@" ;;
-esac
+# the retail data: the directory this was started from, or the one holding the AppImage,
+# unless the arguments set fs_basepath themselves
+for argument in "$@"; do
+    if [ "${{argument}}" = "fs_basepath" ]; then
+        exec "${{client}}" "$@"
+    fi
+done
 for candidate in "${{OWD:-$PWD}}" "$(dirname -- "${{APPIMAGE:-$0}}")"; do
     if [ -f "${{candidate}}/{RETAIL_MARKER}" ]; then
         exec "${{client}}" +set fs_basepath "${{candidate}}" "$@"
