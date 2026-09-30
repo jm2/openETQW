@@ -552,6 +552,16 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
         staged_module = base_root / "base" / module.name
     shutil.copy2(module, staged_module)
 
+    def remove_staged() -> None:
+        # the output root is uploaded as a CI log artifact: no binaries in it
+        if args.keep_binaries:
+            return
+        for path in [staged_exe, staged_module] + staged_dlls:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
     command = [
         str(staged_exe),
         "+set", "dedicated", "1",
@@ -586,6 +596,7 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
         server = Server(command, run_dir, env, log_path)
     except OSError as exc:
         # Not startable at all (wrong architecture, missing loader, ...).
+        remove_staged()
         return {
             "variant": variant.name,
             "description": variant.description,
@@ -739,13 +750,7 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
         and exit_code == 0
     )
 
-    if not args.keep_binaries:
-        # the output root is uploaded as a CI log artifact: no binaries in it
-        for path in [staged_exe, staged_module] + staged_dlls:
-            try:
-                path.unlink()
-            except OSError:
-                pass
+    remove_staged()
 
     return {
         "variant": variant.name,
