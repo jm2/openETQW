@@ -184,6 +184,8 @@ Engine steps 7 (listen host) and 10 (tick frames drawn at their real fraction) a
 
 ### Stage 0: physics guard
 
+**Status: done 2026-09-30** (M5 step 5a; details in `docs/m5-plan.md`). `VEH_TRACE`, `g_determinismTest 2`, `high-refresh-determinism` comparing `VEH_TRACE` across caps, and `vehicle-physics-golden` with a per-toolchain golden. The aircraft is spawned by the schedule: valley has none at warmup.
+
 **What changes**
 - **Game.** Behind `g_simHash`, print a `VEH_TRACE` line each tick for each occupied rigid-body transport. Print full precision (`%.9g`, as `SIM_VIEW` does). Contents:
   - origin, quaternion, linear and angular velocity;
