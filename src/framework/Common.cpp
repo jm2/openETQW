@@ -81,16 +81,15 @@ idCVar com_asyncInput( "com_asyncInput", "1", CVAR_BOOL | CVAR_SYSTEM | CVAR_ROM
 idCVar com_asyncSound( "com_asyncSound", "1", CVAR_INTEGER | CVAR_SYSTEM | CVAR_ROM, "sound is serviced by the dedicated sound thread", 1, 1 );
 idCVar com_unlockFPS( "com_unlockFPS", "1", CVAR_BOOL | CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_PROFILE,
 	"allow renderer to go faster than game ticks" );
-idCVar com_unlock_avgFrames( "com_unlock_avgFrames", "4", CVAR_INTEGER | CVAR_SYSTEM | CVAR_NOCHEAT,
-	"average out render times over n frames for extra renders management", 1, 10 );
-idCVar com_unlock_safetyMargin( "com_unlock_safetyMargin", "0.1", CVAR_FLOAT | CVAR_SYSTEM | CVAR_NOCHEAT,
-	"percentage safety margin under which not to trigger an extra render" );
-idCVar com_unlock_timingMethod( "com_unlock_timingMethod", "2", CVAR_INTEGER | CVAR_SYSTEM | CVAR_NOCHEAT,
-	"method of timing interpolated/extrapolated frames: 0 = whenever they fit;  1 = on boundaries of framerate multiples of 30;  2 = like 1, but using total previous everything time to estimate, not just render time" );
+// retail's com_unlock_avgFrames, com_unlock_safetyMargin and com_unlock_timingMethod
+// are not registered: nothing read them. The frame pacer does part of what retail used
+// them for, and M5 step 10 is to do the rest (docs/m5-plan.md step 12, decision D9;
+// compat ledger 053). A config that sets them, with seta or a bare line, creates user
+// CVars that nothing reads (idCVarSystemLocal::Command; tests/test_retired_cvars.py).
 idCVar com_maxFPS( "com_maxFPS", "60", CVAR_INTEGER | CVAR_SYSTEM | CVAR_ARCHIVE,
 	"maximum frames per second presented (0 = unlimited / VSync-only)" );
 idCVar com_unlock_maxFPS( "com_unlock_maxFPS", "60", CVAR_INTEGER | CVAR_SYSTEM | CVAR_NOCHEAT,
-	"maximum FPS unlock will try to reach (only works in timing methods 1 & 2) - zero = no limit" );
+	"retail's cap on unlocked frames; OpenETQW keeps it equal to com_maxFPS - zero = no limit" );
 idCVar com_logFrameTiming( "com_logFrameTiming", "0", CVAR_BOOL | CVAR_SYSTEM | CVAR_NOCHEAT,
 	"print a FRAME_TIMING line every second: frames, game ticks and the distribution of frame intervals and frame work times" );
 

@@ -38,7 +38,7 @@ What the retail ET:QW 1.5 game module and data do, where OpenETQW's decisions de
 
 - Game: `g_unlock_updateAngles`, `g_unlock_updateViewpos`, `g_unlock_interpolateMoving` and `g_unlock_viewStyle` all default to 1.
 - Engine (`etqw.x86`): `com_unlockFPS` 1, `com_unlock_maxFPS` 60, `com_unlock_timingMethod` 2, `com_unlock_avgFrames` 4, `com_unlock_safetyMargin` 0.1, `r_swapInterval` 0 (vsync off).
-- OpenETQW registers the same defaults. The three timing CVars (`com_unlock_timingMethod`, `com_unlock_avgFrames`, `com_unlock_safetyMargin`) do nothing in OpenETQW; M5 plan D9 removes them. `r_swapInterval` selects the Vulkan present mode.
+- OpenETQW registers the same defaults for `com_unlockFPS` and `com_unlock_maxFPS`. The three timing CVars (`com_unlock_timingMethod`, `com_unlock_avgFrames`, `com_unlock_safetyMargin`) did nothing in OpenETQW and are no longer registered (M5 plan D9, step 12; ledger row 053). `r_swapInterval` selects the Vulkan present mode.
 
 ## 5. The 1.5 data against the DVD data
 

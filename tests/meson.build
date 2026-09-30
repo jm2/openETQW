@@ -252,6 +252,18 @@ if build_dedicated
     timeout: 120,
   )
 
+  # the retired com_unlock_* timing CVars (M5 step 12, D9), on synthetic data; the game
+  # module is staged into the synthetic base/ (it need not sit beside the binary)
+  test(
+    'retired-cvars',
+    py,
+    args: [meson.project_source_root() / 'tests' / 'test_retired_cvars.py', '--ded-binary', retail_install_check_ded,
+           '--game-module', game_module_built],
+    workdir: meson.project_source_root(),
+    suite: 'unit',
+    timeout: 120,
+  )
+
   all_stock_maps_ded = meson.project_build_root() / engine_ded_binary_name
   if host_system == 'windows'
     all_stock_maps_ded += '.exe'

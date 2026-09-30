@@ -890,12 +890,34 @@ float idCVarSystemLocal::GetCVarFloat( const char *name ) const {
 idCVarSystemLocal::Command
 ============
 */
+// CVars OpenETQW no longer registers (docs/compat-ledger.md row 053, M5 plan step 12).
+// Retail configs still set them, some with a bare "<name> <value>" line (pak000
+// visuals.cfg sets com_unlock_timingmethod that way).
+static const char *retiredCVarNames[] = {
+	"com_unlock_avgFrames", "com_unlock_safetyMargin", "com_unlock_timingMethod",
+};
+
+static bool IsRetiredCVar( const char *name ) {
+	for ( int i = 0; i < static_cast< int >( sizeof( retiredCVarNames ) / sizeof( retiredCVarNames[0] ) ); i++ ) {
+		if ( idStr::Icmp( name, retiredCVarNames[i] ) == 0 ) {
+			return true;
+		}
+	}
+	return false;
+}
+
 bool idCVarSystemLocal::Command( const idCmdArgs &args ) {
 	idInternalCVar *internal;
 
 	internal = FindInternal( args.Argv( 0 ) );
 
 	if ( internal == NULL ) {
+		if ( args.Argc() > 1 && IsRetiredCVar( args.Argv( 0 ) ) ) {
+			// a retired CVar set with a bare line: keep the value as a user CVar, as
+			// "set" would, instead of "Unknown command"; nothing reads it
+			SetInternal( args.Argv( 0 ), args.Args(), 0, false, true );
+			return true;
+		}
 		return false;
 	}
 
