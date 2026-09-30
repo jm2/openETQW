@@ -19,7 +19,8 @@ handling would pass them. This test catches it:
 2. The trace is compared with tests/golden/vehicle-physics/<toolchain>.txt,
    recorded from main before any vehicle change. <toolchain> names the compiler
    family, its major version and the architecture of the game module (the
-   physics runs there), e.g. linux-x64-gcc16: floating-point code generation
+   physics runs there), e.g. linux-x64-gcc16 or macos-arm64-appleclang21 (Apple
+   Clang is keyed apart from LLVM Clang): floating-point code generation
    differs between compilers and architectures (fused multiply-adds), so each
    toolchain has its own golden, compared bit-exactly.
 3. With no golden for this toolchain, the trace is compared with the reference
@@ -221,14 +222,28 @@ def toolchain_key(client: Path) -> tuple[str, str]:
         if builds_game_module(build) and info.is_file():
             cpp = json.loads(info.read_text(encoding="utf-8")).get("host", {}).get("cpp")
             if cpp and cpp.get("id") and cpp.get("version"):
-                return (f"{osname}-{host_arch()}-{cpp['id']}{cpp['version'].split('.')[0]}",
-                        f"{cpp['id']} {cpp['version']} ({build})")
+                ident = compiler_ident(cpp)
+                return (f"{osname}-{host_arch()}-{ident}{cpp['version'].split('.')[0]}",
+                        f"{ident} {cpp['version']} ({build})")
     return f"{osname}-{host_arch()}-unknown", "the game module's compiler could not be determined"
 
 
+def compiler_ident(cpp: dict) -> str:
+    """Meson's compiler id, with Apple's Clang told apart from upstream LLVM Clang:
+    Meson calls both "clang", their version numbers are separate series, and their
+    code generation differs."""
+    ident = cpp.get("id", "unknown")
+    if ident == "clang" and "apple" in cpp.get("full_version", "").lower():
+        return "appleclang"
+    return ident
+
+
 def runtime_description() -> str:
-    """The C library and OS: the game calls libm (sinf, atan2, powf, ...), whose
-    results can change between releases on the same compiler."""
+    """The OS and C library: the game calls libm (sinf, atan2, powf, ...), whose
+    results can change between releases on the same compiler. macOS has no
+    platform.libc_ver(); its libm ships with the OS release."""
+    if sys.platform == "darwin" and platform.mac_ver()[0]:
+        return f"macOS {platform.mac_ver()[0]} ({platform.system()} {platform.release()})"
     libc = " ".join(x for x in platform.libc_ver() if x) or "libc unknown"
     return f"{platform.system()} {platform.release()}; {libc}"
 

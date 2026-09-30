@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # openETQW vehicle physics golden: VEH_TRACE of g_determinismTest 2 on valley
 # (tests/test_vehicle_physics_golden.py; compared bit-exactly on this toolchain)
-# toolchain: macos-arm64-clang21: clang 21.0.0
+# toolchain: macos-arm64-appleclang21: appleclang 21.0.0 (recorded under the key macos-arm64-clang21)
 # runtime: Darwin 27.0.0; libc unknown
 # engine: a3958f1235af55cd14657b2eed71e6b40990c23b
 # game: 6fe974d34ec76e413ef4ed1274d694b359262493
