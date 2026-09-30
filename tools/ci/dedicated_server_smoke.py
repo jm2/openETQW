@@ -11,7 +11,8 @@ fails if the engine's file-system search path reaches anywhere else.
 Each variant runs one server with private fs_basepath / fs_savepath / HOME
 directories and a staged copy of the executable (plus the game module, which
 the engine's FindDLL looks up next to the executable first, then in the
-search path), drives the console over stdin, and asserts a ladder of phases:
+search path, and on Windows the runtime DLLs beside the executable), drives
+the console over stdin, and asserts a ladder of phases:
 
   engine_banner      version banner printed
   filesystem         "file system initialized."
@@ -535,6 +536,14 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
 
     staged_exe = install_dir / executable.name
     shutil.copy2(executable, staged_exe)
+    if sys.platform == "win32":
+        # Windows loads a DLL from the executable's directory before PATH, and a
+        # build or package keeps zlib and SDL3 there: copy them, so the smoke does
+        # not depend on vcpkg's bin being on PATH. Never the game module, whose
+        # place is the variant's.
+        for dll in sorted(executable.parent.glob("*.dll")):
+            if dll.resolve() != module.resolve() and not dll.name.lower().startswith("game_"):
+                shutil.copy2(dll, install_dir / dll.name)
     if variant.module_location == "exe-dir":
         staged_module = install_dir / module.name
     else:
