@@ -466,5 +466,23 @@ None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline
 - Manual retail-data runs on Linux and Windows (C12): both now build; the Windows host ran the full suite on 2026-09-28.
 
 ## Questions for the owner
-The three vehicle questions were answered on 2026-09-29 (Owner decisions). Still open from `docs/vehicle-responsiveness.md` §5.1, not urgent:
+The three vehicle questions were answered on 2026-09-29 (Owner decisions).
+
+**M5 step 6 waits on these seven choices** (asked 2026-09-30; each gives the recommendation). Step 6 is "no presentation values in tick, snapshot or AoR state" (`docs/m5-plan.md`). Its trace work is done: on the tick the replay enters the titan, `CalculateViewWeaponPos` runs in render frames once at cap 60 and twice at cap 120 (through the `ClientUpdateView` proxy branch → `sdTransport::ClientUpdateInterpolation` → `PresentPlayers` → `PresentPlayer` → `PresentWeapon`), and `weaponAngVel` then differs between caps on ticks 92–150, the `KNOWN_VIEW_LEAK` window.
+1. **OpenETQW's vehicle-view code: delete it rather than keep it as helpers.** Delete the proxy branch of `ClientUpdateView`, `sdTransport::ClientUpdateInterpolation` and the render-frame interpolation in the damped and smooth vehicle views outright. The plan says to move the interpolation into read-only helpers for step 14. Step 14's presentation code (`docs/vehicle-responsiveness.md` stage 3) replaces all of it.
+2. **The D4 ledger row (`docs/compat-ledger.md` row 029): widen it.** Also record that smooth-seat camera damping (on servers and clients) and third-person turret aim go back to SDK behaviour.
+3. **`unlock.unlockedDraw`: keep retail's behaviour.** It stays set from a render-only frame until the next tick. The plan says to clear it after `RenderPlayerView`. Once the views are reverted and the `UpdateModelTransform` early return is removed, no OpenETQW code reads it apart from the `FRAME_POSE` test log. Clearing it would change frames that draw more than once and complicate step 8.
+4. **A network test first.** Before reverting the smooth view, add a listen-host test in which a remote client sits in a smooth-view seat. The view and `UpdateModelTransform` changes show only on network paths, which the single-player replay does not reach.
+5. **`originlog` reset scope: proxy, seat or view-mode changes only.** Do not reset it on a change of view player, a respawn or a teleport. The SDK has those gaps too.
+6. **Ledger rows for the two deviations from retail.**
+   - The draw-time proxy guard: `ClientUpdateView`'s on-foot blocks run only when the player has no proxy at draw time, since the gate is latched before the tick enters the vehicle.
+   - The `originlog` reset.
+7. **An SDK render-to-tick channel: keep it.** On a render-only frame the damped views also write their unclamped axis into `lastReturnedAxis` (game `src/game/vehicles/VehicleView.cpp:587`, `:860`), which the free-pivot `ClampViewAngles` reads on the next tick (`:730`). This is SDK code; changing it would be a deviation from retail with its own ledger row.
+
+**A failed `game->Init()` should stop the engine** (proposal, 2026-09-30).
+- **Today:** `idCommonLocal::LoadGameDLL` logs the exception and carries on (`src/framework/Common.cpp:1316-1320`). That turned the Clang `sdPropertyValue` bug (openETQW-game #16, fixed by #17) into a crash in `idTypeInfo::RespondsTo` at map load, far from its cause.
+- **The proposal:** make it a fatal error.
+- **Why it's your call:** it changes test criteria. The assetless smoke's `bare` and `empty` variants (`tools/ci/dedicated_server_smoke.py`) currently expect the engine to reach the console and quit cleanly after the error; they would instead assert a clean fatal error.
+
+Still open from `docs/vehicle-responsiveness.md` §5.1, not urgent:
 - **Prediction-error decay on your own vehicle** (§5.1 item 7): keep it, or replace it with a faster fade in presentation? Not measured; it matters once the seat views land.
