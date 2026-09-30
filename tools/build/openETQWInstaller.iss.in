@@ -57,11 +57,11 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Source: "{#PackageSource}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Registry]
-Root: HKA; Subkey: "{#MyAppInstallRegKey}"; ValueType: string; ValueName: "InstallDir"; ValueData: "{app}"; Flags: uninsdeletekeyifempty
-Root: HKA; Subkey: "{#MyAppInstallRegKey}"; ValueType: string; ValueName: "InstallArch"; ValueData: "@@APP_ARCH@@"; Flags: uninsdeletekeyifempty
-Root: HKA; Subkey: "{#MyAppInstallRegKey}"; ValueType: string; ValueName: "InstallVersion"; ValueData: "{#MyAppVersion}"; Flags: uninsdeletekeyifempty
-Root: HKA; Subkey: "{#MyAppInstallRegKey}"; ValueType: string; ValueName: "ClientExe"; ValueData: "{app}\{#MyAppExeName}"; Flags: uninsdeletekeyifempty
-Root: HKA; Subkey: "{#MyAppInstallRegKey}"; ValueType: string; ValueName: "UninstallExe"; ValueData: "{uninstallexe}"; Flags: uninsdeletekeyifempty
+Root: HKA; Subkey: "{#MyAppInstallRegKey}"; ValueType: string; ValueName: "InstallDir"; ValueData: "{app}"; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "{#MyAppInstallRegKey}"; ValueType: string; ValueName: "InstallArch"; ValueData: "@@APP_ARCH@@"; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "{#MyAppInstallRegKey}"; ValueType: string; ValueName: "InstallVersion"; ValueData: "{#MyAppVersion}"; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "{#MyAppInstallRegKey}"; ValueType: string; ValueName: "ClientExe"; ValueData: "{app}\{#MyAppExeName}"; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "{#MyAppInstallRegKey}"; ValueType: string; ValueName: "UninstallExe"; ValueData: "{uninstallexe}"; Flags: uninsdeletevalue uninsdeletekeyifempty
 Root: HKA; Subkey: "{#MyAppClientAppPathsKey}"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName}"; Flags: uninsdeletekey
 Root: HKA; Subkey: "{#MyAppClientAppPathsKey}"; ValueType: string; ValueName: "Path"; ValueData: "{app}"; Flags: uninsdeletekey
 

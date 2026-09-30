@@ -628,6 +628,11 @@ def test_installer(work: Path) -> None:
     ):
         check(needle in text, f"installer: x64 script contains {needle[:60]!r}", text)
     check("@@" not in text, "installer: every placeholder token is filled", text)
+    # the uninstaller removes every value it wrote under Software\openETQW, so the
+    # key goes too and a later setup does not report an install that is gone
+    install_values = [line for line in text.splitlines() if line.startswith('Root: HKA; Subkey: "{#MyAppInstallRegKey}"')]
+    check(len(install_values) == 5 and all("uninsdeletevalue" in line for line in install_values),
+          "installer: the uninstaller deletes each Software\\openETQW value", "\n".join(install_values))
     directives = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith(";")).lower()
     for forbidden in ("openq4", "SetupIconFile", "protocol", "docs\\index.html", "8FD95F4F", "AppMutex"):
         check(forbidden.lower() not in directives, f"installer: x64 script has no {forbidden!r}", text)
