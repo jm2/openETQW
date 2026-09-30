@@ -24,6 +24,7 @@ enter the titan at 91, swap seat at 101, cycle at 111; listSeatViews at 121; exi
   A  g_unlock_vehicleSeats default                   the baseline; learns the keys
   B  g_unlock_vehicleSeats *                         everything listed, no recipe
   C  items built from A's keys, two of them malformed  key matching
+     and three aimed at idStr::Filter's defects
   D  * and g_seatGateTestRecipe "T,U,icarus"          the positive control
 
 T is the view class of the badger's driver seat in its first view, U that of the
@@ -32,31 +33,39 @@ and is never presented; 'icarus' names the jetpack's view class, which no recipe
 cover, so the jetpack must stay shut.
 
 Checks:
-1. Format: one SEAT_GATE per SIM_HASH tick, on the same ticks; exit 0; no failure
+1. Format: one SEAT_GATE and one SIM_VIEW per SIM_HASH tick, on the same ticks; exit 0; no failure
    markers; the listSeatViews block present and well-formed.
 2. The tour happened: the badger in two seats and in two views of each seat that
    has more than one; the icarus as a jetpack; the titan in two seats; seated on
    every tick from 21 to 124 (the moves between vehicles leave no on-foot tick).
 3. The guard: while the game has no built-in recipe (step 13; the listing reports
    recipes=0), latch, pred and draw are 0 on every tick of runs A-C. In every run a
-   jetpack or non-transport proxy has latch, pred, draw and recipe 0. canUnlockFrames
+   jetpack or non-transport seat has pred, draw and recipe 0, and no latch is taken
+   for one (latch[n] belongs to the seat tick n-1 ended in). canUnlockFrames
    is 0 on every tick after one that ended with a proxy (retail's rule is kept).
 4. Key matching: listed agrees on every seated tick and every listed seat view with
    a reference matcher (per ':' field, whole field, ignoring case, * and ?; '*'
    alone lists everything; 'default' is the built-in list, DEFAULT_LIST; whitespace
    removed; malformed items ignored). Run A lists nothing and run B everything; run
-   C reports bad=2, and each of its well-formed items lists what it should.
+   C reports bad=2, each of its well-formed items lists what it should, and nothing
+   else is listed: its items include a field that is a strict prefix of a seat's, a
+   '?' past the end of a class and a '*' that has to backtrack, the three ways
+   idStr::Filter goes wrong.
 5. Run D plumbing: recipe exactly where the seat is a transport's in class T or U;
    latch[n] == pred[n-1]; draw[n] == latch[n] and the seat (ent, pos, mode) is
    unchanged since tick n-1 and pred[n]. The run must show the latch set, a camera
    cycle clearing pred under a set latch, and a seat swap into a seat that also
    has a recipe (latch and pred both 1, draw 0: the identity re-check).
 6. Nothing changes: SIM_HASH, VEH_TRACE and cu are identical tick by tick in all
-   four runs, and so is SIM_VIEW except the weapon log (wlog) from tick 22 on: the
-   render frames of tick 21, the entry from on foot, run the vehicle proxy branch
-   of ClientUpdateView, whose weapon presentation the vehicle ticks log. That is
-   the leak high-refresh-determinism allows as KNOWN_VIEW_LEAK; step 6 removes it,
-   and then this allowance goes too.
+   four runs, and so is SIM_VIEW except the weapon log (wlog) as one unbroken run
+   of ticks from 22: the render frames of tick 21, the entry from on foot, run the
+   vehicle proxy branch of ClientUpdateView, whose weapon presentation the vehicle
+   ticks log. That is the leak high-refresh-determinism allows as KNOWN_VIEW_LEAK;
+   step 6 removes it, and then this allowance goes too. All four runs execute the
+   same new code (the latch, SEAT_GATE, listSeatViews at 121) and differ only in
+   the two CVars, so this shows that the gate's state changes nothing; that the
+   code itself changes nothing against main rests on vehicle-physics-golden (its
+   golden predates step 13) and high-refresh-determinism.
 7. listSeatViews: the badger, the titan and the icarus (kind=jetpack) are listed;
    recipe is 0 except where run D's test recipe applies; the key of every seat the
    tour sat in equals the listing's key for that vehicle, seat and view.
@@ -90,7 +99,10 @@ SEATED_TICKS = range(21, 125)
 # the game's built-in default list (seatDefaultList in openETQW-game vehicles/SeatGate.cpp):
 # empty in step 13; keep it in step as seats join it
 DEFAULT_LIST: tuple[str, ...] = ()
-# the entry leak (see the docstring, check 6): only this field, only from this tick
+# the entry leak (see the docstring, check 6): only this field, and only as one unbroken
+# run of ticks starting at this one (the weapon lag filter diverges on the entry tick's
+# render frames and stays apart; it is not reset while seated). A leak starting anywhere
+# else, a later entry's say, is a new one and fails.
 ENTRY_LEAK = {"field": "wlog", "from_tick": ENTRY_TICK + 1}
 
 SIM_HASH_RE = re.compile(r"^SIM_HASH: tick=(\d+) ")
@@ -247,6 +259,10 @@ def check_format(run: Run) -> list[str]:
     if ticks != run.hash_ticks:
         problems.append(f"run {run.name}: SEAT_GATE ticks differ from SIM_HASH ticks"
                         f" ({len(ticks)} against {len(run.hash_ticks)} lines)")
+    if sorted(run.views_by_tick) != run.hash_ticks:
+        # check 6 compares SIM_VIEW tick by tick: without the lines it would compare nothing
+        problems.append(f"run {run.name}: SIM_VIEW ticks differ from SIM_HASH ticks"
+                        f" ({len(run.views_by_tick)} against {len(run.hash_ticks)} lines)")
     if len(run.hash_ticks) < 125:
         problems.append(f"run {run.name}: only {len(run.hash_ticks)} ticks; the tour runs to tick 130")
     if len(run.begin) != 1 or len(run.end) != 1:
@@ -286,11 +302,17 @@ def check_guard(run: Run, gate_closed: bool) -> list[str]:
     for prev, g in zip(run.gate, run.gate[1:]):
         if prev["kind"] != "none" and g["cu"]:
             problems.append(f"run {run.name}: tick {g['tick']}: canUnlockFrames set after a tick that ended with a proxy")
-    for g in run.gate:
+    for i, g in enumerate(run.gate):
         if gate_closed and (g["latch"] or g["pred"] or g["draw"] or g["recipe"]):
-            problems.append(f"run {run.name}: tick {g['tick']}: the gate opened with no recipe: {run.gate_raw[run.gate.index(g)]}")
-        if g["kind"] in ("jetpack", "other") and (g["latch"] or g["pred"] or g["draw"] or g["recipe"]):
-            problems.append(f"run {run.name}: tick {g['tick']}: a {g['kind']} proxy opened the gate: {run.gate_raw[run.gate.index(g)]}")
+            problems.append(f"run {run.name}: tick {g['tick']}: the gate opened with no recipe: {run.gate_raw[i]}")
+        # latch is taken at the tick's entry, for the seat the previous tick ended in; pred,
+        # draw and recipe are for the seat this tick ends in (the kind printed): a tick that
+        # moves from a transport to the jetpack may carry the transport's latch
+        latched_kind = run.gate[i - 1]["kind"] if i else "none"
+        if latched_kind in ("jetpack", "other") and g["latch"]:
+            problems.append(f"run {run.name}: tick {g['tick']}: latched for a {latched_kind} seat: {run.gate_raw[i]}")
+        if g["kind"] in ("jetpack", "other") and (g["pred"] or g["draw"] or g["recipe"]):
+            problems.append(f"run {run.name}: tick {g['tick']}: a {g['kind']} proxy opened the gate: {run.gate_raw[i]}")
     return problems[:20]
 
 
@@ -396,7 +418,7 @@ def check_unchanged(base: Run, runs: list[Run]) -> list[str]:
             differ = sorted(f for f in set(a) | set(b) if a.get(f) != b.get(f))
             if not differ:
                 continue
-            if differ == [ENTRY_LEAK["field"]] and tick >= ENTRY_LEAK["from_tick"]:
+            if differ == [ENTRY_LEAK["field"]] and tick == ENTRY_LEAK["from_tick"] + len(leaks):
                 leaks.append(tick)
             else:
                 problems.append(f"{pair}: SIM_VIEW tick {tick}: {', '.join(differ)} differ"
@@ -435,13 +457,28 @@ def build_list_c(a: Run) -> tuple[str, dict[str, set[str]]]:
     other = next((v["key"].split(":")[1] for v in a.views if v["script"] == "badger" and v["pos"] not in (first["pos"], swap["pos"])), None)
     if other is None:
         raise AssertionError("run A: the badger has no third seat to build a malformed item from")
-    value = f"{exact}, titan:*:*,icarus:*:*,{glob},badger,badger:{other}"
+    # three items for the defects idStr::Filter has (decision record 0003), each of which must
+    # list nothing that the other items do not: a field that is a strict prefix of the seat's
+    # (a prefix matcher lists it), a '?' past the end of the class (a matcher that reads past
+    # the terminator can list it), and a '*' whose suffix first occurs before the end of the
+    # field (a matcher that does not backtrack misses it; this one must list)
+    other_pos = next(v["pos"] for v in a.views if v["script"] == "badger" and v["key"].split(":")[1] == other)
+    classes = [v["type"] for v in a.views if v["script"] == "badger" and v["pos"] == other_pos]
+    suffix = next((other[-k:] for k in (2, 3, 4) if other.find(other[-k:]) < len(other) - k), None)
+    if suffix is None:
+        raise AssertionError(f"run A: badger seat {other} has no suffix that also occurs earlier in it")
+    prefix_item = f"badger:{other[:-1]}:*"
+    past_end_item = f"badger:{other}:{classes[0]}?"
+    backtrack_item = f"badger:*{suffix}:{classes[-1]}"
+    value = (f"{exact}, titan:*:*,icarus:*:*,{glob},badger,badger:{other},"
+             f"{prefix_item},{past_end_item},{backtrack_item}")
     keys = {v["key"] for v in a.views}
     expect = {
         exact: {exact},
         "titan:*:*": {k for k in keys if k.startswith("titan:")},
         "icarus:*:*": {k for k in keys if k.startswith("icarus:")},
         glob: {k for k in keys if k.lower().startswith("badger:" + second.lower() + ":")},
+        backtrack_item: {k for k in keys if k.startswith("badger:") and reference_listed(backtrack_item, k)},
     }
     return value, expect
 

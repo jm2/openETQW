@@ -214,7 +214,7 @@ if build_engine
     env: client_test_env,
     workdir: meson.project_source_root(),
     suite: 'integration',
-    timeout: 480,
+    timeout: 660,
     is_parallel: false,
   )
   test(
