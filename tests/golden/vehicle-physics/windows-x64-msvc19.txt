@@ -2,11 +2,12 @@
 # openETQW vehicle physics golden: VEH_TRACE of g_determinismTest 2 on valley
 # (tests/test_vehicle_physics_golden.py; compared bit-exactly on this toolchain)
 # toolchain: windows-x64-msvc19: msvc 19.51.36260
+# compiler: Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36260 for x64
 # runtime: Windows 11; libc unknown
-# engine: a3958f1235af55cd14657b2eed71e6b40990c23b
+# engine: ab0e1bf7973ea425286f85b9ae6b280def1ab366
 # game: 6fe974d34ec76e413ef4ed1274d694b359262493
 # recorded: 2026-09-30
-# reason: the first golden for MSVC 19 on Windows x64 (VS 2026, 19.51), recorded from main a3958f1 with game 6fe974d before any vehicle change; the debug and debugoptimized builds produce bit-identical traces
+# reason: the first golden for MSVC 19 on Windows x64 (VS 2026, 19.51), recorded from main before any vehicle change; the debug and debugoptimized game modules give bit-identical traces. The C runtime does the maths library calls: ucrtbase 10.0.26100.9444 (debugoptimized) and ucrtbased 10.0.26100.8249 (debug), Windows 11 build 26200, AMD Ryzen 9 5900XT (FMA3; the UCRT's maths functions use FMA3 where the CPU has it, while game_x64.dll itself has no FMA instruction)
 tick=21 ent=37 class=vehicle_badger org=(8964.94043,-10349.2695,1428.42944) quat=(0,-0,-0.551937103,0.833885789) lin=(0,0,-139.554947) ang=(0,0,0) rest=0 coll=0 ctl=wheeled dir=67.0000076
 tick=22 ent=37 class=vehicle_badger org=(8964.94043,-10349.2695,1422.66321) quat=(0,-0,-0.551937103,0.833885789) lin=(0,0,-174.156326) ang=(0,0,0) rest=0 coll=0 ctl=wheeled dir=67.0000076
 tick=23 ent=37 class=vehicle_badger org=(8964.94043,-10349.2695,1415.75513) quat=(0,-0,-0.551937103,0.833885789) lin=(0,0,-208.643539) ang=(0,0,0) rest=0 coll=0 ctl=wheeled dir=67.0000076
