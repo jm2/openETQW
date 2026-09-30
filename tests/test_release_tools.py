@@ -694,6 +694,45 @@ def remove_tree(path: Path) -> None:
         print(f"warning: could not remove {path}: {exc}", file=sys.stderr)
 
 
+def test_iscc_discovery(work: Path) -> None:
+    # resolve_iscc_path reads the environment, so the whole lookup is pointed at
+    # directories made here: Program Files, %LOCALAPPDATA% and PATH
+    module = load_module("build_windows_installer_iscc", INSTALLER_TOOL)
+    machine = work / "iscc" / "ProgramFiles"
+    per_user = work / "iscc" / "LocalAppData"
+    empty_path = work / "iscc" / "empty-path"
+    for directory in (machine, per_user, empty_path):
+        directory.mkdir(parents=True)
+    names = ("INNO_SETUP_ISCC", "ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA", "PATH")
+    saved = {name: os.environ.get(name) for name in names}
+    try:
+        os.environ.pop("INNO_SETUP_ISCC", None)
+        os.environ["ProgramFiles(x86)"] = str(machine)
+        os.environ["ProgramFiles"] = str(machine)
+        os.environ["LOCALAPPDATA"] = str(per_user)
+        os.environ["PATH"] = str(empty_path)
+        def resolve() -> Path | str:
+            try:
+                return module.resolve_iscc_path(None)
+            except FileNotFoundError as exc:
+                return str(exc)
+
+        user_iscc = write(per_user / "Programs" / "Inno Setup 6" / "ISCC.exe", "iscc\n")
+        found = resolve()
+        check(found == user_iscc.resolve(), "installer: finds Inno Setup installed per user (%LOCALAPPDATA%\\Programs)",
+              str(found))
+        machine_iscc = write(machine / "Inno Setup 6" / "ISCC.exe", "iscc\n")
+        found = resolve()
+        check(found == machine_iscc.resolve(), "installer: a machine-wide Inno Setup comes before a per-user one",
+              str(found))
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
 def main() -> int:
     if shutil.which("git") is None:
         print("SKIP: git is not on PATH")
@@ -707,6 +746,7 @@ def main() -> int:
         test_asset_set(work)
         test_provenance(work)
         test_installer(work)
+        test_iscc_discovery(work)
     finally:
         remove_tree(work)
 
