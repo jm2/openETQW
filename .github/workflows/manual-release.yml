@@ -242,7 +242,7 @@ jobs:
             vcpkg_triplet: ""
           - id: macos-arm64
             label: macOS arm64 (Vulkan/MoltenVK)
-            os: macos-15
+            os: macos-26
             platform: macos
             arch: arm64
             vcpkg_triplet: ""

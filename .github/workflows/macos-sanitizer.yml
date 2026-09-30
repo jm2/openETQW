@@ -45,7 +45,7 @@ env:
 jobs:
   macos-sanitizer:
     name: macOS ${{ matrix.arch }} ASan+UBSan (Vulkan/MoltenVK)
-    runs-on: ${{ matrix.arch == 'arm64' && 'macos-15' || 'macos-15-intel' }}
+    runs-on: ${{ matrix.arch == 'arm64' && 'macos-26' || 'macos-26-intel' }}
     timeout-minutes: 150
     strategy:
       fail-fast: false
