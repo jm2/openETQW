@@ -19,7 +19,8 @@ handling would pass them. This test catches it:
 2. The trace is compared with tests/golden/vehicle-physics/<toolchain>.txt,
    recorded from main before any vehicle change. <toolchain> names the compiler
    family, its major version and the architecture of the game module (the
-   physics runs there), e.g. linux-x64-gcc16: floating-point code generation
+   physics runs there), e.g. linux-x64-gcc16 or macos-arm64-appleclang21 (Apple
+   Clang is keyed apart from LLVM Clang): floating-point code generation
    differs between compilers and architectures (fused multiply-adds), so each
    toolchain has its own golden, compared bit-exactly.
 3. With no golden for this toolchain, the trace is compared with the reference
@@ -210,25 +211,42 @@ def builds_game_module(build: Path) -> bool:
     return f"game_{host_arch()}" in names
 
 
-def toolchain_key(client: Path) -> tuple[str, str]:
-    """(key, description) of the compiler that built the game module the client loads:
-    from the Meson build directory that builds it (the module's own directory when it
-    is a symlink into the game build; the game checkout's build/ when the module
-    beside the client is a copy, as on Windows), never the engine's."""
+def toolchain_key(client: Path) -> tuple[str, str, str]:
+    """(key, description, Meson's full version line) of the compiler that built the
+    game module the client loads: from the Meson build directory that builds it (the
+    module's own directory when it is a symlink into the game build; the game
+    checkout's build/ when the module beside the client is a copy, as on Windows),
+    never the engine's."""
     osname = {"win32": "windows", "darwin": "macos"}.get(sys.platform, "linux")
     for build in (module_path(client).parent, game_repo(client) / "build"):
         info = build / "meson-info" / "intro-compilers.json"
         if builds_game_module(build) and info.is_file():
             cpp = json.loads(info.read_text(encoding="utf-8")).get("host", {}).get("cpp")
             if cpp and cpp.get("id") and cpp.get("version"):
-                return (f"{osname}-{host_arch()}-{cpp['id']}{cpp['version'].split('.')[0]}",
-                        f"{cpp['id']} {cpp['version']} ({build})")
-    return f"{osname}-{host_arch()}-unknown", "the game module's compiler could not be determined"
+                ident = compiler_ident(cpp)
+                return (f"{osname}-{host_arch()}-{ident}{cpp['version'].split('.')[0]}",
+                        f"{ident} {cpp['version']} ({build})", cpp.get("full_version") or "")
+    return f"{osname}-{host_arch()}-unknown", "the game module's compiler could not be determined", ""
+
+
+def compiler_ident(cpp: dict) -> str:
+    """Meson's compiler id, with Apple's Clang told apart from upstream LLVM Clang:
+    Meson calls both "clang", their version numbers are separate series, and their
+    code generation differs. Apple's banner starts "Apple clang version" (before
+    Xcode 11, "Apple LLVM version"); an LLVM clang built from a checkout can name
+    its repository path in the same line, so only the start is tested."""
+    if cpp["id"] == "clang" and (cpp.get("full_version") or "").startswith("Apple "):
+        return "appleclang"
+    return cpp["id"]
 
 
 def runtime_description() -> str:
-    """The C library and OS: the game calls libm (sinf, atan2, powf, ...), whose
-    results can change between releases on the same compiler."""
+    """The OS and C library: the game calls libm (sinf, atan2, powf, ...), whose
+    results can change between releases on the same compiler. On macOS
+    platform.libc_ver() finds nothing; libm ships with the OS release."""
+    release = platform.mac_ver()[0] if sys.platform == "darwin" else ""
+    if release:
+        return f"macOS {release} ({platform.system()} {platform.release()})"
     libc = " ".join(x for x in platform.libc_ver() if x) or "libc unknown"
     return f"{platform.system()} {platform.release()}; {libc}"
 
@@ -318,7 +336,7 @@ def main(argv: list[str]) -> int:
     client = h.build_binary("client")
     h.skip_unless_available(data, client)
     savepath = h.private_savepath("etqw-vehicle-golden-")
-    key, compiler = toolchain_key(client)
+    key, compiler, full_version = toolchain_key(client)
     print(f"toolchain: {key} ({compiler}); {runtime_description()}")
 
     traces = {cap: run_schedule(client, data, savepath, cap) for cap in CAPS}
@@ -355,6 +373,7 @@ def main(argv: list[str]) -> int:
             "# openETQW vehicle physics golden: VEH_TRACE of g_determinismTest 2 on valley",
             "# (tests/test_vehicle_physics_golden.py; compared bit-exactly on this toolchain)",
             f"# toolchain: {key}: {compiler.split(' (')[0]}",
+            f"# compiler: {full_version or 'unknown'}",
             f"# runtime: {runtime_description()}",
             f"# engine: {git_head(REPO_ROOT)}",
             f"# game: {git_head(game)}",
@@ -367,6 +386,7 @@ def main(argv: list[str]) -> int:
         return h.EXIT_PASS
 
     own = GOLDEN_DIR / f"{key}.txt"
+    comparison = "match the golden exactly"
     if own.is_file():
         header, golden = read_golden(own)
         print(f"golden: {own.relative_to(REPO_ROOT)} ({len(golden)} lines), exact comparison")
@@ -387,7 +407,15 @@ def main(argv: list[str]) -> int:
         _, golden = read_golden(reference)
         print(f"[NOTE] no golden for {key}: comparing with {reference.relative_to(REPO_ROOT)} at fixed precision"
               " (the weaker cross-toolchain check; record one with --regenerate for the exact guard)")
+        # a golden for another compiler on this OS and architecture is the sign of a key
+        # that changed under it (a renamed compiler id, say), which would pass silently here
+        platform_prefix = key.rsplit("-", 1)[0] + "-"
+        unused = sorted(g.name for g in GOLDEN_DIR.glob(f"{platform_prefix}*.txt") if g.stem != REFERENCE)
+        if unused:
+            print(f"[WARNING] this platform has goldens for other toolchains ({', '.join(unused)}): if one of them"
+                  f" is this toolchain under an older key, rename it to {own.name}")
         failures += compare_fixed(golden, trace)
+        comparison = f"match {reference.name} at fixed precision"
     else:
         failures.append(f"no golden at all: record {reference.relative_to(REPO_ROOT)} first")
 
@@ -396,7 +424,7 @@ def main(argv: list[str]) -> int:
         for f in failures:
             print(f"  - {f}")
         return h.EXIT_FAIL
-    print(f"PASS: {len(trace)} VEH_TRACE lines, identical at com_maxFPS {', '.join(map(str, CAPS))}, match the golden")
+    print(f"PASS: {len(trace)} VEH_TRACE lines, identical at com_maxFPS {', '.join(map(str, CAPS))}, {comparison}")
     return h.EXIT_PASS
 
 
