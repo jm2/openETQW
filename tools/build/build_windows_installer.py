@@ -149,8 +149,12 @@ def resolve_iscc_path(explicit_path: str | None) -> Path:
     env_path = os.environ.get("INNO_SETUP_ISCC")
     if env_path:
         candidates.append(Path(env_path))
-    for env_var in ("ProgramFiles(x86)", "ProgramFiles"):
-        base = os.environ.get(env_var)
+    # machine-wide installs, then a per-user one ("Install for me only", or
+    # winget --scope user), which Inno Setup puts in %LOCALAPPDATA%\Programs
+    bases = [os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramFiles")]
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    bases.append(str(Path(local_app_data) / "Programs") if local_app_data else None)
+    for base in bases:
         if base:
             candidates.append(Path(base) / "Inno Setup 7" / "ISCC.exe")
             candidates.append(Path(base) / "Inno Setup 6" / "ISCC.exe")
