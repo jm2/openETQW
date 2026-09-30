@@ -104,6 +104,13 @@ STUB_DECL_TEXT = (
     "// sdPlayerProperties::Init requires an ammo type named 'stroyent'.\n"
     "ammoDef stroyent {\n"
     "}\n"
+    "// sdGlobalProperties::Init registers one property per entry. The 'handle'\n"
+    "// branch was once removed by clang -O2 (an uninitialized read in the game's\n"
+    "// sdPropertyValue), which failed game->Init on the retail data only.\n"
+    "stringMap guiGlobals {\n"
+    "\t\"ciSmokeHandle\"\t\"handle\"\n"
+    "\t\"ciSmokeFloat\"\t\"float\"\n"
+    "}\n"
 )
 
 STARTUP_PHASES: tuple[tuple[str, str], ...] = (

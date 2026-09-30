@@ -390,6 +390,11 @@ if build_engine
     # engine exports nothing, so there is no import library to build or install
     export_dynamic: host_system != 'windows',
     win_subsystem: host_system == 'windows' ? 'windows' : 'console',
+    # macOS: the renderer reaches Vulkan only through SDL_Vulkan_LoadLibrary
+    # (VK_NO_PROTOTYPES), so b_asneeded's -dead_strip_dylibs would drop the
+    # loader. Keep it linked: a package bundles it (package_release.py refuses a
+    # client without it), and it finds the bundled MoltenVK through the ICD manifest
+    override_options: host_system == 'darwin' ? ['b_asneeded=false'] : [],
     install: true,
     install_dir: install_root,
     install_rpath: engine_install_rpath,
