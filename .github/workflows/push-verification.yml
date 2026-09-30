@@ -6,9 +6,8 @@
 # `meson install` stages: binaries, game module, base/vkprogs, licences) as a
 # workflow artifact, so every main commit has a downloadable engine build.
 #
-# One macOS build per architecture, the Vulkan one (MoltenVK over Metal); the
-# Intel leg keeps the x64 slice building for the universal2 candidate
-# (macos-universal2-candidate.yml). Pull requests run commit-validation.yml.
+# One macOS build, arm64 only (the owner dropped macOS x64, 2026-09-30), the
+# Vulkan one (MoltenVK over Metal). Pull requests run commit-validation.yml.
 #
 # Companion policy, retail data and experimental legs: as commit-validation.yml.
 
@@ -109,15 +108,6 @@ jobs:
           - id: macos-arm64
             name: macOS arm64 (Vulkan/MoltenVK)
             os: macos-26
-            platform: macos
-            cc: clang
-            cxx: clang++
-            vcpkg_triplet: ""
-            experimental: true
-            blocker: "the install and staged-payload steps are new and have not run on macOS"
-          - id: macos-x64
-            name: macOS Intel x64 (Vulkan/MoltenVK)
-            os: macos-26-intel
             platform: macos
             cc: clang
             cxx: clang++

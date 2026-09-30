@@ -214,16 +214,6 @@ jobs:
             vcpkg_triplet: ""
             experimental: true
             blocker: "the install and staged-payload steps are new and have not run on macOS"
-          # keeps the x64 slice of the universal2 candidate building
-          - id: macos-x64
-            name: macOS Intel x64 (Vulkan/MoltenVK)
-            os: macos-26-intel
-            platform: macos
-            cc: clang
-            cxx: clang++
-            vcpkg_triplet: ""
-            experimental: true
-            blocker: "the install and staged-payload steps are new and have not run on macOS"
           # Windows x64 builds and runs the retail suite locally (VS 2026, MSVC 19.51,
           # 2026-09-28) but has never run on a hosted runner: experimental until it does.
           - id: windows-x64-msvc

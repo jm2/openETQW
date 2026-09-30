@@ -5,10 +5,9 @@
 The role of openQ4's tools/build/prepare_macos_moltenvk.sh and its pinned
 OpenAL Soft preparation (jm2/openQ4 b37b1456): a package must not bundle
 Homebrew's libraries, which are built for the runner's macOS release (so the
-app would need that release, whatever LSMinimumSystemVersion says) and for
-one architecture only (so a universal2 app could not load them). This builds,
-from pinned sources and for the requested architectures with a macOS 11.0
-deployment target:
+app would need that release, whatever LSMinimumSystemVersion says). This
+builds, from pinned sources, for arm64 (macOS is arm64 only: the owner dropped
+macOS x64 on 2026-09-30) with a macOS 11.0 deployment target:
   SDL3             (libSDL3.0.dylib, sdl3.pc)
   Vulkan-Headers + Vulkan-Loader  (libvulkan.1.dylib, vulkan.pc)
 and fetches the pinned, checksum-verified MoltenVK release (libMoltenVK.dylib,
@@ -20,7 +19,7 @@ The engine and the game are then configured against --prefix
 and tools/build/package_release.py bundles the same files. Licence texts land
 in <prefix>/share/licenses/{SDL3,Vulkan-Loader,MoltenVK}/.
 
-Usage: prepare_macos_deps.py --arch {arm64,x64,universal2} --prefix DIR [--work-dir DIR]
+Usage: prepare_macos_deps.py --arch arm64 --prefix DIR [--work-dir DIR]
 """
 
 from __future__ import annotations
@@ -46,7 +45,7 @@ SOURCES = {
 MOLTENVK_VERSION = "v1.4.1"
 MOLTENVK_URL = f"https://github.com/KhronosGroup/MoltenVK/releases/download/{MOLTENVK_VERSION}/MoltenVK-macos.tar"
 MOLTENVK_SHA256 = "5ea0c259df7ded9a275444820f09cced54d6e5a7c7a31d262de62a5cdb7e15cf"
-ARCHITECTURES = {"arm64": "arm64", "x64": "x86_64", "universal2": "arm64;x86_64"}
+ARCHITECTURES = {"arm64": "arm64"}  # macOS is arm64 only (owner, 2026-09-30)
 
 
 def run(command: list[str], cwd: Path | None = None) -> None:
