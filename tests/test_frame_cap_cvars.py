@@ -25,7 +25,8 @@ chance: it read 100 in both orders of 1 and 2, and 144 in 4 and 5.
 
 The game module is staged into the synthetic base/ (--game-module), as
 tools/ci/dedicated_server_smoke.py does, so the server reaches its + commands in any
-build directory.
+build directory, with the stub decl game->Init needs on synthetic data
+(etqw_harness.write_synthetic_stub_decls): a failed game->Init stops the engine.
 
 Usage: test_frame_cap_cvars.py [--ded-binary PATH] [--game-module PATH] (meson passes
 the binary and the game module this build directory uses).
@@ -101,6 +102,7 @@ def main() -> int:
             if args.game_module:
                 module = Path(args.game_module)
                 shutil.copy2(module, root / "base" / module.name)
+            h.write_synthetic_stub_decls(root / "base")
             for file, text in configs.items():
                 (root / "base" / file).write_text(text, encoding="utf-8")
             return root

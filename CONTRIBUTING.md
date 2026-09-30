@@ -26,7 +26,9 @@ get CI back: both stay private until the owner decides to publish.
    `base/` must hold `pak000`–`pak008.pk4`; the language paks, such as `zpak_english000`–`003`,
    are optional (they carry the dialogue); the unpatched DVD set is not supported, and the engine
    refuses to start on it). A new test that runs the engine on synthetic data must pass
-   `+set fs_validateOfficialPaks 0`, as `tools/ci/dedicated_server_smoke.py` does. Check that
+   `+set fs_validateOfficialPaks 0`, as `tools/ci/dedicated_server_smoke.py` does. If it loads
+   the game module, it also needs the stub decl from `etqw_harness.write_synthetic_stub_decls`:
+   without it `game->Init()` fails, and a failed `game->Init()` stops the engine. Check that
    the retail-data tests ran rather than skipped: a run that skips them does not meet this gate.
    Put the result in the PR with the host, OS, architecture, commit and data set. The tests use
    fixed UDP ports, so run one suite at a time on a host.

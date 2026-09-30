@@ -1341,10 +1341,18 @@ void idCommonLocal::LoadGameDLL() {
 		return;
 	}
 
+	// A failed game->Init stops the engine, as in idTech 4 and openQ4: the
+	// exception goes on to idCommonLocal::Init, which exits through
+	// Sys_Error( "Error during initialization" ).  LoadGameDLL runs only from
+	// InitGame, inside Init's try block.  This used to log a warning and carry on
+	// without an initialized game: the Clang sdPropertyValue bug (openETQW-game
+	// #16, fixed by #17) failed game->Init that way, and the engine crashed only
+	// at the next map load, in idTypeInfo::RespondsTo, far from the cause.
 	try {
 		game->Init();
 	} catch ( const idException &e ) {
-		Warning( "idCommonLocal::LoadGameDLL: game->Init error: %s", e.error );
+		Printf( "idCommonLocal::LoadGameDLL: game->Init failed: %s\n", e.error );
+		throw;
 	}
 	idKeyInput::SetupBinds();
 }
@@ -1501,9 +1509,11 @@ void idCommonLocal::Init( int argc, const char** argv, const char* cmdline ) {
 		InitCommands();
 		InitSIMD();
 		InitGame( false );
-	} catch ( idException& ) {
-		// Error() has already printed the error banner.
-		Sys_Error( "Error during initialization" );
+	} catch ( idException& e ) {
+		// Error() has already printed the error banner. The cause goes on a second
+		// line too: a client started without a console (a desktop launcher, the
+		// Windows dialog) has nowhere else to show why it stopped.
+		Sys_Error( "Error during initialization\n%s", e.error );
 	}
 
 	// Startup commands (+spawnServer <map>, +exec ...) run before the ready

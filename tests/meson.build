@@ -258,7 +258,8 @@ if build_dedicated
   test(
     'retail-install-check',
     py,
-    args: [meson.project_source_root() / 'tests' / 'test_retail_install_check.py', '--ded-binary', retail_install_check_ded],
+    args: [meson.project_source_root() / 'tests' / 'test_retail_install_check.py', '--ded-binary', retail_install_check_ded,
+           '--game-module', game_module_built],
     workdir: meson.project_source_root(),
     suite: 'unit',
     timeout: 120,

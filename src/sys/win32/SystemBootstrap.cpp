@@ -869,7 +869,7 @@ void Sys_Error( const char *error, ... ) {
 	const bool redirected = errorType == FILE_TYPE_PIPE || errorType == FILE_TYPE_DISK ||
 		( errorType == FILE_TYPE_CHAR && !GetConsoleMode( errorHandle, &consoleMode ) );
 	if ( !redirected ) {
-		MessageBoxA( NULL, text, GAME_NAME, MB_OK | MB_ICONERROR );
+		MessageBoxA( NULL, text, GAME_NAME, MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND );
 	}
 #endif
 	fflush( NULL );
