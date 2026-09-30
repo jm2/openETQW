@@ -193,6 +193,18 @@ if build_engine
     timeout: 180,
     is_parallel: false,
   )
+  # M5 step 5a: the vehicle replay (g_determinismTest 2) against the recorded
+  # golden; the local merge gate of every game PR touching vehicles or physics
+  test(
+    'vehicle-physics-golden',
+    py,
+    args: [meson.project_source_root() / 'tests' / 'test_vehicle_physics_golden.py'],
+    env: client_test_env,
+    workdir: meson.project_source_root(),
+    suite: 'integration',
+    timeout: 360,
+    is_parallel: false,
+  )
   test(
     'campaign-client-maps',
     py,
