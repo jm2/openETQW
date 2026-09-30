@@ -16,15 +16,6 @@ name: macOS Debug
 on:
   workflow_dispatch:
     inputs:
-      arch:
-        description: "Architecture to build"
-        required: true
-        default: arm64
-        type: choice
-        options:
-          - arm64
-          - x64
-          - both
       moltenvk_probe:
         description: "Run vulkaninfo against MoltenVK on the runner (best effort: a hosted runner may have no usable Metal device)"
         required: true
@@ -44,7 +35,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: openetqw-macos-debug-${{ github.ref }}-${{ inputs.arch }}
+  group: openetqw-macos-debug-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -58,12 +49,12 @@ env:
 jobs:
   macos-debug:
     name: macOS ${{ matrix.arch }} Debug (Vulkan/MoltenVK)
-    runs-on: ${{ matrix.arch == 'arm64' && 'macos-26' || 'macos-26-intel' }}
+    runs-on: macos-26  # macOS is arm64 only (owner, 2026-09-30)
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
-        arch: ${{ fromJSON(inputs.arch == 'both' && '["arm64","x64"]' || format('["{0}"]', inputs.arch)) }}
+        arch: [arm64]
     env:
       OPENETQW_GAME_REPO: ${{ github.workspace }}/openETQW-game
     defaults:

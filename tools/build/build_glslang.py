@@ -8,15 +8,14 @@ through r_vkShaderCompiler, $VULKAN_SDK, the executable's directory, then PATH.
 A package therefore ships one next to the engine. This builds it from a pinned
 Khronos glslang release so every package carries the same compiler: static,
 GLSL only (no HLSL front end, no SPIRV-Tools optimizer, which the engine never
-asks for), with a static C runtime on Windows, for macOS 11.0 and, on request,
-as a universal2 binary.
+asks for), with a static C runtime on Windows, and for macOS 11.0.
 
 Output (--output-dir): glslangValidator[.exe] and LICENSE.txt, glslang's
 licence text, which a package installs under licenses/glslang/.
 
 Usage:
   build_glslang.py --output-dir DIR [--work-dir DIR] [--tag TAG --commit SHA]
-                   [--macos-universal2] [--cmake-arg ARG ...]
+                   [--cmake-arg ARG ...]
 """
 
 from __future__ import annotations
@@ -51,7 +50,7 @@ def fetch(source: Path, tag: str, commit: str) -> None:
     run(["git", "-C", str(source), "checkout", "--quiet", "--detach", commit])
 
 
-def configure_and_build(source: Path, build: Path, universal2: bool, extra: list[str]) -> Path:
+def configure_and_build(source: Path, build: Path, extra: list[str]) -> Path:
     args = [
         "cmake", "-S", str(source), "-B", str(build),
         "-DCMAKE_BUILD_TYPE=Release",
@@ -67,8 +66,6 @@ def configure_and_build(source: Path, build: Path, universal2: bool, extra: list
     ]
     if sys.platform == "darwin":
         args.append(f"-DCMAKE_OSX_DEPLOYMENT_TARGET={MACOS_DEPLOYMENT_TARGET}")
-        if universal2:
-            args.append("-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64")
     # Windows: the Visual Studio generator finds MSVC without a developer prompt
     if shutil.which("ninja") and not sys.platform.startswith("win"):
         args += ["-G", "Ninja"]
@@ -87,18 +84,15 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--work-dir", type=Path, default=None, help="source and build tree (default: a temporary directory, removed after)")
     parser.add_argument("--tag", default=GLSLANG_TAG)
     parser.add_argument("--commit", default=GLSLANG_COMMIT)
-    parser.add_argument("--macos-universal2", action="store_true", help="build arm64 and x86_64 into one binary")
     parser.add_argument("--cmake-arg", action="append", default=[], help="extra CMake argument (repeatable)")
     args = parser.parse_args(argv)
-    if args.macos_universal2 and sys.platform != "darwin":
-        parser.error("--macos-universal2 needs a macOS host")
 
     work = args.work_dir or Path(tempfile.mkdtemp(prefix="openetqw-glslang-"))
     try:
         source = work / "glslang"
         if not (source / ".git").is_dir():
             fetch(source, args.tag, args.commit)
-        binary = configure_and_build(source, work / "build", args.macos_universal2, args.cmake_arg)
+        binary = configure_and_build(source, work / "build", args.cmake_arg)
         args.output_dir.mkdir(parents=True, exist_ok=True)
         suffix = ".exe" if sys.platform.startswith("win") else ""
         target = args.output_dir / f"glslangValidator{suffix}"

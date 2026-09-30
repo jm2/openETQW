@@ -12,15 +12,6 @@ name: macOS Sanitizer
 on:
   workflow_dispatch:
     inputs:
-      arch:
-        description: "Architecture to build"
-        required: true
-        default: arm64
-        type: choice
-        options:
-          - arm64
-          - x64
-          - both
       companion_ref:
         description: "openETQW-game full commit SHA, branch or tag instead of tools/ci/companion.ref (empty: use the pin)"
         required: false
@@ -31,7 +22,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: openetqw-macos-sanitizer-${{ github.ref }}-${{ inputs.arch }}
+  group: openetqw-macos-sanitizer-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -45,12 +36,12 @@ env:
 jobs:
   macos-sanitizer:
     name: macOS ${{ matrix.arch }} ASan+UBSan (Vulkan/MoltenVK)
-    runs-on: ${{ matrix.arch == 'arm64' && 'macos-26' || 'macos-26-intel' }}
+    runs-on: macos-26  # macOS is arm64 only (owner, 2026-09-30)
     timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
-        arch: ${{ fromJSON(inputs.arch == 'both' && '["arm64","x64"]' || format('["{0}"]', inputs.arch)) }}
+        arch: [arm64]
     env:
       OPENETQW_GAME_REPO: ${{ github.workspace }}/openETQW-game
       # idLib is linked into both the engine and the game module (as in retail),

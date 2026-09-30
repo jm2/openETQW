@@ -210,14 +210,9 @@ def write_readme(target: Path, platform: str, arch: str, tag: str, sources: dict
 
 
 def check_staged(install: Path, platform: str, arch: str) -> None:
-    if arch == "universal2":
-        if platform != "macos":
-            raise PackageError("universal2 is a macOS architecture")
-        required = ["openETQW-client_universal2", "openETQW-ded_universal2", "game_arm64.dylib", "game_x64.dylib"]
-    else:
-        exe = ".exe" if platform == "windows" else ""
-        module = {"linux": ".so", "windows": ".dll", "macos": ".dylib"}[platform]
-        required = [f"openETQW-client_{arch}{exe}", f"openETQW-ded_{arch}{exe}", f"game_{arch}{module}"]
+    exe = ".exe" if platform == "windows" else ""
+    module = {"linux": ".so", "windows": ".dll", "macos": ".dylib"}[platform]
+    required = [f"openETQW-client_{arch}{exe}", f"openETQW-ded_{arch}{exe}", f"game_{arch}{module}"]
     required += ["base/vkprogs", "licenses/openETQW/LICENSE", "licenses/ETQW-SDK/EULA_SDK_ETQW.txt"]
     missing = [r for r in required if not (install / r).exists()]
     if missing:
@@ -438,16 +433,17 @@ def package_macos(args, install: Path, work: Path, licenses: dict[str, Path], so
     executables = [macos_dir / client, macos_dir / f"openETQW-ded_{arch}"]
     for exe in executables:
         copy_file(install / exe.name, exe, 0o755)
-    modules = sorted(install.glob("game_*.dylib"))
-    for module in modules:
-        copy_file(module, frameworks / module.name, 0o755)
+    # this architecture's module only: a leftover module of another architecture in a
+    # reused install tree must not be bundled (macOS is arm64 only)
+    module = install / f"game_{arch}.dylib"
+    copy_file(module, frameworks / module.name, 0o755)
     copy_tree(install / "base", resources / "base")
     copy_tree(install / "licenses", resources / "licenses")
     copy_file(args.glslang_dir / "glslangValidator", macos_dir / "glslangValidator", 0o755)
 
     for exe in executables:
         add_rpath(exe, "@executable_path/../Frameworks")
-    images = executables + [frameworks / m.name for m in modules]
+    images = executables + [frameworks / module.name]
     lib_dirs = [d.resolve() for d in args.macos_lib_dir]
     bundled = bundle_macos_dependencies(images, frameworks, lib_dirs)
     log(f"bundled libraries: {', '.join(bundled) or 'none'}")
@@ -538,24 +534,15 @@ def git_head(path: Path) -> str:
     return completed.stdout.strip() if completed.returncode == 0 else "unknown"
 
 
-def package_sources(root: Path, game: Path, install: Path, arch: str) -> dict[str, str]:
+def package_sources(root: Path, game: Path) -> dict[str, str]:
     """The engine and game commits the package was built from, for its README."""
-    # a universal2 tree records the commits both thin builds came from
-    # (assemble_macos_universal2.py); the job that packages it has no companion checkout
-    info = install / "universal2-info.json"
-    if arch == "universal2" and info.is_file():
-        recorded = json.loads(info.read_text(encoding="utf-8"))
-        missing = [key for key in (PRODUCT, "openETQW-game") if not recorded.get(key)]
-        if missing:
-            raise PackageError(f"{info} names no commit for {', '.join(missing)}")
-        return {PRODUCT: recorded[PRODUCT], "openETQW-game": recorded["openETQW-game"]}
     return {PRODUCT: git_head(root), "openETQW-game": git_head(game)}
 
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--platform", choices=("linux", "windows", "macos"), required=True)
-    parser.add_argument("--arch", choices=("x64", "arm64", "universal2"), required=True)
+    parser.add_argument("--arch", choices=("x64", "arm64"), required=True)
     parser.add_argument("--install-dir", type=Path, required=True, help="the tree meson install staged")
     parser.add_argument("--version-tag", required=True, help="release version without the v, e.g. 0.1.0")
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -576,8 +563,8 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     if not TAG_RE.match(args.version_tag):
         parser.error(f"--version-tag must look like 1.2.3 or 1.2.3-rc.1, got {args.version_tag!r}")
-    if args.arch == "universal2" and args.platform != "macos":
-        parser.error("universal2 is a macOS architecture")
+    if args.platform == "macos" and args.arch != "arm64":
+        parser.error("a macOS package is arm64 only (the owner dropped macOS x64, 2026-09-30)")
     host = {"linux": "linux", "darwin": "macos", "win32": "windows"}.get(sys.platform)
     if host != args.platform:
         parser.error(f"a {args.platform} package is made on a {args.platform} host (this is {sys.platform})")
@@ -594,7 +581,7 @@ def main(argv: list[str]) -> int:
     game = args.game_repo or Path(os.environ.get("OPENETQW_GAME_REPO", "") or root.parent / "openETQW-game")
 
     try:
-        sources = package_sources(root, game, install, args.arch)
+        sources = package_sources(root, game)
         check_staged(install, args.platform, args.arch)
         packager = {"linux": package_linux, "windows": package_windows, "macos": package_macos}[args.platform]
         outputs = packager(args, install, work, licenses, sources)
