@@ -68,6 +68,7 @@ NOT_INTEGRATION = {
     # run the dedicated server on synthetic data only
     "tests/test_retail_install_check.py",
     "tests/test_retired_cvars.py",
+    "tests/test_frame_cap_cvars.py",
 }
 STUB_ARCHES = ("arm64", "x64")
 STUB_NAMES = ("openETQW-ded", "openETQW-client")

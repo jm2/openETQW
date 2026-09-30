@@ -378,7 +378,7 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
   - OpenETQW's vehicle-view interpolation writes presentation values into state the next tick reads (`unlockedDraw` stays set until the next tick or snapshot);
   - tick frames are drawn at the tick boundary (a 30 Hz judder at any cap);
   - a mixed-cap live session and a cap change during play;
-  - `com_unlockFPS` is ignored (D8, plan step 11). `com_unlock_avgFrames`/`safetyMargin`/`timingMethod` are removed (D9, step 12, 2026-09-30).
+  - `com_unlockFPS 0` draws once per tick and `com_unlock_maxFPS` is a last-write-wins alias of `com_maxFPS` (D8, plan step 11, 2026-09-30). `com_unlock_avgFrames`/`safetyMargin`/`timingMethod` are removed (D9, step 12, 2026-09-30).
 
 **M7 (public release): not met.** None of the six release-gate items is cleared yet. Item 2's SDK exceptions are approved (A6) and their condition, the SDK EULA in every engine package, is met (PR #19); the SDK files in engine history still hold it open (next section). Also missing:
 - packages and packaging scripts;
@@ -453,7 +453,7 @@ None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline
 | # | Step | Host / OS needed | Depends on | Acceptance test |
 |---|---|---|---|---|
 | 1 | **After the Windows merge (the owner waived the pre-merge run on 2026-09-29): done.** macOS: 34/34 on `main` cba54bb once `fix/macos-strbuilder-test` lets it build (Demonstrated). Linux: 34/34 on `main` cba54bb on `antec` (2026-09-30), after the reviewed #24/#25 heads (which include #23) passed 34/34 | — | `fix/macos-strbuilder-test` merged | Done on both hosts |
-| 2 | M5 in the order of `docs/m5-plan.md` (done: the D1 test change, and step 5a, the vehicle physics guard, `vehicle-physics-golden`): steps 6–17, with the vehicle stages of `docs/vehicle-responsiveness.md` in steps 6, 8, 9, 13, 14, 14a and 14b | macOS arm64 | none | Each step's test (see the plan) |
+| 2 | M5 in the order of `docs/m5-plan.md` (done: the D1 test change; step 5a, the vehicle physics guard, `vehicle-physics-golden`; steps 11 and 12, the `com_unlock_*` CVars): steps 6–17, with the vehicle stages of `docs/vehicle-responsiveness.md` in steps 6, 8, 9, 13, 14, 14a and 14b | macOS arm64 | none | Each step's test (see the plan) |
 | 3 | Windows follow-ups after the merge: a run on an NVIDIA or Intel GPU (the 4096 allocation limit was only simulated here); the hosted Windows CI leg once Actions minutes are back | Windows | step 1 | Full suite on that GPU; the CI leg green |
 | 4 | Provenance and license records: post-split files and openQ4 donor commits in the manifest, SPDX lines, the minizip relabel (release gate 3) | any | none | Manifest covers every tracked file; game `check_spdx.py` passes |
 | 5 | M4 gameplay-driven tests: classes, damage and kills, deployable delivery, stopwatch and campaign transitions | macOS arm64 | none | New meson tests pass on the 1.5 data |

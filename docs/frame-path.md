@@ -531,6 +531,8 @@ These paths let a render frame change what the next tick, a snapshot or AoR code
 
 ### 7.3 `com_unlockFPS 0` today
 
+Since M5 step 11 (2026-09-30), `com_unlockFPS 0` draws once per tick: an in-game frame that ran no tick is neither prepared nor drawn (`idCommonLocal::Frame`, `com_frameInGame`), and `com_unlock_maxFPS` is a last-write-wins alias of `com_maxFPS`. The bullets below describe the engine before that change.
+
 - The engine never reads the CVar. It still calls `ClientUpdateView` on render-only frames (`src/framework/Session.cpp:342-345`; `src/framework/async/AsyncClient.cpp:351-355`).
 - The game's `ClientUpdateView` does not check the CVar either (`game repo: src/game/Game_local.cpp:5957-5965`; `SDK: game/Game_local.cpp:4874-4881`). The base-draw rewind does check it (`game repo: src/game/PlayerView.cpp:886`).
 - Result *(inferred, not observed)*: base draws show origin n while render-only frames interpolate from n-1, so the view steps back once per tick.

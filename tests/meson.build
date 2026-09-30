@@ -252,6 +252,18 @@ if build_dedicated
     timeout: 120,
   )
 
+  # com_unlock_maxFPS as a last-write-wins alias of com_maxFPS (M5 step 11, D8), on synthetic
+  # data; the game module is staged into the synthetic base/
+  test(
+    'frame-cap-cvars',
+    py,
+    args: [meson.project_source_root() / 'tests' / 'test_frame_cap_cvars.py', '--ded-binary', retail_install_check_ded,
+           '--game-module', game_module_built],
+    workdir: meson.project_source_root(),
+    suite: 'unit',
+    timeout: 120,
+  )
+
   # the retired com_unlock_* timing CVars (M5 step 12, D9), on synthetic data; the game
   # module is staged into the synthetic base/ (it need not sit beside the binary)
   test(

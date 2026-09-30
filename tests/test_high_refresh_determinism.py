@@ -8,7 +8,11 @@ zero simulation drift or physics divergence on stock map Valley (maps/valley.wor
 
 Validates:
 1. Fixed tick-indexed command stream replayed at caps 60, 120, 144 and 240 and uncapped
-   (com_maxFPS 0, which also measures this host's frame-rate ceiling).
+   (com_maxFPS 0, which also measures this host's frame-rate ceiling), and once more at
+   cap 240 with com_unlockFPS 0 (M5 plan step 11, D8: the renderer does not go faster
+   than the ticks). That schedule is compared like the others, and instead of the cap
+   rules its drawn frames (FRAME_TIMING draws=) must run at the tick rate, 24-31 a
+   second.
 2. Bit-for-bit identical CRC32 simulation hashes (SIM_HASH) across all schedules, and
    identical SIM_VIEW lines: state each tick produces that later ticks read back and that
    a render frame could write into (the view angles after UpdateViewAngles, the tick's
@@ -136,7 +140,9 @@ KNOWN_VIEW_LEAK = {"field": "wlog", "from_tick": 92, "to_tick": 150, "min_ticks"
 FRAME_TIMING_RE = re.compile(
     r"FRAME_TIMING: window_ms=([\d.]+) frames=(\d+) ticks=(\d+) cap=(-?\d+)"
     r" dt_p50=([\d.]+) dt_p95=([\d.]+) dt_p99=([\d.]+) dt_max=([\d.]+)"
+    r"(?:.*? draws=(\d+))?"
 )
+LOCKED = -240           # the schedule at cap 240 with com_unlockFPS 0 (M5 plan step 11, D8)
 PLAY_MIN_TICKS = 25     # a FRAME_TIMING window with fewer game ticks is loading or menus
 CAP_OVERSHOOT = 1.03    # a schedule may run at most this much above its cap
 PACED_FRACTION = 0.98   # a cap <= REACH_FRACTION x the uncapped rate must be held this closely
@@ -151,7 +157,9 @@ def play_timing(lines: list[str]) -> dict | None:
     ms = sum(float(m.group(1)) for m in windows)
     frames = sum(int(m.group(2)) for m in windows)
     medians = sorted(float(m.group(5)) for m in windows)
+    draws = [int(m.group(9)) for m in windows if m.group(9) is not None]
     return {
+        "draws_ps": sum(draws) * 1000.0 / ms if len(draws) == len(windows) else None,
         "caps": sorted({int(m.group(4)) for m in re.finditer(FRAME_TIMING_RE, "\n".join(lines))}),
         "windows": len(windows),
         "fps": 1000.0 / medians[len(medians) // 2],  # from the median frame interval
@@ -163,6 +171,8 @@ def play_timing(lines: list[str]) -> dict | None:
 
 
 def cap_label(fps: int) -> str:
+    if fps < 0:
+        return f"{-fps} Hz, com_unlockFPS 0"
     return "uncapped" if fps == 0 else f"{fps} Hz"
 
 
@@ -194,7 +204,8 @@ def run_determinism_schedule(
         "+set", "fs_game", "base",
         "+set", "si_rules", "sdGameRulesObjective",
         "+set", "r_swapInterval", "0",
-        "+set", "com_maxFPS", str(fps),
+        "+set", "com_maxFPS", str(abs(fps)),
+        "+set", "com_unlockFPS", "0" if fps < 0 else "1",
         "+set", "com_logFrameTiming", "1",
         "+set", "g_determinismTest", "1",
         "+set", "g_simHash", "1",
@@ -350,7 +361,7 @@ def main() -> int:
         print(f"[SKIP] Retail 1.5 data incomplete at {DATA_PATH / 'base'} (missing: {', '.join(missing)}). Skipping test.")
         return 77  # Meson skip code
 
-    rates = [60, 120, 144, 240, 0]  # 0 = uncapped: this host's ceiling
+    rates = [60, 120, 144, 240, 0, LOCKED]  # 0 = uncapped: this host's ceiling
     results: dict[int, dict[int, SimHashEntry]] = {}
     frames: dict[int, int] = {}
     timing: dict[int, dict | None] = {}
@@ -474,10 +485,19 @@ def main() -> int:
                   f" uncapped {ceiling:.1f}) (the host's rate, reported, not failed: D1)")
         if ceiling < fps:
             print(f"  [NOTE] {cap_label(fps)} is not reachable on this host: uncapped play runs at {ceiling:.1f} fps")
+    t = timing[LOCKED]
+    if t is not None:
+        # com_unlockFPS 0: one draw per tick, whatever the cap
+        if t["draws_ps"] is None:
+            rate_failures.append(f"{cap_label(LOCKED)}: FRAME_TIMING carries no draws= count (an engine before M5 step 11)")
+        else:
+            print(f"  {cap_label(LOCKED)}: {t['draws_ps']:.1f} frames drawn a second, {t['avg_fps']:.1f} frames run")
+            if not 24.0 <= t["draws_ps"] <= 31.0:
+                rate_failures.append(f"{cap_label(LOCKED)}: {t['draws_ps']:.1f} frames drawn a second, not the tick rate (24-31)")
     for fps in rates:
         t = timing[fps]
-        if t is not None and t["caps"] != [fps]:
-            rate_failures.append(f"{cap_label(fps)}: FRAME_TIMING reported caps {t['caps']}, expected [{fps}]")
+        if t is not None and t["caps"] != [abs(fps)]:
+            rate_failures.append(f"{cap_label(fps)}: FRAME_TIMING reported caps {t['caps']}, expected [{abs(fps)}]")
     for f in rate_failures:
         print(f"  [FAIL] {f}")
 
@@ -574,7 +594,8 @@ def main() -> int:
     print(f"  {len(veh[rates[0]])} VEH_TRACE lines, identical at every cap")
     assert not rate_failures, f"Frame rate failures: {rate_failures}"
 
-    print("\n[PASSED] 100% BIT-FOR-BIT IDENTICAL SIMULATION AT CAPS 60, 120, 144, 240 AND UNCAPPED; FRAME RATES WITHIN BOUNDS.")
+    print("\n[PASSED] 100% BIT-FOR-BIT IDENTICAL SIMULATION AT CAPS 60, 120, 144, 240, UNCAPPED AND 240 WITH"
+          " com_unlockFPS 0; FRAME RATES WITHIN BOUNDS.")
     return 0
 
 

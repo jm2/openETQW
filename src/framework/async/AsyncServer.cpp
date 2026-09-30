@@ -434,6 +434,10 @@ void idAsyncServer::RunFrame() {
 		return;
 	}
 	gameTimeResidual += delta;
+	if ( localClientNum >= 0 ) {
+		// a listen host draws its game: with com_unlockFPS 0, only on frames that tick
+		com_frameInGame = true;
+	}
 
 	// the listen server host changed a user info cvar (ui_name, ...)
 	if ( localClientNum >= 0 && ( cvarSystem->GetModifiedFlags() & CVAR_USERINFO ) != 0 ) {

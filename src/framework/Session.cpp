@@ -316,6 +316,7 @@ void idSessionLocal::Frame() {
 	}
 
 	if ( mapSpawned && !idAsyncNetwork::IsActive() ) {
+		com_frameInGame = true;
 		int tics = latchedTicNumber - lastGameTic;
 		if ( tics < 0 ) {
 			// A clock reset must not turn into an enormous unsigned catch-up.
@@ -339,7 +340,8 @@ void idSessionLocal::Frame() {
 		// Without that call, PlayerView treats every foreground render as another
 		// full-tic draw and repeatedly offsets the weapon by the same origin delta.
 		// That is visible as rapid weapon drift/flicker whenever the player moves.
-		if ( renderOnlyFrame && mapSpawned && game != NULL ) {
+		// com_unlockFPS 0 draws no render-only frame (idCommonLocal::Frame), so none is prepared
+		if ( renderOnlyFrame && mapSpawned && game != NULL && com_unlockFPS.GetBool() ) {
 			const usercmd_t cmd = usercmdGen->GetDirectUsercmd();
 			game->ClientUpdateView( cmd, Com_GetGameTimeLeft() );
 		}

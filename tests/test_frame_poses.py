@@ -62,6 +62,9 @@ Checks (0.25 s dropped at each edge of a phase; a phase needs >= 20 draw pairs):
                position stays within 0.1 u of where it started and the view angles
                within 0.05 degrees, so slow drift is caught too (the viewmodel's
                angles are left out: its idle sway turns it by about 0.01 degrees a draw)
+After the negative control, com_unlockFPS 0 (M5 plan step 11, D8) at the highest cap,
+while the observer walks: every draw is a base draw (ud=0) of a new game time (at
+most max(1, 1%) repeats), at 24-31 draws a second, the tick rate.
 A check that the code is expected to fail today is listed in KNOWN_GAPS with the shape
 the failure must have: 'per_tick' (the pose changes once per tick: it changes on the
 draw pairs that cross a tick and on no others, with max(1, 5%) of the pairs allowed to
@@ -165,6 +168,20 @@ def rate(poses):
     if len(poses) < 2:
         return 0.0
     return (len(poses) - 1) * 1e6 / (poses[-1]["us"] - poses[0]["us"])
+
+
+def locked_check(poses, cap):
+    """com_unlockFPS 0 (M5 plan step 11, D8): the renderer does not go faster than the
+    ticks, so at a cap above 30 each draw is a base draw (ud=0) of a new game time, and the
+    draw rate stays at the tick rate (below it only when one frame runs two ticks)."""
+    pairs = list(zip(poses, poses[1:]))
+    n = len(pairs)
+    same = sum(1 for a, b in pairs if b["gt"] == a["gt"])
+    unlocked = sum(1 for p in poses if p["ud"] == 1)
+    r = rate(poses)
+    ok = n >= MIN_PAIRS and same <= allowed_misses(n) and unlocked == 0 and 24.0 <= r <= 31.0
+    return {"ok": ok, "detail": f"{r:.1f} draws/s at cap {cap} (need 24..31); {same} of {n} draw pairs repeat a game time"
+                                f" (allowed {allowed_misses(n)}); {unlocked} unlocked draws (allowed 0)"}
 
 
 def phase_errors(poses):
@@ -395,6 +412,12 @@ def replay(path, mode, slot):
             results[(cap, check)] = res
     print(f"[replay {mode}] uncapped: {ceiling:.1f} fps")
     failures = judge(mode, results)
+    locked = [int(ln.split()[2]) for ln in lines if ln.startswith("FP_BEGIN locked ")]
+    if locked:
+        lk = locked_check(seg("locked", locked[0]), locked[0])
+        print(f"[replay {mode}] com_unlockFPS 0: {lk['detail']}")
+        if not lk["ok"]:
+            failures.append(f"com_unlockFPS 0 does not draw once per tick: {lk['detail']}")
     for f in failures:
         print(f"  - {f}")
     return 1 if failures else 0
@@ -560,6 +583,20 @@ def main(argv):
         if mode == "join" and (c4["ok"] or c5["ok"] or c4["n"] < MIN_PAIRS or c5["n"] < MIN_PAIRS):
             failures.append(f"negative control: with the unlock updates off the A4/A5 detectors did not fail"
                             f" ({c4['detail']}; {c5['detail']})")
+
+        # com_unlockFPS 0 (M5 plan step 11, D8): one draw per tick, at the highest cap
+        for cv in ("g_unlock_updateAngles", "g_unlock_updateViewpos", "g_unlock_interpolateMoving"):
+            obs.send(f"reset {cv}")
+        cap = caps[-1]
+        obs.send(f"set com_maxFPS {cap}")
+        obs.send("set com_unlockFPS 0")
+        time.sleep(1.0)
+        p_locked = phase("locked", cap, walk_proc(obs), args.phase_seconds)
+        obs.send("set com_unlockFPS 1")
+        lk = locked_check(p_locked, cap)
+        print(f"[{mode}] com_unlockFPS 0: {lk['detail']}")
+        if not lk["ok"]:
+            failures.append(f"com_unlockFPS 0 does not draw once per tick: {lk['detail']}")
     except Failed as e:
         failures.append(str(e))
     finally:

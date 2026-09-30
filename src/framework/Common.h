@@ -81,6 +81,12 @@ extern idCVar		com_videoRam;
 // and idAsyncServer::RunFrame add to it; idCommonLocal::Frame resets it and reports it
 // (com_logFrameTiming)
 extern int			com_frameTicks;
+// a game ran in the current host frame, so its ticks fall due as time passes: set by
+// idSessionLocal::Frame (single player), idAsyncClient::RunFrame (in game) and a listen
+// host's idAsyncServer::RunFrame; idCommonLocal::Frame resets it. With com_unlockFPS 0
+// such a frame is drawn only when it ran a tick (M5 plan step 11, D8)
+extern bool			com_frameInGame;
+extern idCVar		com_unlockFPS;
 extern idCVar		com_maxFPS;
 extern idCVar		com_unlock_maxFPS;
 
