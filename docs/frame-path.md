@@ -512,9 +512,9 @@ These paths let a render frame change what the next tick, a snapshot or AoR code
 | CVar | Default and flags | Engine reads | Game reads | Retail meaning (evidence) |
 |---|---|---|---|---|
 | `com_unlockFPS` | 1; BOOL, ARCHIVE, PROFILE (`src/framework/Common.cpp:78-79`) | **none** | found at `game repo: src/game/Game_local.cpp:2481`; read at `game repo: src/game/PlayerView.cpp:886` and at `game repo: src/game/Entity.cpp:1737` (compiled out) | Help text: "allow renderer to go faster than game ticks". `pak000: loffy.cfg:134`: "Set to "0" for fixed fps, i.e. 30 fps"; `pak000: visuals.cfg:26` sets 1 |
-| `com_unlock_avgFrames` | 4, range 1-10, NOCHEAT (`src/framework/Common.cpp:80-81`) | **none** | none | Help text: "average out render times over n frames for extra renders management" |
-| `com_unlock_safetyMargin` | 0.1, NOCHEAT (`src/framework/Common.cpp:82-83`) | **none** | none | Help text: "percentage safety margin under which not to trigger an extra render" |
-| `com_unlock_timingMethod` | 2, NOCHEAT (`src/framework/Common.cpp:84-85`) | **none** | none | Help text: 0 = whenever they fit; 1 = on boundaries of framerate multiples of 30; 2 = like 1, estimating from total previous time. `pak000: berzerkr.cfg:10-19`: 0 max FPS, 1 smoother, 2 smoothest and lowest FPS. `pak000: visuals.cfg:28` sets 1 |
+| `com_unlock_avgFrames` | removed 2026-09-30 (M5 step 12, D9); was 4, range 1-10, NOCHEAT (`src/framework/Common.cpp:80-81`) | **none** | none | Help text: "average out render times over n frames for extra renders management" |
+| `com_unlock_safetyMargin` | removed 2026-09-30 (M5 step 12, D9); was 0.1, NOCHEAT (`src/framework/Common.cpp:82-83`) | **none** | none | Help text: "percentage safety margin under which not to trigger an extra render" |
+| `com_unlock_timingMethod` | removed 2026-09-30 (M5 step 12, D9); was 2, NOCHEAT (`src/framework/Common.cpp:84-85`) | **none** | none | Help text: 0 = whenever they fit; 1 = on boundaries of framerate multiples of 30; 2 = like 1, estimating from total previous time. `pak000: berzerkr.cfg:10-19`: 0 max FPS, 1 smoother, 2 smoothest and lowest FPS. `pak000: visuals.cfg:28` sets 1 |
 | `com_maxFPS` | 60; INTEGER, ARCHIVE (`src/framework/Common.cpp:86-87`) | `src/framework/Common.cpp:1074-1089` | none | Not retail (OE 8191cae) |
 | `com_unlock_maxFPS` | 60, NOCHEAT (`src/framework/Common.cpp:88-89`) | `src/framework/Common.cpp:1074-1089` (mirrored) | none | Help text: "only works in timing methods 1 & 2". `pak000: visuals.cfg:27` sets 120; `pak000: gizm.cfg:81` sets 0 |
 
@@ -645,7 +645,7 @@ Remaining stepped paths must be listed rather than claimed as interpolated, and 
 
 **Pacing and other gaps in the frame path**
 - Caps above 120 cannot be reached on the development Mac in a window: presentation waits for its 120 Hz display (measured, §7.5). Every replay schedule also has one ~410–540 ms stall right after spawn: first-use material and render-program loading (§7.5).
-- Three CVars are read nowhere: `com_unlock_avgFrames`, `com_unlock_safetyMargin` and `com_unlock_timingMethod` (§7.2). CHARTER §7.5 requires every exposed pacing CVar to do something.
+- Three CVars were read nowhere: `com_unlock_avgFrames`, `com_unlock_safetyMargin` and `com_unlock_timingMethod` (§7.2). CHARTER §7.5 requires every exposed pacing CVar to do something; they were removed on 2026-09-30 (M5 step 12, D9).
 - Fixed 2026-09-25: in client and listen-host sessions `GuiFrameEvents` → `uiManager->Update` did not run per frame, only out of sequence during loads and wipes (`src/framework/Session.cpp:224-226`), and no other route updated the GUIs: with `g_guiSpeeds 1` a joined Vulkan client made 0 GUI updates in 5 s of play, against 277 in single player. `idCommonLocal::Frame` now calls it once per frame for a client or listen host (`src/framework/Common.cpp:1073`), as Doom 3's multiplayer branch did; `client-network-join`/`-listen` require >= 40 updates a second (measured 60/s at cap 60).
 - Render-only input samples have side effects (§5): the weapon lock can clear between ticks, the `m_smooth` window is counted in samples, and mouse-strafe motion from render-only samples is dropped.
 - Windows `Sleep( 1 )` sits outside the pacer (§7.5).

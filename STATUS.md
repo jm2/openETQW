@@ -242,7 +242,7 @@ Notes on the per-map results:
   - Vehicle cameras, hulls, riders and mouse look in every seat step at 30 Hz; how to make them smooth and responsive without changing physics is `docs/vehicle-responsiveness.md` (the vehicle stages of the M5 plan).
   - Vehicle handling is guarded since M5 step 5a (engine #28, game #15): `vehicle-physics-golden` compares the vehicle replay's per-tick trace bit-exactly with a golden per toolchain (`linux-x64-gcc16`, and since 2026-09-30 `macos-arm64-appleclang21` and `windows-x64-msvc19`); a toolchain without one is compared with the Linux golden at fixed precision. Tracked vehicles, walkers, jetpacks, hover and jet controls are not covered.
   - On a network client, aircraft probably apply one tick of reversed cyclic after each snapshot: `sdAirVehicleControl`'s `oldCmdAngles` and `collective` are neither networked nor rolled back during re-prediction (inferred from the code; retail has the same code). M5 plan step 14a.
-  - `com_unlock_avgFrames`, `com_unlock_safetyMargin` and `com_unlock_timingMethod` are registered (`src/framework/Common.cpp:80–85`) and read nowhere (D9: remove them, plan step 12).
+  - `com_unlock_avgFrames`, `com_unlock_safetyMargin` and `com_unlock_timingMethod` were registered and read nowhere; removed 2026-09-30 (D9, plan step 12; ledger row 053). Retail-style configs that set them still load cleanly (meson `retired-cvars`).
   - Other per-frame effects of late view-angle sampling that the audit listed (the mouse smoothing history, `game->UsercommandCallback`) were not reviewed (2026-09-24 audit).
 - **Silent engine no-ops** in `src/framework/async/NetworkSystem.cpp`:
   - `ServerGetClientNetId` (:245);
@@ -378,7 +378,7 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
   - OpenETQW's vehicle-view interpolation writes presentation values into state the next tick reads (`unlockedDraw` stays set until the next tick or snapshot);
   - tick frames are drawn at the tick boundary (a 30 Hz judder at any cap);
   - a mixed-cap live session and a cap change during play;
-  - `com_unlockFPS` is ignored, and `com_unlock_avgFrames`/`safetyMargin`/`timingMethod` do nothing (D9: remove them).
+  - `com_unlockFPS` is ignored (D8, plan step 11). `com_unlock_avgFrames`/`safetyMargin`/`timingMethod` are removed (D9, step 12, 2026-09-30).
 
 **M7 (public release): not met.** None of the six release-gate items is cleared yet. Item 2's SDK exceptions are approved (A6) and their condition, the SDK EULA in every engine package, is met (PR #19); the SDK files in engine history still hold it open (next section). Also missing:
 - packages and packaging scripts;
