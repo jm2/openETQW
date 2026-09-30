@@ -25,18 +25,27 @@ handling would pass them. This test catches it:
 3. With no golden for this toolchain, the trace is compared with the reference
    golden (REFERENCE) at fixed precision: the tick, vehicle, class, control kind,
    atRest and collision time exactly, the continuous values within TOLERANCE.
-   The tolerances are about three times the largest difference that fused
-   multiply-adds alone produced on antec (GCC 16, x86-64, -march=x86-64-v3
-   -ffp-contract=fast against the baseline build, 2026-09-30: origin 0.24,
-   linear velocity 3.3, quaternion 0.0017, angular velocity 0.073, steering
-   0.037). That is a weaker guard, and the test says so; record a golden for the
-   toolchain to get the exact one.
+   The tolerances are three to four times the largest difference that a small
+   floating-point change alone produced on antec: fused multiply-adds
+   (GCC 16, x86-64, -march=x86-64-v3 -ffp-contract=fast against the baseline
+   build, 2026-09-30: origin 0.24, linear velocity 3.3, quaternion 0.0017,
+   angular velocity 0.073, steering 0.037). The real builds use
+   -ffp-contract=off, so other toolchains differ through the maths library and
+   code generation instead. A quaternion and its negation are one rotation and
+   compare equal. That is a weaker guard, and the test says so; record a golden
+   for the toolchain to get the exact one.
+
+What it guards: the wheeled control (the badger) and the hovercopter control
+(the anansi), the rigid-body physics under them and the collision model they
+drive into. Tracked vehicles (the titan) are compared only across caps, in
+high-refresh-determinism; walkers, jetpacks, hover and jet controls and player
+physics are not covered.
 
 Every PR that touches src/game/vehicles or src/game/physics in openETQW-game runs
 this test in its local merge gate (CONTRIBUTING.md). A golden is regenerated only
 on purpose, with a stated reason that goes into its header:
 
-  tests/test_vehicle_physics_golden.py --regenerate --reason "why the handling changed"
+  python3 tests/test_vehicle_physics_golden.py --regenerate --reason "why the handling changed"
 
 Exit codes: 0 pass, 1 fail, 77 skip (no retail data or client binary).
 """
@@ -46,6 +55,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import math
 import os
 import platform
 import re
@@ -79,6 +89,14 @@ GROUND_CLASS = "vehicle_badger"
 AIR_CLASS = "vehicle_anansi"
 
 
+def to_float(text: str) -> float:
+    """A printed float; any NaN spelling (glibc "nan", "-nan"; MSVC "-nan(ind)") is NaN."""
+    try:
+        return float(text)
+    except ValueError:
+        return float("nan") if "nan" in text.lower() else float("inf") if "inf" in text.lower() else float("nan")
+
+
 def parse_line(body: str) -> dict:
     rec = {"raw": body}
     m = VEH_RE.match("VEH_TRACE: " + body)
@@ -86,13 +104,14 @@ def parse_line(body: str) -> dict:
     ctl = re.search(r"\bctl=(\S+)", body)
     rec["ctl"] = ctl.group(1) if ctl else "?"
     for field in VECTOR_FIELDS:
-        v = re.search(rf"\b{field}=\(([^)]*)\)", body)
+        # values up to the closing parenthesis of the group ("-nan(ind)" holds one itself)
+        v = re.search(rf"\b{field}=\(((?:[^()]|\([a-z]*\))*)\)", body)
         if v:
-            rec[field] = [float(x) for x in v.group(1).split(",")]
+            rec[field] = [to_float(x) for x in v.group(1).split(",")]
     for field in SCALAR_FIELDS + EXACT_FIELDS:
         v = re.search(rf"\b{field}=(\S+)", body)
         if v:
-            rec[field] = float(v.group(1))
+            rec[field] = to_float(v.group(1))
     return rec
 
 
@@ -170,22 +189,48 @@ def module_path(client: Path) -> Path:
     return (client.parent / f"game_{host_arch()}{suffix}").resolve()
 
 
-def game_repo() -> Path:
+def game_repo(client: Path | None = None) -> Path:
+    """The game checkout the loaded module was built from: the git top level of the
+    module's resolved path (a symlink into <game>/build), else $OPENETQW_GAME_REPO,
+    else ../openETQW-game."""
+    if client is not None:
+        top = subprocess.run(["git", "-C", str(module_path(client).parent), "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True)
+        if top.returncode == 0 and Path(top.stdout.strip()).resolve() != REPO_ROOT.resolve():
+            return Path(top.stdout.strip())
     raw = os.environ.get("OPENETQW_GAME_REPO", "").strip()
     return Path(raw).expanduser() if raw else REPO_ROOT.parent / "openETQW-game"
 
 
+def builds_game_module(build: Path) -> bool:
+    targets = build / "meson-info" / "intro-targets.json"
+    if not targets.is_file():
+        return False
+    names = {t.get("name") for t in json.loads(targets.read_text(encoding="utf-8"))}
+    return f"game_{host_arch()}" in names
+
+
 def toolchain_key(client: Path) -> tuple[str, str]:
-    """(key, description) of the compiler that built the game module the client loads."""
+    """(key, description) of the compiler that built the game module the client loads:
+    from the Meson build directory that builds it (the module's own directory when it
+    is a symlink into the game build; the game checkout's build/ when the module
+    beside the client is a copy, as on Windows), never the engine's."""
     osname = {"win32": "windows", "darwin": "macos"}.get(sys.platform, "linux")
-    candidates = [module_path(client).parent, game_repo() / "build"]
-    for build in candidates:
+    for build in (module_path(client).parent, game_repo(client) / "build"):
         info = build / "meson-info" / "intro-compilers.json"
-        if info.is_file():
-            cpp = json.loads(info.read_text(encoding="utf-8")).get("host", {}).get("cpp", {})
-            ident, version = cpp.get("id", "unknown"), cpp.get("version", "0")
-            return f"{osname}-{host_arch()}-{ident}{version.split('.')[0]}", f"{ident} {version} ({build})"
+        if builds_game_module(build) and info.is_file():
+            cpp = json.loads(info.read_text(encoding="utf-8")).get("host", {}).get("cpp")
+            if cpp and cpp.get("id") and cpp.get("version"):
+                return (f"{osname}-{host_arch()}-{cpp['id']}{cpp['version'].split('.')[0]}",
+                        f"{cpp['id']} {cpp['version']} ({build})")
     return f"{osname}-{host_arch()}-unknown", "the game module's compiler could not be determined"
+
+
+def runtime_description() -> str:
+    """The C library and OS: the game calls libm (sinf, atan2, powf, ...), whose
+    results can change between releases on the same compiler."""
+    libc = " ".join(x for x in platform.libc_ver() if x) or "libc unknown"
+    return f"{platform.system()} {platform.release()}; {libc}"
 
 
 def read_golden(path: Path) -> tuple[list[str], list[str]]:
@@ -209,21 +254,35 @@ def compare_fixed(golden: list[str], trace: list[str]) -> list[str]:
     problems = []
     worst: dict[str, tuple[float, int]] = {}
     for a, b in zip(g, t):
+        where = f"tick {a['tick']} {a['class']}"
         for field in EXACT_FIELDS:
             if a.get(field) != b.get(field):
-                problems.append(f"tick {a['tick']} {a['class']}: {field} {b.get(field)} != golden {a.get(field)}")
+                problems.append(f"{where}: {field} {b.get(field)} != golden {a.get(field)}")
         for field in VECTOR_FIELDS + SCALAR_FIELDS:
-            if field not in a:
+            if field not in a and field not in b:
+                continue
+            if (field in a) != (field in b):
+                problems.append(f"{where}: {field} is {'missing' if field in a else 'extra'} in this trace")
                 continue
             xs = a[field] if isinstance(a[field], list) else [a[field]]
             ys = b[field] if isinstance(b[field], list) else [b[field]]
+            if len(xs) != len(ys):
+                problems.append(f"{where}: {field} has {len(ys)} values, the golden {len(xs)}")
+                continue
             d = max(abs(x - y) for x, y in zip(xs, ys))
+            if field == "quat":
+                # q and -q are the same rotation, and idMat3::ToQuat's branch (trace > 0)
+                # can pick either sign near a half turn (the golden does at tick 116)
+                d = min(d, max(abs(x + y) for x, y in zip(xs, ys)))
+            if not math.isfinite(d):
+                problems.append(f"{where}: {field} is not finite ({ys}; golden {xs})")
+                continue
             if d > worst.get(field, (0.0, 0))[0]:
                 worst[field] = (d, a["tick"])
     for field, (d, tick) in sorted(worst.items()):
-        verdict = "over" if d > TOLERANCE[field] else "within"
-        print(f"  {field:10s} max difference {d:.6g} at tick {tick} ({verdict} {TOLERANCE[field]})")
-        if d > TOLERANCE[field]:
+        within = d <= TOLERANCE[field]
+        print(f"  {field:10s} max difference {d:.6g} at tick {tick} ({'within' if within else 'over'} {TOLERANCE[field]})")
+        if not within:
             problems.append(f"{field}: {d:.6g} at tick {tick} exceeds the cross-toolchain tolerance {TOLERANCE[field]}")
     return problems[:20]
 
@@ -233,10 +292,18 @@ def git_head(path: Path) -> str:
     return done.stdout.strip() if done.returncode == 0 else "unknown"
 
 
-def git_dirty(path: Path, subpaths: list[str]) -> bool:
-    done = subprocess.run(["git", "-C", str(path), "status", "--porcelain", "--", *subpaths],
+def git_dirty(path: Path, subpaths: list[str]) -> str:
+    """'' when the tracked files under subpaths are committed, else why not."""
+    done = subprocess.run(["git", "-C", str(path), "status", "--porcelain", "--untracked-files=no", "--", *subpaths],
                           capture_output=True, text=True)
-    return done.returncode != 0 or bool(done.stdout.strip())
+    if done.returncode != 0:
+        return f"git status failed in {path}: {done.stderr.strip()}"
+    return f"uncommitted changes in {path} ({', '.join(subpaths)})" if done.stdout.strip() else ""
+
+
+def git_commit_time(path: Path) -> float:
+    done = subprocess.run(["git", "-C", str(path), "log", "-1", "--format=%ct"], capture_output=True, text=True)
+    return float(done.stdout.strip()) if done.returncode == 0 and done.stdout.strip() else 0.0
 
 
 def main(argv: list[str]) -> int:
@@ -252,7 +319,7 @@ def main(argv: list[str]) -> int:
     h.skip_unless_available(data, client)
     savepath = h.private_savepath("etqw-vehicle-golden-")
     key, compiler = toolchain_key(client)
-    print(f"toolchain: {key} ({compiler})")
+    print(f"toolchain: {key} ({compiler}); {runtime_description()}")
 
     traces = {cap: run_schedule(client, data, savepath, cap) for cap in CAPS}
     failures = []
@@ -262,40 +329,58 @@ def main(argv: list[str]) -> int:
     trace = traces[CAPS[0]]
     failures += check_schedule(trace)
 
-    game = game_repo()
+    game = game_repo(client)
+    reference = GOLDEN_DIR / f"{REFERENCE}.txt"
     if args.regenerate:
-        if failures:
-            print("not recording a golden from a failing run:")
-            for f in failures:
+        refusals = list(failures)
+        if key.endswith("-unknown"):
+            refusals.append(compiler)
+        # the recorded commits must be what the module and the engine were built from
+        refusals += [r for r in (git_dirty(game, ["."]), git_dirty(REPO_ROOT, ["src"])) if r]
+        if module_path(client).is_file() and module_path(client).stat().st_mtime < git_commit_time(game):
+            refusals.append(f"{module_path(client)} is older than {game}'s HEAD: rebuild the game module")
+        if refusals:
+            print("not recording a golden:")
+            for f in refusals:
                 print(f"  - {f}")
             return h.EXIT_FAIL
-        if git_dirty(game, ["src/game/vehicles", "src/game/physics"]):
-            print(f"not recording a golden: {game} has uncommitted vehicle or physics changes")
-            return h.EXIT_FAIL
+        if key != REFERENCE and reference.is_file():
+            print(f"this toolchain against {reference.relative_to(REPO_ROOT)} at fixed precision (for the record):")
+            for f in compare_fixed(read_golden(reference)[1], trace):
+                print(f"  - {f}")
         GOLDEN_DIR.mkdir(parents=True, exist_ok=True)
         target = GOLDEN_DIR / f"{key}.txt"
         header = [
+            "# SPDX-License-Identifier: GPL-3.0-or-later",
             "# openETQW vehicle physics golden: VEH_TRACE of g_determinismTest 2 on valley",
             "# (tests/test_vehicle_physics_golden.py; compared bit-exactly on this toolchain)",
             f"# toolchain: {key}: {compiler.split(' (')[0]}",
+            f"# runtime: {runtime_description()}",
             f"# engine: {git_head(REPO_ROOT)}",
             f"# game: {git_head(game)}",
             f"# recorded: {datetime.date.today().isoformat()}",
             f"# reason: {args.reason.strip()}",
         ]
-        target.write_text("\n".join(header + trace) + "\n", encoding="utf-8")
+        with open(target, "w", encoding="utf-8", newline="\n") as out:
+            out.write("\n".join(header + trace) + "\n")
         print(f"recorded {target} ({len(trace)} lines)")
         return h.EXIT_PASS
 
     own = GOLDEN_DIR / f"{key}.txt"
-    reference = GOLDEN_DIR / f"{REFERENCE}.txt"
     if own.is_file():
         header, golden = read_golden(own)
         print(f"golden: {own.relative_to(REPO_ROOT)} ({len(golden)} lines), exact comparison")
         for ln in header:
             print(f"  {ln}")
         if golden != trace:
-            failures.append("VEH_TRACE differs from this toolchain's golden: vehicle handling changed. "
+            # the size of the difference tells a handling change from floating-point
+            # noise (a different libm, say): print it against the fixed-precision bounds
+            print("the fixed-precision magnitudes of the difference (diagnostic):")
+            noise_only = not compare_fixed(golden, trace)
+            failures.append("VEH_TRACE differs from this toolchain's golden: "
+                            + ("the differences are within the cross-toolchain tolerances, so a different maths"
+                               " library or code generation is as likely as a handling change (compare the"
+                               " golden's runtime line). " if noise_only else "vehicle handling changed. ")
                             + first_difference(golden, trace)
                             + "\n  If the change is intended, record a new golden with --regenerate --reason.")
     elif reference.is_file():

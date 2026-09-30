@@ -560,13 +560,17 @@ def main() -> int:
     print("\n--- Vehicle physics (VEH_TRACE) across schedules ---")
     veh = {fps: [m.group(1) for ln in schedule_lines[fps] if (m := VEH_TRACE_RE.search(ln))] for fps in rates}
     if not veh[rates[0]]:
-        raise AssertionError("no VEH_TRACE lines: the game build predates them (M5 step 5a)")
+        raise AssertionError("no VEH_TRACE lines: the game build predates them (M5 step 5a), or the titan"
+                             " was never entered (look for ENTER_VEHICLE in the schedule's output)")
     for fps in rates[1:]:
         if veh[fps] != veh[rates[0]]:
             diff = next((i for i, (a, b) in enumerate(zip(veh[rates[0]], veh[fps])) if a != b),
                         min(len(veh[rates[0]]), len(veh[fps])))
+            base = veh[rates[0]][diff] if diff < len(veh[rates[0]]) else "(none)"
+            other = veh[fps][diff] if diff < len(veh[fps]) else "(none)"
             raise AssertionError(f"VEH_TRACE differs between {cap_label(rates[0])} and {cap_label(fps)} at line {diff + 1}"
-                                 f" ({len(veh[rates[0]])} and {len(veh[fps])} lines)")
+                                 f" ({len(veh[rates[0]])} and {len(veh[fps])} lines):\n"
+                                 f"    {cap_label(rates[0])}: {base}\n    {cap_label(fps)}: {other}")
     print(f"  {len(veh[rates[0]])} VEH_TRACE lines, identical at every cap")
     assert not rate_failures, f"Frame rate failures: {rate_failures}"
 

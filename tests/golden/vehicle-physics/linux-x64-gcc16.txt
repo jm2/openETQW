@@ -1,6 +1,8 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 # openETQW vehicle physics golden: VEH_TRACE of g_determinismTest 2 on valley
 # (tests/test_vehicle_physics_golden.py; compared bit-exactly on this toolchain)
 # toolchain: linux-x64-gcc16: gcc 16.2.1
+# runtime: Linux 7.2.7-200.fc44.x86_64; glibc 2.43
 # engine: cba54bb744f1e7a060579b323d6ff5862e52597e
 # game: 197d0ab56b7ad9589a8e7b0437bf1a25fd0d1b0c
 # recorded: 2026-09-30
