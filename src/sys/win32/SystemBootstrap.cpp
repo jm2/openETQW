@@ -26,6 +26,8 @@
 #include <sys/stat.h>
 #include <process.h>
 #include <shellapi.h>
+#include <shlobj.h>
+#include "../sys_package.h"
 
 // Instantiation of system localization and sysLocal interfaces for Windows builds
 const char * sysLanguageNames[] = {
@@ -1146,22 +1148,137 @@ long Sys_FileTimeStamp( FILE *file ) {
 	return _fstat( _fileno( file ), &status ) == 0 ? static_cast< long >( status.st_mtime ) : 0;
 }
 
-const char *Sys_DefaultCDPath() {
+static const char *Win_Cwd() {
 	static char path[ SYSTEM_MAX_OS_PATH ];
 	_getcwd( path, sizeof( path ) );
 	path[ sizeof( path ) - 1 ] = '\0';
 	return path;
+}
+
+// The executable's directory when it holds relative (an installed or packaged
+// engine: the binaries, the game module and base/ together), else the current
+// directory (a development build runs from the repository root).
+static const char *Win_ExeDirectoryWith( idStr &storage, const char *relative ) {
+	storage = Sys_EXEPath();
+	if ( storage.Length() > 0 ) {
+		storage.StripFilename();
+		idStr probe = storage;
+		probe.AppendPath( relative );
+		probe.SlashesToBackSlashes();
+		const DWORD attributes = GetFileAttributesA( probe.c_str() );
+		if ( attributes != INVALID_FILE_ATTRIBUTES && ( attributes & FILE_ATTRIBUTE_DIRECTORY ) != 0 ) {
+			return storage.c_str();
+		}
+	}
+	return Win_Cwd();
+}
+
+const char *Sys_DefaultCDPath() {
+	// the engine's own loose content (base/vkprogs/)
+	static idStr cdpath;
+	return Win_ExeDirectoryWith( cdpath, BASE_GAMEDIR "/vkprogs" );
 }
 
 const char *Sys_DefaultBasePath() {
-	static char path[ SYSTEM_MAX_OS_PATH ];
-	_getcwd( path, sizeof( path ) );
-	path[ sizeof( path ) - 1 ] = '\0';
-	return path;
+	// as openQ4: the executable's directory if it has base/, else the current one
+	static idStr basepath;
+	return Win_ExeDirectoryWith( basepath, BASE_GAMEDIR );
 }
 
-const char *Sys_DefaultSavePath() { return Sys_DefaultBasePath(); }
+// A wide path in the ANSI code page, which the file system opens paths with.
+// A name the code page cannot hold is not replaced by look-alikes or '?': its
+// 8.3 short form (ASCII where 8.3 names exist) is tried, else it fails.
+static bool Win_NarrowPath( const wchar_t *wide, idStr &narrow ) {
+	const UINT codePage = GetACP();
+	const bool utf8 = codePage == CP_UTF8;	// lossless, and takes no lossy flag
+	wchar_t shortPath[ SYSTEM_MAX_OS_PATH ];
+	const wchar_t *source = wide;
+	for ( int attempt = 0; attempt < 2; attempt++ ) {
+		if ( attempt == 1 ) {
+			const DWORD length = GetShortPathNameW( wide, shortPath, SYSTEM_MAX_OS_PATH );
+			if ( length == 0 || length >= SYSTEM_MAX_OS_PATH ) {
+				return false;
+			}
+			source = shortPath;
+		}
+		char buffer[ SYSTEM_MAX_OS_PATH ];
+		BOOL lossy = FALSE;
+		const int length = WideCharToMultiByte( codePage, utf8 ? 0 : WC_NO_BEST_FIT_CHARS, source, -1,
+			buffer, sizeof( buffer ), NULL, utf8 ? NULL : &lossy );
+		if ( length > 0 && !lossy ) {
+			narrow = buffer;
+			return true;
+		}
+	}
+	return false;
+}
+
+// true when a file can be created in the directory (a probe, deleted on close)
+static bool Win_DirectoryIsWritable( const char *path ) {
+	idStr probe = path;
+	probe.AppendPath( "openetqw-write-probe.tmp" );
+	probe.SlashesToBackSlashes();
+	HANDLE file = CreateFileA( probe.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
+		FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, NULL );
+	if ( file == INVALID_HANDLE_VALUE ) {
+		return false;
+	}
+	CloseHandle( file );
+	return true;
+}
+
+const char *Sys_DefaultSavePath() {
+	// per-user configs, logs and the shader cache in %LOCALAPPDATA%\openETQW, as
+	// openQ4: an installed engine's own directory (Program Files) is not
+	// writable. The environment first (the tests point it at a private
+	// directory), then the known folder.
+	static idStr savepath;
+	idStr localAppData;
+	wchar_t environment[ SYSTEM_MAX_OS_PATH ];
+	const DWORD environmentLength = GetEnvironmentVariableW( L"LOCALAPPDATA", environment, SYSTEM_MAX_OS_PATH );
+	bool found = environmentLength > 0 && environmentLength < SYSTEM_MAX_OS_PATH
+		&& Win_NarrowPath( environment, localAppData );
+	if ( !found ) {
+		PWSTR knownFolder = NULL;
+		if ( SUCCEEDED( SHGetKnownFolderPath( FOLDERID_LocalAppData, KF_FLAG_DEFAULT, NULL, &knownFolder ) )
+			&& knownFolder != NULL ) {
+			found = Win_NarrowPath( knownFolder, localAppData );
+		}
+		CoTaskMemFree( knownFolder );	// NULL is allowed
+	}
+	if ( found ) {
+		savepath = localAppData;
+		savepath.AppendPath( "openETQW" );
+		return savepath.c_str();
+	}
+	// %LOCALAPPDATA% has no name the ANSI file system can open (a user name
+	// outside the code page, without an 8.3 alias): a directory the engine can
+	// name and write, the base path (a portable install) or the current one
+	const char *fallbacks[] = { Sys_DefaultBasePath(), Win_Cwd() };
+	for ( int i = 0; i < 2; i++ ) {
+		if ( Win_DirectoryIsWritable( fallbacks[ i ] ) ) {
+			common->Warning( "%%LOCALAPPDATA%% cannot be named in the ANSI code page; saving to %s "
+				"(start with +set fs_savepath <directory> to choose another)", fallbacks[ i ] );
+			savepath = fallbacks[ i ];
+			return savepath.c_str();
+		}
+	}
+	common->Warning( "no writable save path: %%LOCALAPPDATA%% cannot be named in the ANSI code page, "
+		"and neither %s nor %s is writable; start with +set fs_savepath <a writable directory>",
+		fallbacks[ 0 ], fallbacks[ 1 ] );
+	savepath = fallbacks[ 0 ];
+	return savepath.c_str();
+}
+
 const char *Sys_DefaultUserPath() { return Sys_DefaultBasePath(); }
+
+bool Sys_GetGameModuleRootDirectory( char *moduleRoot, int moduleRootSize ) {
+	// Windows packages keep the module next to the executable (FindDLL's first try)
+	if ( moduleRoot != NULL && moduleRootSize > 0 ) {
+		moduleRoot[ 0 ] = '\0';
+	}
+	return false;
+}
 
 const char *Sys_EXEPath() {
 	static char path[ SYSTEM_MAX_OS_PATH ];

@@ -59,7 +59,8 @@ def repo_git_value(root: Path, *args: str) -> str:
     if not (root / ".git").exists():
         return ""
     completed = subprocess.run(
-        ["git", "-C", str(root), *args],
+        # no optional index lock: this runs at every (re)configure
+        ["git", "--no-optional-locks", "-C", str(root), *args],
         check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,

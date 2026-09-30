@@ -32,6 +32,7 @@ If you have questions concerning this license or the applicable additional terms
 #include "minizip/unzip.h"
 #include "minizip/unzip_internal.h"
 #include "../renderer/Image.h"
+#include "../sys/sys_package.h"
 
 extern idCVar com_developer;
 
@@ -84,8 +85,9 @@ to the current directory, but it can be overridden with "+set fs_cdpath g:\doom"
 command line.
 
 The "dev path" is the path to an alternate hierarchy where the editors and tools used
-during development (Radiant, AF editor, dmap, runAAS) will write files to. It defaults to
-the cd path, but can be overridden with a "+set fs_devpath c:\doom" on the command line.
+during development (Radiant, AF editor, dmap, runAAS) will write files to, and where the
+Vulkan renderer keeps its SPIR-V cache. It defaults to the save path, which an installed
+engine can write, but can be overridden with a "+set fs_devpath c:\doom" on the command line.
 
 If a user runs the game directly from a CD, the base path would be on the CD. This
 should still function correctly, but all file writes will fail (harmlessly).
@@ -3499,11 +3501,9 @@ void idFileSystemLocal::Init( bool quiet ) {
 	}
 
 	if ( fs_devpath.GetString()[0] == '\0' ) {
-#ifdef WIN32
-		fs_devpath.SetString( fs_cdpath.GetString()[0] ? fs_cdpath.GetString() : fs_basepath.GetString() );
-#else
+		// Every platform writes here, never next to the executable: an installed
+		// Windows engine (Program Files) cannot write its own directory either.
 		fs_devpath.SetString( fs_savepath.GetString() );
-#endif
 	}
 
 	// try to start up normally
@@ -4785,11 +4785,22 @@ void idFileSystemLocal::FindDLL( const char *name, char _dllPath[ MAX_OSPATH ], 
 #else
 	if ( !serverPaks.Num() ) {
 #endif
-		// from executable directory first - this is handy for developement
-		dllPath = Sys_EXEPath( );
-		dllPath.StripFilename( );
+		// the executable's directory first, as openQ4 - this is handy for
+		// developement, and a module beside a loose binary wins over a package's
+		// copy - then the package's module root (macOS: the app's
+		// Contents/Frameworks)
+		idStr exeDirectory = Sys_EXEPath( );
+		exeDirectory.StripFilename( );
+		dllPath = exeDirectory;
 		dllPath.AppendPath( dllName );
 		dllFile = OpenExplicitFileRead( dllPath );
+		char moduleRoot[ MAX_OSPATH ];
+		if ( !dllFile && Sys_GetGameModuleRootDirectory( moduleRoot, sizeof( moduleRoot ) )
+			&& exeDirectory.Icmp( moduleRoot ) != 0 ) {
+			dllPath = moduleRoot;
+			dllPath.AppendPath( dllName );
+			dllFile = OpenExplicitFileRead( dllPath );
+		}
 	}
 	if ( !dllFile ) {
 		if ( !serverPaks.Num() ) {

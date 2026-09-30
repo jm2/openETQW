@@ -4,8 +4,10 @@
 
 Every package carries the licence texts (owner decision, 2026-09-25): the GPL
 (LICENSE), the ET:QW SDK EULA (EULA section 5: the agreement must accompany
-each copy, and the engine links SDK code; docs/provenance.md section 4) and the
-notices of the third-party code compiled into the engine. This reads Meson's
+each copy, and the engine links SDK code; docs/provenance.md section 4), the
+notices of the third-party code compiled into the engine, and the game
+repository's LICENSE (its licence split and the MIT licence of its own code),
+since the game module is installed with the engine. This reads Meson's
 install plan (<builddir>/meson-info/intro-installed.json, what `meson
 introspect --installed` prints) and checks that, whenever an engine executable
 is installed, each of those texts is installed too.
@@ -27,6 +29,7 @@ REQUIRED = [
     "licenses/openETQW/third-party/minizip.txt",
     "licenses/ETQW-SDK/EULA_SDK_ETQW.txt",
     "licenses/ETQW-SDK/EULA SDK ETQW.rtf",
+    "licenses/openETQW-game/LICENSE",
 ]
 EXECUTABLE_PREFIX = "openETQW-"
 

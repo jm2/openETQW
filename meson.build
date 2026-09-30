@@ -33,7 +33,54 @@ engine_ded_binary_name = 'openETQW-ded_' + binary_arch
 game_module_binary_name = 'game_' + binary_arch
 
 py = find_program('python3', 'python', native: true, required: true)
+
+# Version metadata, as openQ4 (tools/build/openetqw_version.py): project(version:)
+# is a floor, raised to the newest v* tag; release builds pin it with
+# -Dversion_base_override and -Dversion_track=stable. The header is regenerated
+# on every build (git state changes without meson.build changing) and only
+# rewritten when its contents change.
+version_metadata_command = [
+  py,
+  meson.project_source_root() / 'tools' / 'build' / 'openetqw_version.py',
+  '--source-root', meson.project_source_root(),
+  '--track', get_option('version_track').strip(),
+]
+if get_option('version_base_override').strip() != ''
+  version_metadata_command += ['--base-version', get_option('version_base_override').strip()]
+endif
+if get_option('version_iteration').strip() != ''
+  version_metadata_command += ['--iteration', get_option('version_iteration').strip()]
+endif
+version_metadata_result = run_command(
+  version_metadata_command + ['--header-out', meson.current_build_dir() / 'openetqw_version_generated.h'],
+  check: true,
+)
+generated_version_header = custom_target(
+  'openetqw_version_generated',
+  output: 'openetqw_version_generated.h',
+  command: version_metadata_command + ['--header-out', '@OUTPUT@'],
+  depend_files: files('tools/build/openetqw_version.py'),
+  build_always_stale: true,
+  build_by_default: true,
+)
+openetqw_product_version_full = meson.project_name() + ' ' + meson.project_version()
+foreach version_line : version_metadata_result.stdout().strip().split('\n')
+  version_pair = version_line.split('=')
+  if version_pair.length() == 2 and version_pair[0] == 'product_version_full'
+    openetqw_product_version_full = version_pair[1]
+  endif
+endforeach
+summary({'version': openetqw_product_version_full}, section: 'openETQW')
 fs_mod = import('fs')
+
+# `meson install` stages the portable tree a package ships, as openQ4 does: the
+# binaries, the game module and base/vkprogs together (the engine finds its
+# content and the module next to its executable), the licence texts under
+# licenses/. tools/build packages it; nothing here installs into a system prefix.
+install_root = get_option('install_root')
+if install_root == ''
+  install_root = meson.project_source_root() / '.install'
+endif
 cc = meson.get_compiler('c')
 cpp = meson.get_compiler('cpp')
 
@@ -276,6 +323,21 @@ elif fs_mod.is_file(game_repo_root / 'build' / 'idLib.lib')
 else
   error('Neither libidLib.a nor idLib.lib found in ' + game_repo_root / 'build' + '. Build openETQW-game first.')
 endif
+# Full RELRO on Linux, as the game module has and openQ4's validation requires:
+# the dynamic relocations are resolved at load and made read-only.
+if host_system == 'linux'
+  foreach hardening_arg : ['-Wl,-z,relro', '-Wl,-z,now']
+    if cpp.has_link_argument(hardening_arg)
+      engine_common_link_args += [hardening_arg]
+    endif
+  endforeach
+endif
+# An installed Linux engine finds the libraries a package bundles next to it
+# (SDL3; the release packaging) through a $ORIGIN RUNPATH. The build tree gets
+# the same entry: without it Meson pads the build RUNPATH with a relative
+# placeholder for the install-time rewrite, which the loader would resolve
+# against the current directory.
+engine_install_rpath = host_system == 'linux' ? '$ORIGIN' : ''
 
 if build_engine
   engine_source_discovery = run_command(
@@ -317,15 +379,21 @@ if build_engine
   executable(
     engine_client_binary_name,
     openetqw_client_sources,
+    generated_version_header,
     include_directories: engine_include_dirs,
     c_args: engine_c_args,
     cpp_args: client_cpp_args,
     objcpp_args: client_cpp_args,
     dependencies: client_deps,
     link_args: client_link_args,
-    export_dynamic: true,
+    # the game module resolves engine symbols on Linux and macOS; on Windows the
+    # engine exports nothing, so there is no import library to build or install
+    export_dynamic: host_system != 'windows',
     win_subsystem: host_system == 'windows' ? 'windows' : 'console',
     install: true,
+    install_dir: install_root,
+    install_rpath: engine_install_rpath,
+    build_rpath: engine_install_rpath,
   )
 endif
 
@@ -355,15 +423,21 @@ if build_dedicated
   executable(
     engine_ded_binary_name,
     openetqw_ded_sources,
+    generated_version_header,
     include_directories: engine_include_dirs,
     c_args: engine_c_args,
     cpp_args: ded_cpp_args,
     objcpp_args: ded_cpp_args,
     dependencies: ded_deps,
     link_args: ded_link_args,
-    export_dynamic: true,
+    # the game module resolves engine symbols on Linux and macOS; on Windows the
+    # engine exports nothing, so there is no import library to build or install
+    export_dynamic: host_system != 'windows',
     win_subsystem: 'console',
     install: true,
+    install_dir: install_root,
+    install_rpath: engine_install_rpath,
+    build_rpath: engine_install_rpath,
   )
 endif
 
@@ -371,22 +445,50 @@ endif
 # engine; the ET:QW SDK EULA, which must accompany each copy (EULA section 5) because
 # the engine links the SDK idLib and staged SDK headers (docs/provenance.md section 4);
 # and the notices of the third-party code compiled in. SDL3, Vulkan and zlib are
-# system dependencies; a package that bundles them adds their notices.
+# dependencies: a package that bundles one (the Windows install stages SDL3.dll
+# and z.dll) adds its notice.
 # tools/ci/check_install_licenses.py checks this list.
-install_data('LICENSE', install_dir: 'licenses' / 'openETQW')
+install_data('LICENSE', install_dir: install_root / 'licenses' / 'openETQW')
 install_data(
   'src' / 'imgui' / 'LICENSE.txt',
   'src' / 'recast' / 'License.txt',
   'LICENSES' / 'third-party' / 'minizip.txt',
   rename: ['imgui.txt', 'recastnavigation.txt', 'minizip.txt'],
-  install_dir: 'licenses' / 'openETQW' / 'third-party',
+  install_dir: install_root / 'licenses' / 'openETQW' / 'third-party',
 )
 if game_repo_root != ''
   install_data(
     game_repo_root / 'EULA_SDK_ETQW.txt',
     game_repo_root / 'legal' / 'EULA SDK ETQW.rtf',
-    install_dir: 'licenses' / 'ETQW-SDK',
+    install_dir: install_root / 'licenses' / 'ETQW-SDK',
   )
+  # the game module ships with the engine: its repository's notice (the licence
+  # split, and the MIT licence of its own code) goes with it
+  install_data(game_repo_root / 'LICENSE', install_dir: install_root / 'licenses' / 'openETQW-game')
+endif
+
+if build_engine or build_dedicated
+  # the engine's own loose content; the runtime shader cache is generated
+  install_subdir(
+    'base' / 'vkprogs',
+    install_dir: install_root / 'base',
+    exclude_directories: ['cache'],
+  )
+  # the game module, from the companion's build (engine and module ship together)
+  game_module_suffix = '.so'
+  if host_system == 'windows'
+    game_module_suffix = '.dll'
+  elif host_system == 'darwin'
+    game_module_suffix = '.dylib'
+  endif
+  game_module_built = game_repo_root / 'build' / game_module_binary_name + game_module_suffix
+  # an install without it would leave an older module from an earlier install
+  # beside the new engine, which FindDLL loads first
+  if not fs_mod.is_file(game_module_built)
+    error('the game module ' + game_module_built + ' is not built: build openETQW-game first ' +
+      '(it builds with idLib), then configure the engine')
+  endif
+  install_data(game_module_built, install_dir: install_root)
 endif
 
 if host_system == 'windows'
@@ -417,6 +519,7 @@ if host_system == 'windows'
     foreach dir : runtime_dll_dirs
       if not found_dll and fs_mod.is_file(dir / dll)
         fs_mod.copyfile(dir / dll, dll)
+        install_data(dir / dll, install_dir: install_root)
         found_dll = true
       endif
     endforeach
@@ -433,6 +536,22 @@ if host_system == 'windows'
     fs_mod.copyfile(game_module_dll, game_module_binary_name + '.dll')
   endif
 endif
+
+# Tests never touch the developer's per-user directory: an engine with no
+# fs_savepath of its own saves under $XDG_DATA_HOME (Linux) or %LOCALAPPDATA%
+# (Windows), which these point into the build directory; tests/etqw_harness.py
+# does the same for scripts run by hand. (macOS saves under ~/Library/Application
+# Support, as it did before the installed-engine paths.)
+test_home = meson.project_build_root() / 'test-home'
+add_test_setup(
+  'isolated',
+  env: {
+    'OPENETQW_TEST_HOME': test_home,
+    'XDG_DATA_HOME': test_home / 'xdg-data',
+    'LOCALAPPDATA': test_home / 'localappdata',
+  },
+  is_default: true,
+)
 
 if build_tests
   subdir('tests')

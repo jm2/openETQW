@@ -11,6 +11,9 @@
 # Dynamic game staging directory (CRITICAL: prevents staged SDK headers from entering engine git)
 /.tmp/
 
+# The portable install tree `meson install` stages (meson option install_root)
+/.install/
+
 # Compiled objects, binaries, and libraries
 *.o
 *.obj

@@ -30,6 +30,7 @@ If you have questions concerning this license or the applicable additional terms
 #import "framework/precompiled.h"
 
 #include "../posix/posix_public.h"
+#include "../sys_package.h"
 
 #import <AppKit/AppKit.h>
 #import <OpenGL/OpenGL.h>
@@ -683,7 +684,10 @@ Sys_DefaultCDPath
 Finder and LaunchServices do not guarantee an application's process working
 directory. Self-contained app launches use Contents/Resources; loose packaged
 binaries use that same content root when a sibling openETQW.app is present.
-Legacy adjacent packages remain supported by the runtime-root selector.
+Legacy adjacent packages remain supported by the runtime-root selector. A loose
+installed tree (meson install: the binaries beside base/vkprogs) uses the
+executable's directory, as on Linux and Windows; a development build, which has
+no base/ beside it, the current directory.
 =============
 */
 const char *Sys_DefaultCDPath( void ) {
@@ -691,6 +695,17 @@ const char *Sys_DefaultCDPath( void ) {
 	if ( Sys_GetPackageRootDirectory( packageRoot, sizeof( packageRoot ) ) ) {
 		cdpath = packageRoot;
 		return cdpath.c_str();
+	}
+
+	idStr exeDirectory = Sys_EXEPath();
+	if ( exeDirectory.Length() > 0 ) {
+		exeDirectory.StripFilename();
+		idStr vkprogs = exeDirectory;
+		vkprogs.AppendPath( BASE_GAMEDIR "/vkprogs" );
+		if ( Sys_DirectoryExists( vkprogs.c_str() ) ) {
+			cdpath = exeDirectory;
+			return cdpath.c_str();
+		}
 	}
 
 	return Posix_Cwd();

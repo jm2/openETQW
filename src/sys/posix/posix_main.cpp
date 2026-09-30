@@ -31,6 +31,7 @@
 #include "sys_local.h"
 #include "sys_render.h"
 #include "posix_public.h"
+#include "../sys_package.h"
 
 static pthread_t mainThread;
 static bool mainThreadRecorded = false;
@@ -372,12 +373,60 @@ const char *Sys_EXEPath( void ) {
 	return s_exePath;
 }
 
-const char *Sys_DefaultBasePath( void ) {
+static bool Posix_IsDirectory( const idStr &path ) {
+	struct stat st;
+	return stat( path.c_str(), &st ) == 0 && S_ISDIR( st.st_mode );
+}
+
+// The executable's directory when it holds relative (an installed or packaged
+// engine: the binaries, the game module and base/ together), else the current
+// directory (a development build runs from the repository root).
+static const char *Posix_ExeDirectoryWith( idStr &storage, const char *relative ) {
+	storage = Sys_EXEPath();
+	if ( storage.Length() > 0 ) {
+		storage.StripFilename();
+		idStr probe = storage;
+		probe.AppendPath( relative );
+		if ( Posix_IsDirectory( probe ) ) {
+			return storage.c_str();
+		}
+	}
 	return Posix_Cwd();
 }
 
+const char *Sys_DefaultBasePath( void ) {
+	// as openQ4: the executable's directory if it has base/, else the current one
+	static idStr basepath;
+	return Posix_ExeDirectoryWith( basepath, BASE_GAMEDIR );
+}
+
 const char *Sys_DefaultSavePath( void ) {
+	// per-user configs, logs and screenshots, as openQ4 (XDG data directory);
+	// an installed engine's own directory is often not writable
+	static idStr savepath;
+	const char *xdgDataHome = getenv( "XDG_DATA_HOME" );
+	if ( xdgDataHome != NULL && xdgDataHome[0] == '/' ) {
+		savepath = xdgDataHome;
+		savepath.StripTrailing( '/' );
+		savepath += "/openetqw";
+		return savepath.c_str();
+	}
+	const char *home = getenv( "HOME" );
+	if ( home != NULL && home[0] != '\0' ) {
+		savepath = home;
+		savepath.StripTrailing( '/' );
+		savepath += "/.local/share/openetqw";
+		return savepath.c_str();
+	}
 	return Posix_Cwd();
+}
+
+bool Sys_GetGameModuleRootDirectory( char *moduleRoot, int moduleRootSize ) {
+	// Linux packages keep the module next to the executable (FindDLL's first try)
+	if ( moduleRoot != NULL && moduleRootSize > 0 ) {
+		moduleRoot[0] = '\0';
+	}
+	return false;
 }
 #endif
 
@@ -401,9 +450,10 @@ int Sys_Rmdir( const char *path ) {
 
 #if !defined( __APPLE__ ) && ( defined( ID_DEDICATED ) || !defined( MACOS_X ) )
 const char *Sys_DefaultCDPath( void ) {
-	// the macOS fallback: the working directory's base/ supplies engine-shipped
-	// loose content (vkprogs/) when the save path is redirected
-	return Posix_Cwd();
+	// the engine's own loose content (base/vkprogs/): next to an installed
+	// executable, else in the repository root a development build runs from
+	static idStr cdpath;
+	return Posix_ExeDirectoryWith( cdpath, BASE_GAMEDIR "/vkprogs" );
 }
 #endif
 
