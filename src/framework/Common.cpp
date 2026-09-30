@@ -1509,9 +1509,11 @@ void idCommonLocal::Init( int argc, const char** argv, const char* cmdline ) {
 		InitCommands();
 		InitSIMD();
 		InitGame( false );
-	} catch ( idException& ) {
-		// Error() has already printed the error banner.
-		Sys_Error( "Error during initialization" );
+	} catch ( idException& e ) {
+		// Error() has already printed the error banner. The cause goes on a second
+		// line too: a client started without a console (a desktop launcher, the
+		// Windows dialog) has nowhere else to show why it stopped.
+		Sys_Error( "Error during initialization\n%s", e.error );
 	}
 
 	// Startup commands (+spawnServer <map>, +exec ...) run before the ready

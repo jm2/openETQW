@@ -102,9 +102,13 @@ def main() -> int:
         (root / "base" / "pak000.pk4").unlink()
 
         print("3. the same empty base/ with +set fs_validateOfficialPaks 0")
+        # the game module beside the binary loads too; without the stub decl game->Init
+        # fails, and a failed game->Init stops the engine (etqw_harness.write_synthetic_stub_decls)
+        h.write_synthetic_stub_decls(root / "base")
         code, out = run_server(ded, root, "+set", "fs_validateOfficialPaks", "0")
         expect(FS_STARTED in out and FATAL not in out and "missing pak000.pk4" not in out,
                "no retail-install error with the check turned off", out)
+        expect(code == 0, f"the server starts and quits cleanly (exit {code})", out)
 
     if failures:
         print(f"FAIL: {len(failures)} check(s) failed")
