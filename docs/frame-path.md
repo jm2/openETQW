@@ -90,11 +90,11 @@ No meson build starts an input thread. During play the only input pump is `Sys_G
 8. **Session and draw.**
    - With no async session active, `session->Frame()` runs (`src/framework/Common.cpp:1063-1064`).
    - With one active on a dedicated binary, `renderSystem->SyncRenderSystem()` runs instead (`src/framework/Common.cpp:1065-1067`).
-   - `session->UpdateScreen( false )` then always runs (`src/framework/Common.cpp:1068`).
+   - `session->UpdateScreen( false )` then runs, except with `com_unlockFPS 0` on an in-game frame that ran no tick (since M5 step 11, 2026-09-30; §7.3).
    - `UpdateScreen` (`src/framework/Session.cpp:218-232`) returns at once when `!Sys_IsWindowVisible()`. That is always the case in `ID_DEDICATED` builds, and in a client whose window is minimised (`src/sys/posix/posix_main.cpp:425-432`). Otherwise it runs `BeginFrame`, `Draw`, `EndFrame`.
    - With a map spawned, `Draw` calls `game->Draw()` (`src/framework/Session.cpp:278`), then `Draw2D` and `DrawSystemUI`.
    - The call chain is `game->Draw()` → `idPlayerView::RenderPlayerView` (`game repo: src/game/Game_local.cpp:5939-5941`, `game repo: src/game/PlayerView.cpp:857`) → `SingleView` (`game repo: src/game/PlayerView.cpp:973`) → `gameRenderWorld->RenderScene( view )` (`game repo: src/game/PlayerView.cpp:350`).
-9. `++com_frameNumber`. Then `com_maxFPS` and `com_unlock_maxFPS` are mirrored (`src/framework/Common.cpp:1073-1084`) and the frame is paced (`src/framework/Common.cpp:1086-1139`); see §7.1. Pacing runs after present and before the next input pump.
+9. `++com_frameNumber`. Then the frame is paced to `com_maxFPS` (§7.1); since M5 step 11 `com_unlock_maxFPS` is kept equal to it by CVar change callbacks rather than mirrored here, and with `com_unlockFPS 0` an in-game frame that drew nothing sleeps until the next tick instead. Pacing runs after present and before the next input pump.
 
 ## 4. Per-mode call sequences
 
@@ -511,25 +511,21 @@ These paths let a render frame change what the next tick, a snapshot or AoR code
 
 | CVar | Default and flags | Engine reads | Game reads | Retail meaning (evidence) |
 |---|---|---|---|---|
-| `com_unlockFPS` | 1; BOOL, ARCHIVE, PROFILE (`src/framework/Common.cpp:78-79`) | **none** | found at `game repo: src/game/Game_local.cpp:2481`; read at `game repo: src/game/PlayerView.cpp:886` and at `game repo: src/game/Entity.cpp:1737` (compiled out) | Help text: "allow renderer to go faster than game ticks". `pak000: loffy.cfg:134`: "Set to "0" for fixed fps, i.e. 30 fps"; `pak000: visuals.cfg:26` sets 1 |
+| `com_unlockFPS` | 1; BOOL, ARCHIVE, PROFILE | `idCommonLocal::Frame` (the draw and the idle wait), `idSessionLocal::Frame` and `idAsyncClient::RunFrame` (the render-only `ClientUpdateView`), since M5 step 11; none before | found at `game repo: src/game/Game_local.cpp:2481`; read at `game repo: src/game/PlayerView.cpp:886` and at `game repo: src/game/Entity.cpp:1737` (compiled out) | Help text: "allow renderer to go faster than game ticks". `pak000: loffy.cfg:134`: "Set to "0" for fixed fps, i.e. 30 fps"; `pak000: visuals.cfg:26` sets 1 |
 | `com_unlock_avgFrames` | removed 2026-09-30 (M5 step 12, D9); was 4, range 1-10, NOCHEAT | **none** | none | Help text: "average out render times over n frames for extra renders management" |
 | `com_unlock_safetyMargin` | removed 2026-09-30 (M5 step 12, D9); was 0.1, NOCHEAT | **none** | none | Help text: "percentage safety margin under which not to trigger an extra render" |
 | `com_unlock_timingMethod` | removed 2026-09-30 (M5 step 12, D9); was 2, NOCHEAT | **none** | none | Help text: 0 = whenever they fit; 1 = on boundaries of framerate multiples of 30; 2 = like 1, estimating from total previous time. `pak000: berzerkr.cfg:10-19`: 0 max FPS, 1 smoother, 2 smoothest and lowest FPS. `pak000: visuals.cfg:28` sets 1 |
 | `com_maxFPS` | 60; INTEGER, ARCHIVE (`src/framework/Common.cpp:86-87`) | `src/framework/Common.cpp:1074-1089` | none | Not retail (OE 8191cae) |
-| `com_unlock_maxFPS` | 60, NOCHEAT (`src/framework/Common.cpp:88-89`) | `src/framework/Common.cpp:1074-1089` (mirrored) | none | Help text: "only works in timing methods 1 & 2". `pak000: visuals.cfg:27` sets 120; `pak000: gizm.cfg:81` sets 0 |
+| `com_unlock_maxFPS` | 60, NOCHEAT | none directly: an alias of `com_maxFPS`, the last write wins (`idFrameCapAlias`, M5 step 11); mirrored once a frame before | none | Retail help text: "only works in timing methods 1 & 2". `pak000: visuals.cfg:27` sets 120; `pak000: gizm.cfg:81` sets 0 |
 
 - **Provenance.** All five `com_unlock*` CVars and their help texts are in jmarshall's `src/framework/Common.cpp` (`/Users/jmulesa/etqw`).
 - **Retail semantics** are known from these help strings, from the community and developer cfgs at the root of pak000, and (since 2026-09-25) from the retail 1.5 engine's defaults (`docs/specs/retail-1.5-reference.md` §4); how its timing methods scheduled frames was not traced. Whether the retail GUIs reference any of these CVars is unverified: the GUIs ship compiled as `.guib` files (under `generated/declb/guis/`), and a string search of them finds no CVar names at all, not even common ones such as `r_mode`. Among text files, only root-level `.cfg` files mention `com_unlock`.
-- **Mirroring** (`src/framework/Common.cpp:1073-1084`). Each frame one value wins:
-  1. If `com_maxFPS` was modified, it wins.
-  2. Otherwise, a modified `com_unlock_maxFPS` wins.
-  3. Otherwise `com_unlock_maxFPS` is forced to equal `com_maxFPS`.
-- **Side effects of mirroring.**
-  - The `com_unlock_maxFPS` fallback at `src/framework/Common.cpp:1089` is effectively dead.
-  - A cfg that sets `com_unlock_maxFPS` in the same frame that the archived `com_maxFPS` loads is overwritten (`src/framework/Common.cpp:1074-1077`).
-  - Both CVars start out modified (`src/framework/CVarSystem.cpp:99`, `src/framework/CVarSystem.cpp:122`), so on the first frame `com_maxFPS` wins over a `com_unlock_maxFPS` set by a startup cfg.
+- **The alias** (since M5 step 11, 2026-09-30). `idFrameCapAlias` callbacks on both CVars, registered right after the static CVars and before any config or `+set`, make a write to either set the other, so the last write wins: the configs in order, then the command line, then the console (meson `frame-cap-cvars`).
+- **Before step 11, the mirroring.** Each frame one value won: a modified `com_maxFPS`; otherwise a modified `com_unlock_maxFPS`; otherwise `com_unlock_maxFPS` was forced to equal `com_maxFPS`. So a cfg that set `com_unlock_maxFPS` in the same frame as the archived `com_maxFPS` lost, and on the first frame `com_maxFPS` won over a `com_unlock_maxFPS` set by a startup cfg.
 
-### 7.3 `com_unlockFPS 0` today
+### 7.3 `com_unlockFPS 0`
+
+Since M5 step 11 (2026-09-30), `com_unlockFPS 0` draws once per tick: an in-game frame that ran no tick is neither prepared nor drawn (`idCommonLocal::Frame`, `com_frameInGame`), and waits for the next tick instead of being paced. In-game menus, the console, limbo and pause draw at the tick rate too, since the game keeps ticking; only the main menu before a map, loading and connecting draw every frame. The game's base-draw rewind (`game repo: src/game/PlayerView.cpp:958-981`) is also off at `com_unlockFPS 0`. The bullets below describe the engine before that change.
 
 - The engine never reads the CVar. It still calls `ClientUpdateView` on render-only frames (`src/framework/Session.cpp:342-345`; `src/framework/async/AsyncClient.cpp:351-355`).
 - The game's `ClientUpdateView` does not check the CVar either (`game repo: src/game/Game_local.cpp:5957-5965`; `SDK: game/Game_local.cpp:4874-4881`). The base-draw rewind does check it (`game repo: src/game/PlayerView.cpp:886`).
@@ -573,7 +569,7 @@ These paths let a render frame change what the next tick, a snapshot or AoR code
 ### 7.6 Measuring the frame rate: `com_logFrameTiming`
 
 - `com_frameTicks` counts the game ticks run in the current host frame. `idCommonLocal::Frame` resets it (`src/framework/Common.cpp:1036`); single player (`src/framework/Session.cpp:335`), the network client (`src/framework/async/AsyncClient.cpp:339`) and the server (`src/framework/async/AsyncServer.cpp:455`) add to it.
-- With `com_logFrameTiming 1`, every host frame adds its interval (end of the previous frame's pacing to the end of its own) and its work time (start of the frame to the pacer), and once a second the engine prints one `FRAME_TIMING` line: the window length, frames, ticks, the cap, and the p50/p95/p99/max of the intervals and the p50/p95/max of the work times (`src/framework/Common.cpp:975-1024`, called at `src/framework/Common.cpp:1135`).
+- With `com_logFrameTiming 1`, every host frame adds its interval (end of the previous frame's pacing to the end of its own) and its work time (start of the frame to the pacer), and once a second the engine prints one `FRAME_TIMING` line (since M5 step 11 ending in `draws=`: the frames that called `UpdateScreen`, which is fewer than the frames with `com_unlockFPS 0`, and counts a dedicated server's or a minimized window's frames alike): the window length, frames, ticks, the cap, and the p50/p95/p99/max of the intervals and the p50/p95/max of the work times (`src/framework/Common.cpp:975-1024`, called at `src/framework/Common.cpp:1135`).
 - A window with about 30 ticks is play; fewer ticks means loading or menus. `high-refresh-determinism` takes the frame rate from the median frame interval over the play windows, so one hitch does not decide it, and reports the average and the longest frame as well.
 
 ## 8. Doom 3, and what retail ETQW added
@@ -639,9 +635,9 @@ Remaining stepped paths must be listed rather than claimed as interpolated, and 
 - The host publishes post-tick state (§4.5). Wiring the unlock path up naively would make the §6.9 paths authoritative on the host, and some of them feed `ServerWriteSnapshot`.
 
 **Criterion 5: cap change**
-- Untested by any registered test (§7.4).
-- `com_unlockFPS` is ignored by the engine (§7.3).
-- The mirroring can overwrite a cfg-set `com_unlock_maxFPS` (§7.2).
+- Untested by any registered test (§7.4) until M5 step 17.
+- `com_unlockFPS` was ignored by the engine (§7.3) until M5 step 11.
+- The mirroring could overwrite a cfg-set `com_unlock_maxFPS` (§7.2) until M5 step 11.
 
 **Pacing and other gaps in the frame path**
 - Caps above 120 cannot be reached on the development Mac in a window: presentation waits for its 120 Hz display (measured, §7.5). Every replay schedule also has one ~410–540 ms stall right after spawn: first-use material and render-program loading (§7.5).

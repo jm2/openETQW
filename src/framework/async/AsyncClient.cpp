@@ -330,6 +330,7 @@ void idAsyncClient::RunFrame() {
 		SendUserInfoToServer();	// a ui_* cvar changed
 	}
 	if ( clientState == CS_INGAME && !sessLocal.insideExecuteMapChange ) {
+		com_frameInGame = true;
 		const int startFrame = gameFrame;
 		while ( gameTimeResidual + clientPredictTime >= USERCMD_MSEC ) {
 			SendUsercmdsToServer();
@@ -348,7 +349,8 @@ void idAsyncClient::RunFrame() {
 		}
 		ProcessReliableServerMessages();
 
-		if ( gameFrame == startFrame && game != NULL ) {
+		// com_unlockFPS 0 draws no render-only frame (idCommonLocal::Frame), so none is prepared
+		if ( gameFrame == startFrame && game != NULL && com_unlockFPS.GetBool() ) {
 			const usercmd_t cmd = usercmdGen->GetDirectUsercmd();
 			const int timeLeft = GetGameTimeLeft();
 			game->ClientUpdateView( cmd, timeLeft );

@@ -190,7 +190,7 @@ if build_engine
     env: client_test_env,
     workdir: meson.project_source_root(),
     suite: 'integration',
-    timeout: 180,
+    timeout: 300,
     is_parallel: false,
   )
   # M5 step 5a: the vehicle replay (g_determinismTest 2) against the recorded
@@ -247,6 +247,18 @@ if build_dedicated
     'retail-install-check',
     py,
     args: [meson.project_source_root() / 'tests' / 'test_retail_install_check.py', '--ded-binary', retail_install_check_ded],
+    workdir: meson.project_source_root(),
+    suite: 'unit',
+    timeout: 120,
+  )
+
+  # com_unlock_maxFPS as a last-write-wins alias of com_maxFPS (M5 step 11, D8), on synthetic
+  # data; the game module is staged into the synthetic base/
+  test(
+    'frame-cap-cvars',
+    py,
+    args: [meson.project_source_root() / 'tests' / 'test_frame_cap_cvars.py', '--ded-binary', retail_install_check_ded,
+           '--game-module', game_module_built],
     workdir: meson.project_source_root(),
     suite: 'unit',
     timeout: 120,

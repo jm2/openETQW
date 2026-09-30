@@ -94,6 +94,31 @@ idCVar com_logFrameTiming( "com_logFrameTiming", "0", CVAR_BOOL | CVAR_SYSTEM | 
 	"print a FRAME_TIMING line every second: frames, game ticks and the distribution of frame intervals and frame work times" );
 
 int com_frameTicks = 0;
+bool com_frameInGame = false;
+
+namespace {
+
+// com_unlock_maxFPS (retail's cap on unlocked frames) and com_maxFPS (OpenETQW's cap on
+// every frame) are one setting: a change to either sets the other, so whichever was
+// written last wins, at startup (the configs, then the command line) and in play
+// (M5 plan step 11, D8). The equality check ends the exchange.
+class idFrameCapAlias : public idCVarCallback {
+public:
+						idFrameCapAlias( idCVar &changed, idCVar &follower ) : changed( changed ), follower( follower ) {}
+	virtual void		OnChanged( void ) {
+		if ( follower.GetInteger() != changed.GetInteger() ) {
+			follower.SetInteger( changed.GetInteger() );
+		}
+	}
+private:
+	idCVar &			changed;
+	idCVar &			follower;
+};
+
+idFrameCapAlias frameCapFromMaxFPS( com_maxFPS, com_unlock_maxFPS );
+idFrameCapAlias frameCapFromUnlockMaxFPS( com_unlock_maxFPS, com_maxFPS );
+
+}	// namespace
 
 idCVar com_forceGenericSIMD( "com_forceGenericSIMD", "0", CVAR_BOOL | CVAR_SYSTEM | CVAR_NOCHEAT, "force generic SIMD" );
 idCVar com_developer( "developer", "0", CVAR_BOOL | CVAR_SYSTEM | CVAR_NOCHEAT, "developer mode" );
@@ -977,8 +1002,8 @@ uint64_t MonotonicUsec() {
 
 class FrameTimingLog {
 public:
-	void	AddFrame( uint64_t frameStartUsec, uint64_t workEndUsec, uint64_t frameEndUsec, int ticks, int cap );
-	void	Reset() { windowStartUsec = 0; lastFrameEndUsec = 0; intervals.clear(); works.clear(); windowTicks = 0; }
+	void	AddFrame( uint64_t frameStartUsec, uint64_t workEndUsec, uint64_t frameEndUsec, int ticks, bool drawn, int cap );
+	void	Reset() { windowStartUsec = 0; lastFrameEndUsec = 0; intervals.clear(); works.clear(); windowTicks = 0; windowDraws = 0; }
 
 private:
 	static float	PercentileMs( std::vector< uint32_t >& usec, float p );
@@ -988,6 +1013,7 @@ private:
 	std::vector< uint32_t >	intervals;
 	std::vector< uint32_t >	works;
 	int						windowTicks = 0;
+	int						windowDraws = 0;	// frames that drew (fewer than frames with com_unlockFPS 0)
 };
 
 float FrameTimingLog::PercentileMs( std::vector< uint32_t >& usec, float p ) {
@@ -999,7 +1025,7 @@ float FrameTimingLog::PercentileMs( std::vector< uint32_t >& usec, float p ) {
 	return static_cast< float >( usec[ index ] ) * 0.001f;
 }
 
-void FrameTimingLog::AddFrame( uint64_t frameStartUsec, uint64_t workEndUsec, uint64_t frameEndUsec, int ticks, int cap ) {
+void FrameTimingLog::AddFrame( uint64_t frameStartUsec, uint64_t workEndUsec, uint64_t frameEndUsec, int ticks, bool drawn, int cap ) {
 	if ( windowStartUsec == 0 ) {
 		// the first frame only opens the window: it has no previous frame end
 		windowStartUsec = frameEndUsec;
@@ -1009,6 +1035,7 @@ void FrameTimingLog::AddFrame( uint64_t frameStartUsec, uint64_t workEndUsec, ui
 	intervals.push_back( static_cast< uint32_t >( std::min< uint64_t >( frameEndUsec - lastFrameEndUsec, UINT32_MAX ) ) );
 	works.push_back( static_cast< uint32_t >( std::min< uint64_t >( workEndUsec - frameStartUsec, UINT32_MAX ) ) );
 	windowTicks += ticks;
+	windowDraws += drawn ? 1 : 0;
 	lastFrameEndUsec = frameEndUsec;
 
 	const uint64_t windowUsec = frameEndUsec - windowStartUsec;
@@ -1017,14 +1044,15 @@ void FrameTimingLog::AddFrame( uint64_t frameStartUsec, uint64_t workEndUsec, ui
 	}
 	const int frames = static_cast< int >( intervals.size() );
 	common->Printf( "FRAME_TIMING: window_ms=%.1f frames=%d ticks=%d cap=%d"
-		" dt_p50=%.2f dt_p95=%.2f dt_p99=%.2f dt_max=%.2f work_p50=%.2f work_p95=%.2f work_max=%.2f\n",
+		" dt_p50=%.2f dt_p95=%.2f dt_p99=%.2f dt_max=%.2f work_p50=%.2f work_p95=%.2f work_max=%.2f draws=%d\n",
 		static_cast< float >( windowUsec ) * 0.001f, frames, windowTicks, cap,
 		PercentileMs( intervals, 0.5f ), PercentileMs( intervals, 0.95f ), PercentileMs( intervals, 0.99f ), PercentileMs( intervals, 1.0f ),
-		PercentileMs( works, 0.5f ), PercentileMs( works, 0.95f ), PercentileMs( works, 1.0f ) );
+		PercentileMs( works, 0.5f ), PercentileMs( works, 0.95f ), PercentileMs( works, 1.0f ), windowDraws );
 	windowStartUsec = frameEndUsec;
 	intervals.clear();
 	works.clear();
 	windowTicks = 0;
+	windowDraws = 0;
 }
 
 FrameTimingLog frameTimingLog;
@@ -1037,6 +1065,7 @@ void idCommonLocal::Frame() {
 	}
 	const uint64_t frameStartUsec = MonotonicUsec();
 	com_frameTicks = 0;
+	com_frameInGame = false;
 	try {
 		Sys_FPU_EnableExceptions( 0 );
 		Sys_GenerateEvents();
@@ -1062,6 +1091,7 @@ void idCommonLocal::Frame() {
 			game->RunFrame();
 		}
 		idAsyncNetwork::RunFrame();
+		bool frameDrawn = false;
 		if ( session != NULL ) {
 			if ( !idAsyncNetwork::IsActive() ) {
 				session->Frame();
@@ -1075,29 +1105,28 @@ void idCommonLocal::Frame() {
 				// multiplayer frame did; without it no GUI updated during a network game
 				session->GuiFrameEvents( false );
 			}
-			session->UpdateScreen( false );
+			// com_unlockFPS 0: the renderer does not go faster than the game ticks (retail's
+			// "fixed fps, i.e. 30 fps"): an in-game frame that ran no tick is not drawn
+			frameDrawn = com_unlockFPS.GetBool() || !com_frameInGame || com_frameTicks > 0;
+			if ( frameDrawn ) {
+				session->UpdateScreen( false );
+			}
 		}
 		++com_frameNumber;
 		idLib::frameNumber = com_frameNumber;
 
-		// Dynamic sync between com_maxFPS and com_unlock_maxFPS
-		if ( com_maxFPS.IsModified() ) {
-			com_maxFPS.ClearModified();
-			com_unlock_maxFPS.SetInteger( com_maxFPS.GetInteger() );
-			com_unlock_maxFPS.ClearModified();
-		} else if ( com_unlock_maxFPS.IsModified() ) {
-			com_unlock_maxFPS.ClearModified();
-			com_maxFPS.SetInteger( com_unlock_maxFPS.GetInteger() );
-			com_maxFPS.ClearModified();
-		} else if ( com_maxFPS.GetInteger() != com_unlock_maxFPS.GetInteger() ) {
-			com_unlock_maxFPS.SetInteger( com_maxFPS.GetInteger() );
-		}
-
 		// Frame pacing using monotonic microsecond timing
 		static uint64_t lastFrameUsec = 0;
 		const uint64_t workEndUsec = MonotonicUsec();
-		const int maxFPS = com_maxFPS.GetInteger() > 0 ? com_maxFPS.GetInteger() : com_unlock_maxFPS.GetInteger();
-		if ( maxFPS > 0 ) {
+		const int maxFPS = com_maxFPS.GetInteger();	// com_unlock_maxFPS follows it (idFrameCapAlias)
+		if ( com_frameInGame && !frameDrawn ) {
+			// com_unlockFPS 0 and no tick ran, so nothing was drawn: wait for the next tick
+			// instead of pacing through empty frames (which spin a core, all of it at cap 0).
+			// A listen host's ticks follow the server's clock: poll every millisecond there.
+			const int waitMsec = idAsyncNetwork::server.IsActive() ? 1 : Com_GetGameTimeLeft();
+			std::this_thread::sleep_for( std::chrono::milliseconds( std::max( 1, waitMsec ) ) );
+			lastFrameUsec = MonotonicUsec();
+		} else if ( maxFPS > 0 ) {
 			const uint64_t targetFrameUsec = 1000000ull / static_cast< uint64_t >( maxFPS );
 			const auto monotonicUsec = MonotonicUsec;
 			uint64_t nowUsec = workEndUsec;
@@ -1142,7 +1171,7 @@ void idCommonLocal::Frame() {
 		}
 
 		if ( com_logFrameTiming.GetBool() ) {
-			frameTimingLog.AddFrame( frameStartUsec, workEndUsec, MonotonicUsec(), com_frameTicks, maxFPS );
+			frameTimingLog.AddFrame( frameStartUsec, workEndUsec, MonotonicUsec(), com_frameTicks, frameDrawn, maxFPS );
 		} else if ( com_logFrameTiming.IsModified() ) {
 			com_logFrameTiming.ClearModified();
 			frameTimingLog.Reset();
@@ -1455,6 +1484,9 @@ void idCommonLocal::Init( int argc, const char** argv, const char* cmdline ) {
 		cmdSystem->Init();
 		cvarSystem->Init();
 		idCVar::RegisterStaticVars();
+		// before any config or +set: the last write to either frame cap wins
+		com_maxFPS.RegisterCallback( &frameCapFromMaxFPS );
+		com_unlock_maxFPS.RegisterCallback( &frameCapFromUnlockMaxFPS );
 		// The main-menu GUI installs an onCVarChanged callback for this engine
 		// variable during game DLL initialization.  Keep the retail ownership in
 		// Common and make the cross-DLL registration explicit.
