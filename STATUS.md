@@ -33,7 +33,7 @@ Environment corrections vs. SESSION_BRIEF: the macOS arm64 host is joined by `an
 
 ## Toolchain and commands (this session)
 - Host / OS / arch: mbp-m1max, macOS 27.0 (build 26A428), Darwin 27.0.0, arm64, Apple M1 Max
-- Compiler, Meson, Ninja, and other tool versions: Apple clang 21.0.0 (clang-2100.3.34.2, target arm64-apple-darwin27.0.0, through ccache) · Meson 1.12.0 · Ninja 1.13.2 · Python 3.14.7 · Git 2.55.0. Both repos build as `buildtype=debug` (-O0). No optimized engine build exists on any platform.
+- Compiler, Meson, Ninja, and other tool versions: Apple clang 21.0.0 (clang-2100.3.34.2, target arm64-apple-darwin27.0.0, through ccache) · Meson 1.12.0 · Ninja 1.13.2 · Python 3.14.7 · Git 2.55.0. On this host both repos build as `buildtype=debug` (-O0). Optimized (`debugoptimized`) engine builds exist on the Windows host (the full suite, since 2026-09-28) and wherever `openetqw_validate.py` runs, whose profiles build `debugoptimized` (Linux `push`, 2026-09-29; Windows `pr`, 2026-09-30).
 - Setup / compile / test commands, exactly as run (from `~/openETQW`; the game repo is the sibling `../openETQW-game`):
 ```sh
 python3 tools/build/stage_game.py . ../openETQW-game .tmp/gamelibs_stage
