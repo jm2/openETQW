@@ -189,15 +189,19 @@ def write_readme(target: Path, platform: str, arch: str, tag: str, sources: dict
         "",
         "Starting",
         f"  {start}",
+    ] + ([] if platform == "macos" else [
+        # the app takes its content from Contents/Resources first, so this does not apply to it
         "  or extract this package into the ET:QW install directory, next to its base/,",
         "  and start the client from there.",
+    ]) + [
         "",
         f"Configs, logs and the shader cache go to {saves}.",
         "",
         "The engine renders with Vulkan and falls back to OpenGL when Vulkan cannot",
         "start. It compiles its shaders on first use with the bundled glslangValidator.",
         "",
-        "Licences: licenses/ (the engine is GPL-3.0-or-later; the ET:QW SDK code it",
+        f"Licences: {'openETQW.app/Contents/Resources/licenses/' if platform == 'macos' else 'licenses/'}"
+        " (the engine is GPL-3.0-or-later; the ET:QW SDK code it",
         "links is under the ET:QW SDK EULA, which accompanies every copy).",
         "",
         "Built from:",
