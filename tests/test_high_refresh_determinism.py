@@ -32,9 +32,8 @@ Validates:
    reported against the lower of the cap and the uncapped rate, not failed: no
    high-refresh hardware is part of testing. A cap above the uncapped rate is reported as
    unreachable on this host (on a 120 Hz display, presentation waits for the display, so
-   144 and 240 run at about 120). The
-   average rate and the longest frame are reported too, and every FRAME_TIMING window must
-   report the schedule's own cap.
+   144 and 240 run at about 120). The average rate and the longest frame are reported
+   too, and every FRAME_TIMING window must report the schedule's own cap.
 5. Clean shutdown with exit code 0.
 """
 
