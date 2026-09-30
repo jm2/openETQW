@@ -242,6 +242,21 @@ def test_package_release(tmp: Path) -> None:
         check(False, "bundling without every licence text fails")
     except package.PackageError as error:
         check("SDL3" in str(error) and "zlib" in str(error), "bundling without every licence text fails")
+    # the README's source commits: a universal2 tree carries its own (the packaging job has no companion checkout)
+    u2 = tmp / "u2"
+    u2.mkdir()
+    (u2 / "universal2-info.json").write_text('{"openETQW": "e", "openETQW-game": "g", "sources": {}}\n', encoding="utf-8")
+    missing = tmp / "no-such-checkout"
+    check(package.package_sources(missing, missing, u2, "universal2") == {package.PRODUCT: "e", "openETQW-game": "g"},
+          "a universal2 package names the commits its thin builds came from")
+    check(package.package_sources(missing, missing, u2, "arm64")["openETQW-game"] == "unknown",
+          "a thin package names its checkouts' commits")
+    (u2 / "universal2-info.json").write_text('{"openETQW": "e"}\n', encoding="utf-8")
+    try:
+        package.package_sources(missing, missing, u2, "universal2")
+        check(False, "a universal2-info.json without the game commit is a package error")
+    except package.PackageError as error:
+        check("openETQW-game" in str(error), "a universal2-info.json without the game commit is a package error")
     completed = subprocess.run([sys.executable, str(ROOT / "tools" / "build" / "package_release.py"), "--platform", "linux",
                                 "--arch", "x64", "--install-dir", str(staged), "--version-tag", "1.2", "--output-dir",
                                 str(tmp / "o"), "--glslang-dir", str(tmp)], capture_output=True, text=True)
