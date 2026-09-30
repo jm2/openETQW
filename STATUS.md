@@ -379,7 +379,7 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
   - the listen host: no `ClientUpdateView`, and it samples view input only once per tick, so its camera turns at 30 Hz;
   - OpenETQW's vehicle-view interpolation writes presentation values into state the next tick reads (`unlockedDraw` stays set until the next tick or snapshot);
   - tick frames are drawn at the tick boundary (a 30 Hz judder at any cap);
-  - a mixed-cap live session and a cap change during play;
+  - a mixed-cap live session. A cap change during play is tested since 2026-09-30 (M5 step 17, engine #39): map-loaded on macOS arm64, Apple Clang 21, debug, retail 1.5 data: a `high-refresh-determinism` schedule changes the cap from 60 to 90 (`com_unlock_maxFPS`) and to 45 (`com_maxFPS`) during play; the simulation matches every other schedule and each new cap is held (90.0 and 45.0 fps);
 
 **M7 (public release): not met.** None of the six release-gate items is cleared yet. Item 2's SDK exceptions are approved (A6) and their condition, the SDK EULA in every engine package, is met (PR #19); the SDK files in engine history still hold it open (next section). Also missing:
 - packages and packaging scripts;

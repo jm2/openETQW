@@ -535,7 +535,7 @@ Since M5 step 11 (2026-09-30), `com_unlockFPS 0` draws once per tick: an in-game
 
 - `com_maxFPS` is read every frame (`src/framework/Common.cpp:1089`). Setting 0 resets the pacing timer (`src/framework/Common.cpp:1130-1131`).
 - Changing `r_swapInterval` recreates the swapchain, with `DeviceWaitIdle`, on the next `BeginFrame` (`src/renderer/VulkanBackend.cpp:5190-5201`).
-- Nothing in the engine blocks a cap change. No registered meson test covers one. `tests/test_frame_pacing_adversarial.py` sends `set com_maxFPS` over stdin during play (`tests/test_frame_pacing_adversarial.py:309-310`) and tries edge cases (1000, -60, 1, rapid 60/240 toggles; `tests/test_frame_pacing_adversarial.py:456-490`), but it is not in `tests/meson.build`.
+- Nothing in the engine blocks a cap change. No registered meson test covered one until M5 step 17 (2026-09-30): `high-refresh-determinism` now changes the cap twice during play. `tests/test_frame_pacing_adversarial.py` sends `set com_maxFPS` over stdin during play (`tests/test_frame_pacing_adversarial.py:309-310`) and tries edge cases (1000, -60, 1, rapid 60/240 toggles; `tests/test_frame_pacing_adversarial.py:456-490`), but it is not in `tests/meson.build`.
 
 ### 7.5 Render submission, and the ~120 fps ceiling
 
