@@ -3,7 +3,9 @@
 ; tools/build/build_windows_installer.py, which fills the placeholder tokens.
 ; Adapted from openQ4's tools/build/openQ4Installer.iss.in at jm2/openQ4
 ; b37b1456 (GPL-3.0; docs/provenance.md), without the browser link handler
-; and the documentation portal, with its own AppId and an optional setup icon.
+; and the documentation portal, with its own AppId and an optional setup icon,
+; and with uninsdeletevalue on the install-key values, which openQ4 lacks (its
+; uninstaller leaves the key behind).
 
 #define MyAppName "openETQW"
 #define MyAppVersion "@@APP_VERSION@@"
@@ -57,11 +59,11 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Source: "{#PackageSource}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Registry]
-Root: HKA; Subkey: "{#MyAppInstallRegKey}"; ValueType: string; ValueName: "InstallDir"; ValueData: "{app}"; Flags: uninsdeletekeyifempty
-Root: HKA; Subkey: "{#MyAppInstallRegKey}"; ValueType: string; ValueName: "InstallArch"; ValueData: "@@APP_ARCH@@"; Flags: uninsdeletekeyifempty
-Root: HKA; Subkey: "{#MyAppInstallRegKey}"; ValueType: string; ValueName: "InstallVersion"; ValueData: "{#MyAppVersion}"; Flags: uninsdeletekeyifempty
-Root: HKA; Subkey: "{#MyAppInstallRegKey}"; ValueType: string; ValueName: "ClientExe"; ValueData: "{app}\{#MyAppExeName}"; Flags: uninsdeletekeyifempty
-Root: HKA; Subkey: "{#MyAppInstallRegKey}"; ValueType: string; ValueName: "UninstallExe"; ValueData: "{uninstallexe}"; Flags: uninsdeletekeyifempty
+Root: HKA; Subkey: "{#MyAppInstallRegKey}"; ValueType: string; ValueName: "InstallDir"; ValueData: "{app}"; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "{#MyAppInstallRegKey}"; ValueType: string; ValueName: "InstallArch"; ValueData: "@@APP_ARCH@@"; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "{#MyAppInstallRegKey}"; ValueType: string; ValueName: "InstallVersion"; ValueData: "{#MyAppVersion}"; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "{#MyAppInstallRegKey}"; ValueType: string; ValueName: "ClientExe"; ValueData: "{app}\{#MyAppExeName}"; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "{#MyAppInstallRegKey}"; ValueType: string; ValueName: "UninstallExe"; ValueData: "{uninstallexe}"; Flags: uninsdeletevalue uninsdeletekeyifempty
 Root: HKA; Subkey: "{#MyAppClientAppPathsKey}"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName}"; Flags: uninsdeletekey
 Root: HKA; Subkey: "{#MyAppClientAppPathsKey}"; ValueType: string; ValueName: "Path"; ValueData: "{app}"; Flags: uninsdeletekey
 

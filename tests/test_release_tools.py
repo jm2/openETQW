@@ -582,16 +582,19 @@ def render_installer(package: Path, output: Path, arch: str, basename: str, *ext
 def test_installer(work: Path) -> None:
     module = load_module("build_windows_installer_under_test", INSTALLER_TOOL)
     check(module.validate_version("0.1.0") == "0.1.0", "installer: importable, validates versions")
+    quoted_package = Path('C:/release/openetqw "quoted"')
     rendered = module.render_installer_script(
         '#define PackageSource "@@PACKAGE_SOURCE@@"\n@@SETUP_ICON_DIRECTIVE@@\n',
-        package_dir=Path('C:/release/openetqw "quoted"'),
+        package_dir=quoted_package,
         output_dir=Path("C:/out"),
         output_basename="openetqw-0.1.0-windows-x64-setup",
         version="0.1.0",
         arch="x64",
         setup_icon_file=None,
     )
-    check('#define PackageSource "C:/release/openetqw ""quoted"""' in rendered and "SetupIconFile" not in rendered,
+    # the path as this host spells it: backslashes on Windows
+    escaped = str(quoted_package).replace('"', '""')
+    check(f'#define PackageSource "{escaped}"' in rendered and "SetupIconFile" not in rendered,
           "installer: escapes quotes for Inno Setup and omits an absent icon", rendered)
 
     output = work / "installer-out"
@@ -625,6 +628,11 @@ def test_installer(work: Path) -> None:
     ):
         check(needle in text, f"installer: x64 script contains {needle[:60]!r}", text)
     check("@@" not in text, "installer: every placeholder token is filled", text)
+    # the uninstaller removes every value it wrote under Software\openETQW, so the
+    # key goes too and a later setup does not report an install that is gone
+    install_values = [line for line in text.splitlines() if line.startswith('Root: HKA; Subkey: "{#MyAppInstallRegKey}"')]
+    check(len(install_values) == 5 and all("uninsdeletevalue" in line for line in install_values),
+          "installer: the uninstaller deletes each Software\\openETQW value", "\n".join(install_values))
     directives = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith(";")).lower()
     for forbidden in ("openq4", "SetupIconFile", "protocol", "docs\\index.html", "8FD95F4F", "AppMutex"):
         check(forbidden.lower() not in directives, f"installer: x64 script has no {forbidden!r}", text)
@@ -686,6 +694,45 @@ def remove_tree(path: Path) -> None:
         print(f"warning: could not remove {path}: {exc}", file=sys.stderr)
 
 
+def test_iscc_discovery(work: Path) -> None:
+    # resolve_iscc_path reads the environment, so the whole lookup is pointed at
+    # directories made here: Program Files, %LOCALAPPDATA% and PATH
+    module = load_module("build_windows_installer_iscc", INSTALLER_TOOL)
+    machine = work / "iscc" / "ProgramFiles"
+    per_user = work / "iscc" / "LocalAppData"
+    empty_path = work / "iscc" / "empty-path"
+    for directory in (machine, per_user, empty_path):
+        directory.mkdir(parents=True)
+    names = ("INNO_SETUP_ISCC", "ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA", "PATH")
+    saved = {name: os.environ.get(name) for name in names}
+    try:
+        os.environ.pop("INNO_SETUP_ISCC", None)
+        os.environ["ProgramFiles(x86)"] = str(machine)
+        os.environ["ProgramFiles"] = str(machine)
+        os.environ["LOCALAPPDATA"] = str(per_user)
+        os.environ["PATH"] = str(empty_path)
+        def resolve() -> Path | str:
+            try:
+                return module.resolve_iscc_path(None)
+            except FileNotFoundError as exc:
+                return str(exc)
+
+        user_iscc = write(per_user / "Programs" / "Inno Setup 6" / "ISCC.exe", "iscc\n")
+        found = resolve()
+        check(found == user_iscc.resolve(), "installer: finds Inno Setup installed per user (%LOCALAPPDATA%\\Programs)",
+              str(found))
+        machine_iscc = write(machine / "Inno Setup 6" / "ISCC.exe", "iscc\n")
+        found = resolve()
+        check(found == machine_iscc.resolve(), "installer: a machine-wide Inno Setup comes before a per-user one",
+              str(found))
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
 def main() -> int:
     if shutil.which("git") is None:
         print("SKIP: git is not on PATH")
@@ -699,6 +746,7 @@ def main() -> int:
         test_asset_set(work)
         test_provenance(work)
         test_installer(work)
+        test_iscc_discovery(work)
     finally:
         remove_tree(work)
 
