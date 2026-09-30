@@ -536,6 +536,7 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
 
     staged_exe = install_dir / executable.name
     shutil.copy2(executable, staged_exe)
+    staged_dlls = []
     if sys.platform == "win32":
         # Windows loads a DLL from the executable's directory before PATH, and a
         # build or package keeps zlib and SDL3 there: copy them, so the smoke does
@@ -543,7 +544,8 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
         # place is the variant's.
         for dll in sorted(executable.parent.glob("*.dll")):
             if dll.resolve() != module.resolve() and not dll.name.lower().startswith("game_"):
-                shutil.copy2(dll, install_dir / dll.name)
+                staged_dlls.append(install_dir / dll.name)
+                shutil.copy2(dll, staged_dlls[-1])
     if variant.module_location == "exe-dir":
         staged_module = install_dir / module.name
     else:
@@ -738,7 +740,8 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
     )
 
     if not args.keep_binaries:
-        for path in (staged_exe, staged_module):
+        # the output root is uploaded as a CI log artifact: no binaries in it
+        for path in [staged_exe, staged_module] + staged_dlls:
             try:
                 path.unlink()
             except OSError:
@@ -869,7 +872,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--command-timeout", type=float, default=30.0, help="seconds per console command")
     parser.add_argument("--quit-timeout", type=float, default=45.0, help="seconds to exit after 'quit'")
     parser.add_argument("--skip-missing-map", action="store_true", help="do not probe spawnServer of a missing map")
-    parser.add_argument("--keep-binaries", action="store_true", help="keep the staged executable/module copies")
+    parser.add_argument("--keep-binaries", action="store_true", help="keep the staged executable, module and (Windows) DLL copies")
     args = parser.parse_args(argv)
     names = [name.strip() for name in args.variants.split(",") if name.strip()]
     unknown = [name for name in names if name not in VARIANTS]
