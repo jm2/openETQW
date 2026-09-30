@@ -93,7 +93,7 @@ M5 is done when:
     - Make `com_unlock_maxFPS` a last-write-wins alias of `com_maxFPS`, using the CVar change callbacks. Define what happens on the first frame, when both CVars start out modified.
     - **Decision D8** (decided 2026-09-25): yes, `com_unlockFPS 0` draws once per tick. Retail's default is 1 (engine `etqw.x86`), as in OpenETQW.
 
-12. **The dead `com_unlock_avgFrames`, `com_unlock_safetyMargin` and `com_unlock_timingMethod`.** Done (2026-09-30): no longer registered; meson `retired-cvars` shows retail-style configs that set them still load cleanly; ledger row 053.
+12. **The dead `com_unlock_avgFrames`, `com_unlock_safetyMargin` and `com_unlock_timingMethod`.** Done (2026-09-30): no longer registered; a config that sets them, with `seta` or a bare line as two of retail's own do, loads without a message (a retired-name list in `idCVarSystemLocal::Command`); meson `retired-cvars`; ledger row 053.
     - **Decision D9** (decided 2026-09-25): remove them for now, with a ledger row, since step 10 replaces what they did. Test that retail configs which set them still load cleanly.
 
 13. **Vehicle proxy gate.** `idPlayer::IsFPSUnlock` turns the per-frame view update off in any vehicle (SDK behaviour), so vehicles draw at 30 Hz.

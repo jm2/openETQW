@@ -82,13 +82,14 @@ idCVar com_asyncSound( "com_asyncSound", "1", CVAR_INTEGER | CVAR_SYSTEM | CVAR_
 idCVar com_unlockFPS( "com_unlockFPS", "1", CVAR_BOOL | CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_PROFILE,
 	"allow renderer to go faster than game ticks" );
 // retail's com_unlock_avgFrames, com_unlock_safetyMargin and com_unlock_timingMethod
-// are not registered: nothing read them, and the frame pacer replaces what they did
-// (docs/m5-plan.md step 12, decision D9; compat ledger 053). A config that sets them
-// creates harmless user CVars (tests/test_retired_cvars.py).
+// are not registered: nothing read them. The frame pacer does part of what retail used
+// them for, and M5 step 10 is to do the rest (docs/m5-plan.md step 12, decision D9;
+// compat ledger 053). A config that sets them, with seta or a bare line, creates user
+// CVars that nothing reads (idCVarSystemLocal::Command; tests/test_retired_cvars.py).
 idCVar com_maxFPS( "com_maxFPS", "60", CVAR_INTEGER | CVAR_SYSTEM | CVAR_ARCHIVE,
 	"maximum frames per second presented (0 = unlimited / VSync-only)" );
 idCVar com_unlock_maxFPS( "com_unlock_maxFPS", "60", CVAR_INTEGER | CVAR_SYSTEM | CVAR_NOCHEAT,
-	"maximum FPS unlock will try to reach (only works in timing methods 1 & 2) - zero = no limit" );
+	"retail's cap on unlocked frames; OpenETQW keeps it equal to com_maxFPS - zero = no limit" );
 idCVar com_logFrameTiming( "com_logFrameTiming", "0", CVAR_BOOL | CVAR_SYSTEM | CVAR_NOCHEAT,
 	"print a FRAME_TIMING line every second: frames, game ticks and the distribution of frame intervals and frame work times" );
 

@@ -512,9 +512,9 @@ These paths let a render frame change what the next tick, a snapshot or AoR code
 | CVar | Default and flags | Engine reads | Game reads | Retail meaning (evidence) |
 |---|---|---|---|---|
 | `com_unlockFPS` | 1; BOOL, ARCHIVE, PROFILE (`src/framework/Common.cpp:78-79`) | **none** | found at `game repo: src/game/Game_local.cpp:2481`; read at `game repo: src/game/PlayerView.cpp:886` and at `game repo: src/game/Entity.cpp:1737` (compiled out) | Help text: "allow renderer to go faster than game ticks". `pak000: loffy.cfg:134`: "Set to "0" for fixed fps, i.e. 30 fps"; `pak000: visuals.cfg:26` sets 1 |
-| `com_unlock_avgFrames` | removed 2026-09-30 (M5 step 12, D9); was 4, range 1-10, NOCHEAT (`src/framework/Common.cpp:80-81`) | **none** | none | Help text: "average out render times over n frames for extra renders management" |
-| `com_unlock_safetyMargin` | removed 2026-09-30 (M5 step 12, D9); was 0.1, NOCHEAT (`src/framework/Common.cpp:82-83`) | **none** | none | Help text: "percentage safety margin under which not to trigger an extra render" |
-| `com_unlock_timingMethod` | removed 2026-09-30 (M5 step 12, D9); was 2, NOCHEAT (`src/framework/Common.cpp:84-85`) | **none** | none | Help text: 0 = whenever they fit; 1 = on boundaries of framerate multiples of 30; 2 = like 1, estimating from total previous time. `pak000: berzerkr.cfg:10-19`: 0 max FPS, 1 smoother, 2 smoothest and lowest FPS. `pak000: visuals.cfg:28` sets 1 |
+| `com_unlock_avgFrames` | removed 2026-09-30 (M5 step 12, D9); was 4, range 1-10, NOCHEAT | **none** | none | Help text: "average out render times over n frames for extra renders management" |
+| `com_unlock_safetyMargin` | removed 2026-09-30 (M5 step 12, D9); was 0.1, NOCHEAT | **none** | none | Help text: "percentage safety margin under which not to trigger an extra render" |
+| `com_unlock_timingMethod` | removed 2026-09-30 (M5 step 12, D9); was 2, NOCHEAT | **none** | none | Help text: 0 = whenever they fit; 1 = on boundaries of framerate multiples of 30; 2 = like 1, estimating from total previous time. `pak000: berzerkr.cfg:10-19`: 0 max FPS, 1 smoother, 2 smoothest and lowest FPS. `pak000: visuals.cfg:28` sets 1 |
 | `com_maxFPS` | 60; INTEGER, ARCHIVE (`src/framework/Common.cpp:86-87`) | `src/framework/Common.cpp:1074-1089` | none | Not retail (OE 8191cae) |
 | `com_unlock_maxFPS` | 60, NOCHEAT (`src/framework/Common.cpp:88-89`) | `src/framework/Common.cpp:1074-1089` (mirrored) | none | Help text: "only works in timing methods 1 & 2". `pak000: visuals.cfg:27` sets 120; `pak000: gizm.cfg:81` sets 0 |
 
