@@ -10,7 +10,9 @@ defaults 4, 0.1 and 2) and read nowhere, so they are removed (compat ledger row
 that way). This test runs the dedicated server on synthetic data only
 (fs_validateOfficialPaks 0), so it needs no retail data; the game module is staged
 into the synthetic base/ (--game-module), as tools/ci/dedicated_server_smoke.py does,
-so the server reaches its + commands in any build directory:
+with the stub decl game->Init needs on synthetic data
+(etqw_harness.write_synthetic_stub_decls; a failed game->Init stops the engine), so
+the server reaches its + commands in any build directory:
 
 1. With no config, asking for each by name answers "Unknown command": the
    engine no longer registers them (this fails while they still exist).
@@ -95,6 +97,7 @@ def main() -> int:
         if args.game_module:
             module = Path(args.game_module)
             shutil.copy2(module, root / "base" / module.name)
+        h.write_synthetic_stub_decls(root / "base")
 
         print("1. no config: the engine does not register them")
         code, out = run_server(ded, root, *queries)

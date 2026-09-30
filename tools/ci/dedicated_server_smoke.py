@@ -30,28 +30,43 @@ the console over stdin, and asserts a ladder of phases:
   quit_shutdown      'quit' ran the game shutdown
   clean_exit         the process exited with status 0
 
-Variants and what each reaches today, without engine or game source changes
-(measured on macOS arm64 and, under Rosetta, x86_64, debug and
-debugoptimized, openETQW 2fdb8aa + openETQW-game 09a900f):
+A variant that expects game->Init to fail (Variant.expect_init_failure) climbs
+the ladder up to game_dll_loaded and then asserts a clean fatal init failure:
+
+  game_init_error    the expected game error ("ERROR: ..."), after game_dll_loaded
+  fatal_init_error   then the engine's "Error during initialization" (Sys_Error)
+  fatal_exit         the process exited with status 1, not by a signal
+
+game_initialized, console_ready and the runtime phases are not applicable
+there, and reaching any of them fails the run: the engine went on instead of
+stopping.
+
+Variants and what each reaches today:
 
   stub-decls  generated pk4 holding a marker file and generated decls,
               'ammoDef stroyent {}' and a 'guiGlobals' stringMap with a
-              'handle' and a 'float' entry: every phase. sdPlayerProperties::Init
-              calls idWeapon::GetAmmoType("stroyent"), which raises a game
-              error when no such decl exists; with it, game->Init completes.
-              sdGlobalProperties::Init registers the guiGlobals entries; an
-              optimized game built before openETQW-game #17 rejects 'handle'
-              there and fails game_initialized (2026-09-30).
-  bare        generated pk4 holding only a marker file: every phase except
-              game_initialized (known gap, see STROYENT_GAP).
+              'handle' and a 'float' entry: every phase of the ladder.
+              sdPlayerProperties::Init calls idWeapon::GetAmmoType("stroyent"),
+              which raises a game error when no such decl exists; with it,
+              game->Init completes. sdGlobalProperties::Init registers the
+              guiGlobals entries; an optimized game built before
+              openETQW-game #17 rejects 'handle' there and fails
+              game_initialized (2026-09-30). Measured on macOS arm64 and,
+              under Rosetta, x86_64, debug and debugoptimized, openETQW
+              2fdb8aa + openETQW-game 09a900f.
+  bare        generated pk4 holding only a marker file: game->Init fails
+              without the 'stroyent' decl (STROYENT_INIT_FAILURE), so every
+              phase up to game_dll_loaded, then the fatal init failure.
   empty       no pk4 at all, an empty base directory: same as 'bare'.
 
-In 'bare' and 'empty' the engine catches the game->Init error in
-idCommonLocal::LoadGameDLL and still reaches the console, answers commands
-and quits cleanly. A known gap is not asserted; the day it closes the smoke
-prints a notice so the variant can be tightened. Beyond this ladder nothing
-can be asserted without retail data: loading any map needs .entities, .cm,
-.aas and a campaign decl from the retail paks.
+A failed game->Init stops the engine (owner decision, 2026-09-30):
+idCommonLocal::LoadGameDLL prints the failure and rethrows, and
+idCommonLocal::Init exits through Sys_Error("Error during initialization")
+with status 1. Until then the engine logged a warning and carried on without
+an initialized game, and 'bare' and 'empty' reached the console. Measured on
+Linux x86_64, debug, openETQW-game aa8988c. Beyond these ladders nothing can
+be asserted without retail data: loading any map needs .entities, .cm, .aas
+and a campaign decl from the retail paks.
 
 With --drive args (the Windows default, where the console may not read
 stdin) the commands are passed as +echo/+status/+spawnServer/+quit. The
@@ -60,9 +75,11 @@ banner, so console_ready is not applicable in that mode and quit_shutdown is
 anchored on the +echo having run.
 
 The run fails on a crash or signal, a hang (no progress before a timeout),
-a non-zero exit, a fatal marker (FATAL ERROR, Sys_Error, sanitizer reports,
-assertion failures, ...), any 'ERROR:' line that is not an expected one, or
-a search-path entry outside the variant's private directories.
+an exit status other than the expected one (0; 1 where game->Init is to
+fail), a fatal marker (FATAL ERROR, Sys_Error, sanitizer reports, assertion
+failures, ...; only the expected fatal init error is exempt, and only where
+game->Init is to fail), any 'ERROR:' line that is not an expected one, or a
+search-path entry outside the variant's private directories.
 
 Artifacts per variant (under --output-root/<variant>/): server.log,
 report.json and the synthetic base/save directories; a combined summary.json
@@ -88,7 +105,7 @@ import sys
 import threading
 import time
 import zipfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -136,7 +153,15 @@ RUNTIME_PHASES: tuple[tuple[str, str], ...] = (
     ("clean_exit", "exit status 0"),
 )
 ALL_PHASES = tuple(name for name, _ in STARTUP_PHASES + RUNTIME_PHASES)
-PHASE_LABELS = dict(STARTUP_PHASES + RUNTIME_PHASES)
+# Where game->Init is to fail: these replace everything after game_dll_loaded.
+INIT_FAILURE_PHASES: tuple[tuple[str, str], ...] = (
+    ("game_init_error", "game->Init raised the expected game error"),
+    ("fatal_init_error", "then the engine's fatal init error"),
+    ("fatal_exit", "exit status 1, not a signal"),
+)
+# idCommonLocal::Init exits before any of these when game->Init fails.
+AFTER_GAME_INIT = ALL_PHASES[ALL_PHASES.index("game_initialized"):]
+PHASE_LABELS = dict(STARTUP_PHASES + RUNTIME_PHASES + INIT_FAILURE_PHASES)
 
 LINE_PHASES: tuple[tuple[str, "re.Pattern[str]"], ...] = (
     ("engine_banner", re.compile(r"^ETQW \d+\.\d+")),
@@ -150,6 +175,10 @@ LINE_PHASES: tuple[tuple[str, "re.Pattern[str]"], ...] = (
 )
 GAME_DLL_LINE = re.compile(r"Loading game DLL: '(?P<path>[^']+)'")
 SHUTDOWN_LINE = re.compile(r"^-+ Game Shutdown -+$")
+# idCommonLocal::Init's catch: Sys_Error( "Error during initialization" ), which
+# prints "Sys_Error: <text>" on POSIX (posix_main.cpp) and the bare text on
+# Windows (SystemBootstrap.cpp), both to stderr.
+FATAL_INIT_LINE = re.compile(r"^(?:Sys_Error: )?Error during initialization$")
 
 FATAL_MARKERS = (
     "FATAL ERROR",
@@ -191,18 +220,38 @@ WINDOWS_NTSTATUS = {
 
 
 @dataclass(frozen=True)
+class InitFailure:
+    """game->Init must fail with a game error matching `error`, and the engine must stop."""
+    error: str  # regex searched in the game's "ERROR: ..." line
+    why: str
+
+
+@dataclass(frozen=True)
 class Variant:
     name: str
     description: str
     pak: str  # "stub-decls" (marker + one decl), "marker" (marker only) or "none" (no pk4)
     module_location: str  # "exe-dir" or "basepath"
-    known_gaps: dict[str, str] = field(default_factory=dict)
+    # Set: assert a clean fatal init failure (INIT_FAILURE_PHASES) instead of
+    # game_initialized, the console and the runtime phases.
+    expect_init_failure: Optional[InitFailure] = None
     allowed_errors: tuple[str, ...] = ()
+
+    def ladder(self) -> tuple[str, ...]:
+        """Every phase reported for this variant, in order."""
+        if self.expect_init_failure is None:
+            return ALL_PHASES
+        cut = ALL_PHASES.index("game_initialized")
+        return ALL_PHASES[:cut] + tuple(name for name, _ in INIT_FAILURE_PHASES) + ALL_PHASES[cut:]
 
     def not_applicable(self, drive: str, skip_missing_map: bool = False) -> tuple[str, ...]:
         phases = []
         if self.pak == "none":
             phases.append("synthetic_pak")
+        if self.expect_init_failure is not None:
+            # idCommonLocal::Init exits before the console, and +commands too.
+            phases.extend(AFTER_GAME_INIT)
+            return tuple(phases)
         if drive == "args":
             # +commands, +quit included, run inside idCommonLocal::Init before
             # the "ETQW initialized" banner, so that banner never appears.
@@ -211,18 +260,28 @@ class Variant:
             phases.append("missing_map_survived")
         return tuple(phases)
 
+    def forbidden(self) -> tuple[str, ...]:
+        """Phases whose presence fails the run: the engine went on after a failed game->Init."""
+        return AFTER_GAME_INIT if self.expect_init_failure is not None else ()
+
     def required(self, drive: str, skip_missing_map: bool = False) -> tuple[str, ...]:
-        skipped = set(self.known_gaps) | set(self.not_applicable(drive, skip_missing_map))
-        return tuple(phase for phase in ALL_PHASES if phase not in skipped)
+        skipped = set(self.not_applicable(drive, skip_missing_map)) | set(self.forbidden())
+        return tuple(phase for phase in self.ladder() if phase not in skipped)
+
+    def expected_exit(self) -> int:
+        return 1 if self.expect_init_failure is not None else 0
 
 
-STROYENT_GAP = (
-    "game->Init stops at idWeapon::GetAmmoType(\"stroyent\") when no ammoDef decl exists "
-    "(openETQW-game src/game/PlayerProperties.cpp sdPlayerProperties::Init -> src/game/Weapon.cpp "
-    "idWeapon::GetAmmoType -> gameLocal.Error); the engine catches it in idCommonLocal::LoadGameDLL "
-    "and continues without an initialized game"
-)
 STROYENT_ERROR = r"idWeapon::GetAmmoType Invalid Ammo Type stroyent"
+STROYENT_INIT_FAILURE = InitFailure(
+    error=STROYENT_ERROR,
+    why=(
+        "game->Init stops at idWeapon::GetAmmoType(\"stroyent\") when no ammoDef decl exists "
+        "(openETQW-game src/game/PlayerProperties.cpp sdPlayerProperties::Init -> src/game/Weapon.cpp "
+        "idWeapon::GetAmmoType -> gameLocal.Error); idCommonLocal::LoadGameDLL rethrows the error and "
+        "idCommonLocal::Init stops the engine with Sys_Error(\"Error during initialization\")"
+    ),
+)
 
 VARIANTS: dict[str, Variant] = {
     "stub-decls": Variant(
@@ -234,19 +293,17 @@ VARIANTS: dict[str, Variant] = {
     ),
     "bare": Variant(
         name="bare",
-        description="generated pk4 without any decls; game module found through fs_basepath/base",
+        description="generated pk4 without any decls; game module found through fs_basepath/base; game->Init fails and the engine stops",
         pak="marker",
         module_location="basepath",
-        known_gaps={"game_initialized": STROYENT_GAP},
-        allowed_errors=(STROYENT_ERROR, re.escape(MISSING_MAP)),
+        expect_init_failure=STROYENT_INIT_FAILURE,
     ),
     "empty": Variant(
         name="empty",
-        description="no pk4 at all (empty base directory); game module next to the executable",
+        description="no pk4 at all (empty base directory); game module next to the executable; game->Init fails and the engine stops",
         pak="none",
         module_location="exe-dir",
-        known_gaps={"game_initialized": STROYENT_GAP},
-        allowed_errors=(STROYENT_ERROR, re.escape(MISSING_MAP)),
+        expect_init_failure=STROYENT_INIT_FAILURE,
     ),
 }
 
@@ -332,6 +389,13 @@ def describe_exit(code: Optional[int]) -> str:
         name = WINDOWS_NTSTATUS.get(status)
         return f"0x{status:08X}" + (f" ({name})" if name else "")
     return str(code)
+
+
+def init_failure_report(variant: Variant) -> Optional[dict]:
+    failure = variant.expect_init_failure
+    if failure is None:
+        return None
+    return {"gameError": failure.error, "fatalInitError": FATAL_INIT_LINE.pattern, "exitCode": 1, "why": failure.why}
 
 
 def same_path(a: str, b: Path) -> bool:
@@ -613,15 +677,17 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
             "description": variant.description,
             "status": "fail",
             "furthestPhase": "",
-            "phases": {phase: None for phase in ALL_PHASES},
+            "phases": {phase: None for phase in variant.ladder()},
             "requiredMissing": list(variant.required(args.drive, args.skip_missing_map)),
             "notApplicable": list(variant.not_applicable(args.drive, args.skip_missing_map)),
-            "knownGaps": dict(variant.known_gaps),
-            "knownGapsClosed": [],
+            "expectInitFailure": init_failure_report(variant),
+            "unexpectedPhases": [],
+            "expectedExitCode": variant.expected_exit(),
             "exitCode": None,
             "exitStatus": f"did not start: {exc}",
             "hangAt": "",
             "fatalMarkers": [],
+            "expectedFatal": [],
             "unexpectedErrors": [],
             "expectedErrors": [],
             "foreignSearchPaths": [],
@@ -651,11 +717,17 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
     try:
         ready = server.wait_line(lambda s: s.startswith(READY_MARKER), args.startup_timeout)
         if ready is None:
-            # A process that is exiting ('+quit' during Init with --drive args never
-            # prints the ready marker) closes its output a moment before it can be reaped.
+            # A process that is exiting ('+quit' during Init with --drive args, or a
+            # fatal init error, never prints the ready marker) closes its output a
+            # moment before it can be reaped.
             if server.output_closed():
                 server.wait_exit(5.0)
-            timed_out_at = "" if not server.alive() else "startup (console never became ready)"
+            if server.alive():
+                timed_out_at = (
+                    "startup (the process neither stopped on a fatal init error nor reached the console)"
+                    if variant.expect_init_failure is not None
+                    else "startup (console never became ready)"
+                )
         elif args.drive == "stdin":
             first = sync(1, args.command_timeout)
             if first is None:
@@ -708,6 +780,8 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
         if f"{SYNC_TOKEN}3" in tokens:
             reached["missing_map_survived"] = tokens[f"{SYNC_TOKEN}3"]
 
+    failure = variant.expect_init_failure
+    failure_error = re.compile(failure.error) if failure is not None else None
     dll_paths: list[str] = []
     for stamp, text in lines:
         stripped = text.strip()
@@ -724,13 +798,26 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
         answered = "console_ready" in reached or (args.drive == "args" and "stdin_roundtrip" in reached)
         if SHUTDOWN_LINE.match(stripped) and "quit_shutdown" not in reached and answered:
             reached["quit_shutdown"] = stamp
+        # A failed init, in order: the game's error once game->Init has started,
+        # then the engine's fatal init error.
+        if failure_error is not None:
+            if "game_init_error" not in reached:
+                if "game_dll_loaded" in reached and stripped.startswith("ERROR:") and failure_error.search(stripped):
+                    reached["game_init_error"] = stamp
+            elif "fatal_init_error" not in reached and FATAL_INIT_LINE.match(stripped):
+                reached["fatal_init_error"] = stamp
     if dll_paths and "game_dll_path" not in reached:
         notes.append(f"engine loaded a different game module: {dll_paths[0]} (expected {staged_module})")
     if exit_code == 0 and not timed_out_at:
         reached["clean_exit"] = round(elapsed, 3)
+    if failure is not None and exit_code == 1 and not timed_out_at:
+        reached["fatal_exit"] = round(elapsed, 3)
 
     allowed = [re.compile(pattern) for pattern in variant.allowed_errors]
+    if failure is not None:
+        allowed.append(re.compile(failure.error))
     fatal: list[str] = []
+    expected_fatal: list[str] = []
     unexpected_errors: list[str] = []
     expected_errors: list[str] = []
     warnings = 0
@@ -738,27 +825,41 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
         stripped = text.strip()
         if stripped.startswith("WARNING:"):
             warnings += 1
-        for marker in FATAL_MARKERS:
-            if marker in text:
-                fatal.append(stripped)
-                break
+        if failure is not None and FATAL_INIT_LINE.match(stripped):
+            # the one fatal line a failed game->Init must produce (fatal_init_error)
+            expected_fatal.append(stripped)
+        else:
+            for marker in FATAL_MARKERS:
+                if marker in text:
+                    fatal.append(stripped)
+                    break
         if stripped.startswith("ERROR:"):
             (expected_errors if any(p.search(stripped) for p in allowed) else unexpected_errors).append(stripped)
 
     foreign = foreign_search_paths(lines, run_dir)
     missing = [phase for phase in variant.required(args.drive, args.skip_missing_map) if phase not in reached]
-    gaps_closed = [phase for phase in variant.known_gaps if phase in reached]
+    unexpected_phases = [phase for phase in variant.forbidden() if phase in reached]
+    if failure is not None and "game_initialized" in reached:
+        notes.append(
+            "game->Init completed, but this variant expects it to fail with "
+            f"'{failure.error}': if the game no longer fails here, update the variant's expect_init_failure"
+        )
+    elif unexpected_phases:
+        notes.append(
+            f"the engine went on after the failed game->Init instead of stopping: reached {', '.join(unexpected_phases)}"
+        )
     furthest = ""
-    for phase in ALL_PHASES:
+    for phase in variant.ladder():
         if phase in reached:
             furthest = phase
     passed = (
         not missing
+        and not unexpected_phases
         and not fatal
         and not unexpected_errors
         and not foreign
         and not timed_out_at
-        and exit_code == 0
+        and exit_code == variant.expected_exit()
     )
 
     remove_staged()
@@ -768,15 +869,17 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
         "description": variant.description,
         "status": "pass" if passed else "fail",
         "furthestPhase": furthest,
-        "phases": {phase: (round(reached[phase], 3) if phase in reached else None) for phase in ALL_PHASES},
+        "phases": {phase: (round(reached[phase], 3) if phase in reached else None) for phase in variant.ladder()},
         "requiredMissing": missing,
         "notApplicable": list(variant.not_applicable(args.drive, args.skip_missing_map)),
-        "knownGaps": {phase: text for phase, text in variant.known_gaps.items() if phase not in reached},
-        "knownGapsClosed": gaps_closed,
+        "expectInitFailure": init_failure_report(variant),
+        "unexpectedPhases": unexpected_phases,
+        "expectedExitCode": variant.expected_exit(),
         "exitCode": exit_code,
         "exitStatus": describe_exit(exit_code),
         "hangAt": timed_out_at,
         "fatalMarkers": fatal[:20],
+        "expectedFatal": expected_fatal[:20],
         "unexpectedErrors": unexpected_errors[:20],
         "expectedErrors": expected_errors[:20],
         "foreignSearchPaths": foreign,
@@ -800,22 +903,22 @@ def run_variant(variant: Variant, args: argparse.Namespace, executable: Path, mo
 
 def print_report(result: dict) -> None:
     name = result["variant"]
+    failure = result["expectInitFailure"]
     print(f"dedicated_server_smoke[{name}]: {result['status'].upper()} "
           f"(furthest phase: {result['furthestPhase'] or '<none>'}, exit {result['exitStatus']}, "
-          f"{result['elapsedSeconds']:.1f}s)")
-    for phase in ALL_PHASES:
-        stamp = result["phases"][phase]
-        if stamp is not None:
+          f"{result['elapsedSeconds']:.1f}s{'; expects game->Init to fail' if failure else ''})")
+    for phase, stamp in result["phases"].items():
+        if stamp is not None and phase in result["unexpectedPhases"]:
+            state = f"UNEXPECTED {stamp:.3f}s"
+        elif stamp is not None:
             state = f"ok   {stamp:8.3f}s"
         elif phase in result["notApplicable"]:
             state = "n/a"
-        elif phase in result["knownGaps"]:
-            state = "gap  (known)"
         else:
             state = "MISSING"
         print(f"    {phase:22s} {state}  {PHASE_LABELS[phase]}")
-    for phase, text in result["knownGaps"].items():
-        print(f"  known gap {phase}: {text}")
+    if failure:
+        print(f"  expected init failure: {failure['why']}")
     for key, label in (
         ("fatalMarkers", "fatal markers"),
         ("unexpectedErrors", "unexpected ERROR lines"),
@@ -844,14 +947,14 @@ def write_step_summary(results: list[dict]) -> None:
     rows = [
         "### Assetless dedicated-server smoke",
         "",
-        "| variant | status | furthest phase | exit | known gaps |",
+        "| variant | status | furthest phase | exit | expected |",
         "| --- | --- | --- | --- | --- |",
     ]
     for result in results:
-        gaps = ", ".join(result["knownGaps"]) or "none"
+        expected = "fatal game->Init failure, exit 1" if result["expectInitFailure"] else "console and quit, exit 0"
         rows.append(
             f"| {result['variant']} | {result['status'].upper()} | {result['furthestPhase'] or '-'} "
-            f"| {result['exitStatus']} | {gaps} |"
+            f"| {result['exitStatus']} | {expected} |"
         )
     with open(target, "a", encoding="utf-8") as handle:
         handle.write("\n".join(rows) + "\n\n")
@@ -936,16 +1039,12 @@ def main(argv: list[str]) -> int:
                 print(f"  server.log tail ({result['log']}):")
                 for line in log_tail.splitlines():
                     print(f"    {line}")
+            unexpected = f", reached {result['unexpectedPhases']} after the failed game->Init" if result["unexpectedPhases"] else ""
             gha(
                 "error",
                 f"dedicated smoke '{variant.name}' failed: furthest phase {result['furthestPhase'] or '<none>'}, "
-                f"missing {result['requiredMissing']}, exit {result['exitStatus']}",
-            )
-        for phase in result["knownGapsClosed"]:
-            gha(
-                "notice",
-                f"dedicated smoke '{variant.name}' now reaches '{phase}', which is listed as a known gap; "
-                "remove it from the variant's known_gaps in tools/ci/dedicated_server_smoke.py",
+                f"missing {result['requiredMissing']}{unexpected}, exit {result['exitStatus']} "
+                f"(expected {result['expectedExitCode']})",
             )
         results.append(result)
 

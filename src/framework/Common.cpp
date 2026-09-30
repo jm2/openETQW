@@ -1341,10 +1341,18 @@ void idCommonLocal::LoadGameDLL() {
 		return;
 	}
 
+	// A failed game->Init stops the engine, as in idTech 4 and openQ4: the
+	// exception goes on to idCommonLocal::Init, which exits through
+	// Sys_Error( "Error during initialization" ).  LoadGameDLL runs only from
+	// InitGame, inside Init's try block.  This used to log a warning and carry on
+	// without an initialized game: the Clang sdPropertyValue bug (openETQW-game
+	// #16, fixed by #17) failed game->Init that way, and the engine crashed only
+	// at the next map load, in idTypeInfo::RespondsTo, far from the cause.
 	try {
 		game->Init();
 	} catch ( const idException &e ) {
-		Warning( "idCommonLocal::LoadGameDLL: game->Init error: %s", e.error );
+		Printf( "idCommonLocal::LoadGameDLL: game->Init failed: %s\n", e.error );
+		throw;
 	}
 	idKeyInput::SetupBinds();
 }
