@@ -538,6 +538,17 @@ def git_head(path: Path) -> str:
     return completed.stdout.strip() if completed.returncode == 0 else "unknown"
 
 
+def package_sources(root: Path, game: Path, install: Path, arch: str) -> dict[str, str]:
+    """The engine and game commits the package was built from, for its README."""
+    # a universal2 tree records the commits both thin builds came from
+    # (assemble_macos_universal2.py); the job that packages it has no companion checkout
+    info = install / "universal2-info.json"
+    if arch == "universal2" and info.is_file():
+        recorded = json.loads(info.read_text(encoding="utf-8"))
+        return {PRODUCT: recorded["openETQW"], "openETQW-game": recorded["openETQW-game"]}
+    return {PRODUCT: git_head(root), "openETQW-game": git_head(game)}
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--platform", choices=("linux", "windows", "macos"), required=True)
@@ -577,9 +588,8 @@ def main(argv: list[str]) -> int:
     work.mkdir(parents=True)
     licenses = dict(args.license)
     root = Path(__file__).resolve().parents[2]
-    sources = {PRODUCT: git_head(root)}
     game = args.game_repo or Path(os.environ.get("OPENETQW_GAME_REPO", "") or root.parent / "openETQW-game")
-    sources["openETQW-game"] = git_head(game)
+    sources = package_sources(root, game, install, args.arch)
 
     try:
         check_staged(install, args.platform, args.arch)
