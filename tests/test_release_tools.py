@@ -582,16 +582,19 @@ def render_installer(package: Path, output: Path, arch: str, basename: str, *ext
 def test_installer(work: Path) -> None:
     module = load_module("build_windows_installer_under_test", INSTALLER_TOOL)
     check(module.validate_version("0.1.0") == "0.1.0", "installer: importable, validates versions")
+    quoted_package = Path('C:/release/openetqw "quoted"')
     rendered = module.render_installer_script(
         '#define PackageSource "@@PACKAGE_SOURCE@@"\n@@SETUP_ICON_DIRECTIVE@@\n',
-        package_dir=Path('C:/release/openetqw "quoted"'),
+        package_dir=quoted_package,
         output_dir=Path("C:/out"),
         output_basename="openetqw-0.1.0-windows-x64-setup",
         version="0.1.0",
         arch="x64",
         setup_icon_file=None,
     )
-    check('#define PackageSource "C:/release/openetqw ""quoted"""' in rendered and "SetupIconFile" not in rendered,
+    # the path as this host spells it: backslashes on Windows
+    escaped = str(quoted_package).replace('"', '""')
+    check(f'#define PackageSource "{escaped}"' in rendered and "SetupIconFile" not in rendered,
           "installer: escapes quotes for Inno Setup and omits an absent icon", rendered)
 
     output = work / "installer-out"
