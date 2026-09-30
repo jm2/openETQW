@@ -36,6 +36,11 @@ get CI back: both stay private until the owner decides to publish.
    bit-exactly, or, on a toolchain with no golden, the reference golden at fixed precision (the
    test says which). A golden changes only on purpose, with the reason in its header:
    `python3 tests/test_vehicle_physics_golden.py --regenerate --reason "..."`, and the PR says why.
+   **Seat gate changes** (openETQW-game `src/game/vehicles/SeatGate.*`, `idPlayer::IsSeatPresentationAllowed`,
+   or the seat latch) must also pass `seat-gate` (M5 step 13; part of the full suite): an excluded seat
+   never unlocks, keys match, and the gate changes no `SIM_HASH`, `VEH_TRACE` or `SIM_VIEW` value, except
+   that the test allows the weapon log (`wlog`) to differ in one unbroken run of ticks from 22, the
+   entry leak that step 6 removes.
 3. **Independent review.** Someone other than the author (a person or a separate review
    session) reads the diff and the raw test output, not only the summary.
 4. **CodeRabbit.** CodeRabbit reviews each PR. It currently allows about one review per
