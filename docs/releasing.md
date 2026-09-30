@@ -46,7 +46,7 @@ Options: `--sanitize address,undefined`, `--cross-file tools/cross/linux-arm64.i
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `commit-validation.yml` | pull request | actionlint and shellcheck; script smoke (pyflakes, include case, Zero-SDK, integration skips, profile dry runs); the `pr` profile on Linux x64 GCC and Clang, Linux ARM64, macOS arm64 and Intel x64, Windows x64 and ARM64; the `pr` profile under ASan+UBSan on Linux x64 Clang |
+| `commit-validation.yml` | pull request | actionlint and shellcheck; script smoke (pyflakes, include case, Zero-SDK, integration skips, profile dry runs); the `pr` profile on Linux x64 GCC and Clang, Linux ARM64, macOS arm64, Windows x64 and ARM64; the `pr` profile under ASan+UBSan on Linux x64 Clang |
 | `push-verification.yml` | push to `main` | the `push` profile on Linux x64 and ARM64, macOS arm64, Windows x64 and ARM64; publishes each staged payload as a tarball artifact (modes kept) |
 | `linux-arm64-cross.yml` | pull request, push to `main` | the game and the engine cross-compiled for Linux ARM64 on an x64 runner, installed and checked |
 | `macos-debug.yml` | manual | a debug build through the `push` profile, host diagnostics, an optional MoltenVK `vulkaninfo` probe; publishes the debug payload |

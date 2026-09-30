@@ -433,16 +433,17 @@ def package_macos(args, install: Path, work: Path, licenses: dict[str, Path], so
     executables = [macos_dir / client, macos_dir / f"openETQW-ded_{arch}"]
     for exe in executables:
         copy_file(install / exe.name, exe, 0o755)
-    modules = sorted(install.glob("game_*.dylib"))
-    for module in modules:
-        copy_file(module, frameworks / module.name, 0o755)
+    # this architecture's module only: a leftover module of another architecture in a
+    # reused install tree must not be bundled (macOS is arm64 only)
+    module = install / f"game_{arch}.dylib"
+    copy_file(module, frameworks / module.name, 0o755)
     copy_tree(install / "base", resources / "base")
     copy_tree(install / "licenses", resources / "licenses")
     copy_file(args.glslang_dir / "glslangValidator", macos_dir / "glslangValidator", 0o755)
 
     for exe in executables:
         add_rpath(exe, "@executable_path/../Frameworks")
-    images = executables + [frameworks / m.name for m in modules]
+    images = executables + [frameworks / module.name]
     lib_dirs = [d.resolve() for d in args.macos_lib_dir]
     bundled = bundle_macos_dependencies(images, frameworks, lib_dirs)
     log(f"bundled libraries: {', '.join(bundled) or 'none'}")

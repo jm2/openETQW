@@ -7,7 +7,7 @@
 #                 stress, "every integration test skips without retail data", and a
 #                 dry run of both validation profiles
 #   validate      the 'pr' profile of tools/validation/openetqw_validate.py on Linux
-#                 x64 GCC/Clang, Linux ARM64, macOS arm64 and Intel x64, Windows x64/ARM64: game and
+#                 x64 GCC/Clang, Linux ARM64, macOS arm64, Windows x64/ARM64: game and
 #                 engine build, unit suite, integration suite must SKIP, meson install,
 #                 staged-payload checks (layout, vkprogs, licences, RELRO/NOW/NX,
 #                 Mach-O arch and minimum OS, runtime DLLs), the assetless
@@ -16,7 +16,8 @@
 #
 # The macOS build is the Vulkan one (MoltenVK over Metal): r_renderAPI defaults
 # to vulkan everywhere, with OpenGL as the runtime fallback, so there is one
-# macOS build per architecture rather than openQ4's OpenGL and Metal pair.
+# macOS build (arm64; macOS x64 was dropped on 2026-09-30) rather than openQ4's OpenGL
+# and Metal pair.
 #
 # Push Verification (push-verification.yml) runs the 'push' profile on main and
 # publishes the staged payloads; the release is manual-release.yml.
