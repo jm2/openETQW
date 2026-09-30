@@ -13,10 +13,12 @@ if that comes back.
 ===========================================================================
 */
 
-#include "src/idlib/precompiled.h"
-
+// The C headers first: idLib's Str.h defines strcmp and strlen as idStr
+// members, which breaks libc++'s <cstring> (macOS) when it comes after.
 #include <cstdio>
 #include <cstring>
+
+#include "src/idlib/precompiled.h"
 
 // idLib's objects refer to the engine's globals; nothing here calls through them
 class idCommon;

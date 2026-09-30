@@ -420,7 +420,7 @@ This stage must ship in the same release as stage 3. Otherwise targets stepping 
 - Hold a human review on a real display (D3).
 - Enable the lead only for classes where p95 stays under a bound the owner sets by eye.
 
-**Effort:** about 1 week plus the measurement. It needs an owner decision and a ledger row. *[inferred]*
+**Effort:** about 1 week plus the measurement. It needs a ledger row; the owner approved going beyond retail on 2026-09-29, and L per class is set after the measurement. *[inferred]*
 
 ### 3.3 When to turn the seat view on
 
@@ -429,7 +429,7 @@ This stage must ship in the same release as stage 3. Otherwise targets stepping 
   - the seat capture, the A/B replay and the cross-cap replay pass;
   - a person has reviewed it on a high-refresh display (D1, D3).
 - **First candidates:** angle-driven seats (gunners, free look), as `listSeatViews` identifies them.
-- **Ground-vehicle driver seats: the owner's call.** They get smoothness, but camera motion caused by the hull becomes 16.5 ms older on average, unless stage 7 enables a lead for that class. If the driver's view is angle-driven, their mouse look gains 16.5 ms.
+- **Ground-vehicle driver seats: wait for stage 7** (owner, 2026-09-29). They get smoothness, but camera motion caused by the hull becomes 16.5 ms older on average, unless stage 7 enables a lead for that class. If the driver's view is angle-driven, their mouse look gains 16.5 ms.
 - **Pilot seats stay off until stage 7 is measured.** Without a lead they regress by 16.5 ms. A pilot holding the tophat could later get late look for the free-look part.
 - **D10 (2026-09-25): on by default.** Each seat joins the default list when it meets the prerequisites above.
 
@@ -509,10 +509,10 @@ Stages 0–7 come to about 5–7 weeks of focused work for one engineer. That do
 
 1. **The split.** Does it meet D10? Everything drawn and mouse look in angle-driven seats leave the tick. Driving keys and a pilot's mouse keep reaching physics once per 33 ms, which only a simulation change could shorten.
 2. **Which seats first.** D10 answers "on by default": seats join the default list as they qualify (§3.3). A person's review of the first seat group on a high-refresh display is still wanted (D3).
-3. **Driver seats.** Accept 16.5 ms more mean age on camera motion caused by the hull in exchange for smoothness, or wait for stage 7?
+3. **Driver seats.** Accept 16.5 ms more mean age on camera motion caused by the hull in exchange for smoothness, or wait for stage 7? *Answered 2026-09-29: wait for stage 7; driver seats keep the tick-rate view until the lead is measured for their class.*
 4. **Stage 7.** Adopt the lead per class after measurement? L = 0.5 keeps today's mean age; L = 1 removes it, with a risk of overshoot.
-5. **Remote vehicles.** They are drawn one tick behind (retail, D5), and there is no vehicle antilag. Do you want vehicles to depart from retail, using the lead or remote axes and joints? That needs a ledger row.
-6. **Aircraft state.** If loopback shows a residual, network the air-control state (a protocol minor bump)?
+5. **Remote vehicles.** They are drawn one tick behind (retail, D5), and there is no vehicle antilag. Do you want vehicles to depart from retail, using the lead or remote axes and joints? That needs a ledger row. *Answered 2026-09-29: yes, each departure with a ledger row, enabled per class under a measured bound.*
+6. **Aircraft state.** If loopback shows a residual, network the air-control state (a protocol minor bump)? *Answered 2026-09-29: yes.*
 7. **Prediction-error decay on your own vehicle.** It has no exclusion for the local player (game `src/game/ScriptEntity.cpp:2244-2255`). Keep it, or replace it with a faster fade in presentation? Not measured.
 
 ### 5.2 Not determined

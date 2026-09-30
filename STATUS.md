@@ -2,8 +2,8 @@
 
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
-Updated: 2026-09-25 (evening) · session/agent: Claude Code integrator session 3a9edf51 · host: mbp-m1max, macOS 27.0 (Darwin 27.0.0), arm64 (Apple M1 Max)
-Engine repo `~/openETQW`: `main` with PR #19 (merged 2026-09-25; `tools/ci/companion.ref` pins game ef9a876) · game repo `~/openETQW-game`: `main` ef9a876 (PR #12, merged 2026-09-25) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none; upstream checked 2026-09-24)
+Updated: 2026-09-29 (evening) · session/agent: Claude Code integrator session 3a9edf51 · host: mbp-m1max, macOS 27.0 (Darwin 27.0.0), arm64 (Apple M1 Max)
+Engine repo `~/openETQW`: `main` cba54bb (PR #25, merged 2026-09-30 UTC; `tools/ci/companion.ref` pins game c4d1619) · game repo `~/openETQW-game`: `main` 2485998 (PR #14, merged 2026-09-30 UTC) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none; upstream checked 2026-09-24)
 
 Both histories were rewritten on 2026-09-24 (`docs/provenance.md` §7). Every commit ID changed: engine 2104090 → 84a224b and 53d0172 → fef1e53; game 285eaa1 → 24f58bf and 9b3a02b → 19a709a. Engine SHAs quoted in older docs (`CHECKPOINT_STOCK_MAPS_PHASE.md`, ledger rows, earlier STATUS text) are pre-rewrite IDs. The game's historical `tools/ci/engine.ref` pins name engine commits that no longer exist.
 
@@ -28,6 +28,7 @@ From the owner, 2026-09-25, answers to the open-question list (the letters and n
 From the owner, 2026-09-26: the default frame cap should be high ("240/250/uncapped") once it is safe to do so. `com_maxFPS` stays 60 until the gate in `docs/m5-plan.md` step 18 is met; the value is picked then (recommended: 240).
 From the owner, 2026-09-28: the Windows toolchain is Visual Studio 2026 (MSVC 19.51), not the VS 2022 Build Tools the Windows handoff named. MSVC 19.51 miscompiles an inlined `strncpy` at `/O2` (the 14.44 toolset does not); the game repository works around it and meson `strbuilder` guards it (Found this session).
 From the owner, 2026-09-29: the pre-merge Linux and macOS run of engine PR #23 and game PR #13 is waived; both merged that day, and the run is a post-merge check (next step 1).
+From the owner, 2026-09-29, the vehicle questions (`docs/vehicle-responsiveness.md` §5.1): driver seats keep retail's tick-rate view until the hull lead (stage 7, m5-plan step 14b) is measured for their class; the lead and remote-vehicle axes and joints may go beyond retail 1.5's look, each with a ledger row and enabled per class under a measured bound; if the client-side aircraft fix (stage 6) leaves a residual on loopback, the air-control state is networked (a protocol minor bump).
 Environment corrections vs. SESSION_BRIEF: the macOS arm64 host is joined by `antec` (Fedora 44, x86_64, GCC 16.2.1, AMD RX 6400 / RADV NAVI24) since 2026-09-26 and by a Windows 11 26H2 x64 host (VS 2026 MSVC 19.51.36260, AMD RX 6400 / Adrenalin 26.8.1) since 2026-09-28; the Linux engine and game module build and run the full retail suite on `antec`, and on the Windows host the engine, dedicated server and game module build with MSVC, debug and optimized (debugoptimized), and run the full retail suite (rows below; the Windows leg is engine PR #23 with game PR #13). VS 2026 is the Windows toolchain baseline everywhere, including CI. GitHub Actions minutes for private repositories ran out on 2026-09-24, so hosted CI does not run. Local checks, local independent reviews and CodeRabbit (about one review an hour) replace it (`CONTRIBUTING.md`). Merge gates are a convention; the free plan has no branch protection.
 
 ## Toolchain and commands (this session)
@@ -94,18 +95,19 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 | openETQW | #23 (`fix/windows-msvc-build`, merged after game #13) | Windows 11 x64 with MSVC: the port; the fixes from its review (scenes under Vulkan, console control events, console stdin, `Sys_Error`, net helpers); the vertex-cache buffer pool, out-of-frame upload batching, the complete allocation count and its 4096 guard; the Windows game-module and runtime-DLL copies; WINVER 0x0A00; CI notes; test fixes. Companion pinned at game c4d1619, #13's merge commit (the same tree as 615c46f, which every Windows row ran) |
 | game | #13 c4d1619 (`fix/lexer-flags-after-load`) | Lexer asserts, the shared CRT, `idStr::FreeData` at teardown, the default user group, WINVER 0x0A00, the MSVC 19.51 `/O2` `strncpy` workaround, the `THREADNAME_INFO` argument count, the `MapClear` use-after-free |
 
-### Open on 2026-09-29 (CI and release parity with openQ4)
+### Merged on 2026-09-29/30 (CI and release parity with openQ4)
 | Repo | PR | What |
 |---|---|---|
-| openETQW | #24 (`feat/installable-engine`) | An installable engine: default paths for an installed tree (content and module next to the executable, per-user saves), `meson install` stages the portable tree in `.install/`, version stamping (`openetqw_version.py`), Linux full RELRO/`BIND_NOW` and a `$ORIGIN` install RUNPATH, `fs_devpath` = the save path everywhere |
-| openETQW | #25 (`feat/ci-release-parity`, stacked on #24) | `tools/validation/openetqw_validate.py` (`push`/`pr`); workflows at openQ4 parity replacing `ci.yml` (commit validation, push verification, Linux ARM64 cross, macOS debug/sanitizer/universal2 candidate, manual release, Discord); packages for Windows (zip + Inno Setup), Linux (tar.xz + debug symbols + AppImage) and **one** macOS app (Vulkan on MoltenVK; owner, 2026-09-29: one macOS build, Vulkan/Metal by default); `docs/releasing.md` |
-| game | #14 (`ci/refresh-engine-pin-and-blockers`) | CI facts: engine contract pin 84a224b -> 820a820; the contract legs' blocker reasons as they stand (the engine builds on Linux and with MSVC); Windows x64 legs on `windows-2025-vs2026`; zlib from vcpkg on the Windows contract leg |
+| openETQW | #24 2e5e5b8 (`feat/installable-engine`) | An installable engine: default paths for an installed tree (content and module next to the executable, per-user saves), `meson install` stages the portable tree in `.install/`, version stamping (`openetqw_version.py`), Linux full RELRO/`BIND_NOW` and a `$ORIGIN` install RUNPATH, `fs_devpath` = the save path everywhere |
+| openETQW | #25 cba54bb (`feat/ci-release-parity`, stacked on #24) | `tools/validation/openetqw_validate.py` (`push`/`pr`); workflows at openQ4 parity replacing `ci.yml` (commit validation, push verification, Linux ARM64 cross, macOS debug/sanitizer/universal2 candidate, manual release, Discord); packages for Windows (zip + Inno Setup), Linux (tar.xz + debug symbols + AppImage) and **one** macOS app (Vulkan on MoltenVK; owner, 2026-09-29: one macOS build, Vulkan/Metal by default); `docs/releasing.md` |
+| game | #14 2485998 (`ci/refresh-engine-pin-and-blockers`) | CI facts: engine contract pin 84a224b -> 820a820; the contract legs' blocker reasons as they stand (the engine builds on Linux and with MSVC); Windows x64 legs on `windows-2025-vs2026`; zlib from vcpkg on the Windows contract leg |
 
 ### Open and pending
-- #24, #25 and game #14 each had an independent review and a second-round review of the fixes; every finding is answered on the PR. CodeRabbit reviewed #24 (one finding, fixed: the Windows save path's writable fallback); it skips #25 automatically (its base is not `main`) and is rate-limited to one review an hour. Hosted runs of these heads were created and refused before any step ("recent account payments have failed or your spending limit needs to be increased"), so no workflow has run.
+- **Open:** engine `fix/macos-strbuilder-test` (this update): `main` did not build on macOS after #23, because `tests/StrBuilderTest.cpp` included `<cstring>` after idLib's `Str.h`, which defines `strcmp`/`strlen` as `idStr` members and breaks libc++'s `using ::strcmp`. The C headers now come first. With it, the macOS full suite on `main` passes 34/34 (Demonstrated).
+- #24, #25 and game #14 (all merged) each had an independent review and a second-round review of the fixes; every finding is answered on the PR. CodeRabbit reviewed #24 (one finding, fixed: the Windows save path's writable fallback); it skips #25 automatically (its base is not `main`) and is rate-limited to one review an hour. Hosted runs of these heads were created and refused before any step ("recent account payments have failed or your spending limit needs to be increased"), so no workflow has run.
 - Engine PRs #20 → #21 → #22 merged 2026-09-27 (bottom-up, merge commits). Reviews: CodeRabbit on #20 (no findings) and #21 (3, fixed in #22); Codex on #20 (1, fixed by #21) and #21 (1, fixed in #22); an independent review session on the stack (no blockers; 3 should-fix fixed, the Windows default kept as the owner decided, 2 nits documented; its report is on #22). CodeRabbit was rate-limited on #22.
 - Game commit 78ec05e went to `openETQW-game` `main` by a direct push, not a PR (against `CONTRIBUTING.md`). Owner decision (2026-09-29): the change was reviewed and is correct, so it stays; the process miss is recorded here and nothing is reverted.
-- macOS re-verification of #21/#22 on the macOS host: the full suite, since every engine change in #22 also runs on MoltenVK (the vertex cache's end of frame and 3 temp buffers, the removed in-rendering barrier, the swapchain stage mask, streamed stuff); KNOWN_VIEW_LEAK bounds 40–59 with `vehicle_titan`.
+- Done 2026-09-29 (34/34 on `main` cba54bb plus the StrBuilderTest fix; Demonstrated): macOS re-verification of #21/#22 on the macOS host: the full suite, since every engine change in #22 also runs on MoltenVK (the vertex cache's end of frame and 3 temp buffers, the removed in-rendering barrier, the swapchain stage mask, streamed stuff); KNOWN_VIEW_LEAK bounds 40–59 with `vehicle_titan`.
 - Owner decision (2026-09-26), done: `frame-poses` A8 counts the ticks with an off-clock draw (max(1, 5%)) and bounds each miss (8 ms beyond the 4 ms slack) instead of counting draws; smoothing the prediction clock itself is a candidate for M5 step 10.
 
 ### Found this session
@@ -127,6 +129,7 @@ All rows: host mbp-m1max, macOS 27 arm64, Apple Clang 21, debug build, retail da
 
 | Claim | Evidence level | Host / OS / arch / compiler | Command | Result (log path) |
 |---|---|---|---|---|
+| Full suite, **1.5 data**, macOS on `main` after the Windows merge (34 tests) | map-loaded | as above; engine `main` cba54bb plus `fix/macos-strbuilder-test` (the include order in `tests/StrBuilderTest.cpp` only), game `main` 2485998 | `ETQW_DATA_PATH=… meson test -C build --no-rebuild -j 1` (2026-09-29 22:07) | **34/34 OK**, including all-stock-maps 11/11, campaign-client-maps 4/4, `high-refresh-determinism` (KNOWN_VIEW_LEAK within its bounds) and the MoltenVK render tests. Without the fix `main` does not build on macOS (the `strbuilder` unit test) |
 | Full suite, `main` binaries, DVD data (28 tests) | map-loaded (highest level any test in it reaches) | as above; engine `main` c6345bb with game ea14841, then game 54d18d8 (`vret`) | `ETQW_DATA_PATH=… meson test -C build --no-rebuild -j 1` (2026-09-25; the second run used a DVD-only view of the data) | 28/28 OK both times |
 | Full suite, `main` binaries, **1.5 data** (28 tests) | map-loaded | as above; engine c6345bb (test tree of `m5/sim-view` 32f4cb1), game ea14841 | as above, 2026-09-25 14:49 | 8 OK, 20 FAIL: client-lifecycle, vulkan-shadows, all-stock-maps, turn-rate, inprocess-map-change, remote-client-map-change (+`-latency`, `-loss`), multiclient-gameplay (+`-latency`), userinfo (+`-loss`), reconnect-restart, lossy-session, client-network-join/-listen, frame-poses-join/-listen, bot-gameplay, valley-match. Cause, in the logs: `script event 'sendNetworkEvent' ( fbs ) in script/events.script does not match its native definition ( Es )` and the same for `broadcastToolTip`, which the harness counts as failures (ledger 050). high-refresh-determinism passed. Also in inprocess-map-change: `sdVehiclePart::AddSurface` "Invalid Surface" warnings, as on the DVD data (not new with 1.5) |
 | Full suite, **1.5 data**, game `fix/target-1.5-data` | map-loaded | as above; engine c6345bb binaries (test tree of `m5/sim-view`), game a5af70b | as above, 2026-09-25 16:58 | 26 OK, 2 FAIL. No reconcile warnings. all-stock-maps 11/11 on the 1.5 maps, with every map entity spawned (the DVD data left 11 path corners unspawned) and ark's and volcano's new counts (897, 1332). client-lifecycle and vulkan-shadows waited out their 90 s: their "player active" marker was a debug print that only the DVD scripts make (`parachute::Idle`), and their map marker is never printed. Fixed in the tests on engine `fix/target-1.5-data` (5a5b672), not yet re-run. An earlier run of this row loaded the old module: the engine loads `game_arm64.dylib` from its own directory first, not from `fs_basepath`. |
@@ -307,7 +310,7 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
   - At 84a224b the codec unit tests were not labeled as self-consistency tests; ledger rows 003/014 and this file now label them.
   - The charter asks for a `LicenseRef-ETQW-SDK` SPDX line on SDK-derived files; none has one (the game's `spdx_allowlist.txt` stands in).
 
-**M1 (native execution): macOS only.**
+**M1 (native execution): met for the build and the dedicated server on macOS arm64, Linux x86_64 and Windows 11 x64; gaps below.**
 - macOS arm64:
   - Client, dedicated server and game module compile.
   - The dedicated server mounts retail data through `fs_basepath`, initializes decls and the game, loads maps, accepts stdin console commands and exits 0.
@@ -321,7 +324,7 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
   - In the graphical client, spawn and movement are asserted only by the network tests (`client-network-*`, 2026-09-25), from the server's and the peer's side; collision is not asserted.
   - The skipped-chunk list was incomplete: portal data is discarded, the client portal API is stubbed, and the headless render world is stubbed. Ledger 013 records them since the 2026-09-24 docs pass; their gameplay effects are not measured.
 
-**M3 (OpenETQW multiplayer): partial; one Mac, loopback; the cross-OS pair is missing.**
+**M3 (OpenETQW multiplayer): partial; loopback on one host at a time (the suites also pass on Linux and Windows); the cross-OS pair is missing.**
 - Shown (map-loaded):
   - A dedicated server and two headless clients connect, spawn on opposite teams and replicate positions.
   - Movement replicates in both directions: each client sees the other walk, and its copy ends within 2 units of the server's position once the walker is at rest (2026-09-25).
@@ -334,7 +337,7 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
   - The server registers a client's attack and its release (asserted since 2026-09-24).
 - Not tested:
   - peer-observed weapon fire (a headless peer cannot observe it);
-  - a cross-OS pair (no second OS host);
+  - a cross-OS pair (the Linux and Windows hosts exist since 2026-09-26/28; no pair has been run);
   - the Vulkan client with a human at the controls.
 - Loss and jitter simulation (POSIX and, since 2026-09-28, Windows) keeps packet order, so reordering is never tested.
 
@@ -435,7 +438,7 @@ None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline
 ## Next steps (7 or fewer, ordered)
 | # | Step | Host / OS needed | Depends on | Acceptance test |
 |---|---|---|---|---|
-| 1 | **After the Windows merge (the owner waived the pre-merge run on 2026-09-29):** the full suite on Linux (`antec`) and macOS on `main` (engine with #23, game with #13). The merge brought in code those hosts build and nobody has run there: the Vulkan buffer pool and out-of-frame upload batching, the ray-tracing resume, `RenderWorld.cpp`, `sdl_glimp`/`sdl_events`, `posix_net.cpp`'s loopback comparison (not even compiled on the Windows host), the harness, and the game fixes (StrBuilder, MapClear, idStr, user groups, lexer). On MoltenVK the pool binds thousands of buffers into one allocation, a path it has not exercised | Linux x86_64, macOS arm64 | none | The full suite on each host passes as it did before the merge; a failure gets a fix PR |
+| 1 | **After the Windows merge (the owner waived the pre-merge run on 2026-09-29):** macOS is done: 34/34 on `main` cba54bb once `fix/macos-strbuilder-test` lets it build (Demonstrated). Linux ran 34/34 on the reviewed #24/#25 heads (which include #23); still to run there: `main` itself, which adds the review fix 3e0ad42 (the `fs_basepath` match and the release workflow) | Linux x86_64 | `fix/macos-strbuilder-test` merged | The full suite on `antec` at `main` passes; a failure gets a fix PR |
 | 2 | M5 in the order of `docs/m5-plan.md`: the D1 test change (the reach bounds become reports); the vehicle physics guard (step 5a) before any vehicle change; then steps 6–17, with the vehicle stages of `docs/vehicle-responsiveness.md` in steps 6, 8, 9, 13, 14, 14a and 14b | macOS arm64 | none | Each step's test (see the plan) |
 | 3 | Windows follow-ups after the merge: a run on an NVIDIA or Intel GPU (the 4096 allocation limit was only simulated here); the hosted Windows CI leg once Actions minutes are back | Windows | step 1 | Full suite on that GPU; the CI leg green |
 | 4 | Provenance and license records: post-split files and openQ4 donor commits in the manifest, SPDX lines, the minizip relabel (release gate 3) | any | none | Manifest covers every tracked file; game `check_spdx.py` passes |
@@ -449,7 +452,5 @@ None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline
 - Manual retail-data runs on Linux and Windows (C12): both now build; the Windows host ran the full suite on 2026-09-28.
 
 ## Questions for the owner
-From `docs/vehicle-responsiveness.md` §5.1 (none blocks the first stages):
-- **Driver seats:** turn their smooth view on as soon as the blend lands (smooth, but the hull's motion is drawn 16.5 ms older on average), or only once the per-class hull lead (step 14b) is measured? Recommendation: wait for the lead, since the goal is "as responsive as possible". Gunner and free-look seats have no such trade and go first.
-- **Beyond retail:** may the hull lead (step 14b) and, later, remote-vehicle axes and joints go beyond retail 1.5's look, each with a ledger row?
-- **Aircraft:** if the client-side fix (step 14a) leaves a residual on loopback, may the air-control state be networked (a protocol minor bump, allowed by the clean break)?
+The three vehicle questions were answered on 2026-09-29 (Owner decisions). Still open from `docs/vehicle-responsiveness.md` §5.1, not urgent:
+- **Prediction-error decay on your own vehicle** (§5.1 item 7): keep it, or replace it with a faster fade in presentation? Not measured; it matters once the seat views land.
