@@ -1119,7 +1119,14 @@ void idCommonLocal::Frame() {
 		static uint64_t lastFrameUsec = 0;
 		const uint64_t workEndUsec = MonotonicUsec();
 		const int maxFPS = com_maxFPS.GetInteger();	// com_unlock_maxFPS follows it (idFrameCapAlias)
-		if ( maxFPS > 0 ) {
+		if ( com_frameInGame && !frameDrawn ) {
+			// com_unlockFPS 0 and no tick ran, so nothing was drawn: wait for the next tick
+			// instead of pacing through empty frames (which spin a core, all of it at cap 0).
+			// A listen host's ticks follow the server's clock: poll every millisecond there.
+			const int waitMsec = idAsyncNetwork::server.IsActive() ? 1 : Com_GetGameTimeLeft();
+			std::this_thread::sleep_for( std::chrono::milliseconds( std::max( 1, waitMsec ) ) );
+			lastFrameUsec = MonotonicUsec();
+		} else if ( maxFPS > 0 ) {
 			const uint64_t targetFrameUsec = 1000000ull / static_cast< uint64_t >( maxFPS );
 			const auto monotonicUsec = MonotonicUsec;
 			uint64_t nowUsec = workEndUsec;

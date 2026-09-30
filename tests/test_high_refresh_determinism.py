@@ -8,11 +8,15 @@ zero simulation drift or physics divergence on stock map Valley (maps/valley.wor
 
 Validates:
 1. Fixed tick-indexed command stream replayed at caps 60, 120, 144 and 240 and uncapped
-   (com_maxFPS 0, which also measures this host's frame-rate ceiling), and once more at
-   cap 240 with com_unlockFPS 0 (M5 plan step 11, D8: the renderer does not go faster
-   than the ticks). That schedule is compared like the others, and instead of the cap
-   rules its drawn frames (FRAME_TIMING draws=) must run at the tick rate, 24-31 a
-   second.
+   (com_maxFPS 0, which also measures this host's frame-rate ceiling), at cap 30 (every
+   frame runs a tick: no render-only frames, with the base-draw path of com_unlockFPS 1),
+   and once more at cap 240 with com_unlockFPS 0 (M5 plan step 11, D8: the renderer does
+   not go faster than the ticks). The com_unlockFPS 0 schedule is compared like the
+   others, and instead of the cap rules it must draw no render-only frame: it logs
+   every draw (g_logFramePoses), each must be a base draw of a new game time
+   (test_frame_poses.locked_check), and no play window may draw more often than it
+   ticks (FRAME_TIMING draws= <= ticks=). Which schedules produce the same SIM_VIEW as
+   cap 30 is reported (M5 step 6 is to make every cap match it).
 2. Bit-for-bit identical CRC32 simulation hashes (SIM_HASH) across all schedules, and
    identical SIM_VIEW lines: state each tick produces that later ticks read back and that
    a render frame could write into (the view angles after UpdateViewAngles, the tick's
@@ -59,6 +63,7 @@ import time
 from pathlib import Path
 
 import etqw_harness as h
+import test_frame_poses as frame_poses
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = h.env_data_path()
@@ -195,7 +200,7 @@ def run_determinism_schedule(
     timeout_sec: float = 45.0,
 ) -> tuple[dict[int, SimHashEntry], int, list[str]]:
     """Runs a single determinism schedule at the given com_maxFPS."""
-    print(f"\n--- [SCHEDULE {cap_label(fps)}] Launching Valley determinism replay (com_maxFPS {fps}) ---")
+    print(f"\n--- [SCHEDULE {cap_label(fps)}] Launching Valley determinism replay (com_maxFPS {abs(fps)}) ---")
 
     args = [
         str(bin_path),
@@ -206,6 +211,7 @@ def run_determinism_schedule(
         "+set", "r_swapInterval", "0",
         "+set", "com_maxFPS", str(abs(fps)),
         "+set", "com_unlockFPS", "0" if fps < 0 else "1",
+        "+set", "g_logFramePoses", "4" if fps < 0 else "0",
         "+set", "com_logFrameTiming", "1",
         "+set", "g_determinismTest", "1",
         "+set", "g_simHash", "1",
@@ -309,9 +315,9 @@ def run_determinism_schedule(
         vulkan_frames = int(frames_match.group(1))
 
     duration = time.time() - start_time
-    print(f"  [METRICS {fps} Hz] Duration: {duration:.2f}s | Exit code: {exit_code}")
-    print(f"  [METRICS {fps} Hz] Vulkan frames presented: {vulkan_frames}")
-    print(f"  [METRICS {fps} Hz] Authoritative SIM_HASH ticks recorded: {len(sim_hashes)}")
+    print(f"  [METRICS {cap_label(fps)}] Duration: {duration:.2f}s | Exit code: {exit_code}")
+    print(f"  [METRICS {cap_label(fps)}] Vulkan frames presented: {vulkan_frames}")
+    print(f"  [METRICS {cap_label(fps)}] Authoritative SIM_HASH ticks recorded: {len(sim_hashes)}")
 
     if exit_code != 0:
         print("\n--- Recent output before abnormal exit ---")
@@ -361,7 +367,7 @@ def main() -> int:
         print(f"[SKIP] Retail 1.5 data incomplete at {DATA_PATH / 'base'} (missing: {', '.join(missing)}). Skipping test.")
         return 77  # Meson skip code
 
-    rates = [60, 120, 144, 240, 0, LOCKED]  # 0 = uncapped: this host's ceiling
+    rates = [60, 120, 144, 240, 0, 30, LOCKED]  # 0 = uncapped: this host's ceiling
     results: dict[int, dict[int, SimHashEntry]] = {}
     frames: dict[int, int] = {}
     timing: dict[int, dict | None] = {}
@@ -401,8 +407,8 @@ def main() -> int:
     mismatches = 0
     sample_ticks = [1, 20, 50, 70, 91, 105, 115, 121, 140, 150]
 
-    print("\n--- Telemetry Sample Comparison across 60, 120, 144, 240 Hz and uncapped ---")
-    header = f"{'Tick':>5} | {'60 Hz Hash':>10} | {'120 Hz Hash':>10} | {'144 Hz Hash':>10} | {'240 Hz Hash':>10} | {'Uncapped':>10} | {'Identical?':>10}"
+    print("\n--- Telemetry Sample Comparison across every schedule (SIM_HASH) ---")
+    header = f"{'Tick':>5} | " + " | ".join(f"{cap_label(r)[:10]:>10}" for r in rates) + f" | {'Identical?':>10}"
     print(header)
     print("-" * len(header))
 
@@ -447,13 +453,8 @@ def main() -> int:
             mismatches += 1
 
         if tick in sample_ticks:
-            h60 = results[60][tick].crc_hash
-            h120 = results[120][tick].crc_hash
-            h144 = results[144][tick].crc_hash
-            h240 = results[240][tick].crc_hash
-            h0 = results[0][tick].crc_hash
             status = "MATCH (OK)" if not tick_mismatch else "MISMATCH"
-            print(f"{tick:5d} | 0x{h60} | 0x{h120} | 0x{h144} | 0x{h240} | 0x{h0} | {status:>10}")
+            print(f"{tick:5d} | " + " | ".join(f"0x{results[r][tick].crc_hash}" for r in rates) + f" | {status:>10}")
 
     print("\n--- Frame rate during play (FRAME_TIMING) ---")
     rate_failures = []
@@ -485,15 +486,23 @@ def main() -> int:
                   f" uncapped {ceiling:.1f}) (the host's rate, reported, not failed: D1)")
         if ceiling < fps:
             print(f"  [NOTE] {cap_label(fps)} is not reachable on this host: uncapped play runs at {ceiling:.1f} fps")
-    t = timing[LOCKED]
-    if t is not None:
-        # com_unlockFPS 0: one draw per tick, whatever the cap
-        if t["draws_ps"] is None:
-            rate_failures.append(f"{cap_label(LOCKED)}: FRAME_TIMING carries no draws= count (an engine before M5 step 11)")
-        else:
-            print(f"  {cap_label(LOCKED)}: {t['draws_ps']:.1f} frames drawn a second, {t['avg_fps']:.1f} frames run")
-            if not 24.0 <= t["draws_ps"] <= 31.0:
-                rate_failures.append(f"{cap_label(LOCKED)}: {t['draws_ps']:.1f} frames drawn a second, not the tick rate (24-31)")
+    # com_unlockFPS 0: no render-only draw. Every logged draw is a base draw of a new game
+    # time (frame_poses.locked_check, over the draws of play), and no play window draws more
+    # often than it ticks; the draw rate is reported (a slow host may not reach 30, D1)
+    poses = [p for ln in schedule_lines[LOCKED] if (p := frame_poses.parse_pose(ln))]
+    play = [p for p in poses if p["gt"] > 0]
+    lk = frame_poses.locked_check(play[5:], 240)  # the first draws of play settle the view
+    print(f"  {cap_label(LOCKED)}: {lk['detail']}")
+    if not lk["ok"]:
+        rate_failures.append(f"{cap_label(LOCKED)}: not one base draw per tick: {lk['detail']}")
+    windows = [m for ln in schedule_lines[LOCKED] if (m := FRAME_TIMING_RE.search(ln)) and int(m.group(3)) >= PLAY_MIN_TICKS]
+    if not windows or any(m.group(9) is None for m in windows):
+        rate_failures.append(f"{cap_label(LOCKED)}: FRAME_TIMING carries no draws= count (an engine before M5 step 11)")
+    else:
+        over = [(int(m.group(9)), int(m.group(3))) for m in windows if int(m.group(9)) > int(m.group(3))]
+        print(f"  {cap_label(LOCKED)}: draws/ticks per play window {[(int(m.group(9)), int(m.group(3))) for m in windows]}")
+        if over:
+            rate_failures.append(f"{cap_label(LOCKED)}: play windows drew more often than they ticked (draws, ticks): {over}")
     for fps in rates:
         t = timing[fps]
         if t is not None and t["caps"] != [abs(fps)]:
@@ -571,6 +580,12 @@ def main() -> int:
             view_mismatches.append(f"{cap_label(fps)}: a weapon-log divergence on ticks {min(ticks)}-{max(ticks)}"
                                    f" ({len(ticks)} ticks) does not have the known shape (from tick"
                                    f" {KNOWN_VIEW_LEAK['from_tick']}, {KNOWN_VIEW_LEAK['min_ticks']}-{KNOWN_VIEW_LEAK['max_ticks']} ticks)")
+    # M5 step 6's target: every schedule's SIM_VIEW equal to cap 30's (no render-only frames,
+    # the base-draw path on); reported until step 6 lands
+    for fps in (r for r in rates if r != 30):
+        diff = sorted(t for t in views[30] if views[fps].get(t) != views[30][t])
+        print(f"  SIM_VIEW against cap 30: {cap_label(fps)}: "
+              + ("identical" if not diff else f"differs on {len(diff)} ticks ({diff[0]}-{diff[-1]})"))
     for m in view_mismatches[:10]:
         print(f"  [FAIL] {m}")
     assert not view_mismatches, f"render-frame state leaked into {len(view_mismatches)} tick(s) (SIM_VIEW)"

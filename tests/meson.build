@@ -190,7 +190,7 @@ if build_engine
     env: client_test_env,
     workdir: meson.project_source_root(),
     suite: 'integration',
-    timeout: 180,
+    timeout: 300,
     is_parallel: false,
   )
   # M5 step 5a: the vehicle replay (g_determinismTest 2) against the recorded

@@ -64,7 +64,7 @@ Checks (0.25 s dropped at each edge of a phase; a phase needs >= 20 draw pairs):
                angles are left out: its idle sway turns it by about 0.01 degrees a draw)
 After the negative control, com_unlockFPS 0 (M5 plan step 11, D8) at the highest cap,
 while the observer walks: every draw is a base draw (ud=0) of a new game time (at
-most max(1, 1%) repeats), at 24-31 draws a second, the tick rate.
+most max(1, 1%) repeats); the draw rate, about the tick rate, is reported.
 A check that the code is expected to fail today is listed in KNOWN_GAPS with the shape
 the failure must have: 'per_tick' (the pose changes once per tick: it changes on the
 draw pairs that cross a tick and on no others, with max(1, 5%) of the pairs allowed to
@@ -172,16 +172,16 @@ def rate(poses):
 
 def locked_check(poses, cap):
     """com_unlockFPS 0 (M5 plan step 11, D8): the renderer does not go faster than the
-    ticks, so at a cap above 30 each draw is a base draw (ud=0) of a new game time, and the
-    draw rate stays at the tick rate (below it only when one frame runs two ticks)."""
+    ticks, so each draw is a base draw (ud=0) of a new game time. The draw rate (the tick
+    rate, or less when one frame runs two ticks) is reported, not bounded: a render-only
+    draw shows up as a repeated game time, and a slow host may not reach the tick rate (D1)."""
     pairs = list(zip(poses, poses[1:]))
     n = len(pairs)
     same = sum(1 for a, b in pairs if b["gt"] == a["gt"])
     unlocked = sum(1 for p in poses if p["ud"] == 1)
-    r = rate(poses)
-    ok = n >= MIN_PAIRS and same <= allowed_misses(n) and unlocked == 0 and 24.0 <= r <= 31.0
-    return {"ok": ok, "detail": f"{r:.1f} draws/s at cap {cap} (need 24..31); {same} of {n} draw pairs repeat a game time"
-                                f" (allowed {allowed_misses(n)}); {unlocked} unlocked draws (allowed 0)"}
+    ok = n >= MIN_PAIRS and same <= allowed_misses(n) and unlocked == 0
+    return {"ok": ok, "detail": f"{rate(poses):.1f} draws/s at cap {cap} (reported); {same} of {n} draw pairs repeat a game"
+                                f" time (allowed {allowed_misses(n)}); {unlocked} unlocked draws (allowed 0)"}
 
 
 def phase_errors(poses):

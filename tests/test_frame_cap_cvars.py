@@ -16,6 +16,12 @@ so it needs no retail data:
 2. +set com_unlock_maxFPS 75 +set com_maxFPS 100: both read 100.
 3. In play, from an exec'd config: set com_maxFPS 100, set com_unlock_maxFPS 90,
    then com_maxFPS reads 90; set com_maxFPS 45, then com_unlock_maxFPS reads 45.
+4. The saved config (etqwdedconfig.cfg) sets com_maxFPS 144 and the command line
+   com_unlock_maxFPS 75: both read 75.
+5. The saved config sets com_maxFPS 144 and autoexec.cfg com_unlock_maxFPS 90: both
+   read 90.
+Frames run before every query (+wait 5 / wait 5), so the old per-frame rule gets its
+chance: it read 100 in both orders of 1 and 2, and 144 in 4 and 5.
 
 The game module is staged into the synthetic base/ (--game-module), as
 tools/ci/dedicated_server_smoke.py does, so the server reaches its + commands in any
@@ -81,31 +87,52 @@ def main() -> int:
             for line in out.splitlines()[-30:]:
                 print(f"    {line}")
 
-    queries = ["+com_maxFPS", "+com_unlock_maxFPS"]  # a bare name prints the CVar
+    # "+wait 5" lets frames run before the queries: before step 11 the frame loop synced the
+    # caps once per frame (com_maxFPS won whenever both had changed)
+    queries = ["+wait", "5", "+com_maxFPS", "+com_unlock_maxFPS"]  # a bare name prints the CVar
+    both = lambda v: [("com_maxFPS", v), ("com_unlock_maxFPS", v)]  # noqa: E731
     with tempfile.TemporaryDirectory(prefix="openetqw-frame-cap-") as tmp:
-        root = Path(tmp)
-        (root / "base").mkdir()
-        (root / "save").mkdir()
-        if args.game_module:
-            module = Path(args.game_module)
-            shutil.copy2(module, root / "base" / module.name)
+
+        def fresh_root(name: str, configs: dict[str, str]) -> Path:
+            """A synthetic data root of its own (the server writes its config back)."""
+            root = Path(tmp) / name
+            (root / "base").mkdir(parents=True)
+            (root / "save").mkdir()
+            if args.game_module:
+                module = Path(args.game_module)
+                shutil.copy2(module, root / "base" / module.name)
+            for file, text in configs.items():
+                (root / "base" / file).write_text(text, encoding="utf-8")
+            return root
 
         for number, (first, second) in enumerate(((("com_maxFPS", "100"), ("com_unlock_maxFPS", "75")),
                                                    (("com_unlock_maxFPS", "75"), ("com_maxFPS", "100"))), start=1):
             print(f"{number}. +set {first[0]} {first[1]} +set {second[0]} {second[1]}")
-            code, out = run_server(ded, root, "+set", *first, "+set", *second, *queries)
+            code, out = run_server(ded, fresh_root(f"case{number}", {}), "+set", *first, "+set", *second, *queries)
             values = shown(out)
-            want = [("com_maxFPS", second[1]), ("com_unlock_maxFPS", second[1])]
-            expect(values == want, f"both read {second[1]}, the last write (read: {values}, exit {code})", out)
+            expect(values == both(second[1]), f"both read {second[1]}, the last write (read: {values}, exit {code})", out)
 
         print("3. in play, from an exec'd config")
-        (root / "base" / CONFIG).write_text("set com_maxFPS 100\nset com_unlock_maxFPS 90\ncom_maxFPS\n"
-                                            "set com_maxFPS 45\ncom_unlock_maxFPS\n", encoding="utf-8")
+        root = fresh_root("case3", {CONFIG: "set com_maxFPS 100\nset com_unlock_maxFPS 90\nwait 5\ncom_maxFPS\n"
+                                            "set com_maxFPS 45\nwait 5\ncom_unlock_maxFPS\n"})
         code, out = run_server(ded, root, "+exec", CONFIG)
         values = shown(out)
         expect(values == [("com_maxFPS", "90"), ("com_unlock_maxFPS", "45")],
                f"com_maxFPS follows com_unlock_maxFPS 90, and com_unlock_maxFPS follows com_maxFPS 45 (read: {values})", out)
         expect(code == 0, f"the server exits 0 (exit {code})", out)
+
+        print("4. the saved config sets com_maxFPS 144, the command line com_unlock_maxFPS 75")
+        root = fresh_root("case4", {"etqwdedconfig.cfg": 'seta com_maxFPS "144"\n'})
+        code, out = run_server(ded, root, "+set", "com_unlock_maxFPS", "75", *queries)
+        values = shown(out)
+        expect(values == both("75"), f"both read 75: the command line comes after the configs (read: {values})", out)
+
+        print("5. the saved config sets com_maxFPS 144, autoexec.cfg com_unlock_maxFPS 90")
+        root = fresh_root("case5", {"etqwdedconfig.cfg": 'seta com_maxFPS "144"\n',
+                                    "autoexec.cfg": 'seta com_unlock_maxFPS "90"\n'})
+        code, out = run_server(ded, root, *queries)
+        values = shown(out)
+        expect(values == both("90"), f"both read 90: autoexec.cfg runs after the saved config (read: {values})", out)
 
     if failures:
         print(f"FAIL: {len(failures)} check(s) failed")
