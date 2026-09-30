@@ -23,6 +23,8 @@ Validates:
    a view player, every field and finite values, and the replay must log a weapon pose, a
    vehicle pose and a vehicle view axis on some tick.
 3. Identical player/vehicle coordinates, velocities, health, objective state, and serviced event counts.
+   And the occupied vehicle's VEH_TRACE (M5 step 5a: its whole physics and control state
+   in full precision; the titan, ticks 92-115) identical at every cap.
 4. The frame rate each schedule reached during play, from the engine's once-a-second
    FRAME_TIMING lines (com_logFrameTiming 1; windows with >= 25 game ticks), taken from the
    median frame interval so one loading hitch does not decide it. It may not exceed the cap
@@ -103,6 +105,7 @@ SIM_HASH_RE = re.compile(
 
 
 SIM_VIEW_RE = re.compile(r"SIM_VIEW: tick=(\d+) (.*)$")
+VEH_TRACE_RE = re.compile(r"VEH_TRACE: (tick=\d+ .*)$")
 # every field EmitSimView prints for a view player, so a field dropped from every
 # schedule cannot pass as "identical". Without a view player EmitSimView prints only
 # "view=-1", but the replay's local player is the view player from tick 1, so every
@@ -551,6 +554,20 @@ def main() -> int:
     for m in view_mismatches[:10]:
         print(f"  [FAIL] {m}")
     assert not view_mismatches, f"render-frame state leaked into {len(view_mismatches)} tick(s) (SIM_VIEW)"
+
+    # M5 step 5a: the occupied vehicle's full physics and control state (the titan,
+    # ticks 92-115), every field in full precision, must not depend on the cap either
+    print("\n--- Vehicle physics (VEH_TRACE) across schedules ---")
+    veh = {fps: [m.group(1) for ln in schedule_lines[fps] if (m := VEH_TRACE_RE.search(ln))] for fps in rates}
+    if not veh[rates[0]]:
+        raise AssertionError("no VEH_TRACE lines: the game build predates them (M5 step 5a)")
+    for fps in rates[1:]:
+        if veh[fps] != veh[rates[0]]:
+            diff = next((i for i, (a, b) in enumerate(zip(veh[rates[0]], veh[fps])) if a != b),
+                        min(len(veh[rates[0]]), len(veh[fps])))
+            raise AssertionError(f"VEH_TRACE differs between {cap_label(rates[0])} and {cap_label(fps)} at line {diff + 1}"
+                                 f" ({len(veh[rates[0]])} and {len(veh[fps])} lines)")
+    print(f"  {len(veh[rates[0]])} VEH_TRACE lines, identical at every cap")
     assert not rate_failures, f"Frame rate failures: {rate_failures}"
 
     print("\n[PASSED] 100% BIT-FOR-BIT IDENTICAL SIMULATION AT CAPS 60, 120, 144, 240 AND UNCAPPED; FRAME RATES WITHIN BOUNDS.")
