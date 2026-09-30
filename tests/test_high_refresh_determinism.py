@@ -27,11 +27,12 @@ Validates:
    FRAME_TIMING lines (com_logFrameTiming 1; windows with >= 25 game ticks), taken from the
    median frame interval so one loading hitch does not decide it. It may not exceed the cap
    by more than 3%. A cap clearly below the uncapped rate (<= 90% of it) is set by the pacer
-   and must be held to 98% (the pacer ran a 60 cap at 58 fps before 2026-09-25); any other
-   cap must reach 90% of the lower of the cap and the uncapped rate, which provisionally
-   implements the recommendation in docs/m5-plan.md decision D1 (owner decision pending).
-   A cap above the uncapped rate is reported as unreachable on this host (on a 120 Hz
-   display, presentation waits for the display, so 144 and 240 run at about 120). The
+   and must be held to 98% (the pacer ran a 60 cap at 58 fps before 2026-09-25). Any other
+   cap is set by the host, and per docs/m5-plan.md decision D1 the rate it reached is
+   reported against the lower of the cap and the uncapped rate, not failed: no
+   high-refresh hardware is part of testing. A cap above the uncapped rate is reported as
+   unreachable on this host (on a 120 Hz display, presentation waits for the display, so
+   144 and 240 run at about 120). The
    average rate and the longest frame are reported too, and every FRAME_TIMING window must
    report the schedule's own cap.
 5. Clean shutdown with exit code 0.
@@ -137,7 +138,7 @@ FRAME_TIMING_RE = re.compile(
 PLAY_MIN_TICKS = 25     # a FRAME_TIMING window with fewer game ticks is loading or menus
 CAP_OVERSHOOT = 1.03    # a schedule may run at most this much above its cap
 PACED_FRACTION = 0.98   # a cap <= REACH_FRACTION x the uncapped rate must be held this closely
-REACH_FRACTION = 0.9    # any other cap must reach this fraction of min(cap, the uncapped rate)
+REACH_FRACTION = 0.9    # a cap above this fraction of the uncapped rate is the host's (D1: reported)
 
 
 def play_timing(lines: list[str]) -> dict | None:
@@ -461,12 +462,14 @@ def main() -> int:
         if fps <= REACH_FRACTION * ceiling:
             # the pacer, not the host, sets this rate: hold the cap
             need = PACED_FRACTION * fps
-            why = f"{PACED_FRACTION:.0%} of the cap, which is well below uncapped {ceiling:.1f}"
+            if t["fps"] < need:
+                rate_failures.append(f"{cap_label(fps)}: {t['fps']:.1f} fps is below {need:.1f}"
+                                     f" ({PACED_FRACTION:.0%} of the cap, which is well below uncapped {ceiling:.1f})")
         else:
-            need = REACH_FRACTION * min(fps, ceiling)
-            why = f"{REACH_FRACTION:.0%} of min(cap, uncapped {ceiling:.1f})"
-        if t["fps"] < need:
-            rate_failures.append(f"{cap_label(fps)}: {t['fps']:.1f} fps is below {need:.1f} ({why})")
+            # the host sets this rate (D1): report how close it came, do not fail
+            target = min(fps, ceiling)
+            print(f"  [REPORT] {cap_label(fps)}: {t['fps']:.1f} fps, {t['fps'] / target:.0%} of min(cap,"
+                  f" uncapped {ceiling:.1f}) (the host's rate, reported, not failed: D1)")
         if ceiling < fps:
             print(f"  [NOTE] {cap_label(fps)} is not reachable on this host: uncapped play runs at {ceiling:.1f} fps")
     for fps in rates:
