@@ -228,6 +228,8 @@ Engine steps 7 (listen host) and 10 (tick frames drawn at their real fraction) a
 
 ### Stage 2: seat predicate and switch (m5-plan step 13)
 
+**Status: done 2026-09-30** (M5 step 13; [`decisions/0003-vehicle-seat-gate.md`](decisions/0003-vehicle-seat-gate.md), ledger row 054). The predicate, `g_unlock_vehicleSeats` (default `default`, the built-in list), recipes keyed by (proxy kind, view class), `listSeatViews`, the latch and draw-time re-check, a per-tick `SEAT_GATE` line, a seat tour (`g_determinismTest 3`) and `seat-gate`. The recipe table and the built-in list are empty, so no seat is allowed yet and nothing drawn or simulated changes. Retail seat names are localisation paths, so keys read `badger:guis_vehicles_badger_driver:standard`. §5.2 has the per-seat answers.
+
 **What changes**
 - Add `idPlayer::IsSeatPresentationAllowed()` next to `IsFPSUnlock` (game `Player.cpp:8773-8829`). `IsFPSUnlock` stays byte-identical.
 - The new predicate makes the same checks except the proxy check. In its place:
@@ -519,12 +521,31 @@ Stages 0–7 come to about 5–7 weeks of focused work for one engineer. That do
 
 ### 5.2 Not determined
 
-- **Which view class and flags each retail seat uses.** The decls are binary. `listSeatViews` answers this at runtime.
+- **Which view class and flags each retail seat uses.** *Answered 2026-09-30 by `listSeatViews` on valley (retail 1.5 data; `seat-gate`'s run A).* Every seat has one or two views. First views are `standard` for most drivers and passengers, and `pivot` or `freepivot` for gunners and for the titan's and the goliath's drivers; second views are the third-person `smooth`, `smooth_free` or `smooth_locked`, or `pivot`. No seat needs the tophat. The icarus (a jetpack) has the `icarus` view and a third-person `player` view, and uses no eye joint. Valley's badger, titan and icarus:
+
+  | Vehicle | Seat | Mode | Class | Key | Third person | Auto-center | Eye (pivot) | Driven parent of the eye |
+  |---|---|---|---|---|---|---|---|---|
+  | badger | 0 `guis/vehicles/badger_driver` | 0 | standard | `badger:guis_vehicles_badger_driver:standard` | 0 | 1 | cam_7 (base) | none |
+  | | | 1 | smooth_locked | `badger:guis_vehicles_badger_driver:smooth_locked` | 1 | 0 | driver_gun (base) | none |
+  | | 1 `guis/vehicles/badger_gunner` | 0 | freepivot | `badger:guis_vehicles_badger_gunner:freepivot` | 0 | 0 | gun_cam (gun2) | gun2: seat 1's minigun aimer |
+  | | | 1 | smooth_free | `badger:guis_vehicles_badger_gunner:smooth_free` | 1 | 0 | gun2 (gun) | gun2: seat 1's minigun aimer |
+  | | 2 `guis/vehicles/badger_passenger` | 0 | standard | `badger:guis_vehicles_badger_passenger:standard` | 0 | 1 | cam_8 (base) | none |
+  | | | 1 | pivot | `badger:guis_vehicles_badger_passenger:pivot` | 1 | 0 | gun_cam (gun2) | gun2: seat 1's minigun aimer |
+  | | 3 `guis/vehicles/badger_rear_left` | 0 | standard | `badger:guis_vehicles_badger_rear_left:standard` | 0 | 0 | rear1_position_cam (base) | none |
+  | | 4 `guis/vehicles/badger_rear_right` | 0 | standard | `badger:guis_vehicles_badger_rear_right:standard` | 0 | 0 | rear2_position_cam (base) | none |
+  | titan | 0 `guis/vehicles/titan_driver` | 0 | pivot | `titan:guis_vehicles_titan_driver:pivot` | 1 | 0 | gunner_cam (turret) | gun: seat 0's minigun aimer |
+  | | | 1 | smooth_free | `titan:guis_vehicles_titan_driver:smooth_free` | 1 | 0 | turret (hull) | turret: seat 0's minigun aimer |
+  | | 1 `guis/vehicles/titan_passenger` | 0 | freepivot | `titan:guis_vehicles_titan_passenger:freepivot` | 0 | 0 | gpmg_cam (aft_gun_mount) | gpmg_mount: seat 1's minigun aimer |
+  | | | 1 | smooth_free | `titan:guis_vehicles_titan_passenger:smooth_free` | 1 | 0 | gpmg_cam (aft_gun_mount) | gpmg_mount: seat 1's minigun aimer |
+  | icarus | 0 `guis/vehicles/icarus_driver` | 0 | icarus | `icarus:guis_vehicles_icarus_driver:icarus` | 0 | 0 | none | none |
+  | | | 1 | player | `icarus:guis_vehicles_icarus_driver:player` | 1 | 0 | none | none |
+
+  The eye is what the damped views (`standard`, `pivot`, `freepivot`) follow; the smooth views use it only as the orbit origin. Clamps: the titan's views limit their turn rate (yaw and pitch at 110 degrees a second in the driver's `pivot` view, 240 in the others), while the badger's only bound the angles (the driver's first view to -65..80 yaw and -20..12 pitch, the gunner's pitch to -50..17). `listSeatViews` also lists valley's trojan, husky, platypus, goliath, hog and desecrator, with the same pattern; the titan driver's first view is the only first view that is third person.
 - **Whether the anti-roll, anti-pitch and pseudo-hover constraints are active on aircraft in flight.** This decides whether stage 7 is exact there; `VEH_PRED` answers it.
 - **Whether the aircraft mis-prediction is visible in play,** and exactly how the frame numbers line up for the history.
 - **Other vehicle state that is not networked and not rolled back** during re-prediction. Only the air control was traced.
 - **Think order of a transport and its seated player** (inferred from game `Game_local.cpp:5091-5130`).
-- **Whether any seat's eye joint is parented to a joint the IK drives,** which would put that camera one tick behind the turret.
+- **Whether any seat's eye joint is parented to a joint the IK drives,** which would put that camera one tick behind the turret. *Answered 2026-09-30 by `listSeatViews` on valley: yes, for most gunner seats and several third-person views.* The joints are written less by the position IK systems than by the vehicle weapons' aimers (`sdVehicleWeaponFixedMinigun`'s yaw and pitch joints), which the listing includes. On the badger, the gunner's two views and the passenger's second view sit under `gun2`, which the gunner's minigun aimer turns; on the titan, both of the driver's views sit under the main gun's aimer joints (`gun`, `turret`) and both of the passenger's under `gpmg_mount`. The drivers' and passengers' first-person `standard` views and the icarus have none. The other valley vehicles show the same (the platypus gunner under its `sdVehicleIKArms`, the goliath driver under its `sdVehicleSwivel`, the hog, trojan and desecrator gun views under their aimers). Aimers and IK update after the seat cameras in `sdTransport::PostThink` (`UpdatePlayerViews`, then `positionManager.Think`, then each weapon's `Update`), so these cameras read the turret pose of the previous tick *[inferred from the call order; not measured]*. Joints moved by scripts, animation or wheels are not in the listing.
 - **Whether vehicles carry `sdGuiSurface`s.** `DrawWorldGuis` and the occlusion queries run before the copies are submitted (game `PlayerView.cpp:411-415`), so such GUIs would be drawn at the tick pose. `sdTransport::PostThink` does update a vehicle GUI (`Transport.cpp:4430-4431`).
 - **Whether HUD reticles project tick-time positions** through the drawn view: `GetCurrentView` readers such as `UICrosshairInfo.cpp`, and `PlayerProperties.cpp:1085`.
 - **Whether the Vulkan path issues occlusion queries.** Their results feed client-side collision merging for remote players (game `Physics_Player.cpp:2387`). This is a pre-existing channel from the SDK, on clients only.
