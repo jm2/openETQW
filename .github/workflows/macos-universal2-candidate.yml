@@ -5,7 +5,7 @@
 # ships a native arm64 app (manual-release.yml); this builds a universal2 app
 # for evaluating Intel support:
 #
-#   thin      arm64 on macos-15 and x64 on macos-15-intel, each against the same
+#   thin      arm64 on macos-26 and x64 on macos-26-intel, each against the same
 #             universal2 dependencies (tools/build/prepare_macos_deps.py): the
 #             'push' profile of tools/validation/openetqw_validate.py (unit suite,
 #             integration skips, staged-payload checks including minos 11.0,
@@ -60,9 +60,9 @@ jobs:
       matrix:
         include:
           - arch: arm64
-            os: macos-15
+            os: macos-26
           - arch: x64
-            os: macos-15-intel
+            os: macos-26-intel
     env:
       OPENETQW_GAME_REPO: ${{ github.workspace }}/openETQW-game
     defaults:
@@ -145,7 +145,7 @@ jobs:
   assemble:
     name: macOS universal2 candidate package
     needs: thin
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 90
     defaults:
       run:

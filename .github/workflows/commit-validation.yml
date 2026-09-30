@@ -207,7 +207,7 @@ jobs:
             blocker: "the Linux ARM64 engine build has never compiled"
           - id: macos-arm64
             name: macOS arm64 (Vulkan/MoltenVK)
-            os: macos-15
+            os: macos-26
             platform: macos
             cc: clang
             cxx: clang++
@@ -217,7 +217,7 @@ jobs:
           # keeps the x64 slice of the universal2 candidate building
           - id: macos-x64
             name: macOS Intel x64 (Vulkan/MoltenVK)
-            os: macos-15-intel
+            os: macos-26-intel
             platform: macos
             cc: clang
             cxx: clang++
