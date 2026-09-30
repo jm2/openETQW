@@ -1,0 +1,643 @@
+# SPDX-License-Identifier: GPL-3.0-only
+#
+# Manual Releases (as openQ4's manual-release.yml; docs/releasing.md).
+#
+#   metadata  the release version (tools/build/openetqw_release_version.py), the
+#             tag check, the companion commit resolved once, and whether the
+#             Apple signing secrets are present
+#   build     one job per package: Windows x64/ARM64, Linux x64/ARM64 and ONE
+#             macOS build (arm64, Vulkan on MoltenVK). Each builds a pinned
+#             glslangValidator, validates and stages with the 'push' profile of
+#             tools/validation/openetqw_validate.py with the release version
+#             stamped in, and packages with tools/build/package_release.py:
+#               Windows  zip + Inno Setup installer
+#               Linux    tar.xz + split debug symbols + AppImage
+#               macOS    openETQW.app with SDL3, the Vulkan loader and MoltenVK built
+#                        for macOS 11.0 (tools/build/prepare_macos_deps.py): a
+#                        Developer ID signed, notarized DMG when the six Apple
+#                        secrets are set, else an ad hoc signed tar.gz
+#   release   the exact asset set checked (tools/build/verify_release_asset_set.py),
+#             the changelog, and the GitHub release created or updated; a draft by
+#             default, since the release gate in readme.md is not cleared
+#   discord   the announcement, for a published (non-draft) release with the
+#             DISCORD_RELEASE_WEBHOOK secret set
+#
+# A published release must be dispatched from main; a draft may come from any
+# pushed branch (to exercise the pipeline). The companion is required: while it is
+# private, OPENETQW_CROSS_REPO_TOKEN must be set.
+
+name: Manual Releases
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump_mode:
+        description: Release bump policy
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - major (x..)
+          - minor (.x.)
+          - patch (..x)
+      version_override:
+        description: Optional explicit release version (for example 0.2.0)
+        required: false
+        default: ""
+        type: string
+      companion_ref:
+        description: "openETQW-game commit, branch or tag to package (empty: the pin in tools/ci/companion.ref)"
+        required: false
+        default: ""
+        type: string
+      draft:
+        description: Leave the release as an unpublished draft (no announcement)
+        required: false
+        default: true
+        type: boolean
+      prerelease:
+        description: Mark the release as a pre-release
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: openetqw-manual-releases
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  MESON_VERSION: "1.12.1"
+  NINJA_VERSION: "1.13.2"
+  SDL3_TAG: release-3.4.16
+  OPENETQW_COMPANION_REPO: jm2/openETQW-game
+  # debug information for the split Linux symbols and the Windows PDBs
+  RELEASE_BUILDTYPE: debugoptimized
+
+jobs:
+  metadata:
+    name: Release metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      source_sha: ${{ steps.source.outputs.source_sha }}
+      source_date_epoch: ${{ steps.source.outputs.source_date_epoch }}
+      game_sha: ${{ steps.companion.outputs.sha }}
+      version: ${{ steps.version.outputs.version }}
+      version_tag: ${{ steps.version.outputs.version_tag }}
+      release_tag: ${{ steps.version.outputs.release_tag }}
+      release_name: ${{ steps.version.outputs.release_name }}
+      release_scale: ${{ steps.version.outputs.release_scale }}
+      release_reason: ${{ steps.version.outputs.release_reason }}
+      macos_signed: ${{ steps.signing.outputs.macos_signed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve the source commit
+        id: source
+        env:
+          DRAFT: ${{ inputs.draft }}
+        run: |
+          set -euo pipefail
+          # fetch-depth 0 brought every branch and tag; the checkout keeps no
+          # credentials, so a private repository cannot be fetched again here
+          source_sha="$(git rev-parse --verify "${GITHUB_SHA}^{commit}")"
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "${source_sha}"
+          git rev-parse --verify refs/remotes/origin/main >/dev/null
+          if [ "${DRAFT}" != "true" ]; then
+            if [ "${GITHUB_REF}" != "refs/heads/main" ] || ! git merge-base --is-ancestor "${source_sha}" refs/remotes/origin/main; then
+              echo "::error::a published release must be dispatched from main (got ${GITHUB_REF})"
+              exit 1
+            fi
+          fi
+          {
+            echo "source_sha=${source_sha}"
+            echo "source_date_epoch=$(git show -s --format=%ct "${source_sha}")"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
+      - name: Compute the release version
+        id: version
+        env:
+          BUMP_MODE: ${{ inputs.bump_mode }}
+          VERSION_OVERRIDE: ${{ inputs.version_override }}
+        run: |
+          set -euo pipefail
+          args=(--source-root . --bump-mode "${BUMP_MODE}")
+          if [ -n "${VERSION_OVERRIDE}" ]; then
+            args+=(--version-override "${VERSION_OVERRIDE}")
+          fi
+          python tools/build/openetqw_release_version.py "${args[@]}" | tee -a "${GITHUB_OUTPUT}"
+
+      - name: Check an existing tag targets this commit and is not a published release
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+          RELEASE_TAG: ${{ steps.version.outputs.release_tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # fail before any build: a published release is never rebuilt in place
+          # (drafts are not visible to this read-only token, and may be re-run)
+          if [ "$(gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --json isDraft --jq .isDraft 2>/dev/null)" = "false" ]; then
+            echo "::error::${RELEASE_TAG} is already published; release a new version (bump_mode or version_override) instead"
+            exit 1
+          fi
+          if git show-ref --verify --quiet "refs/tags/${RELEASE_TAG}"; then
+            tagged="$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")"
+            if [ "${tagged}" != "${SOURCE_SHA}" ]; then
+              echo "::error::tag ${RELEASE_TAG} points at ${tagged}, not ${SOURCE_SHA}"
+              exit 1
+            fi
+          fi
+
+      - name: Resolve the companion commit once
+        id: companion
+        env:
+          OPENETQW_COMPANION_REF: ${{ inputs.companion_ref }}
+          OPENETQW_CROSS_REPO_TOKEN: ${{ secrets.OPENETQW_CROSS_REPO_TOKEN }}
+        run: python tools/ci/fetch_companion.py --dest "${RUNNER_TEMP}/openETQW-game"
+
+      - name: Check the Apple signing secrets
+        id: signing
+        env:
+          CERT: ${{ secrets.MACOS_DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD }}
+          IDENTITY: ${{ secrets.MACOS_DEVELOPER_ID_APPLICATION_IDENTITY }}
+          NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_APP_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in CERT CERT_PASSWORD IDENTITY NOTARY_APPLE_ID NOTARY_TEAM_ID NOTARY_PASSWORD; do
+            if [ -z "${!name}" ]; then missing+=("${name}"); fi
+          done
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "macos_signed=true" >> "${GITHUB_OUTPUT}"
+            echo "### macOS: Developer ID signed and notarized DMG" >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "macos_signed=false" >> "${GITHUB_OUTPUT}"
+            echo "### macOS: ad hoc signed tar.gz (Apple secrets not set: ${missing[*]})" >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: Summary
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+          GAME_SHA: ${{ steps.companion.outputs.sha }}
+          RELEASE_NAME: ${{ steps.version.outputs.release_name }}
+          RELEASE_TAG: ${{ steps.version.outputs.release_tag }}
+          DRAFT: ${{ inputs.draft }}
+        run: |
+          {
+            echo "### ${RELEASE_NAME} (${RELEASE_TAG}), draft: ${DRAFT}"
+            echo "- openETQW \`${SOURCE_SHA}\`"
+            echo "- openETQW-game \`${GAME_SHA}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  build:
+    name: ${{ matrix.label }}
+    needs: metadata
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: windows-x64
+            label: Windows x64
+            os: windows-2025-vs2026
+            platform: windows
+            arch: x64
+            vcpkg_triplet: x64-windows
+          - id: windows-arm64
+            label: Windows ARM64
+            os: windows-11-arm
+            platform: windows
+            arch: arm64
+            vcpkg_triplet: arm64-windows
+          - id: linux-x64
+            label: Linux x64
+            os: ubuntu-24.04
+            platform: linux
+            arch: x64
+            vcpkg_triplet: ""
+          - id: linux-arm64
+            label: Linux ARM64
+            os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+            vcpkg_triplet: ""
+          - id: macos-arm64
+            label: macOS arm64 (Vulkan/MoltenVK)
+            os: macos-15
+            platform: macos
+            arch: arm64
+            vcpkg_triplet: ""
+    env:
+      OPENETQW_GAME_REPO: ${{ github.workspace }}/openETQW-game
+      VERSION: ${{ needs.metadata.outputs.version }}
+      VERSION_TAG: ${{ needs.metadata.outputs.version_tag }}
+      SOURCE_SHA: ${{ needs.metadata.outputs.source_sha }}
+      GAME_SHA: ${{ needs.metadata.outputs.game_sha }}
+      SOURCE_DATE_EPOCH: ${{ needs.metadata.outputs.source_date_epoch }}
+      ARCH: ${{ matrix.arch }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: openETQW
+    steps:
+      - name: Checkout openETQW at the release commit
+        uses: actions/checkout@v7
+        with:
+          path: openETQW
+          ref: ${{ needs.metadata.outputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
+      # macOS takes its libraries from prepare_macos_deps.py, not Homebrew
+      - name: Prepare build (companion at the resolved commit, Meson, dependencies)
+        id: prepare
+        uses: ./openETQW/.github/actions/prepare
+        with:
+          platform: ${{ matrix.platform == 'macos' && 'none' || matrix.platform }}
+          vcpkg-triplet: ${{ matrix.vcpkg_triplet }}
+          companion-ref: ${{ needs.metadata.outputs.game_sha }}
+          cross-repo-token: ${{ secrets.OPENETQW_CROSS_REPO_TOKEN }}
+          companion-required: "true"
+          repository-private: ${{ github.event.repository.private }}
+          meson-version: ${{ env.MESON_VERSION }}
+          ninja-version: ${{ env.NINJA_VERSION }}
+          sdl3-tag: ${{ env.SDL3_TAG }}
+
+      - name: Build the macOS libraries for macOS 11.0 (SDL3, Vulkan loader, MoltenVK)
+        if: matrix.platform == 'macos'
+        run: python tools/build/prepare_macos_deps.py --arch arm64 --prefix "${RUNNER_TEMP}/macos-deps"
+
+      - name: Build glslangValidator
+        run: python tools/build/build_glslang.py --output-dir "${RUNNER_TEMP}/glslang"
+
+      - name: Validate and stage (push profile, release version)
+        run: >-
+          python tools/validation/openetqw_validate.py push --build-dir build
+          --buildtype "${RELEASE_BUILDTYPE}" --fail-on-dirty
+          --meson-option version_track=stable
+          --meson-option "version_base_override=${VERSION}"
+
+      # after the configure, which records the staged game headers and their commits
+      - name: Verify the source commits
+        run: >-
+          python tools/build/verify_release_source_provenance.py
+          --engine-root .
+          --game-repo "${OPENETQW_GAME_REPO}"
+          --stage-manifest .tmp/gamelibs_stage/openetqw_gamelibs_stage_manifest.json
+          --expected-engine-commit "${SOURCE_SHA}"
+          --expected-game-commit "${GAME_SHA}"
+
+      - name: Collect the bundled libraries' licence texts
+        id: licenses
+        run: |
+          set -euo pipefail
+          args=(--license "glslang=${RUNNER_TEMP}/glslang/LICENSE.txt")
+          case "${RUNNER_OS}" in
+            Linux)
+              args+=(--license "SDL3=${RUNNER_TEMP}/sdl3/share/licenses/SDL3/LICENSE.txt") ;;
+            Windows)
+              vcpkg_prefix="$(dirname "$(dirname "${PKG_CONFIG}")")"
+              vcpkg_prefix="$(dirname "${vcpkg_prefix}")"
+              args+=(--license "SDL3=${vcpkg_prefix}/share/sdl3/copyright")
+              args+=(--license "zlib=${vcpkg_prefix}/share/zlib/copyright") ;;
+            macOS)
+              deps="${RUNNER_TEMP}/macos-deps"
+              args+=(--license "SDL3=${deps}/share/licenses/SDL3/LICENSE.txt")
+              args+=(--license "Vulkan-Loader=${deps}/share/licenses/Vulkan-Loader/LICENSE.txt")
+              args+=(--license "MoltenVK=${deps}/share/licenses/MoltenVK/LICENSE") ;;
+          esac
+          for arg in "${args[@]}"; do
+            case "${arg}" in --license) ;; *) test -f "${arg#*=}" || { echo "::error::missing licence text ${arg#*=}"; exit 1; } ;; esac
+          done
+          printf '%s\n' "${args[@]}" > "${RUNNER_TEMP}/license-args.txt"
+
+      - name: Find the MSVC runtime to bundle
+        if: matrix.platform == 'windows'
+        id: crt
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -property installationPath
+          $redist = Get-ChildItem (Join-Path $vs "VC\Redist\MSVC") -Directory | Where-Object { $_.Name -match '^\d' } | Sort-Object { [version]$_.Name } | Select-Object -Last 1
+          $crt = Get-ChildItem (Join-Path $redist.FullName $env:ARCH) -Directory -Filter "Microsoft.VC*.CRT" | Select-Object -First 1
+          if (-not $crt) { throw "no Microsoft.VC*.CRT under $($redist.FullName)\$env:ARCH" }
+          "crt_dir=$($crt.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Import the Developer ID certificate
+        if: matrix.platform == 'macos' && needs.metadata.outputs.macos_signed == 'true'
+        env:
+          CERT: ${{ secrets.MACOS_DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD }}
+          NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_APP_PASSWORD }}
+        run: |
+          set -euo pipefail
+          keychain="${RUNNER_TEMP}/openetqw-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 24)"
+          printf '%s' "${CERT}" | base64 --decode > "${RUNNER_TEMP}/developer-id.p12"
+          security create-keychain -p "${keychain_password}" "${keychain}"
+          security set-keychain-settings -lut 21600 "${keychain}"
+          security unlock-keychain -p "${keychain_password}" "${keychain}"
+          security import "${RUNNER_TEMP}/developer-id.p12" -k "${keychain}" -P "${CERT_PASSWORD}" -T /usr/bin/codesign
+          rm -f "${RUNNER_TEMP}/developer-id.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${keychain_password}" "${keychain}" >/dev/null
+          # macOS runners have bash 3.2: no mapfile
+          keychains=()
+          while IFS= read -r line; do
+            keychains+=("$(printf '%s' "${line}" | sed 's/^ *"//; s/"$//')")
+          done < <(security list-keychains -d user)
+          # (bash 3.2 with set -u rejects "${a[@]}" of an empty array)
+          security list-keychains -d user -s "${keychain}" ${keychains[@]+"${keychains[@]}"}
+          xcrun notarytool store-credentials openetqw-notary --apple-id "${NOTARY_APPLE_ID}" \
+            --team-id "${NOTARY_TEAM_ID}" --password "${NOTARY_PASSWORD}" --keychain "${keychain}"
+          echo "NOTARY_KEYCHAIN=${keychain}" >> "${GITHUB_ENV}"
+
+      - name: Package
+        id: package
+        env:
+          CRT_DIR: ${{ steps.crt.outputs.crt_dir }}
+          MACOS_SIGNED: ${{ needs.metadata.outputs.macos_signed }}
+          SIGN_IDENTITY: ${{ secrets.MACOS_DEVELOPER_ID_APPLICATION_IDENTITY }}
+        run: |
+          set -euo pipefail
+          # macOS runners have bash 3.2: no mapfile
+          license_args=()
+          while IFS= read -r line; do license_args+=("${line}"); done < "${RUNNER_TEMP}/license-args.txt"
+          platform="$(echo "${RUNNER_OS}" | tr '[:upper:]' '[:lower:]')"
+          args=(--platform "${platform}" --arch "${ARCH}" --install-dir build/install
+                --version-tag "${VERSION_TAG}" --output-dir "${RUNNER_TEMP}/dist"
+                --glslang-dir "${RUNNER_TEMP}/glslang" --source-date-epoch "${SOURCE_DATE_EPOCH}")
+          case "${platform}" in
+            windows)
+              args+=(--windows-crt-dir "${CRT_DIR}")
+              game_pdb="${OPENETQW_GAME_REPO}/build/game_${ARCH}.pdb"
+              if [ -f "${game_pdb}" ]; then args+=(--extra-pdb "${game_pdb}"); fi ;;
+            macos)
+              args+=(--macos-moltenvk "${RUNNER_TEMP}/macos-deps/lib/libMoltenVK.dylib"
+                     --macos-lib-dir "${RUNNER_TEMP}/macos-deps/lib")
+              if [ "${MACOS_SIGNED}" = "true" ]; then
+                args+=(--macos-sign-identity "${SIGN_IDENTITY}" --macos-dmg)
+              fi ;;
+          esac
+          python tools/build/package_release.py "${args[@]}" "${license_args[@]}"
+
+      - name: Notarize and staple the DMG
+        if: matrix.platform == 'macos' && needs.metadata.outputs.macos_signed == 'true'
+        env:
+          DMG: ${{ steps.package.outputs.archive }}
+        run: |
+          set -euo pipefail
+          xcrun notarytool submit "${DMG}" --keychain-profile openetqw-notary --keychain "${NOTARY_KEYCHAIN}" --wait
+          xcrun stapler staple "${DMG}"
+          xcrun stapler validate "${DMG}"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "${DMG}"
+
+      - name: Smoke the packaged dedicated server
+        env:
+          PACKAGE_DIR: ${{ steps.package.outputs.package_dir }}
+        run: |
+          set -euo pipefail
+          case "${RUNNER_OS}" in
+            Linux) exe="${PACKAGE_DIR}/openETQW-ded_${ARCH}"; module="${PACKAGE_DIR}/game_${ARCH}.so" ;;
+            Windows) exe="${PACKAGE_DIR}/openETQW-ded_${ARCH}.exe"; module="${PACKAGE_DIR}/game_${ARCH}.dll" ;;
+            macOS) exe="${PACKAGE_DIR}/openETQW.app/Contents/MacOS/openETQW-ded_${ARCH}"
+                   module="${PACKAGE_DIR}/openETQW.app/Contents/Frameworks/game_${ARCH}.dylib" ;;
+          esac
+          # the stripped, re-linked, re-signed binaries, as users get them. The
+          # smoke runs a copy of the server elsewhere, so on Windows the package
+          # directory replaces vcpkg's bin on PATH: its own DLLs must do
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            PATH="$(cygpath -u "${PACKAGE_DIR}"):$(printf '%s' "${PATH}" | tr ':' '\n' | grep -vi 'vcpkg' | paste -sd: -)"
+            export PATH
+          fi
+          python tools/ci/dedicated_server_smoke.py --executable "${exe}" --game-module "${module}" \
+            --arch "${ARCH}" --output-root .tmp/ci/package-smoke
+
+      - name: Build the AppImage
+        if: matrix.platform == 'linux'
+        id: appimage
+        env:
+          PACKAGE_DIR: ${{ steps.package.outputs.package_dir }}
+        run: |
+          set -euo pipefail
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends desktop-file-utils
+          appimage_arch="$([ "${ARCH}" = arm64 ] && echo aarch64 || echo x86_64)"
+          python tools/build/package_linux_appimage.py --package-dir "${PACKAGE_DIR}" --arch "${ARCH}" \
+            --version-tag "${VERSION_TAG}" --download-appimagetool "${RUNNER_TEMP}/appimagetool" \
+            --output "${RUNNER_TEMP}/dist/openetqw-${VERSION_TAG}-${appimage_arch}.AppImage"
+
+      - name: Build the Windows installer
+        if: matrix.platform == 'windows'
+        env:
+          PACKAGE_DIR: ${{ steps.package.outputs.package_dir }}
+        run: |
+          set -euo pipefail
+          choco install innosetup --no-progress -y
+          python tools/build/build_windows_installer.py --package-dir "${PACKAGE_DIR}" --version "${VERSION}" \
+            --arch "${ARCH}" --output-dir "${RUNNER_TEMP}/dist" \
+            --output-basename "openetqw-${VERSION_TAG}-windows-${ARCH}-setup"
+
+      - name: Upload the release assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-assets-${{ matrix.id }}
+          path: |
+            ${{ runner.temp }}/dist/openetqw-*.zip
+            ${{ runner.temp }}/dist/openetqw-*.exe
+            ${{ runner.temp }}/dist/openetqw-*.tar.xz
+            ${{ runner.temp }}/dist/openetqw-*.tar.gz
+            ${{ runner.temp }}/dist/openetqw-*.AppImage
+            ${{ runner.temp }}/dist/openetqw-*.dmg
+            !${{ runner.temp }}/dist/openetqw-*-pdb.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload the Windows PDBs
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-pdb-${{ matrix.id }}
+          path: ${{ runner.temp }}/dist/openetqw-*-pdb.zip
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-logs-${{ matrix.id }}
+          path: |
+            openETQW/build/meson-logs
+            openETQW-game/build/meson-logs
+            openETQW/.tmp/ci
+          if-no-files-found: ignore
+          retention-days: 30
+          include-hidden-files: true
+
+  release:
+    name: GitHub release
+    needs: [metadata, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.metadata.outputs.version }}
+      VERSION_TAG: ${{ needs.metadata.outputs.version_tag }}
+      RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
+      RELEASE_NAME: ${{ needs.metadata.outputs.release_name }}
+      SOURCE_SHA: ${{ needs.metadata.outputs.source_sha }}
+      MACOS_SIGNED: ${{ needs.metadata.outputs.macos_signed }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.metadata.outputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
+      - name: Download the release assets
+        uses: actions/download-artifact@v7
+        with:
+          pattern: release-assets-*
+          path: ${{ runner.temp }}/dist
+          merge-multiple: true
+
+      - name: Verify the exact asset set
+        run: |
+          set -euo pipefail
+          v="${VERSION_TAG}"
+          expected=(
+            "openetqw-${v}-windows-x64.zip" "openetqw-${v}-windows-x64-setup.exe"
+            "openetqw-${v}-windows-arm64.zip" "openetqw-${v}-windows-arm64-setup.exe"
+            "openetqw-${v}-linux-x64.tar.xz" "openetqw-${v}-linux-x64-debug.tar.xz" "openetqw-${v}-x86_64.AppImage"
+            "openetqw-${v}-linux-arm64.tar.xz" "openetqw-${v}-linux-arm64-debug.tar.xz" "openetqw-${v}-aarch64.AppImage"
+          )
+          if [ "${MACOS_SIGNED}" = "true" ]; then
+            expected+=("openetqw-${v}-macos-arm64.dmg")
+          else
+            expected+=("openetqw-${v}-macos-arm64-unsigned.tar.gz")
+          fi
+          printf '%s\n' "${expected[@]}" > "${RUNNER_TEMP}/expected-assets.txt"
+          expected_args=()
+          for name in "${expected[@]}"; do expected_args+=(--expected "${name}"); done
+          python tools/build/verify_release_asset_set.py --artifact-dir "${RUNNER_TEMP}/dist" \
+            --manifest "${RUNNER_TEMP}/release-assets.json" "${expected_args[@]}"
+
+      - name: Generate the changelog
+        env:
+          RELEASE_SCALE: ${{ needs.metadata.outputs.release_scale }}
+          RELEASE_REASON: ${{ needs.metadata.outputs.release_reason }}
+        run: >-
+          python tools/build/generate_release_changelog.py
+          --version "${VERSION}" --version-tag "${VERSION_TAG}" --release-tag "${RELEASE_TAG}"
+          --release-scale "${RELEASE_SCALE}" --release-reason "${RELEASE_REASON}"
+          --repo "${GITHUB_REPOSITORY}" --source-root .
+          --run-id "${GITHUB_RUN_ID}"
+          --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          --output "${RUNNER_TEMP}/release-changelog.md"
+
+      - name: Create or update the release
+        env:
+          DRAFT: ${{ inputs.draft }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+          mapfile -t expected < "${RUNNER_TEMP}/expected-assets.txt"
+          assets=()
+          for name in "${expected[@]}"; do assets+=("${RUNNER_TEMP}/dist/${name}"); done
+          repo=(--repo "${GITHUB_REPOSITORY}")
+          # Everything happens on a draft; it is published (when asked) only
+          # after GitHub is shown to hold exactly the approved bytes.
+          if gh release view "${RELEASE_TAG}" "${repo[@]}" >/dev/null 2>&1; then
+            # only a draft may be re-run: a published release keeps its page,
+            # its tag and the bytes users downloaded (the version tool picks the
+            # latest tag again when auto finds no new commits)
+            if [ "$(gh release view "${RELEASE_TAG}" "${repo[@]}" --json isDraft --jq .isDraft)" != "true" ]; then
+              echo "::error::${RELEASE_TAG} is already published; release a new version (bump_mode or version_override) instead"
+              exit 1
+            fi
+            # a re-run of a draft: this commit, and only this run's assets
+            gh release edit "${RELEASE_TAG}" "${repo[@]}" --draft=true --title "${RELEASE_NAME}" \
+              --target "${SOURCE_SHA}" --notes-file "${RUNNER_TEMP}/release-changelog.md"
+            mapfile -t existing < <(gh release view "${RELEASE_TAG}" "${repo[@]}" --json assets --jq '.assets[].name')
+            for name in "${existing[@]}"; do
+              if ! grep -qxF -- "${name}" "${RUNNER_TEMP}/expected-assets.txt"; then
+                gh release delete-asset "${RELEASE_TAG}" "${name}" "${repo[@]}" --yes
+              fi
+            done
+            gh release upload "${RELEASE_TAG}" "${assets[@]}" "${repo[@]}" --clobber
+          else
+            gh release create "${RELEASE_TAG}" "${assets[@]}" "${repo[@]}" --target "${SOURCE_SHA}" \
+              --title "${RELEASE_NAME}" --notes-file "${RUNNER_TEMP}/release-changelog.md" --draft=true
+          fi
+          release_id="$(gh release view "${RELEASE_TAG}" "${repo[@]}" --json databaseId --jq .databaseId)"
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets" --jq '.[]' \
+            | jq -s '.' > "${RUNNER_TEMP}/published-assets.json"
+          expected_args=()
+          for name in "${expected[@]}"; do expected_args+=(--expected "${name}"); done
+          python tools/build/verify_release_asset_set.py --artifact-dir "${RUNNER_TEMP}/dist" \
+            --published-assets "${RUNNER_TEMP}/published-assets.json" "${expected_args[@]}"
+          gh release edit "${RELEASE_TAG}" "${repo[@]}" --prerelease="${PRERELEASE}" --draft="${DRAFT}"
+          {
+            echo "### ${RELEASE_NAME}: $([ "${DRAFT}" = "true" ] && echo "draft" || echo "published")"
+            printf -- '- %s\n' "${assets[@]##*/}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  discord:
+    name: Announce on Discord
+    needs: [metadata, release]
+    if: needs.release.result == 'success' && inputs.draft == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
+      - name: Send the release embed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+          DISCORD_RELEASE_MENTIONS: ${{ vars.DISCORD_RELEASE_MENTIONS }}
+          DISCORD_RELEASE_AVATAR_URL: ${{ vars.DISCORD_RELEASE_AVATAR_URL }}
+        run: python tools/build/announce_release_discord.py

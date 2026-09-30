@@ -1,0 +1,131 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# macOS Sanitizer (manual; as openQ4's macos-sanitizer.yml, one build: Vulkan
+# on MoltenVK). The game and the engine built with AddressSanitizer and
+# UndefinedBehaviorSanitizer through the 'push' profile of
+# tools/validation/openetqw_validate.py: the unit suite and the assetless
+# dedicated-server smoke run instrumented, and the staged binaries are checked
+# for the sanitizer runtime before the smoke trusts them.
+
+name: macOS Sanitizer
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: "Architecture to build"
+        required: true
+        default: arm64
+        type: choice
+        options:
+          - arm64
+          - x64
+          - both
+      companion_ref:
+        description: "openETQW-game full commit SHA, branch or tag instead of tools/ci/companion.ref (empty: use the pin)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openetqw-macos-sanitizer-${{ github.ref }}-${{ inputs.arch }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  MESON_VERSION: "1.12.1"
+  NINJA_VERSION: "1.13.2"
+  SDL3_TAG: release-3.4.16
+  OPENETQW_COMPANION_REPO: jm2/openETQW-game
+
+jobs:
+  macos-sanitizer:
+    name: macOS ${{ matrix.arch }} ASan+UBSan (Vulkan/MoltenVK)
+    runs-on: ${{ matrix.arch == 'arm64' && 'macos-15' || 'macos-15-intel' }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(inputs.arch == 'both' && '["arm64","x64"]' || format('["{0}"]', inputs.arch)) }}
+    env:
+      OPENETQW_GAME_REPO: ${{ github.workspace }}/openETQW-game
+      # idLib is linked into both the engine and the game module (as in retail),
+      # so identical globals exist twice; see tools/ci/asan.supp. Apple's ASan
+      # runtime has no LeakSanitizer.
+      ASAN_OPTIONS: halt_on_error=1:abort_on_error=1:detect_odr_violation=1:suppressions=${{ github.workspace }}/openETQW/tools/ci/asan.supp
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1:suppressions=${{ github.workspace }}/openETQW/tools/ci/ubsan.supp
+    defaults:
+      run:
+        shell: bash
+        working-directory: openETQW
+    steps:
+      - name: Checkout openETQW
+        uses: actions/checkout@v7
+        with:
+          path: openETQW
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
+      - name: Prepare build (companion, Meson, dependencies)
+        id: prepare
+        uses: ./openETQW/.github/actions/prepare
+        with:
+          platform: macos
+          companion-ref: ${{ inputs.companion_ref }}
+          cross-repo-token: ${{ secrets.OPENETQW_CROSS_REPO_TOKEN }}
+          companion-required: ${{ vars.OPENETQW_COMPANION_REQUIRED }}
+          repository-private: ${{ github.event.repository.private }}
+          meson-version: ${{ env.MESON_VERSION }}
+          ninja-version: ${{ env.NINJA_VERSION }}
+          sdl3-tag: ${{ env.SDL3_TAG }}
+
+      - name: Build, install and check instrumented binaries
+        if: steps.prepare.outputs.available == 'true'
+        run: python tools/validation/openetqw_validate.py push --build-dir build --no-smoke --sanitize address,undefined
+
+      - name: Verify sanitizer instrumentation
+        if: steps.prepare.outputs.available == 'true'
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          for binary in "build/install/openETQW-ded_${ARCH}" "build/install/openETQW-client_${ARCH}" "build/install/game_${ARCH}.dylib"; do
+            if ! otool -L "${binary}" | grep -q 'libclang_rt.asan_osx_dynamic.dylib'; then
+              echo "::error title=Not instrumented::${binary} does not link the ASan runtime"
+              exit 1
+            fi
+          done
+          echo "the staged engine and game module link the ASan runtime"
+
+      - name: Assetless dedicated-server smoke under sanitizers
+        if: steps.prepare.outputs.available == 'true'
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: >-
+          python tools/ci/dedicated_server_smoke.py --build-dir build
+          --executable "build/install/openETQW-ded_${ARCH}" --game-repo "${OPENETQW_GAME_REPO}"
+          --game-module "build/install/game_${ARCH}.dylib" --arch "${ARCH}"
+          --output-root .tmp/ci/dedicated-smoke
+          --startup-timeout 240 --command-timeout 90 --quit-timeout 120
+
+      - name: Publish sanitizer diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-sanitizer-${{ matrix.arch }}
+          path: |
+            openETQW/.tmp/ci
+            openETQW/build/meson-logs
+            openETQW-game/build/meson-logs
+          if-no-files-found: warn
+          retention-days: 14
+          include-hidden-files: true

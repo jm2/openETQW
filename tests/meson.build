@@ -132,6 +132,24 @@ test(
   timeout: 30,
 )
 
+# Release tooling: version bumps, changelog, asset set, source provenance, installer
+test(
+  'release-tools',
+  py,
+  args: [meson.project_source_root() / 'tests' / 'test_release_tools.py'],
+  suite: 'unit',
+  timeout: 60,
+)
+
+# Packaging and validation tooling: staged-payload checks, archives, AppRun
+test(
+  'packaging-tools',
+  py,
+  args: [meson.project_source_root() / 'tests' / 'test_packaging_tools.py'],
+  suite: 'unit',
+  timeout: 60,
+)
+
 # 6. Client lifecycle & graphics verification test
 if build_engine
   campaign_client = meson.project_build_root() / engine_client_binary_name

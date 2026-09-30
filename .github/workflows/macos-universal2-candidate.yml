@@ -1,0 +1,255 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# macOS universal2 release candidate (manual; as openQ4's
+# macos-universal2-candidate.yml, one build: Vulkan on MoltenVK). The release
+# ships a native arm64 app (manual-release.yml); this builds a universal2 app
+# for evaluating Intel support:
+#
+#   thin      arm64 on macos-15 and x64 on macos-15-intel, each against the same
+#             universal2 dependencies (tools/build/prepare_macos_deps.py): the
+#             'push' profile of tools/validation/openetqw_validate.py (unit suite,
+#             integration skips, staged-payload checks including minos 11.0,
+#             dedicated-server smoke) from a clean tree, then the staged tree and
+#             build-info.json archived with their modes
+#   assemble  tools/build/assemble_macos_universal2.py (lipo of the executables,
+#             both thin game modules, shared files byte-identical, same commits),
+#             a universal2 glslangValidator, tools/build/package_release.py
+#             --arch universal2 (ad hoc signed), the lipo slices checked against
+#             the thin inputs, and the dedicated-server smoke of the universal
+#             binary's native slice
+#
+# Nothing here is signed with a Developer ID or published.
+
+name: macOS Universal2 Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      companion_ref:
+        description: "openETQW-game full commit SHA, branch or tag instead of tools/ci/companion.ref (empty: use the pin)"
+        required: false
+        default: ""
+        type: string
+      retention_days:
+        description: "Artifact retention days"
+        required: true
+        default: "14"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openetqw-macos-universal2-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  MESON_VERSION: "1.12.1"
+  NINJA_VERSION: "1.13.2"
+  SDL3_TAG: release-3.4.16
+  OPENETQW_COMPANION_REPO: jm2/openETQW-game
+
+jobs:
+  thin:
+    name: macOS ${{ matrix.arch }} thin build (universal2 candidate)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: arm64
+            os: macos-15
+          - arch: x64
+            os: macos-15-intel
+    env:
+      OPENETQW_GAME_REPO: ${{ github.workspace }}/openETQW-game
+    defaults:
+      run:
+        shell: bash
+        working-directory: openETQW
+    steps:
+      - name: Checkout openETQW
+        uses: actions/checkout@v7
+        with:
+          path: openETQW
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
+      - name: Prepare build (companion, Meson)
+        id: prepare
+        uses: ./openETQW/.github/actions/prepare
+        with:
+          platform: none
+          companion-ref: ${{ inputs.companion_ref }}
+          cross-repo-token: ${{ secrets.OPENETQW_CROSS_REPO_TOKEN }}
+          companion-required: "true"
+          repository-private: ${{ github.event.repository.private }}
+          meson-version: ${{ env.MESON_VERSION }}
+          ninja-version: ${{ env.NINJA_VERSION }}
+          sdl3-tag: ${{ env.SDL3_TAG }}
+
+      - name: Build the universal2 dependencies (SDL3, Vulkan loader, MoltenVK)
+        run: python tools/build/prepare_macos_deps.py --arch universal2 --prefix "${RUNNER_TEMP}/macos-deps"
+
+      - name: Validate (push profile, clean tree)
+        run: python tools/validation/openetqw_validate.py push --build-dir build --fail-on-dirty
+
+      - name: Archive the thin build with its modes
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, subprocess
+          def head(path):
+              return subprocess.run(["git", "-C", path, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+          def dirty(path):
+              return bool(subprocess.run(["git", "-C", path, "status", "--porcelain"], capture_output=True, text=True, check=True).stdout.strip())
+          game = os.environ["OPENETQW_GAME_REPO"]
+          info = {"arch": os.environ["ARCH"], "openETQW": head("."), "openETQW-game": head(game),
+                  "dirty": dirty(".") or dirty(game)}
+          with open("build/build-info.json", "w", encoding="utf-8") as handle:
+              json.dump(info, handle, indent=2)
+          print(info)
+          PY
+          tar -czf "${RUNNER_TEMP}/thin-${ARCH}.tar.gz" -C build install build-info.json
+
+      - name: Upload the thin build
+        uses: actions/upload-artifact@v7
+        with:
+          name: universal2-payload-${{ matrix.arch }}
+          path: ${{ runner.temp }}/thin-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+          retention-days: ${{ fromJSON(inputs.retention_days) }}
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: universal2-thin-${{ matrix.arch }}-logs
+          path: |
+            openETQW/build/meson-logs
+            openETQW-game/build/meson-logs
+            openETQW/.tmp/ci
+          if-no-files-found: ignore
+          retention-days: ${{ fromJSON(inputs.retention_days) }}
+          include-hidden-files: true
+
+  assemble:
+    name: macOS universal2 candidate package
+    needs: thin
+    runs-on: macos-15
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+        working-directory: openETQW
+    steps:
+      - name: Checkout openETQW
+        uses: actions/checkout@v7
+        with:
+          path: openETQW
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
+      - name: Install Meson and Ninja
+        run: python -m pip install "meson==${MESON_VERSION}" "ninja==${NINJA_VERSION}"
+
+      # the libraries the staged engine names by @rpath, bundled into the app
+      - name: Build the universal2 dependencies (SDL3, Vulkan loader, MoltenVK)
+        run: python tools/build/prepare_macos_deps.py --arch universal2 --prefix "${RUNNER_TEMP}/macos-deps"
+
+      - name: Download the thin builds
+        uses: actions/download-artifact@v7
+        with:
+          pattern: universal2-payload-*
+          path: ${{ runner.temp }}/thin
+          merge-multiple: true
+
+      - name: Assemble the universal2 staging tree
+        run: |
+          set -euo pipefail
+          for arch in arm64 x64; do
+            mkdir -p "${RUNNER_TEMP}/thin/${arch}"
+            tar -xzf "${RUNNER_TEMP}/thin/thin-${arch}.tar.gz" -C "${RUNNER_TEMP}/thin/${arch}"
+          done
+          python tools/build/assemble_macos_universal2.py \
+            --arm64-dir "${RUNNER_TEMP}/thin/arm64" --x64-dir "${RUNNER_TEMP}/thin/x64" \
+            --output-dir "${RUNNER_TEMP}/universal2"
+
+      - name: Build a universal2 glslangValidator
+        run: python tools/build/build_glslang.py --macos-universal2 --output-dir "${RUNNER_TEMP}/glslang"
+
+      - name: Package the universal2 app (ad hoc signature)
+        id: package
+        run: |
+          set -euo pipefail
+          deps="${RUNNER_TEMP}/macos-deps"
+          version="$(python -c "import re; print(re.search(r\"version: '([^']+)'\", open('meson.build').read()).group(1))")"
+          python tools/build/package_release.py --platform macos --arch universal2 \
+            --install-dir "${RUNNER_TEMP}/universal2" \
+            --version-tag "${version}-universal2.${GITHUB_RUN_NUMBER}" \
+            --output-dir "${RUNNER_TEMP}/dist" \
+            --glslang-dir "${RUNNER_TEMP}/glslang" \
+            --macos-moltenvk "${deps}/lib/libMoltenVK.dylib" --macos-lib-dir "${deps}/lib" \
+            --license "glslang=${RUNNER_TEMP}/glslang/LICENSE.txt" \
+            --license "SDL3=${deps}/share/licenses/SDL3/LICENSE.txt" \
+            --license "Vulkan-Loader=${deps}/share/licenses/Vulkan-Loader/LICENSE.txt" \
+            --license "MoltenVK=${deps}/share/licenses/MoltenVK/LICENSE"
+
+      - name: Check the universal2 slices and smoke the native one
+        env:
+          APP: ${{ steps.package.outputs.app }}
+        run: |
+          set -euo pipefail
+          for exe in openETQW-client openETQW-ded; do
+            universal="${APP}/Contents/MacOS/${exe}_universal2"
+            test "$(lipo -archs "${universal}" | tr ' ' '\n' | sort | xargs)" = "arm64 x86_64"
+          done
+          for lib in "${APP}"/Contents/Frameworks/*.dylib; do
+            case "$(basename "${lib}")" in
+              game_arm64.dylib) want="arm64" ;;
+              game_x64.dylib) want="x86_64" ;;
+              *) want="arm64 x86_64" ;;
+            esac
+            have="$(lipo -archs "${lib}" | tr ' ' '\n' | sort | xargs)"
+            if [ "${have}" != "${want}" ]; then
+              echo "::error::$(basename "${lib}") has slices '${have}', expected '${want}'"
+              exit 1
+            fi
+          done
+          # the dedicated server links only system libraries, so the smoke's staged copy runs
+          python tools/ci/dedicated_server_smoke.py \
+            --executable "${APP}/Contents/MacOS/openETQW-ded_universal2" \
+            --game-module "${APP}/Contents/Frameworks/game_arm64.dylib" --arch arm64 \
+            --output-root .tmp/ci/dedicated-smoke-universal2
+
+      - name: Upload the universal2 candidate
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-universal2-candidate
+          path: ${{ steps.package.outputs.archive }}
+          if-no-files-found: error
+          retention-days: ${{ fromJSON(inputs.retention_days) }}
+
+      - name: Upload smoke logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-universal2-candidate-logs
+          path: openETQW/.tmp/ci
+          if-no-files-found: ignore
+          retention-days: ${{ fromJSON(inputs.retention_days) }}
+          include-hidden-files: true
