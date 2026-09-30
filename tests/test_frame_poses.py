@@ -30,9 +30,10 @@ Checks (0.25 s dropped at each edge of a phase; a phase needs >= 20 draw pairs):
   A0 capture   the viewmodel (still, walk) and the peer (still, peerwalk) have a pose in
                >= 99% of draws, so a missing pose never passes as "did not move"
   A1 rate      from the draw timestamps, in every phase: <= 1.03 x cap; >= 0.98 x cap
-               when the cap is <= 0.9 x the ceiling (the pacer sets the rate), else
-               >= 0.85 x the ceiling (the host does, and scenes differ in cost from the
-               still scene the ceiling was measured on)
+               when the cap is <= 0.9 x the ceiling (the pacer sets the rate). Above
+               that the host sets the rate, and per docs/m5-plan.md decision D1 whether
+               it was reached is reported (the lowest phase against min(cap, ceiling),
+               "reached" at 98%), not failed: no high-refresh hardware is part of testing
   A2 ticks     within each phase, game time advances 1.00 s per wall-clock second,
                +/- 0.05 plus one tick (33 ms) over the phase's length, and its steps
                between draws are one tick: no tick goes undrawn
@@ -262,13 +263,22 @@ def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
                  "detail": f"viewmodel present in {sum(wpn_have)}/{len(wpn_have)}, peer in {sum(peer_have)}/{len(peer_have)} draws"
                            + (f"; too few draw pairs in {', '.join(short)}" if short else "")}
     paced = cap <= 0.9 * ceiling
-    lo = 0.98 * cap if paced else 0.85 * ceiling
     timed = {"still": p_still, **phases}  # A1 and A2 cover every phase
     rates = {k: rate(v) for k, v in timed.items()}
     worst = min(rates, key=rates.get)
+    need = f"{0.98 * cap:.1f}..{1.03 * cap:.1f}" if paced else f"<= {1.03 * cap:.1f}"
+    lo = 0.98 * cap if paced else 0.0
     res["A1"] = {"ok": all(lo <= r <= 1.03 * cap for r in rates.values()),
                  "detail": ", ".join(f"{k} {r:.1f}" for k, r in rates.items())
-                           + f" fps (cap {cap}, need {lo:.1f}..{1.03 * cap:.1f}, ceiling {ceiling:.1f}; lowest: {worst})"}
+                           + f" fps (cap {cap}, need {need}, ceiling {ceiling:.1f}; lowest: {worst})"}
+    if not paced:
+        # D1: the host, not the pacer, sets this rate; report how close it came to
+        # what it could reach, min(cap, ceiling), as high-refresh-determinism does
+        target = min(cap, ceiling)
+        reached = "reached" if rates[worst] >= 0.98 * target else "not reached"
+        res["A1"]["report"] = (f"cap {cap} is above 0.9 x the ceiling ({ceiling:.1f} fps), so the host sets the rate:"
+                               f" the lowest phase ran {rates[worst]:.1f} fps, {rates[worst] / target:.0%} of"
+                               f" min(cap, ceiling) = {target:.1f} ({reached}; reported, not failed: D1)")
     ratios, misses, steps = [], 0, 0
     ratio_bad = []
     for name, p in timed.items():
@@ -354,6 +364,8 @@ def judge(mode, results):
             if not shaped:
                 failures.append(f"cap {cap} {check}: the known gap is no longer {gap}: {r['detail']}")
         print(f"{cap:>4} {check:<5} {verdict:<18} {r['detail']}")
+        if r.get("report"):
+            print(f"{'':>4} {'':<5} {'report':<18} {r['report']}")
     return failures
 
 
@@ -372,6 +384,10 @@ def replay(path, mode, slot):
         t0, t1 = poses[0]["us"] + EDGE_S * 1e6, poses[-1]["us"] - EDGE_S * 1e6
         return [p for p in poses if t0 <= p["us"] <= t1]
     ceiling = rate(seg("calibrate", 0))
+    if ceiling <= 0:
+        # without a ceiling no cap can be judged paced or not
+        print(f"[replay {mode}] FAIL: the uncapped calibration segment has fewer than 2 draws")
+        return 1
     caps = sorted({int(ln.split()[2]) for ln in lines if ln.startswith("FP_BEGIN still ")})
     results = {}
     for cap in caps:
@@ -514,6 +530,8 @@ def main(argv):
         obs.send("set com_maxFPS 0")
         time.sleep(1.5)
         ceiling = rate(phase("calibrate", 0, still, args.phase_seconds))
+        if ceiling <= 0:
+            raise Failed("the uncapped calibration phase drew fewer than 2 frames: no ceiling to judge the caps against")
         print(f"[{mode}] uncapped: {ceiling:.1f} fps")
 
         for cap in caps:
