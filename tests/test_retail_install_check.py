@@ -15,16 +15,18 @@ it needs no retail data:
 2. A synthetic pak000.pk4: "checksum mismatch for pak000.pk4", and the other
    eight are still reported missing.
 3. The empty base/ with `+set fs_validateOfficialPaks 0`: no retail-install
-   error; the file system starts.
+   error; the file system starts, and with the game module staged (--game-module)
+   and the stub decl the server starts and quits cleanly.
 
-Usage: test_retail_install_check.py [--ded-binary PATH] (meson passes the binary
-this build directory produced).
+Usage: test_retail_install_check.py [--ded-binary PATH] [--game-module PATH] (meson
+passes the binary and the game module this build directory uses).
 Exit status: 0 pass, 1 fail, 77 skip (no dedicated server binary).
 """
 
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -60,6 +62,7 @@ def fake_pak(path: Path) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description="the retail-install check on synthetic data")
     ap.add_argument("--ded-binary", help="dedicated server binary (default: $OPENETQW_DED_BINARY, then build/)")
+    ap.add_argument("--game-module", help="game module to stage into the synthetic base/ for step 3 (default: none staged)")
     args = ap.parse_args()
     try:
         ded = h.find_ded_binary(args.ded_binary)
@@ -102,8 +105,12 @@ def main() -> int:
         (root / "base" / "pak000.pk4").unlink()
 
         print("3. the same empty base/ with +set fs_validateOfficialPaks 0")
-        # the game module beside the binary loads too; without the stub decl game->Init
-        # fails, and a failed game->Init stops the engine (etqw_harness.write_synthetic_stub_decls)
+        # past the file system the engine loads the game module (staged into base/, as
+        # test_retired_cvars.py does, so that a build directory without it beside the binary
+        # works), and game->Init needs the stub decl: a failed game->Init stops the engine
+        if args.game_module:
+            module = Path(args.game_module)
+            shutil.copy2(module, root / "base" / module.name)
         h.write_synthetic_stub_decls(root / "base")
         code, out = run_server(ded, root, "+set", "fs_validateOfficialPaks", "0")
         expect(FS_STARTED in out and FATAL not in out and "missing pak000.pk4" not in out,
