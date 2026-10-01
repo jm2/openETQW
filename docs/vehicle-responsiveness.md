@@ -70,7 +70,7 @@ The vehicle simulation and control code is the 1.5 SDK code, unchanged. VehicleC
    - Prediction-error decay smooths corrections, but it advances only on new ticks (game `src/game/PredictionErrorDecay.cpp:357-360`).
    - Re-predicted frames do not move the drawn vehicle until the next new tick (game `src/game/Game_network.cpp:3937-3941`). *[inspected]*
 7. **On a client, remote vehicles are extrapolated, never interpolated.** They are simulated forward with the driver's relayed inputs, and then with the last input repeated, and corrected at each snapshot. Far vehicles get updates as rarely as every 0.5 s (game `src/game/decls/DeclAOR.cpp:262-287`). *[inspected; felt effect inferred]*
-8. **On a listen host, the mouse is read once per tick, and on foot too.** The host builds a usercmd only at ticks and never calls `ClientUpdateView` (engine `src/framework/async/AsyncServer.cpp:448-456, 821-833`). Every frame it draws is a base draw. *[inspected]*
+8. **On a listen host, the mouse was read once per tick, on foot too, until M5 step 7.** The host built a usercmd only at ticks and never called `ClientUpdateView` (engine `src/framework/async/AsyncServer.cpp:448-456, 821-833` before step 7), so every frame it drew was a base draw. *[inspected]* Since step 7 (2026-10-01) it builds a render-only usercmd and calls `ClientUpdateView` on each frame that ran no tick (engine `src/framework/async/AsyncServer.cpp:492-500`), as single player and the client do; in a seat `IsFPSUnlock` still refuses, so seats draw at the tick rate there as everywhere until stage 3. *[measured: `frame-poses-listen`]*
 9. **The SDK call order adds one-tick lags in a few places.** These are retail behaviour, and this plan leaves them alone. *[inferred]*
    - The chase camera follows the hull's rotation from `lastPushedAxis`, which the previous tick's `Present` wrote (game `src/game/vehicles/VehicleView.cpp:1205-1206`; `Transport.cpp:4434` runs before `:4451`).
    - The view lean and the IK are updated after the camera (game `Transport.cpp:4434-4435`).
@@ -184,7 +184,7 @@ Drawing from copies of these touches no tick state. openQ4 did the same (openq4 
 | 6 | Aircraft re-prediction fix (client only) | 14a (done 2026-09-30) | on (`g_airControlHistory 1`) |
 | 7 | Optional hull lead, using the physics' own next pose | beyond 14 | L = 0 |
 
-Engine steps 7 (listen host) and 10 (tick frames drawn at their real fraction) are needed for full coverage; see §3.4.
+Engine step 10 (tick frames drawn at their real fraction) is needed for full coverage; step 7 (the listen host) is done; see §3.4.
 
 ### Stage 0: physics guard
 
@@ -539,7 +539,7 @@ Done 2026-09-30: the fix, `AIR_CTL` and meson `aircraft-reprediction` are built 
 
 ### 3.4 Engine steps this depends on
 
-- **Step 7 (listen host):** input and view updates on every frame (engine `AsyncServer.cpp:448-456, 821-833`). Without it, a host gets none of stages 3–5. The presentation is read-only, so it can run on an authoritative host as D6 requires.
+- **Step 7 (listen host): done 2026-10-01.** The host builds a usercmd and calls `ClientUpdateView` on each frame that ran no tick (engine `AsyncServer.cpp:492-500`), so stages 3–5 can reach it, and step 13's latch can have its first reader there. The presentation is read-only, so it can run on an authoritative host as D6 requires. The SDK `renderView` write that `ClientUpdateView` brings to the host is put back at each tick's entry (owner decision E3; compat-ledger 058), so the host's tick code never reads a render frame's view.
 - **Step 10 (tick frames at their real fraction):** removes the judder at tick frames, up to 0.5, 0.25, 0.21 or 0.13 of a tick at caps 60, 120, 144 and 240 (frame-path §9). Until then, stage 3 draws tick frames at `f = 0`.
 
 ### 3.5 Effort total
