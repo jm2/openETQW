@@ -173,7 +173,9 @@ M5 is done when:
       - **Lanes come from the spawn spots.** The spawn pick is a roulette over `gameLocal.random`, which advances every tick, so the spots depend on join timing (the Linux session; inferred).
         - The middle player in x stays. The outer two strafe outward, east or west, until they are 300 u from it, at about 245 u/s for at most 1.5 s. Ties are broken by name.
         - Each strafe takes its sign from the player's spawn yaw in the server log. On this Mac A and the peer spawned at yaw 74 and B at 90.
-        - The run fails, rather than guessing, in three cases: the spawn yaw is within 30° of due east or west; a strafe would exceed 1.5 s; or the server's positions afterwards are less than 250 u apart in x.
+        - The strafe time divides by |sin(yaw)|, since a strafe moves sin(yaw) of its length in x. A strafe that ends more than 30 u short gets one top-up.
+        - The run fails, rather than guessing, in three cases: the spawn yaw is within 30° of due east or west; a strafe would exceed 1.5 s; or the server's positions afterwards are less than 150 u apart in x.
+        - The gap bar is 150 u because a wall can stop a strafe. On Windows the peer stops at x ≈ 8812, 227 u from B, and the top-up moves it 0 u. The walks need only W1's 48 u. *[measured]*
         - The plans: on this Mac, the peer goes 136 u west; on Windows, the peer goes 201 u west; on Linux (A and B at x 10376, the peer at 10536), A goes 300 u west and the peer 140 u east.
       - **Drift.** A forward-first walk ends about 195–220 u ahead of where it began, because backpedalling is slower.
         - Each round's 2 s turn flips A and B by 180°, so their walks alternate direction.

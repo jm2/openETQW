@@ -71,11 +71,13 @@ LANE_TRAVEL = 200.0          # a back-first walk gets about 250 u from its start
 LANE_GAP = 48.0
 # lanes: the middle player (by spawn x) stays, and the outer two strafe outward, east or
 # west, until LANE_SPACING from it; a strafe runs at about STRAFE_U_PER_S and may take
-# MAX_STRAFE_S at most; afterwards the server's positions must be MIN_LANE_X apart
+# MAX_STRAFE_S at most; afterwards the server's positions must be MIN_LANE_X apart. A wall
+# can stop a strafe short (on Windows the peer stops at x 8812, 227 u from B); W1 then
+# judges the walks, which need only LANE_GAP
 LANE_SPACING = 300.0
 STRAFE_U_PER_S = 245.0
 MAX_STRAFE_S = 1.5
-MIN_LANE_X = 250.0
+MIN_LANE_X = 150.0
 SPAWN_ANGLES_RE = re.compile(r"Player (\d+) \('[^']*'\) spawned at \([^)]*\) angles \(([-\d.]+), ([-\d.]+), ([-\d.]+)\)"
                              r" team (\S+) spectating (\d+)")
 TURN_DEG_S = 90.0             # in_yawSpeed with in_angleSpeedKey 1
