@@ -491,7 +491,9 @@ void idAsyncServer::RunFrame() {
 	// A listen host's render-only frame (M5 step 7), as in single player and on the async
 	// client: the host's input is sampled for this draw's view only. The command is not
 	// stored; the server simulates, and relays to remote clients, only the commands
-	// LocalClientInput builds at tics. After the snapshots, so none follows a presentation.
+	// LocalClientInput builds at tics. After the snapshots, so this frame's are written before
+	// it presents; the frames after it, up to the next tic, write theirs inside the
+	// unlockedDraw window it opens, as on a client (vehicle-view-net checks those AoR calls).
 	// com_unlockFPS 0 draws no render-only frame (idCommonLocal::Frame), so none is prepared
 	if ( localClientNum >= 0 && gameFrame == startFrame && game != NULL && com_unlockFPS.GetBool() ) {
 		const usercmd_t cmd = usercmdGen->GetDirectUsercmd();
