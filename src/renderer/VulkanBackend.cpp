@@ -7,6 +7,7 @@
 #include "RuntimeSpirvCompiler.h"
 #include "RendererJobs.h"
 #include "RendererMetrics.h"
+#include "FrameSyncTiming.h"
 #include "tr_render.h"
 #include "draw_local.h"
 #include "Material.h"
@@ -36,6 +37,9 @@
 
 #include "draw_raytracing.h"
 
+#include <atomic>
+#include <chrono>
+
 extern idCVar r_offsetFactor;
 extern idCVar r_offsetUnits;
 extern idCVar r_shadows;
@@ -48,6 +52,23 @@ extern idCVar r_skipAtmosInteractions;
 namespace {
 
 const int NUM_VULKAN_FRAMES = 2;
+
+// FrameSyncTiming.h: a frame's waits, added to the sums only once it reaches the present,
+// so a frame that fails earlier adds nothing. Frames run on the main thread, as does
+// R_TakeFrameSyncTiming; the sums are atomic only so that nothing depends on that.
+uint64_t				pendingFenceUsec = 0;
+uint64_t				pendingAcquireUsec = 0;
+uint64_t				pendingSubmitUsec = 0;
+std::atomic< int >		syncFrames( 0 );
+std::atomic< uint64_t >	syncFenceUsec( 0 );
+std::atomic< uint64_t >	syncAcquireUsec( 0 );
+std::atomic< uint64_t >	syncSubmitUsec( 0 );
+std::atomic< uint64_t >	syncPresentUsec( 0 );
+
+uint64_t SyncNowUsec() {
+	return static_cast< uint64_t >( std::chrono::duration_cast< std::chrono::microseconds >(
+		std::chrono::steady_clock::now().time_since_epoch() ).count() );
+}
 // Radiant shares this mapped stream with the game GUI. Model-heavy .world
 // files expand legacy fixed-function lines, quads and display lists into
 // several hundred thousand vertices in a frame, which does not fit in 4 MiB.
@@ -5788,10 +5809,12 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 	sdVulkanFrame& frame = state->frames[ state->frameIndex ];
 	{
 		RENDER_METRIC_SCOPE( "Vulkan wait for frame fence" );
+		const uint64_t fenceStart = SyncNowUsec();
 		if ( !CheckVulkanResult( state->WaitForFences( state->device, 1,
 			&frame.fence, VK_TRUE, UINT64_MAX ), "vkWaitForFences" ) ) {
 			return false;
 		}
+		pendingFenceUsec = SyncNowUsec() - fenceStart;
 	}
 	{
 		RENDER_METRIC_SCOPE( "Vulkan retire frame resources" );
@@ -5815,16 +5838,20 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 	VkResult acquireResult;
 	{
 		RENDER_METRIC_SCOPE( "Vulkan acquire swapchain image" );
+		const uint64_t acquireStart = SyncNowUsec();
 		acquireResult = state->AcquireNextImageKHR( state->device,
 			state->swapchain, UINT64_MAX, frame.imageAvailable, VK_NULL_HANDLE,
 			&state->imageIndex );
+		pendingAcquireUsec = SyncNowUsec() - acquireStart;
 		if ( acquireResult == VK_ERROR_OUT_OF_DATE_KHR ) {
 			state->DeviceWaitIdle( state->device );
 			if ( !CreateSwapchain( *state, width, height ) ) {
 				return false;
 			}
+			const uint64_t reacquireStart = SyncNowUsec();
 			acquireResult = state->AcquireNextImageKHR( state->device, state->swapchain,
 				UINT64_MAX, frame.imageAvailable, VK_NULL_HANDLE, &state->imageIndex );
+			pendingAcquireUsec += SyncNowUsec() - reacquireStart;
 		}
 	}
 	if ( acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR ) {
@@ -6048,12 +6075,14 @@ void sdVulkanBackend::EndFrame( bool ) {
 	submitInfo.pSignalSemaphoreInfos = &signalInfo;
 	{
 		RENDER_METRIC_SCOPE( "Vulkan queue submit" );
+		const uint64_t submitStart = SyncNowUsec();
 		if ( !CheckVulkanResult( state->QueueSubmit2( state->graphicsQueue, 1,
 			&submitInfo, frame.fence ), "vkQueueSubmit2" ) ) {
 			RestoreSignaledFence( *state, frame );
 			state->frameActive = false;
 			return;
 		}
+		pendingSubmitUsec = SyncNowUsec() - submitStart;
 	}
 	state->imageInitialized[ state->imageIndex ] = 1;
 	state->depthInitialized[ state->imageIndex ] = 1;
@@ -6069,7 +6098,13 @@ void sdVulkanBackend::EndFrame( bool ) {
 	VkResult presentResult;
 	{
 		RENDER_METRIC_SCOPE( "Vulkan present" );
+		const uint64_t presentStart = SyncNowUsec();
 		presentResult = state->QueuePresentKHR( state->graphicsQueue, &presentInfo );
+		syncPresentUsec += SyncNowUsec() - presentStart;
+		syncFenceUsec += pendingFenceUsec;
+		syncAcquireUsec += pendingAcquireUsec;
+		syncSubmitUsec += pendingSubmitUsec;
+		syncFrames++;
 	}
 	if ( presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR ) {
 		state->swapchainDirty = true;
@@ -10002,6 +10037,19 @@ bool vulkanUnavailable = false;
 
 void R_NotifyVulkanUnavailable() {
 	vulkanUnavailable = true;
+}
+
+/*
+==================
+R_TakeFrameSyncTiming
+==================
+*/
+void R_TakeFrameSyncTiming( frameSyncTiming_t& timing ) {
+	timing.frames		= syncFrames.exchange( 0 );
+	timing.fenceUsec	= syncFenceUsec.exchange( 0 );
+	timing.acquireUsec	= syncAcquireUsec.exchange( 0 );
+	timing.submitUsec	= syncSubmitUsec.exchange( 0 );
+	timing.presentUsec	= syncPresentUsec.exchange( 0 );
 }
 
 bool R_UseVulkanBackend() {

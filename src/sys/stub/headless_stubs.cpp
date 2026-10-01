@@ -8,6 +8,7 @@
 #include "../../renderer/RenderWorld.h"
 #include "../../renderer/ModelManager.h"
 #include "../../renderer/DeviceContext.h"
+#include "../../renderer/FrameSyncTiming.h"
 #include "../../sound/SoundSystem.h"
 #include "../../sound/SoundWorld.h"
 #include "sys_render.h"
@@ -610,4 +611,7 @@ rvBSEManager*			bse = &headlessBSEManager;
 idImageManager*			globalImages = NULL;
 id3DContext*			sys3D = NULL;
 
-
+// FrameSyncTiming.h: no Vulkan backend, so no frame waits
+void R_TakeFrameSyncTiming( frameSyncTiming_t& timing ) {
+	memset( &timing, 0, sizeof( timing ) );
+}

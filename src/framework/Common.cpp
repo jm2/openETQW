@@ -24,6 +24,7 @@
 #include "NotificationSystem.h"
 #include "../decllib/declLocStr.h"
 #include "../renderer/DeviceContext.h"
+#include "../renderer/FrameSyncTiming.h"
 #include "../renderer/renderbindingmanager.h"
 #include "../bse/BSEInterface.h"
 #include "../navigation/Navigation.h"
@@ -990,7 +991,9 @@ com_logFrameTiming: every host frame adds its interval (from the end of the prev
 frame's pacing to the end of its own) and its work time (from its start to the pacing
 wait). Once a second one line reports how many frames and game ticks that second had and
 the distribution of both times, so a test can tell the frame rate it got during play from
-the cap it asked for.
+the cap it asked for. Under Vulkan it also reports the average time a frame that reached
+the present spent in the frame fence, the image acquire, the queue submit and the present
+(M5 step 4: which of them holds the frame rate; FrameSyncTiming.h).
 ==================
 */
 namespace {
@@ -1030,6 +1033,8 @@ void FrameTimingLog::AddFrame( uint64_t frameStartUsec, uint64_t workEndUsec, ui
 		// the first frame only opens the window: it has no previous frame end
 		windowStartUsec = frameEndUsec;
 		lastFrameEndUsec = frameEndUsec;
+		frameSyncTiming_t discarded;
+		R_TakeFrameSyncTiming( discarded );
 		return;
 	}
 	intervals.push_back( static_cast< uint32_t >( std::min< uint64_t >( frameEndUsec - lastFrameEndUsec, UINT32_MAX ) ) );
@@ -1043,11 +1048,17 @@ void FrameTimingLog::AddFrame( uint64_t frameStartUsec, uint64_t workEndUsec, ui
 		return;
 	}
 	const int frames = static_cast< int >( intervals.size() );
+	frameSyncTiming_t sync;
+	R_TakeFrameSyncTiming( sync );
+	const float perFrameMs = sync.frames > 0 ? 0.001f / static_cast< float >( sync.frames ) : 0.0f;
 	common->Printf( "FRAME_TIMING: window_ms=%.1f frames=%d ticks=%d cap=%d"
-		" dt_p50=%.2f dt_p95=%.2f dt_p99=%.2f dt_max=%.2f work_p50=%.2f work_p95=%.2f work_max=%.2f draws=%d\n",
+		" dt_p50=%.2f dt_p95=%.2f dt_p99=%.2f dt_max=%.2f work_p50=%.2f work_p95=%.2f work_max=%.2f draws=%d"
+		" vk_frames=%d fence_ms=%.2f acquire_ms=%.2f submit_ms=%.2f present_ms=%.2f\n",
 		static_cast< float >( windowUsec ) * 0.001f, frames, windowTicks, cap,
 		PercentileMs( intervals, 0.5f ), PercentileMs( intervals, 0.95f ), PercentileMs( intervals, 0.99f ), PercentileMs( intervals, 1.0f ),
-		PercentileMs( works, 0.5f ), PercentileMs( works, 0.95f ), PercentileMs( works, 1.0f ), windowDraws );
+		PercentileMs( works, 0.5f ), PercentileMs( works, 0.95f ), PercentileMs( works, 1.0f ), windowDraws,
+		sync.frames, static_cast< float >( sync.fenceUsec ) * perFrameMs, static_cast< float >( sync.acquireUsec ) * perFrameMs,
+		static_cast< float >( sync.submitUsec ) * perFrameMs, static_cast< float >( sync.presentUsec ) * perFrameMs );
 	windowStartUsec = frameEndUsec;
 	intervals.clear();
 	works.clear();
