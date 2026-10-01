@@ -2,15 +2,16 @@
 /*
 ===========================================================================
 openETQW Asset-Free Test Harness: MsgChannelTest.cpp
-idMsgChannel fragments a message whose encoded length (the size and the
-compressed data it sends) is FRAGMENT_SIZE or more. When that length is an
-exact multiple of FRAGMENT_SIZE the message ends with an empty fragment, so
-the receiver can tell no more follow. idLib's idBitMsg::WriteData is fatal on a
+idMsgChannel fragments a message whose uncompressed length (with the channel's
+header and reliable messages) is FRAGMENT_SIZE or more, and sends the encoded
+message (its size and the compressed data) in FRAGMENT_SIZE pieces. When the
+encoded length is an exact multiple of FRAGMENT_SIZE the last piece is empty,
+so the receiver can tell no more follow. idLib's idBitMsg::WriteData is fatal on a
 zero length, and SendNextFragment used to write the empty fragment's data
 anyway: the dedicated server died with "idBitMsg::GetByteSpace: length must be
 greater than zero ( was 0 )" mid-session (reconnect-restart on Windows,
 2026-10-01). WriteMessageData did the same for an empty message. This test
-sends an empty message and payloads of 1300 to 5200 bytes (2 to 6 packets
+sends an empty message and payloads of 1300 to 5200 bytes (2 to 5 packets
 each) through a real channel (the real compressor), checks that at least one
 payload ends with an empty fragment, and that a second channel receives every
 message intact. Without the fix the send reaches the fatal error, which the
@@ -24,7 +25,7 @@ test's idCommon prints before it exits with 1.
 #include "async/MsgChannel.h"
 
 // idLib and the channel report through idCommon: an error or a fatal error ends
-// the test with its message, anything else is printed
+// the test with its message; Printf and Warning are printed, the rest dropped
 class TestCommonMock : public idCommon {
 public:
 	void Init( int argc, const char **argv, const char *cmdline ) override {}
@@ -74,8 +75,7 @@ private:
 	}
 };
 
-// Globals the channel's sources refer to (the channel prints only when
-// net_channelShowPackets is set or a packet is bad)
+// Globals the channel's sources refer to
 static TestCommonMock s_testCommon;
 idCommon * common = &s_testCommon;
 idSys * sys = NULL;	// idLib's Math.cpp refers to it
