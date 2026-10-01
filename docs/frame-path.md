@@ -561,7 +561,21 @@ Since M5 step 11 (2026-09-30), `com_unlockFPS 0` draws once per tick: an in-game
 - The window is 1280x720 points with `SDL_WINDOW_HIGH_PIXEL_DENSITY` (`src/sys/sdl/sdl_glimp.cpp:52`), and `r_fullscreen` defaults to 0 (`src/renderer/RenderSystem_init.cpp:69`).
 - The host is an M1 Max whose built-in panel runs at up to 120 Hz. MoltenVK is 1.4.2.
 
-**Cause: presentation waits for the display (measured 2026-09-25).** With `com_logFrameTiming 1` (§7.6), uncapped play and caps 144 and 240 all run at about 120 fps, and each frame's *work* (from the start of the frame to the pacer, which includes `BeginFrame`'s fence wait and image acquire and `EndFrame`'s present) takes the whole 8.3 ms. The pacer never waits. The same client at cap 120 does its work in about 7.7 ms and waits the rest, and at cap 60 in about 3.8 ms. So on this host a windowed IMMEDIATE-mode swapchain is paced by the 120 Hz display. The other explanation considered, the frame's own CPU or GPU cost, does not fit: at cap 120 the same frames finish their work in 7.7 ms with two frames in flight. Which call blocks (the fence wait or the acquire) and whether fullscreen, a 60 Hz panel setting or MoltenVK settings change it was not measured; `r_showmetrics 1` (`src/renderer/RendererMetrics.cpp:18`) times both scopes (`src/renderer/VulkanBackend.cpp:5233`, `src/renderer/VulkanBackend.cpp:5206`).
+**Cause: presentation waits for the display (measured 2026-09-25).** With `com_logFrameTiming 1` (§7.6), uncapped play and caps 144 and 240 all run at about 120 fps, and each frame's *work* (from the start of the frame to the pacer, which includes `BeginFrame`'s fence wait and image acquire and `EndFrame`'s present) takes the whole 8.3 ms. The pacer never waits. The same client at cap 120 does its work in about 7.7 ms and waits the rest, and at cap 60 in about 3.8 ms. So on this host a windowed IMMEDIATE-mode swapchain is paced by the 120 Hz display. The other explanation considered, the frame's own CPU or GPU cost, does not fit: at cap 120 the same frames finish their work in 7.7 ms with two frames in flight. Which call blocks was measured on 2026-10-01 (next paragraph).
+
+**Which call blocks: the queue submit (measured 2026-10-01, M5 step 4).** Since step 4, `FRAME_TIMING` reports the average time a presented frame spent in the frame fence, the image acquire, the queue submit and the present (§7.6). The probe ran the valley replay on this host (MoltenVK 1.4.2, IMMEDIATE, 3 images). In the play windows:
+
+| Run | fps | Fence | Acquire | Submit | Present |
+|---|---|---|---|---|---|
+| uncapped, cap 120, cap 240 (window) | 114–119 | 0–0.75 ms | 0.01 ms | 4.8–6.7 ms | 0.01 ms |
+| cap 60 (window) | 58–60 | 0–1.0 ms | 0.02 ms | 0.35–0.48 ms | 0.01 ms |
+| uncapped, `MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS=0` | 115–119 | 5.5–6.6 ms | 0.01 ms | 0.00 ms | 0.00 ms |
+| uncapped, `r_fullscreen 1` (3456×2104) | 115–119 | 0.03–0.93 ms | 0.01 ms | 5.3–6.6 ms | 0.01 ms |
+
+- At the display's rate the wait is in `vkQueueSubmit2`; at cap 60 the same submit takes under half a millisecond. The acquire and the present never wait.
+- With MoltenVK's asynchronous submits the wait moves to the next frame's fence and the rate is unchanged, so the submit is not slow by itself. It waits for something the display paces. Most likely this is the window's next Metal drawable, which MoltenVK takes while it encodes the frame at submit time; that was not traced inside MoltenVK *(inferred)*.
+- Fullscreen at the panel's native size changes nothing. So on this host the 120 Hz panel caps the rate in a window and in fullscreen alike, and nothing in the engine waits for the display.
+- Not measured: a panel set to 60 Hz, which is the owner's display setting. Decision D1/D3 does not need it, since a cap the display cannot reach is reported, not failed.
 
 **Consequence for M5.** Caps 144 and 240 cannot be reached here in a window. `high-refresh-determinism` now reports them as unreachable rather than failing (M5 plan decision D1, 2026-09-25: reaching a cap is reported, not tested), and still requires every schedule's per-tick state to match.
 
@@ -573,6 +587,7 @@ Since M5 step 11 (2026-09-30), `com_unlockFPS 0` draws once per tick: an in-game
 
 - `com_frameTicks` counts the game ticks run in the current host frame. `idCommonLocal::Frame` resets it (`src/framework/Common.cpp:1036`); single player (`src/framework/Session.cpp:335`), the network client (`src/framework/async/AsyncClient.cpp:339`) and the server (`src/framework/async/AsyncServer.cpp:455`) add to it.
 - With `com_logFrameTiming 1`, every host frame adds its interval (end of the previous frame's pacing to the end of its own) and its work time (start of the frame to the pacer), and once a second the engine prints one `FRAME_TIMING` line (since M5 step 11 ending in `draws=`: the frames that called `UpdateScreen`, which is fewer than the frames with `com_unlockFPS 0`, and counts a dedicated server's or a minimized window's frames alike): the window length, frames, ticks, the cap, and the p50/p95/p99/max of the intervals and the p50/p95/max of the work times (`src/framework/Common.cpp:975-1024`, called at `src/framework/Common.cpp:1135`).
+- Since M5 step 4 the line ends with `vk_frames=` (the frames that reached the Vulkan present in the window, 0 without the Vulkan backend) and `fence_ms=`, `acquire_ms=`, `submit_ms=` and `present_ms=`: the average time each of those frames spent in the frame fence wait, the swapchain image acquire, the queue submit and the present (`src/renderer/FrameSyncTiming.h`). Work time includes them, so they tell a frame waiting for the display or the GPU from a frame doing CPU work.
 - A window with about 30 ticks is play; fewer ticks means loading or menus. `high-refresh-determinism` takes the frame rate from the median frame interval over the play windows, so one hitch does not decide it, and reports the average and the longest frame as well.
 
 ## 8. Doom 3, and what retail ETQW added
