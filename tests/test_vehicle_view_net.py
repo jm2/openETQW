@@ -8,12 +8,14 @@ server's antilag (AntiLag.cpp) and each snapshot it writes (AORManager.cpp), and
 client reading a snapshot, call idPlayer::GetAORView, which recalculates a seated
 player's view with CalculateFirstPersonView( false ). OpenETQW's smooth vehicle view
 interpolates there from the previous tick's camera, with a fraction servers never set,
-and writes the result back into the tick's view; the single-player replay never reaches
-that path. With g_logVehicleViews (a cheat) the game prints, for players in a vehicle:
+and writes the result back into the tick's view; no replay asserts that path (a client
+moveable's Think reaches it inside a tick, in single player too). With g_logVehicleViews
+(a cheat) the game prints, for players in a vehicle:
 
   VIEW_STATE: side at=pre|post tick client ent pos mode class ud new pose= rvo= phys= vpush=
-      at=pre before the tick's entity Think, at=post where the tick logs its pose (a
-      server: every client in a vehicle; a network client: its local player)
+      at=pre before the tick's entity Think, at=post at its end (a server: every client
+      in a vehicle, where the tick logs its pose; a network client: its local player,
+      after each predicted tick, new=0 for a tick predicted again)
   AOR_VIEW: side tick client ent pos mode class ud new f before= result= after= rent= phys=
       one GetAORView: the view before it, the origin and angles it returned, the view
       after it, the unlock fraction f; also the vehicle's rendered and physics origins
@@ -33,7 +35,8 @@ schedule:
   phase A     the remote client drives: forward 1 s, forward and right 0.5 s, reverse
               0.8 s, stop (clientMove); the host turns meanwhile
   cycle       the host cycles the remote client's camera (cycleVehicleCamera: the
-              badger driver's 'smooth_locked' view; no valley seat starts in a smooth one)
+              badger driver's 'smooth_locked' view; no valley seat starts in a smooth one),
+              after checking that malformed client numbers ('x', '1x') are refused
   phase B     the same drive, steering left
   phase D     the host itself, with g_logFramePoses 1: enterVehicle into the titan (its
               driver's first view is third person), 1 s, then exitVehicle from the host
@@ -55,8 +58,13 @@ of a change of seat or view mode are left out):
   N5  the host, after the console exit: no two consecutive on-foot draws (seat=-) of the
       ticks after the exit differ by more than 64 u in view origin
   Sanity: both view classes seen, with >= 20 server and >= 10 client AoR lines each; the
-  vehicle moved >= 100 u in each phase; ud=1 on the client; the enter, cycle and exit
-  messages all printed. A sanity failure fails the test.
+  vehicle moved >= 100 u in each phase; the server's smooth camera moved on >= 20 judged
+  ticks and N4 has >= 20 tick pairs; ud=1 on the client; the enter, cycle and exit
+  messages all printed. For N5, the first on-foot game time drawn is one tick after the
+  last seated draw's (else a slow frame ran two ticks undrawn and the rewind, or its
+  absence, was never drawn), and the vehicle camera is more than 64 u from the on-foot
+  view (the first draw of the next game time), so that a rewind would fail N5. A sanity
+  failure fails the test, whatever the checks say.
 
 A check the code fails today is listed in KNOWN_GAPS with the shape its failure must
 have, as in frame-poses; a gap outside its shape fails as "GAP CHANGED SHAPE", and a
@@ -75,6 +83,15 @@ N2 and N3 are reported with the ud and f of each violation, split by where the c
 ran (from the line order): between ticks, a snapshot read, or inside a predicted tick, a
 client moveable's Think (rvClientMoveable::Think calls SetupClientAoR). The client's
 behaviour was never measured before this test (docs/frame-path.md section 6.9).
+
+Also reported, not judged: the server's smooth camera from the cycle on (post tpo/tpa),
+as each tick's offset from the midpoint of its two neighbours, sampled at a few ticks
+after the cycle (about zero along a smooth path; when odd and even ticks follow two
+interleaved chains, the gap between them); and,
+on each side and by ud, how often an AoR call found the vehicle's rendered origin away
+from its physics origin (rent= against phys=). On a client the rendered origin also
+carries the prediction-error decay, so this is context for step 6's C4 (the
+UpdateModelTransform skip under unlockedDraw), not a measure of it.
 
 --replay <log dir> evaluates the host.log and peer.log a run saved there.
 
@@ -111,6 +128,8 @@ MIN_TRAVEL = 100.0      # units the vehicle must move in each phase
 JUMP = 64.0             # N5: the most two consecutive on-foot draws may differ by
 REWIND = 100.0          # N5's rewind: the jump off the vehicle camera is larger than this
 DRAW_EPS = 0.01         # units: FRAME_POSE prints %.3f
+TICK_MS = 33            # game time per tick
+MIN_PAIRS = 20          # N4 tick pairs, and ticks on which the server's smooth camera moved
 
 # (forward, right) for each leg of a phase and how long it lasts; B steers the other way
 DRIVES = {
@@ -163,6 +182,48 @@ def parse_draw(text):
 
 def angle_diff(a, b):
     return max(abs((x - y + 180.0) % 360.0 - 180.0) for x, y in zip(a, b))
+
+
+def midpoint_offsets(poses):
+    """For each inner pose of a run of consecutive ticks, how far its origin and angles lie
+    from the midpoint of its two neighbours: about zero along a smooth path, and the gap
+    between the two chains when odd and even ticks follow different ones."""
+    out = []
+    for a, b, c in zip(poses, poses[1:], poses[2:]):
+        mid = tuple((x + z) / 2.0 for x, z in zip(a["tpo"], c["tpo"]))
+        mid_ang = tuple(x + ((z - x + 180.0) % 360.0 - 180.0) / 2.0 for x, z in zip(a["tpa"], c["tpa"]))
+        out.append((math.dist(b["tpo"], mid), angle_diff(b["tpa"], mid_ang)))
+    return out
+
+
+def chain_report(post, first, last):
+    """Reported: the server's smooth camera (post tpo/tpa) on the ticks from first (the
+    cycle into the smooth view) to last, as midpoint offsets at a few ticks after the
+    cycle and the last tick it was over 1 u."""
+    poses = []
+    for t in range(first, last + 1):
+        if t not in post or not is_smooth(post[t]):
+            break
+        poses.append(post[t]["pose"])
+    offsets = midpoint_offsets(poses)
+    if not offsets:
+        return "server smooth camera after the cycle: too few ticks"
+    samples = ", ".join(f"+{k + 1} {offsets[k][0]:.1f} u/{offsets[k][1]:.1f} deg" for k in (0, 9, 19, 29, 39, 59, 79)
+                        if k < len(offsets))
+    over = [k + 1 for k, (d, _) in enumerate(offsets) if d > 1.0]
+    tail = (f"; over 1 u until tick +{over[-1]} ({over[-1] * TICK_MS / 1000.0:.1f} s)" if over else "; never over 1 u")
+    return (f"server smooth camera after the cycle (tick {first}), each tick's offset from the midpoint of its"
+            f" neighbours (two interleaved chains when large): {samples}{tail}; {len(offsets)} ticks")
+
+
+def render_report(recs, side):
+    """Reported: AoR calls at which the vehicle's rendered origin was not its physics origin."""
+    parts = []
+    for ud in sorted({r["ud"] for r in recs}):
+        sub = [r for r in recs if r["ud"] == ud]
+        off = [math.dist(r["rent"], r["phys"]) for r in sub if r["rent"] != r["phys"]]
+        parts.append(f"ud={ud}: {len(off)} of {len(sub)}" + (f" (up to {max(off):.3f} u)" if off else ""))
+    return f"{side} AoR calls with the vehicle rendered away from its physics origin: {'; '.join(parts) or 'no calls'}"
 
 
 def is_smooth(rec):
@@ -221,24 +282,31 @@ def aor_differences(r):
 
 
 def mark_client_calls(cli):
-    """Tag each client AoR record with where it ran, from the line order: 'tick' when it
-    comes after the pre line of a new predicted tick with the same tick number and before
-    that tick's post line (a client moveable's Think, rvClientMoveable::Think), else
-    'between' (a snapshot read, which sets the tick number back to the snapshot's)."""
+    """Tag each client AoR record with where it ran, from the line order. Between the pre
+    and post lines of one predicted tick (same tick number) it ran inside that tick:
+    'tick' for a new tick (new=1: a client moveable's Think, rvClientMoveable::Think) and
+    'again' for a tick predicted again (new=0; none is expected, since client moveables
+    think only in new ticks). Otherwise 'between': a snapshot read, which sets the tick
+    number back to the snapshot's. The post line of every predicted tick, new=0 ones
+    included, closes it."""
     state = None
     for _, r in cli:
         if r["kind"] == "VIEW_STATE":
             state = r
+        elif state is not None and state["at"] == "pre" and state["tick"] == r["tick"]:
+            r["where"] = "tick" if state["new"] == 1 else "again"
         else:
-            r["where"] = ("tick" if state is not None and state["at"] == "pre" and state["new"] == 1
-                          and state["tick"] == r["tick"] else "between")
+            r["where"] = "between"
 
 
 def summarize_client(recs, bad, what):
     """The detail line for a reported client check: by where the calls ran, how many
     differ, with the violations' ud and f."""
     parts = []
-    for where, label in (("between", "between ticks (snapshot reads)"), ("tick", "inside ticks (client moveables)")):
+    places = [("between", "between ticks (snapshot reads)"), ("tick", "inside ticks (client moveables)")]
+    if any(r["where"] == "again" for r in recs):
+        places.append(("again", "inside ticks predicted again"))
+    for where, label in places:
         n = sum(1 for r in recs if r["where"] == where)
         b = [r for r, _ in bad if r["where"] == where]
         detail = f"{label}: {len(b)} of {n} differ"
@@ -332,6 +400,18 @@ def evaluate(host_lines, peer_lines, slot):
     results["N4"] = {"ok": not bad4 and bool(pairs), "shaped": bool(bad4) and shaped4 == len(bad4),
                      "detail": f"{len(bad4)} of {len(pairs)} smooth-view ticks start with a view other than the one the"
                                f" last tick logged; prev_tick shape {shaped4}"}
+    if len(pairs) < MIN_PAIRS:
+        sanity.append(f"N4 has {len(pairs)} smooth-view tick pairs (need {MIN_PAIRS})")
+    # proof that the smooth camera moved, whatever N1 and N4 find
+    cam_moved = [t for t in sorted(post) if t in phase_ticks and t not in srv_skip and t - 1 in post
+                 and is_smooth(post[t]) and is_smooth(post[t - 1]) and post[t]["pose"]["tpo"] != post[t - 1]["pose"]["tpo"]]
+    report.append(f"the server's smooth camera moved on {len(cam_moved)} judged ticks")
+    if len(cam_moved) < MIN_PAIRS:
+        sanity.append(f"the server's smooth camera moved on {len(cam_moved)} judged ticks (need {MIN_PAIRS})")
+    smooth_posts = sorted(t for t in post if is_smooth(post[t]))
+    if smooth_posts and "B" in host_spans:
+        last_b = max((r["tick"] for i, r in srv if i < host_spans["B"][1]), default=smooth_posts[0])
+        report.append(chain_report(post, smooth_posts[0], last_b))
 
     # N2, N3: the client (reported)
     cli = view_lines(peer_lines, slot, "cli")
@@ -351,8 +431,10 @@ def evaluate(host_lines, peer_lines, slot):
             report.append(f"{what}: {len(bad) - 5} more violations")
 
     # N5: the host's first on-foot draws after the console exit, which can run in the same
-    # frame as the echo before it: the draws after the last seated one, in later game times
-    # (a frame that runs no tick after the exit still draws the exit tick's view)
+    # frame as the echo before it: the draws after the last seated one, in later game times.
+    # A frame that runs no tick after the exit draws in the exit tick's game time, with
+    # either view depending on what the exit recalculated; neither is the rewind, which
+    # comes with the first on-foot tick's base draws.
     d_span = windows(host_lines, ("D",)).get("D")
     draws = [p for s in host_lines[d_span[0]:d_span[1]] if (p := parse_draw(s))] if d_span else []
     seated = [k for k, p in enumerate(draws) if p["seat"] != "-"]
@@ -378,6 +460,21 @@ def evaluate(host_lines, peer_lines, slot):
                                       f" (last seated draw, game time {last['gt']})" if shaped5 else "")}
         if len(gts) < 2:
             sanity.append(f"phase D: on-foot draws in {len(gts)} game times after the exit (need 2)")
+        else:
+            # the rewind shows only in the first on-foot tick's draws, and only if that tick
+            # was drawn; and it fails N5 only if the vehicle camera is far from the on-foot
+            # view, which the next game time's draws show (they are not rewound to it)
+            later = next(p for p in foot if p["gt"] == gts[1])
+            gap = math.dist(last["view"][:3], later["view"][:3])
+            report.append(f"phase D: the last seated draw in game time {last['gt']}, the first on-foot draws in"
+                          f" {gts[0]} (+{gts[0] - last['gt']} ms); the vehicle camera is {gap:.1f} u from the on-foot"
+                          f" view of game time {gts[1]}")
+            if gts[0] != last["gt"] + TICK_MS:
+                sanity.append(f"phase D: the first on-foot game time drawn is {gts[0] - last['gt']} ms after the last"
+                              f" seated draw's (need one tick, {TICK_MS} ms): the first on-foot tick was never drawn")
+            if gap <= JUMP:
+                sanity.append(f"phase D: the vehicle camera is {gap:.1f} u from the on-foot view (need over {JUMP:.0f} u,"
+                              f" or N5 cannot see a rewind)")
 
     # sanity
     counts = {"server standard": len(std), "server smooth": len(smooth),
@@ -396,6 +493,8 @@ def evaluate(host_lines, peer_lines, slot):
             sanity.append(f"phase {name}: the vehicle moved {travel:.1f} u (need {MIN_TRAVEL:.0f})")
     if not any(r["ud"] == 1 for r in cli_aor):
         sanity.append("no client AoR call with ud=1 (unlockedDraw set by a render-only frame)")
+    report.append(render_report([r for _, r in srv_aor], "server"))
+    report.append(render_report(cli_aor, "client"))
     return results, sanity, report
 
 
@@ -475,6 +574,10 @@ def main(argv):
     args = ap.parse_args(argv)
     if args.replay:
         d = Path(args.replay)
+        missing = [str(d / name) for name in ("host.log", "peer.log") if not (d / name).is_file()]
+        if missing:
+            print(f"[replay] FAIL: missing {', '.join(missing)} (--replay takes the --log-dir of a run)")
+            return 1
         host_lines = (d / "host.log").read_text(errors="replace").splitlines()
         peer_lines = (d / "peer.log").read_text(errors="replace").splitlines()
         return finish(host_lines, peer_lines, slot_from_log(host_lines), [])
@@ -559,6 +662,10 @@ def main(argv):
         time.sleep(1.0)
         drive("A")
 
+        for bad in ("x", f"{slot}x"):  # refused, not read as 0 or as the slot (the lexer splits "1x")
+            mark = host.mark()
+            host.send(f"cycleVehicleCamera {bad}")
+            expect(host, r"usage: cycleVehicleCamera", f"the refusal of the client number '{bad}'", mark)
         mark = host.mark()
         host.send(f"cycleVehicleCamera {slot}")
         expect(host, rf"CYCLE_CAMERA: client {slot} ", "the camera cycle", mark)
