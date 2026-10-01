@@ -552,8 +552,8 @@ void idSessionLocal::UnloadMap() {
 }
 
 void idSessionLocal::RunGameTic() {
-	// Input devices are polled by the input worker, but command construction and
-	// all game callbacks stay on the main thread.
+	// Input is pumped on the main thread (Sys_GenerateEvents, idCommonLocal::Frame);
+	// the command and its game callbacks are built here, once per tick.
 	usercmd_t cmd = usercmdGen->GetDirectUsercmd();
 	mapSpawnData.mapSpawnUsercmd[ 0 ] = cmd;
 	++lastGameTic;

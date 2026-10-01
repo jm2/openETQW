@@ -78,7 +78,7 @@ idCVar com_gpuSpec( "com_gpuSpec", "3", CVAR_INTEGER | CVAR_ARCHIVE | CVAR_SYSTE
 idCVar com_purgeAll( "com_purgeAll", "0", CVAR_BOOL | CVAR_ARCHIVE | CVAR_SYSTEM, "purge all media between level loads" );
 idCVar com_memoryMarker( "com_memoryMarker", "-1", CVAR_INTEGER | CVAR_SYSTEM | CVAR_INIT, "memory statistics marker" );
 idCVar com_preciseTic( "com_preciseTic", "1", CVAR_BOOL | CVAR_SYSTEM, "run exact user command ticks" );
-idCVar com_asyncInput( "com_asyncInput", "1", CVAR_BOOL | CVAR_SYSTEM | CVAR_ROM, "input is sampled by the dedicated input thread" );
+idCVar com_asyncInput( "com_asyncInput", "1", CVAR_BOOL | CVAR_SYSTEM | CVAR_ROM, "no effect: input is pumped and sampled on the main thread" );
 idCVar com_asyncSound( "com_asyncSound", "1", CVAR_INTEGER | CVAR_SYSTEM | CVAR_ROM, "sound is serviced by the dedicated sound thread", 1, 1 );
 idCVar com_unlockFPS( "com_unlockFPS", "1", CVAR_BOOL | CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_PROFILE,
 	"allow renderer to go faster than game ticks" );
@@ -923,8 +923,9 @@ void idCommonLocal::InitSIMD() {
 
 void idCommonLocal::Async() {
 	// Retained as an ABI-compatible no-op.  The former common-services worker
-	// no longer exists; Frame owns simulation time and the platform owns the
-	// dedicated input and sound workers.
+	// no longer exists; Frame owns simulation time and pumps input on the main
+	// thread (Sys_GenerateEvents).  The only platform worker left is Windows'
+	// sound thread (sys_soundThread).
 }
 
 void Com_UpdateGameTime() {

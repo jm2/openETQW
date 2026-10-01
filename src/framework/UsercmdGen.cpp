@@ -647,8 +647,8 @@ void idUsercmdGenLocal::UsercmdInterrupt() {
 	sdScopedLock< true > inputLock( IN_GetPollLock() );
 #endif
 
-	// Retained for the public interface. Platform polling is performed by the
-	// input worker; usercmd state must only be assembled on the main thread.
+	// Retained for the public interface; nothing calls it. There is no input
+	// worker: the main thread pumps input (Sys_GenerateEvents) and assembles usercmds.
 	InitCurrent();
 	MakeCurrent( true );
 	buffered[ ( com_ticNumber + 1 ) & ( MAX_BUFFERED_USERCMD - 1 ) ] = cmd;
