@@ -3,7 +3,7 @@
 """Automated Client Lifecycle and Graphics Verification Test for OpenETQW.
 
 Validates:
-1. Quick startup, swapchain initialization, SDL3 audio initialization, and clean quit (+quit) with exit code 0.
+1. Quick startup, swapchain initialization, SDL3 audio initialization (on a host with an audio output; see audio_check), and clean quit (+quit) with exit code 0.
 2. Full Valley map loading, MegaTexture terrain streaming, world geometry rendering, continuous Vulkan frame presentation, and clean shutdown (SIGTERM on POSIX, stdin 'quit' on Windows) with exit code 0.
 """
 
@@ -31,6 +31,30 @@ def is_active_marker(line: str) -> bool:
     unpatched DVD scripts only) a script debug print."""
     return ("spawned at" in line and "spectating 0" in line) or any(
         m in line for m in ("parachute::Idle", "weaponRestored", "RespawnWaves_"))
+
+
+NO_AUDIO_DEVICE = "SDL3: failed to open audio stream: No default audio device available"
+
+
+def audio_check(output: str) -> str | None:
+    """The phase 1 audio check: None when it passes, else the failure.
+
+    A host with no audio output (no speakers or headset, or a sleeping display whose
+    HDMI audio has gone) has no default playback device. The engine warns and plays
+    on, and that is the machine, not the engine, so it is reported rather than failed.
+    This covers SDL's no-default-device error, as seen on Windows. A host whose audio
+    subsystem fails earlier (e.g. "failed to initialize audio subsystem" on Linux with
+    no output) and any other audio failure still fail, with SDL's message quoted."""
+    if "SDL3 Audio initialized" in output:
+        return None
+    if NO_AUDIO_DEVICE in output:
+        print("[NOTE] this host has no default audio output device: SDL3 audio was not opened "
+              "(reported, not failed)")
+        return None
+    sdl_errors = [line.strip() for line in output.splitlines() if "SDL3: failed" in line]
+    return "Missing SDL3 audio initialization message" + (
+        f" ({'; '.join(sdl_errors)})" if sdl_errors else "")
+
 
 CLIENT_BIN = h.build_binary("client")
 # archived cvars this test sets must not reach other runs (etqw_harness.private_savepath)
@@ -108,12 +132,15 @@ def test_quick_quit() -> None:
         raise RuntimeError(f"Client quick-quit exited with non-zero exit code: {ret}")
 
     # Assertions on output
-    assert "SDL3 Audio initialized" in full_output, "Missing SDL3 audio initialization message"
+    audio_failure = audio_check(full_output)
+    assert audio_failure is None, audio_failure
     assert "renderSystem initialized" in full_output, "Missing renderSystem initialization message"
     assert "game initialized" in full_output, "Missing game initialized message"
     assert "Vulkan frames presented:" in full_output, "Missing Vulkan presentation summary"
 
-    print(f"[PASSED] Phase 1: Client initialized and quit cleanly in {time.time() - start_time:.2f}s (exit code 0).\n")
+    audio_note = " (audio: no device on this host)" if "SDL3 Audio initialized" not in full_output else ""
+    print(f"[PASSED] Phase 1: Client initialized and quit cleanly in {time.time() - start_time:.2f}s "
+          f"(exit code 0){audio_note}.\n")
 
 
 def test_valley_render_lifecycle() -> None:
