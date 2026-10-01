@@ -23,9 +23,10 @@ client does. The host logs its frame timing (com_logFrameTiming), and a hold at
 cap 240 must run at least MIN_FRAMES_PER_TICK frames a tick, or it turned through
 no render-only frame. It also logs its draws (g_logFramePoses, a cheat, so the host
 sets net_allowCheats 1), and the unlocked ones during each hold (FRAME_POSE ud=1:
-ClientUpdateView ran on the draw's frame) are counted: 0 before step 7, which never
-builds a render-only usercmd on the host; reported, and asserted by step 7. The
-Vulkan client opens a window and runs from the repository root.
+ClientUpdateView ran on the draw's frame, with a usercmd built for it) are counted:
+since M5 step 7 a hold above cap 30 must have some (before it the host built no
+render-only usercmd, and there were none). The Vulkan client opens a window and runs
+from the repository root.
 
 Exit 77 when ETQW_DATA_PATH is unset/invalid or the binary is missing.
 """
@@ -182,12 +183,13 @@ def main(argv):
                 if fps > 30 and (per_tick is None or per_tick < MIN_FRAMES_PER_TICK):
                     failures.append(f"{label}: the host ran {per_tick or 0:.2f} frames a tick during the hold"
                                     f" (need >= {MIN_FRAMES_PER_TICK}): no render-only frames to turn through")
-                # whether those frames built a render-only usercmd (ClientUpdateView): none before
-                # M5 step 7, which asserts it; reported here
+                # whether those frames built a render-only usercmd (ClientUpdateView; M5 step 7)
                 unlocked, drawn = unlocked_draws(cl, begin, end)
                 print(f"[{label}] {unlocked} of {drawn} draws during the hold were unlocked (FRAME_POSE ud=1)")
                 if drawn == 0:
                     failures.append(f"{label}: no FRAME_POSE draw during the hold (g_logFramePoses refused?)")
+                elif fps > 30 and unlocked == 0:
+                    failures.append(f"{label}: no unlocked draw during the hold: the host built no render-only usercmd")
             if before is None or after is None:
                 failures.append(f"{label}: no yaw from playerPos")
                 continue

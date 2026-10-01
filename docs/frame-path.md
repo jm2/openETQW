@@ -44,20 +44,20 @@ interpFraction = ( USERCMD_MSEC - timeLeft ) / USERCMD_MSEC
 
 This is at `game repo: src/game/Game_local.cpp:6024` (`SDK: game/Game_local.cpp:4941`). The game aborts with a warning when `timeLeft == USERCMD_MSEC` (`game repo: src/game/Game_local.cpp:5977-5980`; `SDK: game/Game_local.cpp:4894-4897`).
 
-Two engine functions produce `timeLeft`, and both clamp the elapsed part to [1, 32] ms:
+Three engine functions produce `timeLeft` (the listen host's since M5 step 7), and all clamp the elapsed part to [1, 32] ms:
 
 | Mode | Function | Residual used |
 |---|---|---|
 | Single player | `Com_GetGameTimeLeft` (`src/framework/Common.cpp:939-955`) | `mainThreadTicResidual`, measured by `Com_UpdateGameTime` at frame start (`src/framework/Common.cpp:1040`) |
 | Network client | `idAsyncClient::GetGameTimeLeft` (`src/framework/async/AsyncClient.cpp:295-303`) | `gameTimeResidual + clientPredictTime`, the same sum the tick loop tests (`src/framework/async/AsyncClient.cpp:334`) |
-| Listen host | none | `idAsyncServer` keeps `gameTimeResidual` (`src/framework/async/AsyncServer.h:213`) and exposes it only as `GetDelay()` (`src/framework/async/AsyncServer.h:152`) |
+| Listen host | `idAsyncServer::GetGameTimeLeft` (`src/framework/async/AsyncServer.cpp:424-432`), since M5 step 7; before it none (the residual was exposed only as `GetDelay()`, `src/framework/async/AsyncServer.h:152`) | `gameTimeResidual`, the residual the server's tick loop tests (`src/framework/async/AsyncServer.cpp:466`) |
 
 Consequences:
 - `interpFraction` takes values from 1/33 to 32/33 in steps of 1/33. The integer-ms `timeLeft` keeps successive fractions distinct only while frames are at least 1 ms apart *(derived)*.
-- The residual is read at the start of the frame (`src/framework/Common.cpp:1040` in single player, `src/framework/async/AsyncClient.cpp:311` on a client), before the draw. A frame therefore shows the pose for the moment its frame began, not the moment it is presented *(inferred)*.
+- The residual is read at the start of the frame (`src/framework/Common.cpp:1040` in single player, `src/framework/async/AsyncClient.cpp:311` on a client, `src/framework/async/AsyncServer.cpp:439` on a listen host), before the draw. A frame therefore shows the pose for the moment its frame began, not the moment it is presented *(inferred)*.
 - On a client, every snapshot moves the prediction clock: `clientPredictTime -= delta / PREDICTION_FAST_ADJUST ± 1`, with `PREDICTION_FAST_ADJUST` = 4 (`src/framework/async/AsyncClient.cpp:19`, `src/framework/async/AsyncClient.cpp:648-649`). The out-of-range reset in §4.2 also moves both terms. Because `timeLeft` includes `clientPredictTime`, the fraction can jump slightly when a snapshot is processed *(inferred)*.
 - The client branch of `Com_GetGameTimeLeft` (`src/framework/Common.cpp:940-942`) is unreachable. Its only caller (`src/framework/Session.cpp:344`) runs only when no async session is active (`src/framework/Session.cpp:318`).
-- `Com_GetGameTimeLeft` must not be reused on a listen host. There the client is not active, so it would return the single-player accumulator, which advances every frame (`src/framework/Common.cpp:1040`) but has a different phase from the server's `gameTimeResidual`.
+- `Com_GetGameTimeLeft` must not be reused on a listen host. There the client is not active, so it would return the single-player accumulator, which advances every frame (`src/framework/Common.cpp:1040`) but has a different phase from the server's `gameTimeResidual`. The host uses `idAsyncServer::GetGameTimeLeft` (M5 step 7). The server's residual gets no prediction nudges, so the game's held fraction (`unlock.lastFraction`) never applies there *(inferred)*.
 
 ## 3. The host loop and `idCommonLocal::Frame`
 
@@ -152,7 +152,7 @@ Provenance: the `ClientUpdateView` call, `GetGameTimeLeft` and the client branch
 - `localClientNum` is `net_serverDedicated ? -1 : 0` (`src/framework/async/AsyncServer.cpp:226`). The client binary defaults `net_serverDedicated` to 0 (`src/framework/async/AsyncNetwork.cpp:43`).
 - An async session is active, so `Session::Frame` is skipped (`src/framework/Common.cpp:1063`).
 
-`idAsyncServer::RunFrame` (`src/framework/async/AsyncServer.cpp:421-473`):
+`idAsyncServer::RunFrame` (`src/framework/async/AsyncServer.cpp:434-502`; the steps' line numbers below are from before M5 step 7, which moved them by about 13 lines):
 
 1. `UpdateTime( 100 )` (`src/framework/async/AsyncServer.cpp:426`; body `src/framework/async/AsyncServer.cpp:1646-1658`).
 2. **Socket servicing.** `ProcessConnectionLessMessages` (`src/framework/async/AsyncServer.cpp:427`; body `src/framework/async/AsyncServer.cpp:475-485`) reads every packet on the server port and passes it to `ProcessMessage` (`src/framework/async/AsyncServer.cpp:1557-1594`):
@@ -174,19 +174,22 @@ Provenance: the `ClientUpdateView` call, `GetGameTimeLeft` and the client branch
    - `game->RunFrame( userCmds[gameFrame], USERCMD_MSEC )`;
    - `++gameFrame`.
 7. **Publication to remote clients** (`src/framework/async/AsyncServer.cpp:458-471`); see §4.5. The local client and bots are skipped (`src/framework/async/AsyncServer.cpp:460`).
-8. `MasterHeartbeat` (`src/framework/async/AsyncServer.cpp:472`).
+8. **Render-only frame (M5 step 7, 2026-10-01).** On a frame that ran no tick (`gameFrame == startFrame`), with `com_unlockFPS` on, the host builds a usercmd with `GetDirectUsercmd`, a local that is never stored, and passes it with `GetGameTimeLeft` to `game->ClientUpdateView` (`src/framework/async/AsyncServer.cpp:492-500`), as single player and the client do; `FRAME_TIMING` counts the call (`cuv=`, §7.6). It comes after publication, so this frame's snapshots are written before it presents; the frames after it, up to the next tick, write theirs inside the `unlockedDraw` window it opens, as on a client (`vehicle-view-net` checks the server's AoR calls there).
+9. `MasterHeartbeat` (`src/framework/async/AsyncServer.cpp:501`).
 
-Nothing on the host calls `ClientUpdateView`, and nothing builds a usercmd between ticks. `UpdateScreen` draws every frame (`src/framework/Common.cpp:1068`). The pacer takes the client branch, because `IsDedicated()` reads `net_serverDedicated` (`src/framework/async/NetworkSystem.cpp:304-306`).
+Before M5 step 7 nothing on the host called `ClientUpdateView`, and nothing built a usercmd between ticks. `UpdateScreen` draws every frame (`src/framework/Common.cpp:1068`). The pacer takes the client branch, because `IsDedicated()` reads `net_serverDedicated` (`src/framework/async/NetworkSystem.cpp:304-306`).
 
 Consequences, from the code:
-- **Every host frame is a base draw.**
-  - `idGameLocal::RunFrame` clears `unlock.unlockedDraw` (`game repo: src/game/Game_local.cpp:5258`) and nothing sets it.
-  - The base draw rewinds only the origin: the camera origin is drawn at `originlog[n-1]` while the axis stays at tick n (`game repo: src/game/PlayerView.cpp:880-889`). Both step at 30 Hz; the origin is one tick behind, the axis is not.
-- **The host camera turns at 30 Hz.** Mouse deltas wait in `mouseDx`/`mouseDy` until `MakeCurrent`/`MouseMove` runs (`src/framework/UsercmdGen.cpp:416-490`, `src/framework/UsercmdGen.cpp:548-601`). On the host the only caller is `LocalClientInput`, once per tick.
-  - Adding `ClientUpdateView` alone would not fix this. The host also needs a per-frame `GetDirectUsercmd`, as single player does (`src/framework/Session.cpp:343`).
+- **Before M5 step 7 every host frame was a base draw.**
+  - `idGameLocal::RunFrame` clears `unlock.unlockedDraw` (`game repo: src/game/Game_local.cpp:5258`) and nothing set it on the host. Since step 7 `ClientUpdateView` sets it on each frame that ran no tick, so those are unlocked draws, as in single player.
+  - The base draw rewinds only the origin: the camera origin is drawn at `originlog[n-1]` while the axis stays at tick n (`game repo: src/game/PlayerView.cpp:880-889`). Both stepped at 30 Hz on the host; the origin one tick behind, the axis not.
+- **Before M5 step 7 the host camera turned at 30 Hz.** Mouse deltas wait in `mouseDx`/`mouseDy` until `MakeCurrent`/`MouseMove` runs (`src/framework/UsercmdGen.cpp:416-490`, `src/framework/UsercmdGen.cpp:548-601`). On the host the only caller was `LocalClientInput`, once per tick.
+  - Adding `ClientUpdateView` alone would not have fixed this. Step 7 also builds a per-frame `GetDirectUsercmd`, as single player does (`src/framework/Session.cpp:343`).
+- **The render-only usercmd is never stored** (since step 7). The server simulates, and relays to remote clients (`WriteClientUserCmds`), only the commands `LocalClientInput` builds at ticks. Their angles carry all the input, since `viewangles` accumulates, so the total turned per tick is unchanged; §5's per-call edge cases and side effects apply to the host as they do to single player and the client (E4, settled without escalation on 2026-10-01: accepted for parity).
+- **The host's tick view is put back at each tick's entry** (game, since step 7; owner decision E3): §6.9.
 - **The SDK expected unlocked frames on the authoritative side.** SDK `idGameLocal::RunFrame` sets `canUnlockFrames` from the local player and clears `unlockedDraw` (`SDK: game/Game_local.cpp:4222-4231`; unchanged at `game repo: src/game/Game_local.cpp:5250-5259`).
 
-Provenance: jmarshall's `AsyncServer::RunFrame` is already non-blocking, has `LocalClientInput`, and has no `ClientUpdateView`.
+Provenance: jmarshall's `AsyncServer::RunFrame` is already non-blocking, has `LocalClientInput`, and has no `ClientUpdateView`; OE added the render-only frame in M5 step 7.
 
 ### 4.4 Dedicated server, and a headless client in the dedicated binary
 
@@ -227,10 +230,10 @@ Timing *(derived from the code, not measured)*:
 | Tick driver | `Session::Frame` | `idAsyncClient::RunFrame` | `idAsyncServer::RunFrame` | `idAsyncServer::RunFrame` |
 | Tick clock | `mainThreadTicResidual` | `gameTimeResidual + clientPredictTime` | `gameTimeResidual` | `gameTimeResidual` |
 | Socket servicing | none | before the ticks | before the ticks | before the ticks |
-| Usercmd built | every tick and every render-only frame | every tick and every render-only frame (every frame before the first snapshot) | every tick only | never |
+| Usercmd built | every tick and every render-only frame | every tick and every render-only frame (every frame before the first snapshot) | every tick and, since M5 step 7, every render-only frame | never |
 | State published | none | none | after the ticks (§4.5) | after the ticks (§4.5) |
-| `ClientUpdateView` | frames with no tick | frames with no tick | never | never |
-| Frames that ran a tick | base draw | base draw | base draw (so is every other frame) | no draw |
+| `ClientUpdateView` | frames with no tick | frames with no tick | frames with no tick, since M5 step 7 (never before) | never |
+| Frames that ran a tick | base draw | base draw | base draw (before M5 step 7, so was every other frame) | no draw |
 | Pacer wait | sleep, then spin | sleep, then spin | sleep, then spin | sleep only |
 | `GuiFrameEvents` per frame | yes (`src/framework/Session.cpp:310`) | yes, since 2026-09-25 (`src/framework/Common.cpp:1073`) | yes, since 2026-09-25 (`src/framework/Common.cpp:1073`) | no |
 
@@ -249,12 +252,13 @@ Timing *(derived from the code, not measured)*:
 - **Callers.**
   - Single player: each tick (`src/framework/Session.cpp:555`) and each render-only frame (`src/framework/Session.cpp:343`).
   - Client: each tick (`src/framework/async/AsyncClient.cpp:504`), each render-only frame (`src/framework/async/AsyncClient.cpp:352`), and every frame in `CS_CONNECTED` (`src/framework/async/AsyncClient.cpp:357`).
-  - Listen host: each tick only (`src/framework/async/AsyncServer.cpp:826`).
+  - Listen host: each tick (`src/framework/async/AsyncServer.cpp:855`) and, since M5 step 7, each render-only frame (`src/framework/async/AsyncServer.cpp:497`); before step 7, each tick only.
 - **Render-only samples are not side-effect-free.** The command itself is discarded, including mouse-strafe motion written into `cmd.rightmove`/`cmd.forwardmove` (`src/framework/UsercmdGen.cpp:477`, `src/framework/UsercmdGen.cpp:481`). What persists:
   - `viewangles`, so the angle change reaches the next tick's command;
   - the consumed `mouseDx`/`mouseDy` (`src/framework/UsercmdGen.cpp:451-452`) and the advanced `m_smooth` history (`src/framework/UsercmdGen.cpp:417-442`);
   - `TurnTimeScale`'s `lastTurnUsec` (`src/framework/UsercmdGen.cpp:370`);
-  - a scheduled impulse, which is folded into the persistent `flags` and `impulse` (`src/framework/UsercmdGen.cpp:536-543`, `src/framework/UsercmdGen.cpp:577-579`), so the next tick's command still carries it *(inferred)*;
+  - a scheduled impulse: `InitCurrent` toggles `UCF_IMPULSE_SEQUENCE` and puts the impulse in the command, and `MakeCurrent` folds both into the persistent `flags` and `impulse` (`src/framework/UsercmdGen.cpp:536-543`, `src/framework/UsercmdGen.cpp:577-579`). The game performs the local player's impulse when a tick's command carries a sequence bit other than the previous tick's (`game repo: src/game/Player.cpp:5990-5993`). One impulse sampled on a render-only frame therefore reaches the next tick's command, but two impulses sampled on two render-only frames of one tick toggle the bit twice, the tick sees no change, and both are lost: for example two mouse-wheel `UCI_WEAPNEXT` notches within 33 ms at cap 240. Two impulses within one sample keep only the last (`scheduledImpulse` is one slot), as at a tick. This is pre-existing in single player and on a network client, and reaches the listen host with M5 step 7. Known issue, for a follow-up: render-only samples should not consume impulses;
+  - the `toggledRun`/`toggledSprint` key states, updated on every sample (`src/framework/UsercmdGen.cpp:551-552`): their press-edge detection runs per sample, so whether a short press toggles depends on the frame rate;
   - in the game, `idPlayer::UsercommandCallback` (`game repo: src/game/Player.cpp:2130-2186`):
     - updates `clientButtons` and `clientOldButtons` (`game repo: src/game/Player.cpp:2135-2139`);
     - enables or disables VOIP (`game repo: src/game/Player.cpp:2141-2151`);
@@ -263,7 +267,7 @@ Timing *(derived from the code, not measured)*:
 - **Other frame-rate dependence.**
   - The `m_smooth` history advances on every call, so its smoothing window is counted in samples, not time (`src/framework/UsercmdGen.cpp:417-442`).
   - `TurnTimeScale` makes key and controller turning a rate per second. This was an OE change of 2026-09-24; the comment at `src/framework/UsercmdGen.cpp:345-356` explains it.
-- **Stale comments.** Four places still describe input or common-services workers that no meson build has:
+- **Stale comments**, fixed in M5 step 7. Four places described input or common-services workers that no meson build has:
   - the `com_asyncInput` help text, "input is sampled by the dedicated input thread" (ROM; `src/framework/Common.cpp:76`);
   - the comment in `idCommonLocal::Async`, "the platform owns the dedicated input and sound workers" (`src/framework/Common.cpp:896-898`);
   - `src/framework/Session.cpp:553-554`;
@@ -271,7 +275,7 @@ Timing *(derived from the code, not measured)*:
 - **Aim shown on a render-only frame.** `ClientUpdateView` shows `refAngles + ( cmd.angles - p->usercmd.angles )`, where `cmd` is the newest direct usercmd (`game repo: src/game/Game_local.cpp:6050-6072`). The delta is passed through `p->MouseMove` and clamped to `unlock.minAngles`/`maxAngles`. The SDK comment there says "This doesn't take all clamps/rate limits into account" (`game repo: src/game/Game_local.cpp:6052`).
 - **Aim fired.** The next tick uses the usercmd built at that tick. Because `viewangles` accumulates, its angles include every mouse delta consumed by render-only samples plus any input that arrived after the last draw. The fired aim is therefore the last shown aim plus newer input, subject to the clamps the SDK comment calls incomplete *(inferred)*.
 - **Aim shown on a base draw.** The view axis is at tick n while the origin is at n-1 (`game repo: src/game/PlayerView.cpp:886-889`).
-- **Scripts.** During a tick, scripts may read the view that the last render frame wrote (§6.9).
+- **Scripts.** During a tick, scripts may read the view that the last render frame wrote (§6.9). Since M5 step 7 an authoritative game (the listen host and single player) puts the tick's view back at each tick's entry, and render-only frames write no player's view but that one (the draw-time viewer guard, §6.5 step 5), so only a network client's predicted ticks still can.
 
 ## 6. The frame-unlock system in the game module
 
@@ -329,7 +333,7 @@ Vehicle views come from `sdVehicleView` subclasses, whose clamps live in `proxy-
 
 ### 6.4 Base draw (`game repo: src/game/PlayerView.cpp:880-936`)
 
-A base draw is a draw with `unlockedDraw` false: every frame that ran a tick, and every listen-host frame. The rewind runs when `com_unlockFPS && !unlockedDraw && canUnlockFrames && g_unlock_updateViewpos && g_unlock_viewStyle == 1` (`game repo: src/game/PlayerView.cpp:886-888`). The logic is SDK; jmarshall added the `com_unlockFPS != NULL` check.
+A base draw is a draw with `unlockedDraw` false: every frame that ran a tick (and, before M5 step 7, every listen-host frame). The rewind runs when `com_unlockFPS && !unlockedDraw && canUnlockFrames && g_unlock_updateViewpos && g_unlock_viewStyle == 1` (`game repo: src/game/PlayerView.cpp:886-888`). The logic is SDK; jmarshall added the `com_unlockFPS != NULL` check.
 - `currentView.vieworg = originlog[n-1]` (`game repo: src/game/PlayerView.cpp:889`). Only the origin moves back. The axis stays at tick n.
 - **Weapon (jmarshall rewrite).**
   - With a valid previous log slot, the weapon is placed at `vieworg(n-1) + weaponOffsetLog[n-1] · viewaxis`. Otherwise it falls back to subtracting the origin delta.
@@ -350,7 +354,7 @@ A base draw is a draw with `unlockedDraw` false: every frame that ran a tick, an
    - the weapon's render pose, which the base draw has already moved to n-1 (comment at `game repo: src/game/Game_local.cpp:5998`);
    - the pose of the one GUI bound to the weapon.
 4. Computes `interpFraction`. OE stores it in `unlock.interpFraction` (`game repo: src/game/Game_local.cpp:6024-6025`); since M5 step 6 only the test logs read it (`FRAME_POSE`, and `AOR_VIEW` from the `g_logVehicleViews` probe).
-5. **Draw-time proxy guard (OE, M5 step 6; ledger 056).** The on-foot blocks, the cycle capture (step 3) and steps 6–9, run only when the viewer has no proxy now (`p->GetProxyEntity() == NULL`). `canUnlockFrames` is latched at the start of each tick, so on the render-only frames of the tick in which the player gains a proxy (an entry inside the tick: the use key, a script, the replay's `CMD_EXEC_NOW`) the step 2 gate still passes; after that §6.3 condition 5 blocks it. Those frames now hold the tick's vehicle view, as every frame does at cap 30; retail drew the on-foot interpolation there. Until step 6 an OE proxy branch ran there instead (79a0ea3): `sdTransport::ClientUpdateInterpolation`, the view recalculation and the cockpit (§6.8); it is deleted. Step 10 stays outside the guard.
+5. **Draw-time proxy guard (OE, M5 step 6; ledger 056).** The on-foot blocks, the cycle capture (step 3) and steps 6–9, run only when the viewer has no proxy now (`p->GetProxyEntity() == NULL`). `canUnlockFrames` is latched at the start of each tick, so on the render-only frames of the tick in which the player gains a proxy (an entry inside the tick: the use key, a script, the replay's `CMD_EXEC_NOW`) the step 2 gate still passes; after that §6.3 condition 5 blocks it. Those frames now hold the tick's vehicle view, as every frame does at cap 30; retail drew the on-foot interpolation there. Since M5 step 7 (ledger 058) the same blocks also need the viewer to be the one `canUnlockFrames` was latched for (`unlock.latchedViewer`, latched next to it in `RunFrame` and `ClientPrediction`) and the one whose pose the last tick logged (`unlock.originlogViewer`): a change of viewer between ticks (the console's `spectate client`/`spectate next` on a listen host, through `idPlayer::SetSpectateClient`) otherwise had them write the new viewer's `renderView` from the old viewer's reference angles and `originlog`. `frame-poses-listen` checks it: it switches the host from free-fly to following the peer between ticks, and the peer's render-only draws in that tick must show the peer's own tick view (without the guard they showed the spectator's camera, 460 u away). Until step 6 an OE proxy branch ran there instead (79a0ea3): `sdTransport::ClientUpdateInterpolation`, the view recalculation and the cockpit (§6.8); it is deleted. Step 10 stays outside the guard.
 6. **Angles (SDK).** When `g_unlock_updateAngles` is set and the game is not paused (`game repo: src/game/Game_local.cpp:6050-6072`): extrapolates with the newest input, clamps, and writes `p->renderView.viewaxis` (`game repo: src/game/Game_local.cpp:6070`).
 7. **Origin (SDK).** When `g_unlock_updateViewpos` is set (`game repo: src/game/Game_local.cpp:6075-6097`):
    - `viewStyle` 0 extrapolates from tick n (`game repo: src/game/Game_local.cpp:6083`);
@@ -478,6 +482,7 @@ These paths let a render frame change what the next tick, a snapshot or AoR code
     - Until M5 step 6 the exception was the render-only frames of the tick in which the player entered, because `canUnlockFrames` is latched at the start of each tick (`game repo: src/game/Game_local.cpp:5251-5256`) *(inferred)*. Since step 6 those frames skip the on-foot blocks (§6.5 step 5, ledger 056), so these scripts read the tick view there too, and a mounted gun fired in the tick after mounting aims from it.
     - They become relevant if the proxy gate is lifted for such a seat.
   - On-foot scripts read these events too, for example `pak008: script/weapons/lightningpistol.script:298`, `pak008: script/player/player_context.script:855` and `pak008: script/items/landmine.script:157`. Whether any of them runs before `CalculateView` in a tick was not checked. Weapon updates run after it (`game repo: src/game/Player.cpp:6842`).
+  - **On authoritative games, closed since M5 step 7 (owner decision E3, 2026-10-01; ledger 058).** Step 7 has the listen host call `ClientUpdateView`, so this channel would have reached server-side tick code there, as it already did in single player. Instead, where `RunFrame` logs the tick's pose the game saves the view player's `renderView` origin and axis with its identity (`SaveTickView`, `game repo: src/game/Game_local.cpp:5432`). At the next tick's entry, after the latches (`canUnlockFrames`, the seat and the viewer) and before anything that reads the view, it puts them back on the player they were saved for (`RestoreTickView`, `game repo: src/game/Game_local.cpp:5195`, `game repo: src/game/vehicles/SeatGate.cpp:1024-1032`), when a render-only frame was prepared since the last tick (`unlockedDraw`, read before `RunFrame` clears it), so no other writer is ever undone. Render-only frames write no other player's view: the draw-time viewer guard (§6.5 step 5) limits them to the viewer the last tick logged, which is that player. Nothing is put back when that player is gone, or its proxy, position, view mode or remote camera changed since the save: `SetProxyEntity` and `SetRemoteCamera` run `CalculateView` when they change, between ticks too (`game repo: src/game/Player.cpp:11302`, `game repo: src/game/Player.cpp:9931`), so its view is then newer tick state. A map's shutdown drops the saved view (`MapClear` with the clients, `game repo: src/game/Game_local.cpp:4114`), since the next map can repeat its spawn id; a restart in place keeps it, as it keeps the players. Network clients do not run `RunFrame` and are unchanged. A presentation side effect: the next `CalculateRenderView` copies the tick view, not the last render frame's, into `lastViewOrg`/`lastViewAxis` (`game repo: src/game/Player.cpp:8914-8919`; the renderer's view-movement parameter and occlusion-query velocity), as with `com_unlockFPS 0`. With `g_simHash` the game prints `TICK_VIEW` each tick, as entity Think starts: `entry=` (1 when the saved player's view at the tick's entry was not the saved one: a render-only frame's view reached the tick) and `think=` (1 when Think starts on a view other than the tick's); the replays require no `think=1`.
 - **If the producer returns on an authoritative host** *(inferred)*.
   - It would rewrite `renderEntity.origin` and `lastPushedOrigin` of server entities during the tick.
   - Server code reads `renderEntity.origin`: bot vehicle steering (`game repo: src/game/botai/Bot.cpp:1825` and others) and `idPlayer::CheckTargetCanLock` (`game repo: src/game/Player.cpp:2802`). The latter runs on the server through `UpdateTargetLock` (`game repo: src/game/Player.cpp:2852`, called at `game repo: src/game/Player.cpp:6807-6810`).
@@ -487,14 +492,15 @@ These paths let a render frame change what the next tick, a snapshot or AoR code
 
 | Site | SDK → jmarshall | jmarshall → OE |
 |---|---|---|
-| `ClientUpdateView` | weapon and GUI block rewritten | stores `interpFraction`; the draw-time proxy guard (M5 step 6); the proxy branch of 79a0ea3 removed in step 6 |
+| `ClientUpdateView` | weapon and GUI block rewritten | stores `interpFraction`; the draw-time proxy guard (M5 step 6) and viewer guard (M5 step 7); the proxy branch of 79a0ea3 removed in step 6 |
 | Pose log in `RunFrame` and `ClientPrediction` | weapon view-space log added | unrelated guards and determinism additions; the seat-change `originlog` reset (M5 step 6) |
 | `unlock` struct | three weapon log fields | `interpFraction`; the seat latch (step 13) and the `originlog` seat identity (step 6) |
 | `PlayerView::RenderPlayerView` base draw | NULL check; weapon and GUI rewrite | none in the unlock path |
 | `IsFPSUnlock` | none | deploy-menu NULL check |
 | `Entity::Present` producer | `#if 0` / `#endif` added | none |
 | `sdTransport`, `VehicleView`, `TransportExtras` | none | the vehicle sub-tick code (§6.8), removed in M5 step 6; seat hardening, `GetLastReturnedAxis` (`SIM_VIEW`) and `GetView` (step 13) remain |
-| Engine `ClientUpdateView` callers | single player only (`src/framework/Session.cpp:342-345`) | client (8191cae); none on the listen host |
+| Engine `ClientUpdateView` callers | single player only (`src/framework/Session.cpp:342-345`) | client (8191cae); the listen host (M5 step 7) |
+| The tick view put back at tick entry (`SaveTickView`, `RestoreTickView`, `TICK_VIEW`) | none | added in M5 step 7 (owner decision E3; ledger 058) |
 
 ## 7. Pacing, the unlock CVars and render submission
 
@@ -514,7 +520,7 @@ These paths let a render frame change what the next tick, a snapshot or AoR code
 
 | CVar | Default and flags | Engine reads | Game reads | Retail meaning (evidence) |
 |---|---|---|---|---|
-| `com_unlockFPS` | 1; BOOL, ARCHIVE, PROFILE | `idCommonLocal::Frame` (the draw and the idle wait), `idSessionLocal::Frame` and `idAsyncClient::RunFrame` (the render-only `ClientUpdateView`), since M5 step 11; none before | found at `game repo: src/game/Game_local.cpp:2481`; read at `game repo: src/game/PlayerView.cpp:886` and at `game repo: src/game/Entity.cpp:1737` (compiled out) | Help text: "allow renderer to go faster than game ticks". `pak000: loffy.cfg:134`: "Set to "0" for fixed fps, i.e. 30 fps"; `pak000: visuals.cfg:26` sets 1 |
+| `com_unlockFPS` | 1; BOOL, ARCHIVE, PROFILE | `idCommonLocal::Frame` (the draw and the idle wait), `idSessionLocal::Frame` and `idAsyncClient::RunFrame` (the render-only `ClientUpdateView`), since M5 step 11, and `idAsyncServer::RunFrame` (the listen host's, since step 7); none before | found at `game repo: src/game/Game_local.cpp:2481`; read at `game repo: src/game/PlayerView.cpp:886` and at `game repo: src/game/Entity.cpp:1737` (compiled out) | Help text: "allow renderer to go faster than game ticks". `pak000: loffy.cfg:134`: "Set to "0" for fixed fps, i.e. 30 fps"; `pak000: visuals.cfg:26` sets 1 |
 | `com_unlock_avgFrames` | removed 2026-09-30 (M5 step 12, D9); was 4, range 1-10, NOCHEAT | **none** | none | Help text: "average out render times over n frames for extra renders management" |
 | `com_unlock_safetyMargin` | removed 2026-09-30 (M5 step 12, D9); was 0.1, NOCHEAT | **none** | none | Help text: "percentage safety margin under which not to trigger an extra render" |
 | `com_unlock_timingMethod` | removed 2026-09-30 (M5 step 12, D9); was 2, NOCHEAT | **none** | none | Help text: 0 = whenever they fit; 1 = on boundaries of framerate multiples of 30; 2 = like 1, estimating from total previous time. `pak000: berzerkr.cfg:10-19`: 0 max FPS, 1 smoother, 2 smoothest and lowest FPS. `pak000: visuals.cfg:28` sets 1 |
@@ -528,7 +534,7 @@ These paths let a render frame change what the next tick, a snapshot or AoR code
 
 ### 7.3 `com_unlockFPS 0`
 
-Since M5 step 11 (2026-09-30), `com_unlockFPS 0` draws once per tick: an in-game frame that ran no tick is neither prepared nor drawn (`idCommonLocal::Frame`, `com_frameInGame`), and waits for the next tick instead of being paced. In-game menus, the console, limbo and pause draw at the tick rate too, since the game keeps ticking; only the main menu before a map, loading and connecting draw every frame. The game's base-draw rewind (`game repo: src/game/PlayerView.cpp:958-981`) is also off at `com_unlockFPS 0`. The bullets below describe the engine before that change.
+Since M5 step 11 (2026-09-30), `com_unlockFPS 0` draws once per tick: an in-game frame that ran no tick is neither prepared nor drawn (`idCommonLocal::Frame`, `com_frameInGame`; the listen host's preparation, added in M5 step 7, has the same gate, and `FRAME_TIMING` `cuv=` counts the preparations: 0 with `com_unlockFPS 0`), and waits for the next tick instead of being paced. In-game menus, the console, limbo and pause draw at the tick rate too, since the game keeps ticking; only the main menu before a map, loading and connecting draw every frame. The game's base-draw rewind (`game repo: src/game/PlayerView.cpp:958-981`) is also off at `com_unlockFPS 0`. The bullets below describe the engine before that change.
 
 - The engine never reads the CVar. It still calls `ClientUpdateView` on render-only frames (`src/framework/Session.cpp:342-345`; `src/framework/async/AsyncClient.cpp:351-355`).
 - The game's `ClientUpdateView` does not check the CVar either (`game repo: src/game/Game_local.cpp:5957-5965`; `SDK: game/Game_local.cpp:4874-4881`). The base-draw rewind does check it (`game repo: src/game/PlayerView.cpp:886`).
@@ -587,9 +593,10 @@ Since M5 step 11 (2026-09-30), `com_unlockFPS 0` draws once per tick: an in-game
 
 ### 7.6 Measuring the frame rate: `com_logFrameTiming`
 
-- `com_frameTicks` counts the game ticks run in the current host frame. `idCommonLocal::Frame` resets it (`src/framework/Common.cpp:1078`); single player (`src/framework/Session.cpp:336`), the network client (`src/framework/async/AsyncClient.cpp:340`) and the server (`src/framework/async/AsyncServer.cpp:459`) add to it.
-- With `com_logFrameTiming 1`, every host frame adds its interval (end of the previous frame's pacing to the end of its own) and its work time (start of the frame to the pacer), and once a second the engine prints one `FRAME_TIMING` line (since M5 step 11 ending in `draws=`: the frames that called `UpdateScreen`, which is fewer than the frames with `com_unlockFPS 0`, and counts a dedicated server's or a minimized window's frames alike): the window length, frames, ticks, the cap, and the p50/p95/p99/max of the intervals and the p50/p95/max of the work times (`src/framework/Common.cpp:986-1069`, called at `src/framework/Common.cpp:1185`).
+- `com_frameTicks` counts the game ticks run in the current host frame. `idCommonLocal::Frame` resets it (`src/framework/Common.cpp:1085`); single player (`src/framework/Session.cpp:336`), the network client (`src/framework/async/AsyncClient.cpp:340`) and the server (`src/framework/async/AsyncServer.cpp:473`) add to it.
+- With `com_logFrameTiming 1`, every host frame adds its interval (end of the previous frame's pacing to the end of its own) and its work time (start of the frame to the pacer), and once a second the engine prints one `FRAME_TIMING` line (since M5 step 11 ending in `draws=`: the frames that called `UpdateScreen`, which is fewer than the frames with `com_unlockFPS 0`, and counts a dedicated server's or a minimized window's frames alike): the window length, frames, ticks, the cap, and the p50/p95/p99/max of the intervals and the p50/p95/max of the work times (`src/framework/Common.cpp:988-1076`, called at `src/framework/Common.cpp:1193`).
 - Since M5 step 4 the line ends with `vk_frames=` (the frames that reached the Vulkan present in the window, 0 without the Vulkan backend) and `fence_ms=`, `acquire_ms=`, `submit_ms=` and `present_ms=`: the average time each of those frames spent in the frame fence wait, the swapchain image acquire, the queue submit and the present (`src/renderer/FrameSyncTiming.h`). Work time includes them, so they tell a frame waiting for the display or the GPU from a frame doing CPU work.
+- Since M5 step 7 the line ends with `cuv=`: the `game->ClientUpdateView` calls in the window, that is the render-only frames prepared for drawing, in single player, on a client and on a listen host (`com_frameUpdateViews`, reset with `com_frameTicks`). It is 0 with `com_unlockFPS 0`, where such a frame is neither prepared nor drawn, so no draw could show it.
 - A window with about 30 ticks is play; fewer ticks means loading or menus. `high-refresh-determinism` takes the frame rate from the median frame interval over the play windows, so one hitch does not decide it, and reports the average and the longest frame as well.
 
 ## 8. Doom 3, and what retail ETQW added
@@ -620,7 +627,7 @@ M5 is done when:
 Remaining stepped paths must be listed rather than claimed as interpolated, and presentation work never changes `USERCMD_HZ` (30).
 
 **Criterion 1: replay determinism**
-- The replay runs offline in single player (`tests/test_high_refresh_determinism.py`, meson `high-refresh-determinism`) and, since 2026-10-01, on a listen host (`--listen`, meson `high-refresh-determinism-listen`: the Vulkan client with `+spawnServer`, the same schedules and checks). On `main` the host never calls `ClientUpdateView` (§2), so the listen replay has no render-only frame that presents.
+- The replay runs offline in single player (`tests/test_high_refresh_determinism.py`, meson `high-refresh-determinism`) and, since 2026-10-01, on a listen host (`--listen`, meson `high-refresh-determinism-listen`: the Vulkan client with `+spawnServer`, the same schedules and checks). Before M5 step 7 the host never called `ClientUpdateView` (§4.3), so the listen replay had no render-only frame that presented. Since step 7 it requires the host's render-only draws on the on-foot ticks to be unlocked draws, and both replays require that tick code never starts on a render frame's view (`TICK_VIEW`, §6.9): on `antec` (2026-10-01) a render-only frame's view reached the entry of 104–108 of the 150 ticks above cap 30 on the listen host and 102–106 in single player, every one was put back before Think, and `SIM_HASH`, `SIM_VIEW` and `VEH_TRACE` were the same with and without the put-back.
 - `SIM_HASH` leaves out view angles, other players and projectiles (`game repo: src/game/Game_local.cpp:11662-11676`). Since PR #14 the replay also compares `SIM_VIEW` (view angles, the logged view origin and weapon pose, the vehicle's pose and its view's last returned axis) at full precision; other players and projectiles are still not compared.
 - The replay still samples input through the engine: `RunGameTic` builds each tick's usercmd with `GetDirectUsercmd` (`src/framework/Session.cpp:555-560`), and render-only frames sample too (`src/framework/Session.cpp:343`). The injection block (`game repo: src/game/Game_local.cpp:5341-5374`) only overwrites `forwardmove`, `rightmove`, `upmove` and attack on chosen ticks. Angles and every other field come from engine sampling, and they stay constant only because nothing moves the mouse.
 - Presentation reaches tick state through the paths in §6.9. Since 2026-09-25 the replay also prints and compares `SIM_VIEW` each tick (the view angles after `UpdateViewAngles`, the tick's logged view origin and weapon offset and orientation, the vehicle's last pushed pose and the axis its view last returned, `lastReturnedAxis`; `game repo: src/game/Game_local.cpp`, `EmitSimView`, printed where `RunFrame` logs the pose). **One leak was found, and M5 step 6 removed it.** In some runs the logged view-space weapon pose (`wlog`) differed between one schedule and the 60 Hz one, from the tick after the replay enters the vehicle (92) to the end of the replay (at full precision on 55–56 of the 59 ticks 92–150 in 7 of 10 runs on the DVD and 1.5 data; 40–59 with the titan). Traced in step 6: `canUnlockFrames` is latched at the start of a tick, so the render-only frames of the entering tick ran `ClientUpdateView`'s OE proxy branch → `sdTransport::ClientUpdateInterpolation` → `PresentPlayers` → `PresentWeapon` → `CalculateViewWeaponPos`, which stepped `weaponAngVel` once at cap 60 and twice at 120, and the vehicle ticks logged the result. Step 6 deleted the branch and runs `ClientUpdateView`'s on-foot blocks only without a proxy at draw time (§6.5 step 5); since then `SIM_VIEW` is identical to cap 30's on every tick at every cap, and `high-refresh-determinism` asserts it (it allowed the divergence as `KNOWN_VIEW_LEAK` until then). The §6.9 AoR paths run between ticks, on servers and network clients, where no replay reaches; `vehicle-view-net` (a listen host and a network client in a vehicle) asserts them since step 6.
@@ -642,16 +649,15 @@ Remaining stepped paths must be listed rather than claimed as interpolated, and 
 **Criterion 3: captured frame data**
 - Measured 2026-09-25 with `g_logFramePoses` (game repo: `src/game/PlayerView.cpp`, one `FRAME_POSE` line per main-view draw) and `tests/test_frame_poses.py` (meson `frame-poses-join`, `frame-poses-listen`), on foot, at caps 60/120/240:
   - network client (join): the camera turns and moves on every draw (A4, A5: 99.8–100% of draw pairs) and every draw between ticks is unlocked (A8). The fraction rises within a tick. Until 2026-09-25 it stepped back on about 1 draw in 500–700: right after a snapshot arrives the client corrects its prediction clock (§4.2), and the presented time moved back by a millisecond or two (for example 0.24 → 0.18 of a tick). The game now holds the fraction at the tick's last presented value instead (`unlock.lastFraction`), so such a draw repeats the pose rather than moving back. Remote players change only once per tick (A7: 50.5% of draw pairs at 60 fps, 25.2% at 120 and 240), as predicted from §6.6. **Not predicted, and fixed the same day:** the viewmodel's drawn pose repeated on about a fifth of draw pairs while walking (A6: 79–82%). When a snapshot arrives on a draw between ticks, the client re-runs prediction with `isNewFrame` false, so the weapon's `Present()` in `ClientUpdateView` returned early (`game repo: src/game/Entity.cpp:1727-1729`) and the viewmodel stayed where it was until the next tick. `ClientUpdateView` now presents through `idGameLocal::PresentUnlocked`, which sets `isNewFrame` for that call only (the weapon and the `interpolateEntities` consumer); the viewmodel then changes on 100% of draw pairs at caps 60/120/240.
-  - listen host: camera, viewmodel and remote players all change only once per tick (the changed fraction equals the fraction of draw pairs that cross a tick: 50–51% at 60, 25–28% at 120 and 240), and no draw between ticks is unlocked (A8), as predicted from §4.3.
-  - with `g_unlock_updateAngles`, `g_unlock_updateViewpos` and `g_unlock_interpolateMoving` off, the network client's camera also changes on only 51% of draw pairs at 60 fps: the checks can fail.
+  - listen host, until M5 step 7: camera, viewmodel and remote players all changed only once per tick (the changed fraction equals the fraction of draw pairs that cross a tick: 50–51% at 60, 25–28% at 120 and 240), and no draw between ticks was unlocked (A8), as predicted from §4.3. Since step 7 (2026-10-01, `antec`, 4 runs) the host's camera and viewmodel change on every draw (A4–A6: 100% of draw pairs at caps 60, 120 and 240) and every draw between ticks is unlocked with its fraction on the wall clock (A8: 0 misses); remote players still change once per tick (A7, the producer, §6.6).
+  - with `g_unlock_updateAngles`, `g_unlock_updateViewpos` and `g_unlock_interpolateMoving` off, the network client's camera also changes on only 51% of draw pairs at 60 fps, and since step 7 the listen host's on 50%: the checks can fail.
   - Vehicle seats are not captured yet. Retail 1.5 has no per-frame seat view (M5 plan D2); the one-seat capture will use the seat view of plan step 13 (D10, on by default).
 - Vehicle seats are blocked by the proxy gate (§6.3). The OE vehicle branch (§6.8) was removed in M5 step 6; a seat view is step 14.
 - Interpolation is origin-only. The axis and skeletal animation step at 30 Hz (§6.6).
 
 **Criterion 4: listen host**
-- No `ClientUpdateView` and no input sampling between ticks (§4.3).
-- No time-left function uses the server residual (§2).
-- The host publishes post-tick state (§4.5). Wiring the unlock path up naively would make the §6.9 paths authoritative on the host, and some of them feed `ServerWriteSnapshot`.
+- Until M5 step 7, no `ClientUpdateView` and no input sampling between ticks (§4.3), and no time-left function used the server residual (§2). Step 7 (2026-10-01) added both, after publication (§4.3 step 8), with `idAsyncServer::GetGameTimeLeft`.
+- The host publishes post-tick state (§4.5). Wiring the unlock path up naively would have made the §6.9 paths authoritative on the host, and some of them feed `ServerWriteSnapshot`. Step 6 removed OpenETQW's (the server's AoR path no longer reads `unlockedDraw` or `interpFraction`), and since step 7 the SDK `renderView` write is put back at each tick's entry (owner decision E3). `vehicle-view-net` checks that the server's AoR calls inside the host's `unlockedDraw` window (57 of 274 on `antec`) still return the tick's view.
 
 **Criterion 5: cap change**
 - Untested by any registered test (§7.4) until M5 step 17.
@@ -662,7 +668,7 @@ Remaining stepped paths must be listed rather than claimed as interpolated, and 
 - Caps above 120 cannot be reached on the development Mac in a window: presentation waits for its 120 Hz display (measured, §7.5). Every replay schedule also has one ~410–540 ms stall right after spawn: first-use material and render-program loading (§7.5).
 - Three CVars were read nowhere: `com_unlock_avgFrames`, `com_unlock_safetyMargin` and `com_unlock_timingMethod` (§7.2). CHARTER §7.5 requires every exposed pacing CVar to do something; they were removed on 2026-09-30 (M5 step 12, D9).
 - Fixed 2026-09-25: in client and listen-host sessions `GuiFrameEvents` → `uiManager->Update` did not run per frame, only out of sequence during loads and wipes (`src/framework/Session.cpp:224-226`), and no other route updated the GUIs: with `g_guiSpeeds 1` a joined Vulkan client made 0 GUI updates in 5 s of play, against 277 in single player. `idCommonLocal::Frame` now calls it once per frame for a client or listen host (`src/framework/Common.cpp:1073`), as Doom 3's multiplayer branch did; `client-network-join`/`-listen` require >= 40 updates a second (measured 60/s at cap 60).
-- Render-only input samples have side effects (§5): the weapon lock can clear between ticks, the `m_smooth` window is counted in samples, and mouse-strafe motion from render-only samples is dropped.
+- Render-only input samples have side effects (§5): the weapon lock can clear between ticks, the `m_smooth` window is counted in samples, and mouse-strafe motion from render-only samples is dropped. Since M5 step 7 they reach the listen host too (E4, settled without escalation: accepted for parity with single player and the client). Two impulses sampled on two render-only frames of one tick are both lost (§5); a known issue for a follow-up.
 - Windows `Sleep( 1 )` sits outside the pacer (§7.5).
 
 **Paths that stay stepped even with the SDK design restored.** These must be listed rather than claimed as interpolated:

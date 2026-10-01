@@ -194,8 +194,8 @@ if build_engine
     is_parallel: false,
   )
   # the same replay on a listen host (+spawnServer; M5 plan step 5's listen variant): the
-  # Vulkan client is the server; it also checks whether the host's draws between ticks are
-  # unlocked draws (reported until step 7 has the host call ClientUpdateView)
+  # Vulkan client is the server; it also checks that the host's draws between ticks are
+  # unlocked draws (step 7 has the host call ClientUpdateView on its render-only frames)
   test(
     'high-refresh-determinism-listen',
     py,

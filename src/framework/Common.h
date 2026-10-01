@@ -81,6 +81,10 @@ extern idCVar		com_videoRam;
 // and idAsyncServer::RunFrame add to it; idCommonLocal::Frame resets it and reports it
 // (com_logFrameTiming)
 extern int			com_frameTicks;
+// game->ClientUpdateView calls in the current host frame (render-only frames prepared for
+// drawing): idSessionLocal::Frame, idAsyncClient::RunFrame and idAsyncServer::RunFrame add
+// to it; idCommonLocal::Frame resets it and reports it (com_logFrameTiming cuv=)
+extern int			com_frameUpdateViews;
 // a game ran in the current host frame, so its ticks fall due as time passes: set by
 // idSessionLocal::Frame (single player), idAsyncClient::RunFrame (in game) and a listen
 // host's idAsyncServer::RunFrame; idCommonLocal::Frame resets it. With com_unlockFPS 0

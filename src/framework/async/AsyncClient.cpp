@@ -354,6 +354,7 @@ void idAsyncClient::RunFrame() {
 			const usercmd_t cmd = usercmdGen->GetDirectUsercmd();
 			const int timeLeft = GetGameTimeLeft();
 			game->ClientUpdateView( cmd, timeLeft );
+			++com_frameUpdateViews;
 		}
 	} else if ( clientState >= CS_CONNECTED && !sessLocal.insideExecuteMapChange ) {
 		SendUsercmdsToServer();

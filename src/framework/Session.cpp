@@ -336,7 +336,8 @@ void idSessionLocal::Frame() {
 			++com_frameTicks;
 		}
 
-		// The old async server called ClientUpdateView between fixed game tics.
+		// The async client and a listen host call ClientUpdateView between fixed game
+		// tics as well (idAsyncClient::RunFrame, idAsyncServer::RunFrame).
 		// Without that call, PlayerView treats every foreground render as another
 		// full-tic draw and repeatedly offsets the weapon by the same origin delta.
 		// That is visible as rapid weapon drift/flicker whenever the player moves.
@@ -344,6 +345,7 @@ void idSessionLocal::Frame() {
 		if ( renderOnlyFrame && mapSpawned && game != NULL && com_unlockFPS.GetBool() ) {
 			const usercmd_t cmd = usercmdGen->GetDirectUsercmd();
 			game->ClientUpdateView( cmd, Com_GetGameTimeLeft() );
+			++com_frameUpdateViews;
 		}
 	}
 }
@@ -552,8 +554,8 @@ void idSessionLocal::UnloadMap() {
 }
 
 void idSessionLocal::RunGameTic() {
-	// Input devices are polled by the input worker, but command construction and
-	// all game callbacks stay on the main thread.
+	// Input is pumped on the main thread (Sys_GenerateEvents, idCommonLocal::Frame);
+	// the command and its game callbacks are built here, once per tick.
 	usercmd_t cmd = usercmdGen->GetDirectUsercmd();
 	mapSpawnData.mapSpawnUsercmd[ 0 ] = cmd;
 	++lastGameTic;

@@ -53,6 +53,19 @@ Validates:
    schedule's windows, the caps in order; the com_unlockFPS 0 schedule is checked by
    draws instead, item 1).
 5. Clean shutdown with exit code 0.
+6. Render-only frames are prepared only when they can be drawn (M5 step 7; with the client
+   binary): FRAME_TIMING's cuv= counts the frames on which the engine called
+   ClientUpdateView. The com_unlockFPS 0 schedule must have none, since it draws no frame
+   that ran no tick, and every schedule above cap 30 some, in play.
+7. Tick code never reads a render-only frame's view (M5 step 7, owner decision E3; with
+   the client binary): at each tick's entry the game puts back the view player's renderView
+   origin and axis as the last tick's pose log saved them, and prints TICK_VIEW (entry= the
+   comparison with the saved view before that, think= the one as entity Think starts: 1
+   differs, 0 the same, -1 nothing to compare with, after a change of view player, seat or
+   remote camera). Every tick must have a TICK_VIEW line and none may print think=1; every
+   schedule above cap 30 must print entry=1 on some tick (a render-only frame moved the
+   view, and it was put back), and the com_unlockFPS 0 schedule none (nothing else moves
+   the view between ticks).
 
 --listen runs the same schedules on a listen host (M5 plan step 5's listen variant): the
 Vulkan client serves the map itself (+spawnServer valley on --port, net_allowCheats 1) and
@@ -68,8 +81,10 @@ present one). Before step 7 the host draws between ticks but never calls ClientU
 so none is, and the counts are reported; with LISTEN_HOST_UNLOCKS set (step 7) every cap
 above 30 must have at least 20 render-only draws there, all but max(1, 1%) of them so.
 With com_unlockFPS 0 a frame that ran no tick is not drawn (item 1), so no draw can show
-whether ClientUpdateView ran there; step 7 checks that with a count of the calls
+whether ClientUpdateView ran there; item 6 checks that with a count of the calls
 themselves. Needs the client binary (no fallback to the dedicated one).
+
+--log-dir DIR writes each schedule's output to DIR/<sp|listen>-<schedule>.log.
 """
 
 from __future__ import annotations
@@ -140,6 +155,7 @@ SIM_HASH_RE = re.compile(
 
 
 SIM_VIEW_RE = re.compile(r"SIM_VIEW: tick=(\d+) (.*)$")
+TICK_VIEW_RE = re.compile(r"TICK_VIEW: tick=(\d+) entry=(-?\d+) think=(-?\d+)$")
 VEH_TRACE_RE = re.compile(r"VEH_TRACE: (tick=\d+ .*)$")
 # every field EmitSimView prints for a view player, so a field dropped from every
 # schedule cannot pass as "identical". Without a view player EmitSimView prints only
@@ -157,6 +173,7 @@ FRAME_TIMING_RE = re.compile(
     r"FRAME_TIMING: window_ms=([\d.]+) frames=(\d+) ticks=(\d+) cap=(-?\d+)"
     r" dt_p50=([\d.]+) dt_p95=([\d.]+) dt_p99=([\d.]+) dt_max=([\d.]+)"
     r"(?:.*? draws=(\d+))?"
+    r"(?:.*? cuv=(\d+))?"   # the line's last field (M5 step 7)
 )
 LOCKED = -240           # the schedule at cap 240 with com_unlockFPS 0 (M5 plan step 11, D8)
 CHANGED = -1            # the schedule whose cap changes during play (M5 plan step 17)
@@ -172,11 +189,11 @@ PACED_FRACTION = 0.98   # a cap <= REACH_FRACTION x the uncapped rate must be he
 REACH_FRACTION = 0.9    # a cap above this fraction of the uncapped rate is the host's (D1: reported)
 LISTEN_PORT = 29964     # --listen's default net_port (tests/meson.build passes it too)
 # --listen's exercise check: the host's render-only draws (FRAME_POSE) on the ticks the
-# replay is on foot. TODO(M5 step 7): set LISTEN_HOST_UNLOCKS to True in the change that
-# makes idAsyncServer::RunFrame call ClientUpdateView on render-only frames; the check is
-# then asserted (at every cap above 30, unlocked draws with a fraction in (0, 1)) instead
-# of reported. Until then the host draws between ticks but never makes an unlocked draw.
-LISTEN_HOST_UNLOCKS = False
+# replay is on foot. Since M5 step 7 idAsyncServer::RunFrame calls ClientUpdateView on
+# render-only frames, and the check is asserted (at every cap above 30, unlocked draws
+# with a fraction in (0, 1)); with False it is only reported, as before step 7, when the
+# host drew between ticks but never made an unlocked draw.
+LISTEN_HOST_UNLOCKS = True
 ON_FOOT_TICKS = (21, 90)    # the replay walks, strafes and jumps, then fires; it enters the titan at 91
 
 
@@ -232,9 +249,11 @@ def run_determinism_schedule(
     expected_min_ticks: int = 150,
     timeout_sec: float = 45.0,
     listen_port: int | None = None,
+    output_lines: list[str] | None = None,
 ) -> tuple[dict[int, SimHashEntry], int, list[str]]:
     """Runs a single determinism schedule at the given com_maxFPS: single player
-    (+devmap), or on a listen host serving listen_port (+spawnServer)."""
+    (+devmap), or on a listen host serving listen_port (+spawnServer). The output goes to
+    output_lines when given, so a caller still has it when the schedule raises."""
     where = "single player" if listen_port is None else f"listen host on port {listen_port}"
     print(f"\n--- [SCHEDULE {cap_label(fps)}] Launching Valley determinism replay (com_maxFPS {start_cap(fps)}, {where}) ---")
 
@@ -273,7 +292,7 @@ def run_determinism_schedule(
     )
     TEST_PROCS.append(proc)
 
-    output_lines: list[str] = []
+    output_lines = [] if output_lines is None else output_lines
     out_q: queue.Queue[str] = queue.Queue()
     t = threading.Thread(target=stream_reader, args=(proc.stdout, out_q), daemon=True)
     t.start()
@@ -408,6 +427,27 @@ def render_only_draws(lines: list[str]) -> dict[str, int]:
             "bad_fraction": sum(1 for p in render_only if p["ud"] == 1 and not 0.0 < p["fr"] < 1.0)}
 
 
+def tick_views(lines: list[str], label: str) -> dict[int, tuple[int, int]]:
+    """tick -> (entry, think) from TICK_VIEW (game builds from M5 step 7); a tick printed
+    twice fails."""
+    records = [(int(m.group(1)), int(m.group(2)), int(m.group(3))) for ln in lines if (m := TICK_VIEW_RE.search(ln))]
+    counts = collections.Counter(t for t, _, _ in records)
+    repeated = sorted(t for t, c in counts.items() if c > 1)
+    if repeated:
+        raise AssertionError(f"{label}: TICK_VIEW printed more than once for ticks {repeated[:10]}")
+    return {t: (entry, think) for t, entry, think in records}
+
+
+def update_views(lines: list[str]) -> tuple[int | None, int | None]:
+    """(ClientUpdateView calls over every FRAME_TIMING window, over the windows of play),
+    from cuv= (engine builds from M5 step 7); None when a window lacks it."""
+    windows = [m for ln in lines if (m := FRAME_TIMING_RE.search(ln))]
+    if not windows or any(m.group(10) is None for m in windows):
+        return None, None
+    return (sum(int(m.group(10)) for m in windows),
+            sum(int(m.group(10)) for m in windows if int(m.group(3)) >= PLAY_MIN_TICKS))
+
+
 def sim_views(lines: list[str], label: str) -> dict[int, str]:
     """tick -> the SIM_VIEW fields (game builds from 2026-09-25); a tick printed twice fails."""
     records = [(int(m.group(1)), m.group(2).strip()) for ln in lines if (m := SIM_VIEW_RE.search(ln))]
@@ -422,6 +462,7 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--listen", action="store_true", help="replay on a listen host (+spawnServer) instead of single player")
     ap.add_argument("--port", type=int, default=LISTEN_PORT, help="the listen host's net_port (with --listen)")
+    ap.add_argument("--log-dir", type=Path, help="write each schedule's output to <dir>/<sp|listen>-<schedule>.log")
     opts = ap.parse_args(argv)
     listen_port = opts.port if opts.listen else None
 
@@ -461,13 +502,22 @@ def main(argv: list[str]) -> int:
     test_start = time.time()
 
     for fps in rates:
-        sim_hashes, presented_frames, lines = run_determinism_schedule(
-            fps=fps,
-            bin_path=bin_path,
-            expected_min_ticks=150,
-            timeout_sec=50.0,
-            listen_port=listen_port,
-        )
+        lines: list[str] = []
+        try:
+            sim_hashes, presented_frames, lines = run_determinism_schedule(
+                fps=fps,
+                bin_path=bin_path,
+                expected_min_ticks=150,
+                timeout_sec=50.0,
+                listen_port=listen_port,
+                output_lines=lines,
+            )
+        finally:
+            # also when the schedule raised: its output is what explains the failure
+            if opts.log_dir is not None:
+                opts.log_dir.mkdir(parents=True, exist_ok=True)
+                name = {LOCKED: "locked240", CHANGED: "changed"}.get(fps, "uncapped" if fps == 0 else str(fps))
+                (opts.log_dir / f"{'listen' if opts.listen else 'sp'}-{name}.log").write_text("\n".join(lines) + "\n")
         results[fps] = sim_hashes
         frames[fps] = presented_frames
         timing[fps] = play_timing(lines)
@@ -711,11 +761,62 @@ def main(argv: list[str]) -> int:
           f" {cap_label(LOCKED)} on all {len(common_ticks)} ticks")
 
     exercise_failures = []
+    # the dedicated fallback (no client binary) runs the same single-player frames and calls
+    # ClientUpdateView on its render-only ones too, but whether they present anything (a local
+    # player that can unlock, in a binary that draws nothing) was never checked, so its counts
+    # are reported, not required
+    exercised = bin_path == CLIENT_BIN
+    # M5 step 7: render-only frames are prepared (ClientUpdateView) only when they can be
+    # drawn; FRAME_TIMING cuv= counts them whether or not anything is drawn
+    print("\n--- Render-only frames prepared for drawing (FRAME_TIMING cuv=) ---")
+    for fps in rates:
+        total, in_play = update_views(schedule_lines[fps])
+        if total is None:
+            exercise_failures.append(f"{cap_label(fps)}: FRAME_TIMING carries no cuv= count (an engine before M5 step 7)")
+            continue
+        print(f"  {cap_label(fps)}: {total} ClientUpdateView calls ({in_play} in play windows)")
+        if fps == LOCKED and total:
+            exercise_failures.append(f"{cap_label(fps)}: {total} ClientUpdateView calls with com_unlockFPS 0")
+        elif fps not in (30, LOCKED) and exercised and not in_play:
+            exercise_failures.append(f"{cap_label(fps)}: no ClientUpdateView call in play (render-only frames not prepared)")
+
+    # M5 step 7 (owner decision E3): tick code never reads a render-only frame's view. The
+    # game puts back the view player's renderView at each tick's entry; TICK_VIEW shows the
+    # view before that (entry) and as entity Think starts (think)
+    print("\n--- The view player's renderView at tick entry (TICK_VIEW) ---")
+    lo, hi = ON_FOOT_TICKS
+    for fps in rates:
+        tv = tick_views(schedule_lines[fps], cap_label(fps))
+        if not tv:
+            exercise_failures.append(f"{cap_label(fps)}: no TICK_VIEW lines: the game build predates them (M5 step 7)")
+            continue
+        if set(tv) != set(common_ticks):
+            missing = sorted(set(common_ticks) - set(tv))
+            exercise_failures.append(f"{cap_label(fps)}: TICK_VIEW ticks do not match the SIM_HASH ticks"
+                                     f" (missing {missing[:10]}, extra {sorted(set(tv) - set(common_ticks))[:10]})")
+        moved = sorted(t for t, (entry, _) in tv.items() if entry == 1)
+        leaked = sorted(t for t, (_, think) in tv.items() if think == 1)
+        unmatched = sorted(t for t, (entry, _) in tv.items() if entry == -1)
+        # think=-1 after entry=1: the tick changed the seat before Think (the replay's enterVehicle)
+        print(f"  {cap_label(fps)}: a render-only frame's view at the tick's entry on {len(moved)} of {len(tv)} ticks"
+              f" ({sum(1 for t in moved if lo <= t <= hi)} of them on the on-foot ticks {lo}-{hi}); Think started on the"
+              f" tick's view on {sum(1 for t in moved if tv[t][1] == 0)} of them, after a seat change on"
+              f" {sum(1 for t in moved if tv[t][1] == -1)}; Think started on another view on {len(leaked)} ticks; nothing"
+              f" to compare with at the entry of {len(unmatched)} {unmatched[:12]}")
+        if leaked:
+            exercise_failures.append(f"{cap_label(fps)}: entity Think started on a view other than the tick's"
+                                     f" (TICK_VIEW think=1) on {len(leaked)} ticks, first {leaked[:10]}")
+        if fps == LOCKED and moved:
+            exercise_failures.append(f"{cap_label(fps)}: the view moved between ticks with com_unlockFPS 0"
+                                     f" (TICK_VIEW entry=1) on ticks {moved[:10]}")
+        elif fps not in (30, LOCKED) and exercised and not moved:
+            exercise_failures.append(f"{cap_label(fps)}: no render-only frame's view reached a tick (TICK_VIEW entry=1):"
+                                     " the put-back is not exercised")
+
     if opts.listen:
         # whether the host's draws between ticks at the caps above 30 are unlocked ones (M5
         # step 7). With com_unlockFPS 0 a frame that ran no tick is not drawn (locked_check),
-        # so no draw shows whether ClientUpdateView ran there: step 7 counts the calls for that
-        lo, hi = ON_FOOT_TICKS
+        # so no draw shows whether ClientUpdateView ran there: cuv= above counts the calls
         print(f"\n--- The host's render-only draws on the on-foot ticks {lo}-{hi} (FRAME_POSE fn repeated) ---")
         for fps in rates:
             ro = render_only_draws(schedule_lines[fps])
@@ -735,8 +836,8 @@ def main(argv: list[str]) -> int:
         if not LISTEN_HOST_UNLOCKS:
             print("  [REPORT] counted, not asserted: until M5 step 7 the listen host never calls ClientUpdateView"
                   " (LISTEN_HOST_UNLOCKS)")
-        for f in exercise_failures:
-            print(f"  [FAIL] {f}")
+    for f in exercise_failures:
+        print(f"  [FAIL] {f}")
     assert not rate_failures, f"Frame rate failures: {rate_failures}"
     assert not exercise_failures, f"Exercise check failures: {exercise_failures}"
 

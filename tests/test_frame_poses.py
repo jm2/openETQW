@@ -21,9 +21,10 @@ are that phase's draws (the engine runs one stdin line per frame, before it draw
   walk       the observer walks forward, then back (clientMove)
   peerwalk   the headless peer walks forward, then back
 An uncapped segment (com_maxFPS 0) measures the host's ceiling first. A negative
-control (join only) repeats turn and the observer's walk with g_unlock_updateAngles,
+control repeats turn and the observer's walk with g_unlock_updateAngles,
 g_unlock_updateViewpos and g_unlock_interpolateMoving off: the camera checks (A4, A5)
-must fail there, which shows they can. The remote-player detector (A7) gets its proof
+must fail there, which shows they can (on a listen host since M5 step 7, which has the
+host call ClientUpdateView). The remote-player detector (A7) gets its proof
 when the Entity::Present producer is restored and A7 stops being a known gap.
 
 Checks (0.25 s dropped at each edge of a phase; a phase needs >= 20 draw pairs):
@@ -65,6 +66,15 @@ Checks (0.25 s dropped at each edge of a phase; a phase needs >= 20 draw pairs):
 After the negative control, com_unlockFPS 0 (M5 plan step 11, D8) at the highest cap,
 while the observer walks: every draw is a base draw (ud=0) of a new game time (at
 most max(1, 1%) repeats); the draw rate, about the tick rate, is reported.
+Last, on a listen host only (M5 step 7, the draw-time viewer guard; compat-ledger 058),
+at the highest cap: the host joins the spectators and, SPECTATE_ROUNDS times, free-flies
+SPECTATE_HEIGHT u above the standing peer (spectate position), then follows the peer from
+the console (spectate client). A round counts when the switch landed between ticks: the
+peer's first draw (vp=peer) has the tick of the host's last free-fly draw, which had
+canUnlockFrames (cu=1). The rest of that tick's draws of the peer are render-only frames
+prepared with canUnlockFrames set, and each must show the peer's own tick view: within
+SPECTATE_TOL u of the peer's first draw of the next tick. Without the guard they show the
+spectator's camera (460 u away). At least SPECTATE_MIN_ROUNDS rounds must count.
 A check that the code is expected to fail today is listed in KNOWN_GAPS with the shape
 the failure must have: 'per_tick' (the pose changes once per tick: it changes on the
 draw pairs that cross a tick and on no others, with max(1, 5%) of the pairs allowed to
@@ -83,6 +93,7 @@ root. Exit 77 when ETQW_DATA_PATH is unset/invalid or a binary is missing.
 """
 
 import argparse
+import math
 import re
 import sys
 import time
@@ -92,7 +103,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import etqw_harness as h  # noqa: E402
 from test_campaign_client_maps import BAD_MARKERS, find_client  # noqa: E402
 from test_client_network import VulkanClient  # noqa: E402
-from test_reconnect_restart import Failed, connect, spawn  # noqa: E402
+from test_reconnect_restart import Failed, connect, player_pos, spawn  # noqa: E402
 from test_remote_client_map_change import READY, RemoteClient  # noqa: E402
 
 FRAME_POSE_RE = re.compile(
@@ -112,13 +123,17 @@ KNOWN_GAPS = {
     # predicted: the Entity::Present producer is compiled out (#if 0, jmarshall): remote
     # players are drawn where the last tick left them
     ("join", "A7"): ("per_tick",),
-    # predicted: the listen host never calls ClientUpdateView, so every draw between
-    # ticks repeats the tick's pose, and it reads view input once per tick
-    ("listen", "A4"): ("per_tick",), ("listen", "A5"): ("per_tick",),
-    ("listen", "A6"): ("per_tick",), ("listen", "A7"): ("per_tick",),
-    ("listen", "A8"): ("never_unlocked",),
+    # predicted: the same on the listen host, where it stays a gap after M5 step 8, which
+    # restores the producer on network clients only; the host gets the producer only as
+    # step 9's presentation-only interpolation (D6). (A4-A6 and A8 were gaps here until
+    # step 7 had the host call ClientUpdateView on render-only frames.)
+    ("listen", "A7"): ("per_tick",),
 }
 MIN_PAIRS = 20
+SPECTATE_ROUNDS = 10        # listen only: the viewer-change rounds (M5 step 7)
+SPECTATE_MIN_ROUNDS = 3     # rounds whose switch must land between ticks
+SPECTATE_HEIGHT = 600.0     # u above the peer that the host free-flies at
+SPECTATE_TOL = 32.0         # u: a render-only draw of the peer from its next tick's view
 
 
 def parse_pose(line):
@@ -133,7 +148,30 @@ def parse_pose(line):
         clients[int(c.group(1))] = {"pose": pose, "aor": int(c.group(3)), "hid": int(c.group(4)), "veh": int(c.group(5))}
     return {"n": int(m.group(1)), "us": int(m.group(2)), "cap": int(m.group(3)), "gt": int(m.group(4)),
             "fn": int(m.group(5)), "ud": int(m.group(6)), "cu": int(m.group(7)), "fr": float(m.group(8)),
-            "view": view, "wpn": wpn, "clients": clients}
+            "vp": int(m.group(9)), "view": view, "wpn": wpn, "clients": clients}
+
+
+def spectate_round(poses, host_slot, peer_slot):
+    """One viewer-change round (M5 step 7): (counted, render-only draws of the peer in the
+    switch tick, the farthest of them from the peer's first draw of the next tick, in u).
+    Not counted when no switch is seen, the switch frame ran a tick, or canUnlockFrames was
+    off before it."""
+    first = next((k for k, p in enumerate(poses) if p["vp"] == peer_slot), None)
+    if first is None or first == 0:
+        return False, 0, 0.0
+    before, tick = poses[first - 1], poses[first]["fn"]
+    if before["vp"] != host_slot or before["fn"] != tick or before["cu"] != 1:
+        return False, 0, 0.0
+    same = [p for p in poses[first:] if p["fn"] == tick and p["vp"] == peer_slot]
+    nxt = next((p for p in poses[first:] if p["fn"] > tick and p["vp"] == peer_slot), None)
+    if nxt is None:
+        return False, 0, 0.0
+    return True, len(same), max(math.dist(p["view"][:3], nxt["view"][:3]) for p in same)
+
+
+def phase_poses_raw(proc, begin, end):
+    """Every FRAME_POSE draw between two line indices."""
+    return [p for ln in proc.snapshot(begin, end) if (p := parse_pose(ln.text))]
 
 
 def phase_poses(proc, begin, end):
@@ -581,7 +619,7 @@ def main(argv):
         c4 = fraction_check(n_turn, lambda a, b: abs(a["view"][4] - b["view"][4]) > ANG_EPS, "view yaw")
         c5 = fraction_check(n_walk, lambda a, b: moved(a["view"], b["view"]), "view origin")
         print(f"[{mode}] negative control at cap {cap}: {c4['detail']}; {c5['detail']}")
-        if mode == "join" and (c4["ok"] or c5["ok"] or c4["n"] < MIN_PAIRS or c5["n"] < MIN_PAIRS):
+        if c4["ok"] or c5["ok"] or c4["n"] < MIN_PAIRS or c5["n"] < MIN_PAIRS:
             failures.append(f"negative control: with the unlock updates off the A4/A5 detectors did not fail"
                             f" ({c4['detail']}; {c5['detail']})")
 
@@ -598,6 +636,38 @@ def main(argv):
         print(f"[{mode}] com_unlockFPS 0: {lk['detail']}")
         if not lk["ok"]:
             failures.append(f"com_unlockFPS 0 does not draw once per tick: {lk['detail']}")
+
+        if mode == "listen":
+            # M5 step 7: a change of viewer between ticks (spectate client, from the console)
+            # must not have render-only frames write the new viewer's view (the viewer guard)
+            pp = player_pos(srv, slot)["org"]
+            obs.send("clientTeam spectator")
+            time.sleep(2.0)
+            counted = []
+            for i in range(SPECTATE_ROUNDS):
+                obs.send(f"spectate position {pp[0]:.1f} {pp[1]:.1f} {pp[2] + SPECTATE_HEIGHT:.1f} 0 0 0")
+                time.sleep(0.4)
+                begin = obs.mark()      # the free-fly draws before the switch belong to the round
+                time.sleep(0.3)
+                obs.send(f"spectate client {slot}")
+                time.sleep(0.7)
+                obs.send(f"echo FP_SPECTATE {i}")
+                end_hit = obs.wait_for(lambda s, i=i: s.strip() == f"FP_SPECTATE {i}", 10.0, begin)
+                if not end_hit:
+                    raise Failed(f"the observer never echoed the end of spectate round {i}")
+                ok, n, far = spectate_round(phase_poses_raw(obs, begin, end_hit[0]), obs.slot, slot)
+                if ok:
+                    counted.append((i, n, far))
+            worst = max((far for _, _, far in counted), default=0.0)
+            print(f"[{mode}] viewer change between ticks: {len(counted)} of {SPECTATE_ROUNDS} rounds switched between"
+                  f" ticks, {sum(n for _, n, _ in counted)} render-only draws of the new viewer in those ticks, the farthest"
+                  f" {worst:.1f} u from its next tick's view (need <= {SPECTATE_TOL:.0f})")
+            if len(counted) < SPECTATE_MIN_ROUNDS:
+                failures.append(f"viewer change: only {len(counted)} of {SPECTATE_ROUNDS} rounds switched between ticks"
+                                f" (need {SPECTATE_MIN_ROUNDS})")
+            elif worst > SPECTATE_TOL:
+                failures.append(f"viewer change: a render-only draw of the new viewer was {worst:.1f} u from its tick view"
+                                " (another player's view written into it: the viewer guard)")
     except Failed as e:
         failures.append(str(e))
     finally:

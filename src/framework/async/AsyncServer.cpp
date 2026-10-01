@@ -418,6 +418,19 @@ int idAsyncServer::SetBotUserName( int clientNum, const char* playerName ) {
 	return 1;
 }
 
+// the time left in the current tic for a listen host's render-only frame, as
+// idAsyncClient::GetGameTimeLeft and Com_GetGameTimeLeft give it; the clamp keeps it
+// in 1 to USERCMD_MSEC - 1 (ClientUpdateView aborts on USERCMD_MSEC)
+int idAsyncServer::GetGameTimeLeft() const {
+	int elapsedInTic = gameTimeResidual;	// the tic boundary RunFrame uses
+	if ( elapsedInTic < 1 ) {
+		elapsedInTic = 1;
+	} else if ( elapsedInTic >= USERCMD_MSEC ) {
+		elapsedInTic = USERCMD_MSEC - 1;
+	}
+	return USERCMD_MSEC - elapsedInTic;
+}
+
 void idAsyncServer::RunFrame() {
 	if ( !active ) {
 		return;
@@ -449,6 +462,7 @@ void idAsyncServer::RunFrame() {
 		}
 	}
 
+	const int startFrame = gameFrame;
 	while ( gameTimeResidual >= USERCMD_MSEC ) {
 		DuplicateUsercmds( gameFrame, gameTime );
 		LocalClientInput();
@@ -472,6 +486,19 @@ void idAsyncServer::RunFrame() {
 		}
 		ProcessReliableClientMessages( i );
 		ApplyPendingUserInfo( i );
+	}
+
+	// A listen host's render-only frame (M5 step 7), as in single player and on the async
+	// client: the host's input is sampled for this draw's view only. The command is not
+	// stored; the server simulates, and relays to remote clients, only the commands
+	// LocalClientInput builds at tics. After the snapshots, so this frame's are written before
+	// it presents; the frames after it, up to the next tic, write theirs inside the
+	// unlockedDraw window it opens, as on a client (vehicle-view-net checks those AoR calls).
+	// com_unlockFPS 0 draws no render-only frame (idCommonLocal::Frame), so none is prepared
+	if ( localClientNum >= 0 && gameFrame == startFrame && game != NULL && com_unlockFPS.GetBool() ) {
+		const usercmd_t cmd = usercmdGen->GetDirectUsercmd();
+		game->ClientUpdateView( cmd, GetGameTimeLeft() );
+		++com_frameUpdateViews;
 	}
 	MasterHeartbeat();
 }
