@@ -75,9 +75,9 @@ The vehicle simulation and control code is the 1.5 SDK code, unchanged. VehicleC
    - The chase camera follows the hull's rotation from `lastPushedAxis`, which the previous tick's `Present` wrote (game `src/game/vehicles/VehicleView.cpp:1205-1206`; `Transport.cpp:4434` runs before `:4451`).
    - The view lean and the IK are updated after the camera (game `Transport.cpp:4434-4435`).
    - The Desecrator's strafe and boost read the driver's usercmd from the previous tick (game `src/game/vehicles/VehicleControl.cpp:353-356, 378`). So does the jetpack's heading (game `src/game/vehicles/JetPack.cpp:278-286`).
-10. **Entering and exiting are not clean.**
-    - The render frames of the tick you enter on still run the on-foot path and the OpenETQW proxy path, because the gate was latched when the tick started. This is the likely source of `KNOWN_VIEW_LEAK` in the replay (engine `tests/test_high_refresh_determinism.py:122`; m5-plan step 6). *[inferred]*
-    - After you exit, nothing resets `originlog`, so the first base draw can rewind to a vehicle camera pose. *[inferred]*
+10. **Entering and exiting were not clean: fixed in M5 step 6.**
+    - The render frames of the tick you entered on still ran the on-foot path and the OpenETQW proxy path, because the gate was latched when the tick started. That was the source of `KNOWN_VIEW_LEAK` in the replay (traced in step 6). Since step 6 those frames hold the tick's vehicle view: the proxy path is gone and the on-foot blocks run only without a proxy at draw time (ledger 056).
+    - After an exit between ticks (the console, script events, every network client's exit), nothing reset `originlog`, so the first on-foot tick's base draws rewound to the vehicle camera (`vehicle-view-net` measured 270 u on a listen host). Since step 6 the origin log is reset at the pose log when the view player's seat changes (ledger 057).
 11. **Input is late or lossy in every mode.** Input waits up to one frame before any usercmd sees it. SDL's fractional mouse motion is truncated for each event (engine `src/sys/sdl/sdl_events.cpp:233-236`). *[inspected]* This is not specific to vehicles.
 
 ### 1.3 A client-prediction bug that probably hurts network pilots
@@ -94,7 +94,7 @@ How far ahead the client runs (P−S) depends on latency. On loopback it was one
 
 The server, the listen host and single player never re-predict, so they are unaffected. Retail has the same code. Stage 6 measured the mismatch on loopback and fixed it (2026-09-30). How much a pilot feels it has not been judged.
 
-### 1.4 OpenETQW code that leaks today
+### 1.4 OpenETQW code that leaked (removed in M5 step 6)
 
 OpenETQW added vehicle interpolation that writes values from render frames into state that tick code reads:
 - the damped, free-pivot and smooth view paths (game `src/game/vehicles/VehicleView.cpp:556-568, 832-844, 1168-1187`);
@@ -103,7 +103,7 @@ OpenETQW added vehicle interpolation that writes values from render frames into 
 - the `UpdateModelTransform` early return (`Transport.cpp:5194-5196`);
 - the proxy branch of `ClientUpdateView` (game `Game_local.cpp:6058-6079`).
 
-These paths write `lastReturnedAxis`, which the free-pivot clamp reads (`VehicleView.cpp:727-730`). They also write `lastPushed*` and `thirdPersonView*`, which the server's AoR and antilag views reach through `GetAORView` (game `src/game/Player.cpp:15170-15187`). *[inspected]* None of this gives any seat a per-frame view today. m5-plan step 6 removes it.
+These paths wrote `lastReturnedAxis`, which the free-pivot clamp reads (`VehicleView.cpp:727-730`). They also wrote `lastPushed*` and `thirdPersonView*`, which the server's AoR and antilag views reach through `GetAORView` (game `src/game/Player.cpp:15170-15187`). *[inspected]* None of this gave any seat a per-frame view. **Removed in M5 step 6** (ledger 029): the views are the SDK's again, and the transport code, the early return and the proxy branch are deleted. The line numbers above are those before step 6.
 
 ## 2. Can vehicles move entirely off the tick rate safely?
 
@@ -213,19 +213,23 @@ Engine steps 7 (listen host) and 10 (tick frames drawn at their real fraction) a
 
 ### Stage 1: remove the leaks (m5-plan step 6)
 
-**What changes.** Everything in step 6: revert the three view paths to SDK code, and delete `ClientUpdateInterpolation`, the chassis logs, the `UpdateModelTransform` early return and the proxy branch. Plus three additions:
-- Run the on-foot blocks of `ClientUpdateView` only when `p->GetProxyEntity() == NULL` at draw time. The latch is taken before entity Think, and the replay enters the vehicle inside the tick with `CMD_EXEC_NOW` (game `Game_local.cpp:5362-5363`).
-- Clear `unlock.unlockedDraw` after `RenderPlayerView`, so snapshot reads and AoR never see it set. Its readers are game `Entity.cpp:1783`, `Parachute.cpp:238`, `JetPack.cpp:412`, `Transport.cpp:5194` and `VehicleView.cpp:556, 832`. *[inferred safe]*
-- Reset `originlog` when the proxy changes.
+**Status: done 2026-09-30** (M5 step 6: the network test first, game #22 / engine #43; then game and engine `m5/6-no-presentation-in-tick`; ledger 029 widened, 056 and 057; details and numbers in `docs/m5-plan.md`). As below, with the owner's seven decisions of 2026-09-30 (STATUS): the view code is deleted, not kept as helpers (decision 1), and `unlockedDraw` keeps retail's lifetime (decision 3).
+
+**What changes.** Everything in step 6: revert the three view paths to SDK code, and delete `ClientUpdateInterpolation`, the chassis logs, the `UpdateModelTransform` early return and the proxy branch. Plus two additions:
+- Run the on-foot blocks of `ClientUpdateView` only when `p->GetProxyEntity() == NULL` at draw time. The latch is taken before entity Think, and the replay enters the vehicle inside the tick with `CMD_EXEC_NOW` (game `Game_local.cpp:5362-5363`). Ledger 056.
+- Reset `originlog` at the pose log of the first tick whose view player shows a different proxy, seat or view mode from the last log's: slot n-1 takes slot n, so that tick's base draw does not rewind and its render-only frames hold. Not on a change of view player, a respawn or a teleport (decision 5). It replaces OpenETQW's event-time resets, which read the previous view's camera on a camera cycle and did not run on an exit. Ledger 057.
+- `unlock.unlockedDraw` keeps retail's lifetime, from a render-only frame to the next tick (decision 3), rather than being cleared after `RenderPlayerView` as first planned: once the views are reverted and the `UpdateModelTransform` early return is gone, only SDK readers (game `Entity.cpp:1783`, `Parachute.cpp:238`, `JetPack.cpp:412`, `PlayerView.cpp:959`; the one at `Entity.cpp:1741` is in the compiled-out producer) and the test logs (`FRAME_POSE`, `g_logVehicleViews`) read it, and clearing it would change frames that draw more than once.
 
 **What stays authoritative:** the physics.
-- One authoritative change: the server's AoR and antilag view for smooth-view seats goes back from the previous tick's camera to the current one. Compare SDK `game/vehicles/VehicleView.cpp:1077-1081` with game `VehicleView.cpp:1168-1187`.
+- One authoritative change: the server's AoR and antilag view for smooth-view seats goes back from the previous tick's camera to the current one. Compare SDK `game/vehicles/VehicleView.cpp:1077-1081` with game `VehicleView.cpp:1168-1187` before step 6. With it, smooth-seat camera damping, the `smooth_locked` view angles and third-person turret aim are the SDK's again (decision 2).
 - D4 approved this change, and it matches retail.
 
-**Player-visible gain:** none directly. It removes chase-camera wobble at snapshot rate on clients. *[inferred]*
+**Player-visible gain:** none directly. It removes chase-camera wobble at snapshot rate on clients, where it existed (measured: client snapshot reads already returned the tick's view; client moveables' in-tick calls did not), and the two interleaved chains the server's smooth camera split into after a camera cycle. After an exit between ticks the first on-foot tick no longer draws from the vehicle camera.
 
 **Measurement and safety proof:**
-- `high-refresh-determinism` passes without its `KNOWN_VIEW_LEAK` allowance.
+- `high-refresh-determinism` passes without its `KNOWN_VIEW_LEAK` allowance: `SIM_VIEW` is identical to cap 30's on every tick at every cap.
+- `seat-gate` passes without its entry-leak allowance.
+- `vehicle-view-net` (owner decision 4, added before the revert with today's behaviour as known gaps) passes with none: every AoR call returns the tick's view and changes nothing, on the server and the client, and the exit draws no rewind.
 - The stage-0 golden is unchanged.
 
 **Effort:** already planned; 3–5 days, including tracing which write causes the weapon-log leak. *[inferred]*
@@ -652,7 +656,7 @@ Stages 0–7 come to about 5–7 weeks of focused work for one engineer. That do
 
 - **The restore must be complete.** Every draw path, including early returns and `SkipWorldRender`, must restore the renderer defs. `ModelTrace` is a stub today (engine `RenderWorld.cpp:785-788`), so render-model hit traces (game `src/game/physics/Clip.cpp:596-632`) never hit. Once it is implemented, the restore becomes critical to hit detection.
 - **A pure clamp can drift from the tick clamp.** That shows as a small snap at the tick. The per-tick angle-error metric catches it.
-- **The SDK has a channel of its own that step 6 keeps.** The damped view's non-full path writes `lastReturnedAxis` between ticks (SDK `game/vehicles/VehicleView.cpp:524`), and the free-pivot clamp reads it. So aim state can depend on when snapshots are written. That is retail behaviour and out of scope. *[inferred]*
+- **The SDK has a channel of its own: kept (owner decision 7).** The damped view's non-full path writes `lastReturnedAxis` between ticks (SDK `game/vehicles/VehicleView.cpp:524`), and the free-pivot clamp reads it. So aim state can depend on when snapshots are written. That is retail behaviour; changing it would be a deviation with its own ledger row. *[inferred]*
 - **Mixed clocks under stage 7.** With a lead on your own vehicle while remote entities stay one tick behind, a vehicle driving alongside appears one tick of its own motion behind.
 - **Cockpit carrier detection** comes from script modes (retail `script/vehicles/cockpits/basic.script:92-102, 122-198`). If it is wrong, the cockpit swims. The seat capture must confirm it for each cockpit script.
 - **Bit-exact goldens break when the toolchain or FP flags change.** Regenerate only with a stated reason.
