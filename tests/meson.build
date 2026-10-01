@@ -575,3 +575,27 @@ if build_engine
     is_parallel: false,
   )
 endif
+
+# 11. Aircraft re-prediction (M5 step 14a): a Vulkan listen host on valley seats a Vulkan
+#     pilot client in an anansi; AIR_CTL lines (g_logAirControl) from the server and from
+#     each tick the client predicts or replays are paired by tick. With
+#     g_airControlHistory on, the first tick replayed after each snapshot starts from the
+#     snapshot tick's cyclic base and collective, as on the server; off, it does not
+#     (the negative control). At loopback latency and with net_forceLatency 50.
+if build_engine
+  test(
+    'aircraft-reprediction',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_aircraft_reprediction.py',
+      '--client-binary', campaign_client,
+      '--port', '29900',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'aircraft-reprediction',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
+endif
