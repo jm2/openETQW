@@ -114,9 +114,10 @@ strbuilder_test = executable(
 )
 test('strbuilder', strbuilder_test, suite: 'unit', timeout: 30)
 
-# 6. idMsgChannel fragmentation: a message of an exact multiple of FRAGMENT_SIZE ends
-#    with an empty fragment, which idBitMsg::WriteData is fatal on (the server died
-#    on it mid-session); the real channel, compressor and idFile_BitMsg, a captured port
+# 5b. idMsgChannel fragmentation: a message whose encoded length is an exact multiple
+#     of FRAGMENT_SIZE ends with an empty fragment, which idBitMsg::WriteData is fatal
+#     on (the server died on it mid-session); the real channel, compressor and
+#     idFile_BitMsg, a captured port
 msgchannel_test = executable(
   'openetqw-msgchannel-test',
   files(
@@ -129,7 +130,9 @@ msgchannel_test = executable(
   # engine's force-included precompiled.h)
   include_directories: engine_include_dirs,
   cpp_args: common_engine_defs + ['-DID_DEDICATED'] + engine_pch_args,
-  dependencies: test_deps + [zlib_dep],
+  # zlib for unzip.h's include path; threads for idLib's sdLock, which these
+  # sources reference (pthreads on POSIX)
+  dependencies: test_deps + [zlib_dep, threads_dep],
   link_args: test_link_args,
   install: false,
 )

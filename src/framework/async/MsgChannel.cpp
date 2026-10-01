@@ -438,9 +438,10 @@ void idMsgChannel::SendNextFragment( idPort &port, const int time ) {
 
 	msg.WriteShort( unsentFragmentStart );
 	msg.WriteShort( fragLength );
-	// a message that is a multiple of FRAGMENT_SIZE long ends with an empty
-	// fragment (the exit condition below), and idBitMsg::WriteData is fatal on a
-	// zero length: the server died on it mid-session (reconnect-restart, Windows)
+	// a message whose encoded length (unsentMsg) is a multiple of FRAGMENT_SIZE
+	// ends with an empty fragment (the exit condition below), and
+	// idBitMsg::WriteData is fatal on a zero length: the server died on it
+	// mid-session (reconnect-restart, Windows)
 	if ( fragLength > 0 ) {
 		msg.WriteData( unsentMsg.GetData() + unsentFragmentStart, fragLength );
 	}

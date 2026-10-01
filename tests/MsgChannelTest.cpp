@@ -2,18 +2,19 @@
 /*
 ===========================================================================
 openETQW Asset-Free Test Harness: MsgChannelTest.cpp
-idMsgChannel fragments a message of FRAGMENT_SIZE or more. A message whose
-length is an exact multiple of FRAGMENT_SIZE ends with an empty fragment, so
+idMsgChannel fragments a message whose encoded length (the size and the
+compressed data it sends) is FRAGMENT_SIZE or more. When that length is an
+exact multiple of FRAGMENT_SIZE the message ends with an empty fragment, so
 the receiver can tell no more follow. idLib's idBitMsg::WriteData is fatal on a
 zero length, and SendNextFragment used to write the empty fragment's data
 anyway: the dedicated server died with "idBitMsg::GetByteSpace: length must be
 greater than zero ( was 0 )" mid-session (reconnect-restart on Windows,
 2026-10-01). WriteMessageData did the same for an empty message. This test
-sends an empty message and payloads of one to four fragments through a real
-channel (the real compressor), checks that at least one payload ends with an
-empty fragment, and that a second channel receives every message intact.
-Without the fix the send reaches the fatal error, which crashes the test
-(idLib::common is not set here, so the error call is through a null pointer).
+sends an empty message and payloads of 1300 to 5200 bytes (2 to 6 packets
+each) through a real channel (the real compressor), checks that at least one
+payload ends with an empty fragment, and that a second channel receives every
+message intact. Without the fix the send reaches the fatal error, which the
+test's idCommon prints before it exits with 1.
 ===========================================================================
 */
 
@@ -22,11 +23,62 @@ Without the fix the send reaches the fatal error, which crashes the test
 // sys declarations (idPort, netadr_t) are already here.
 #include "async/MsgChannel.h"
 
-// Globals the channel's sources refer to; nothing here calls through them on
-// the paths this test takes (the channel prints only when net_channelShowPackets
-// is set or a packet is bad)
-idCommon * common = NULL;
-idSys * sys = NULL;
+// idLib and the channel report through idCommon: an error or a fatal error ends
+// the test with its message, anything else is printed
+class TestCommonMock : public idCommon {
+public:
+	void Init( int argc, const char **argv, const char *cmdline ) override {}
+	void Shutdown( void ) override {}
+	void Quit( void ) override {}
+	bool IsInitialized( void ) const override { return true; }
+	void Frame( void ) override {}
+	void Async( void ) override {}
+	bool StartupVariable( const char *match ) override { return false; }
+	void ClearStartupVariable( const char* match ) override {}
+	void WriteConfigToFile( const char *filename, bool writeBindings = true, bool writeCVars = true ) override {}
+	void WriteFlaggedCVarsToFile( const char *filename, int flags, const char *setCmd ) override {}
+	void BeginRedirect( char *buffer, int buffersize, void *user, void (*flush)( void *, const char * ) ) override {}
+	void EndRedirect( void ) override {}
+	void SetRefreshOnPrint( bool set ) override {}
+	void Printf( const char *fmt, ... ) override { va_list ap; va_start( ap, fmt ); vprintf( fmt, ap ); va_end( ap ); }
+	void TPrintf( const char *fmt, ... ) override {}
+	void VPrintf( const char *fmt, va_list arg ) override { vprintf( fmt, arg ); }
+	void DPrintf( const char *fmt, ... ) override {}
+	void Warning( const char *fmt, ... ) override { va_list ap; va_start( ap, fmt ); Report( "WARNING", fmt, ap ); va_end( ap ); }
+	void TWarning( const char *fmt, ... ) override {}
+	void DWarning( const char *fmt, ... ) override {}
+	void PrintWarnings( void ) override {}
+	void ClearWarnings( const char *reason ) override {}
+	void Error( const char *fmt, ... ) override { va_list ap; va_start( ap, fmt ); Report( "ERROR", fmt, ap ); va_end( ap ); exit( 1 ); }
+	void FatalError( const char *fmt, ... ) override { va_list ap; va_start( ap, fmt ); Report( "FATAL ERROR", fmt, ap ); va_end( ap ); exit( 1 ); }
+	void PrintLoadingMessage( const char *msg ) override {}
+	void EnableWarnings( void ) override {}
+	void DisableWarnings( void ) override {}
+	void PacifierUpdate( void ) override {}
+	void UpdateLevelLoadScreen( const wchar_t* status ) override {}
+	const idLangDict* GetLanguageDict( void ) override { return NULL; }
+	idWStr LocalizeText( const char* declName, const idWStrList& arguments = idWStrList() ) override { return idWStr(); }
+	idWStr LocalizeText( const sdDeclLocStr* loc, const idWStrList& arguments = idWStrList() ) override { return idWStr(); }
+	int GetNumVideoModes( void ) const override { return 0; }
+	vidmode_t& GetVideoMode( int index ) const override { static vidmode_t vm; return vm; }
+	idSoundWorld* GetGameSoundWorld( void ) override { return NULL; }
+	idSoundWorld* GetMenuSoundWorld( void ) override { return NULL; }
+	void WriteConfigs( void ) override {}
+
+private:
+	static void Report( const char *kind, const char *fmt, va_list ap ) {
+		printf( "%s: ", kind );
+		vprintf( fmt, ap );
+		printf( "\n" );
+		fflush( stdout );
+	}
+};
+
+// Globals the channel's sources refer to (the channel prints only when
+// net_channelShowPackets is set or a packet is bad)
+static TestCommonMock s_testCommon;
+idCommon * common = &s_testCommon;
+idSys * sys = NULL;	// idLib's Math.cpp refers to it
 idCVar * idCVar::staticVars = NULL;
 idCVarSystem * cvarSystem = NULL;
 idFileSystem * fileSystem = NULL;
@@ -106,7 +158,17 @@ static void Deliver( idMsgChannel &receiver, const netadr_t &adr, int time, cons
 	CHECK( done, "size %d: the receiver never completed the message", n );
 }
 
+// Init allocates a channel's compressor and only Shutdown frees it
+static void FreeChannels( idMsgChannel *sender, idMsgChannel *receiver ) {
+	sender->Shutdown();
+	receiver->Shutdown();
+	delete sender;
+	delete receiver;
+}
+
 int main() {
+	idLib::common = &s_testCommon;
+
 	netadr_t adr;
 	memset( &adr, 0, sizeof( adr ) );
 	adr.type = NA_LOOPBACK;
@@ -137,14 +199,13 @@ int main() {
 		CHECK( g_numPackets == 1, "size 0: %d packets", g_numPackets );
 		Deliver( *receiver, adr, 1000, payload, 0 );
 
-		delete sender;
-		delete receiver;
+		FreeChannels( sender, receiver );
 	}
 
 	int exactMultiples = 0;
 	int tried = 0;
 	// the compressed message grows with the payload but not one for one: scan
-	// payloads from one to four fragments (all of them fragmented), which crosses
+	// payloads of 1300 to 5200 bytes (all of them fragmented), which crosses
 	// several exact multiples
 	for ( int n = FRAGMENT; n <= 4 * FRAGMENT; n++, tried++ ) {
 		idMsgChannel *sender = new idMsgChannel;
@@ -177,8 +238,7 @@ int main() {
 
 		Deliver( *receiver, adr, time, payload, n );
 
-		delete sender;
-		delete receiver;
+		FreeChannels( sender, receiver );
 	}
 
 	CHECK( exactMultiples > 0, "no payload size in the scan made a message of an exact multiple of FRAGMENT_SIZE (%d)", FRAGMENT );
