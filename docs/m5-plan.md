@@ -132,7 +132,7 @@ M5 is done when:
 ## Remaining criteria
 
 15. **Mixed-cap live session.** Two Vulkan clients at different caps (60 with 240, then 120 with 144) and a headless peer. Each client is checked against its own cap as in D1: the cap is never exceeded by more than 3%, the frame-pose checks of step 3 pass on every draw, and a cap this host cannot reach (144 and 240 on this 120 Hz display) is reported with the measured rate, not failed. Smooth motion at caps the display cannot reach is judged by people on real displays (D3).
-    - **Design (2026-10-01, the Mac session; spikes ran it on this Mac).** A new test `tests/test_mixed_caps.py`, meson `mixed-caps` (suites client and integration, needs retail data and a display). It reuses `test_frame_poses.py`'s parsing, `evaluate`, `fraction_check` and `judge`.
+    - **Design (2026-10-01, the Mac session; spikes ran it on this Mac).** A new test `tests/test_mixed_caps.py`, meson `mixed-caps` (suites client and integration, needs retail data and a display). It reuses `test_frame_poses.py`'s parsing and `evaluate`; its own table keys results by client and cap and applies frame-poses' `per_tick` shape rule.
     - **Topology.** A dedicated server on valley, Vulkan clients A and B and a headless peer (the dedicated binary with `+connect`), all on GDF, joining in that order.
       - Settings: the frame-poses settings for the server (objective rules, `si_teamForceBalance 0`, `g_teamSwitchDelay 0`, `net_allowCheats 1`) and the clients (`com_unlockFPS 1`, `r_swapInterval 0`, `r_vkValidation 0`, `in_yawSpeed 90`, `in_angleSpeedKey 1`). `g_logFramePoses 4` is set after each client connects, because it is a cheat.
       - Spawn spots follow the join order. In three runs, A, B and the peer spawned at (9127, −10730), (10600, −10824) and (8963, −10600). The test asserts each spawn is within 64 u of these spots, or fails with "spawn layout changed".
@@ -167,6 +167,14 @@ M5 is done when:
     - **Criterion 2 stays open** after this test lands, until step 8 turns A7 and A7o into passes.
     - **Negative controls.** Frame-poses' control already shows A4 and A5 can fail. A7o's known gap shows its detector registers poses that do not change. C0 and T1 compare against fixed values.
     - **Size:** about 20 s a round, three rounds and the calibration: about 3 minutes in all.
+    - **Done 2026-10-01** (engine `m5/15-mixed-caps`; the test as designed). `mixed-caps` passes on this Mac (macOS arm64, MoltenVK, a 120 Hz panel), three runs out of three, about 124 s each through meson:
+      - Both clients reached 120 fps uncapped together.
+      - The rounds measured 60.0/120.1 fps (60/240, mixed), 120.0/120.1 (120/144, not mixed here) and 45.0/90.0 (45/90, mixed).
+      - C0: every draw logged its client's cap. The caps under 120 Hz were held at 60.0, 45.0 and 90.0 fps.
+      - S1: the server ran 1837 ticks in about 60.6 s of windows, against 1836.3–1836.9 expected.
+      - T1: the view turned 90.0°/s at every cap, with no stall left out.
+      - A0–A9 (except A7), A0o and A9o pass for both clients in every round. A1 reports B's 240 and 144, and A's 120 in the 120/144 round, at the display's 120 (D1).
+      - A7 and A7o keep the `per_tick` shape: the changed fraction equals the tick-crossing fraction (50.2% at 60 fps, 25.1–25.3% at 120, 33.8% at 90, 67.7% at 45). Criterion 2 stays open until step 8.
 
 16. **GUI updates in network sessions.** Done (2026-09-25): no GUI updated during a network game (0 updates in 5 s); a client or listen host now calls `GuiFrameEvents` once per frame, as single player and Doom 3 do (60 updates/s at cap 60), and `client-network-*` check it. Originally: call `GuiFrameEvents` once per frame in multiplayer, as single player and Doom 3 do. First check that the HUD is not already updated some other way; otherwise it would update twice per frame.
 

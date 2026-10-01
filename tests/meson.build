@@ -599,3 +599,27 @@ if build_engine
     is_parallel: false,
   )
 endif
+
+# 12. Mixed-cap live session (M5 step 15): a dedicated server, two Vulkan clients at
+#     different caps (60/240, 120/144, 45/90) and a headless peer on valley; each client
+#     passes the frame-pose checks of step 3 against its own cap, logs that cap on every
+#     draw, and turns at 90 deg/s whatever its cap; the other client is checked as a
+#     remote player (known gap until step 8: remote players change once per tick)
+if build_engine and build_dedicated
+  test(
+    'mixed-caps',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_mixed_caps.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--client-binary', campaign_client,
+      '--port', '29880',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'mixed-caps',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
+endif
