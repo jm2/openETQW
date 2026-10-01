@@ -95,6 +95,7 @@ idCVar com_logFrameTiming( "com_logFrameTiming", "0", CVAR_BOOL | CVAR_SYSTEM | 
 	"print a FRAME_TIMING line every second: frames, game ticks and the distribution of frame intervals and frame work times" );
 
 int com_frameTicks = 0;
+int com_frameUpdateViews = 0;
 bool com_frameInGame = false;
 
 namespace {
@@ -992,9 +993,11 @@ com_logFrameTiming: every host frame adds its interval (from the end of the prev
 frame's pacing to the end of its own) and its work time (from its start to the pacing
 wait). Once a second one line reports how many frames and game ticks that second had and
 the distribution of both times, so a test can tell the frame rate it got during play from
-the cap it asked for. Under Vulkan it also reports the average time a frame that reached
-the present spent in the frame fence, the image acquire, the queue submit and the present
-(M5 step 4: which of them holds the frame rate; FrameSyncTiming.h).
+the cap it asked for, and how many frames drew (draws=). Under Vulkan it also reports the
+average time a frame that reached the present spent in the frame fence, the image acquire,
+the queue submit and the present (M5 step 4: which of them holds the frame rate;
+FrameSyncTiming.h). Last comes how many render-only frames the game prepared for drawing
+(cuv=: game->ClientUpdateView calls; M5 step 7).
 ==================
 */
 namespace {
@@ -1006,8 +1009,8 @@ uint64_t MonotonicUsec() {
 
 class FrameTimingLog {
 public:
-	void	AddFrame( uint64_t frameStartUsec, uint64_t workEndUsec, uint64_t frameEndUsec, int ticks, bool drawn, int cap );
-	void	Reset() { windowStartUsec = 0; lastFrameEndUsec = 0; intervals.clear(); works.clear(); windowTicks = 0; windowDraws = 0; }
+	void	AddFrame( uint64_t frameStartUsec, uint64_t workEndUsec, uint64_t frameEndUsec, int ticks, bool drawn, int updateViews, int cap );
+	void	Reset() { windowStartUsec = 0; lastFrameEndUsec = 0; intervals.clear(); works.clear(); windowTicks = 0; windowDraws = 0; windowUpdateViews = 0; }
 
 private:
 	static float	PercentileMs( std::vector< uint32_t >& usec, float p );
@@ -1018,6 +1021,7 @@ private:
 	std::vector< uint32_t >	works;
 	int						windowTicks = 0;
 	int						windowDraws = 0;	// frames that drew (fewer than frames with com_unlockFPS 0)
+	int						windowUpdateViews = 0;	// game->ClientUpdateView calls (none with com_unlockFPS 0)
 };
 
 float FrameTimingLog::PercentileMs( std::vector< uint32_t >& usec, float p ) {
@@ -1029,7 +1033,7 @@ float FrameTimingLog::PercentileMs( std::vector< uint32_t >& usec, float p ) {
 	return static_cast< float >( usec[ index ] ) * 0.001f;
 }
 
-void FrameTimingLog::AddFrame( uint64_t frameStartUsec, uint64_t workEndUsec, uint64_t frameEndUsec, int ticks, bool drawn, int cap ) {
+void FrameTimingLog::AddFrame( uint64_t frameStartUsec, uint64_t workEndUsec, uint64_t frameEndUsec, int ticks, bool drawn, int updateViews, int cap ) {
 	if ( windowStartUsec == 0 ) {
 		// the first frame only opens the window: it has no previous frame end
 		windowStartUsec = frameEndUsec;
@@ -1042,6 +1046,7 @@ void FrameTimingLog::AddFrame( uint64_t frameStartUsec, uint64_t workEndUsec, ui
 	works.push_back( static_cast< uint32_t >( std::min< uint64_t >( workEndUsec - frameStartUsec, UINT32_MAX ) ) );
 	windowTicks += ticks;
 	windowDraws += drawn ? 1 : 0;
+	windowUpdateViews += updateViews;
 	lastFrameEndUsec = frameEndUsec;
 
 	const uint64_t windowUsec = frameEndUsec - windowStartUsec;
@@ -1054,17 +1059,18 @@ void FrameTimingLog::AddFrame( uint64_t frameStartUsec, uint64_t workEndUsec, ui
 	const float perFrameMs = sync.frames > 0 ? 0.001f / static_cast< float >( sync.frames ) : 0.0f;
 	common->Printf( "FRAME_TIMING: window_ms=%.1f frames=%d ticks=%d cap=%d"
 		" dt_p50=%.2f dt_p95=%.2f dt_p99=%.2f dt_max=%.2f work_p50=%.2f work_p95=%.2f work_max=%.2f draws=%d"
-		" vk_frames=%d fence_ms=%.2f acquire_ms=%.2f submit_ms=%.2f present_ms=%.2f\n",
+		" vk_frames=%d fence_ms=%.2f acquire_ms=%.2f submit_ms=%.2f present_ms=%.2f cuv=%d\n",
 		static_cast< float >( windowUsec ) * 0.001f, frames, windowTicks, cap,
 		PercentileMs( intervals, 0.5f ), PercentileMs( intervals, 0.95f ), PercentileMs( intervals, 0.99f ), PercentileMs( intervals, 1.0f ),
 		PercentileMs( works, 0.5f ), PercentileMs( works, 0.95f ), PercentileMs( works, 1.0f ), windowDraws,
 		sync.frames, static_cast< float >( sync.fenceUsec ) * perFrameMs, static_cast< float >( sync.acquireUsec ) * perFrameMs,
-		static_cast< float >( sync.submitUsec ) * perFrameMs, static_cast< float >( sync.presentUsec ) * perFrameMs );
+		static_cast< float >( sync.submitUsec ) * perFrameMs, static_cast< float >( sync.presentUsec ) * perFrameMs, windowUpdateViews );
 	windowStartUsec = frameEndUsec;
 	intervals.clear();
 	works.clear();
 	windowTicks = 0;
 	windowDraws = 0;
+	windowUpdateViews = 0;
 }
 
 FrameTimingLog frameTimingLog;
@@ -1077,6 +1083,7 @@ void idCommonLocal::Frame() {
 	}
 	const uint64_t frameStartUsec = MonotonicUsec();
 	com_frameTicks = 0;
+	com_frameUpdateViews = 0;
 	com_frameInGame = false;
 	try {
 		Sys_FPU_EnableExceptions( 0 );
@@ -1183,7 +1190,7 @@ void idCommonLocal::Frame() {
 		}
 
 		if ( com_logFrameTiming.GetBool() ) {
-			frameTimingLog.AddFrame( frameStartUsec, workEndUsec, MonotonicUsec(), com_frameTicks, frameDrawn, maxFPS );
+			frameTimingLog.AddFrame( frameStartUsec, workEndUsec, MonotonicUsec(), com_frameTicks, frameDrawn, com_frameUpdateViews, maxFPS );
 		} else if ( com_logFrameTiming.IsModified() ) {
 			com_logFrameTiming.ClearModified();
 			frameTimingLog.Reset();

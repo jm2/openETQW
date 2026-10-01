@@ -344,6 +344,7 @@ void idSessionLocal::Frame() {
 		if ( renderOnlyFrame && mapSpawned && game != NULL && com_unlockFPS.GetBool() ) {
 			const usercmd_t cmd = usercmdGen->GetDirectUsercmd();
 			game->ClientUpdateView( cmd, Com_GetGameTimeLeft() );
+			++com_frameUpdateViews;
 		}
 	}
 }
