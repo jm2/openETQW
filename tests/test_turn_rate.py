@@ -13,6 +13,17 @@ also builds a usercmd on every render-only frame (late view-angle sampling),
 and each of those used to add a whole tick of turning, so the rate grew with
 the frame rate and those angles reached the server.
 
+--listen: the Vulkan client hosts the map instead (+spawnServer, a listen server;
+its own player is client 0), joins GDF and turns its own player with the same keys
+at the same caps, and the host's playerPos 0 reads the yaw of the usercmds the
+server simulates (LocalClientInput builds one a tick). Both runs must turn at the
+same rate: the host's authoritative turn rate must not scale with the cap either,
+also once M5 step 7 has the host build a usercmd on its render-only frames, as the
+client does. The host logs its frame timing (com_logFrameTiming), and a hold at
+cap 240 must run at least MIN_FRAMES_PER_TICK frames a tick, or it turned through
+no render-only frame. The Vulkan client opens a window and runs from the
+repository root.
+
 Exit 77 when ETQW_DATA_PATH is unset/invalid or the binary is missing.
 """
 
@@ -24,13 +35,19 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import etqw_harness as h  # noqa: E402
+from test_campaign_client_maps import BAD_MARKERS, find_client  # noqa: E402
+from test_client_network import VulkanClient  # noqa: E402
+from test_reconnect_restart import Failed, spawn  # noqa: E402
 
 READY = "------------- ETQW initialized -------------"
 SNAPSHOT_RE = re.compile(r"Client received snapshot (\d+)")
 GAME_INIT_RE = re.compile(r"Sending game init to client (\d+)")
+FRAME_TIMING_RE = re.compile(r"FRAME_TIMING: window_ms=([\d.]+) frames=(\d+) ticks=(\d+) cap=(-?\d+)")
 YAW_SPEED = 20.0      # degrees a second: slow enough that a sample never wraps past 180
 HOLD = 2.0            # seconds the turn key is held
 TOLERANCE = 0.10      # rate may differ from YAW_SPEED by this fraction
+TURN_CVARS = {"in_yawspeed": str(YAW_SPEED), "in_anglespeedkey": "1"}
+MIN_FRAMES_PER_TICK = 2.0   # --listen: a hold above cap 30 must run this many frames a tick
 
 
 class RemoteClient(h.DedicatedServer):
@@ -38,8 +55,7 @@ class RemoteClient(h.DedicatedServer):
 
     def __init__(self, binary, data, server_port, port, log_path=None):
         super().__init__(binary, data, "", port, log_path=log_path,
-                         cvars={"si_pure": "0", "ui_name": "TurnClient", "net_clientShowSnapshots": "1",
-                                "in_yawspeed": str(YAW_SPEED), "in_anglespeedkey": "1"})
+                         cvars={"si_pure": "0", "ui_name": "TurnClient", "net_clientShowSnapshots": "1", **TURN_CVARS})
         self.server_port = server_port
 
     def command_line(self):
@@ -56,15 +72,25 @@ def usercmd_yaw(srv, client_num):
     return None
 
 
+def frames_per_tick(proc, begin, end, cap):
+    """Frames a game tick over the FRAME_TIMING windows proc printed between two line
+    indices at this cap (None without one): how many frames each tick of the hold ran."""
+    windows = [m for ln in proc.snapshot(begin, end) if (m := FRAME_TIMING_RE.search(ln.text)) and int(m.group(4)) == cap]
+    ticks = sum(int(m.group(3)) for m in windows)
+    return sum(int(m.group(2)) for m in windows) / ticks if ticks else None
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--ded-binary")
+    ap.add_argument("--client-binary", help="the Vulkan client (--listen)")
+    ap.add_argument("--listen", action="store_true", help="the Vulkan client hosts a listen server and turns its own player")
     ap.add_argument("--map", default="quarry")
     ap.add_argument("--port", type=int, default=29990)
     ap.add_argument("--log-dir")
     args = ap.parse_args(argv)
     try:
-        binary = h.find_ded_binary(args.ded_binary)
+        binary = find_client(args.client_binary) if args.listen else h.find_ded_binary(args.ded_binary)
         data = h.resolve_data_path()
     except h.SkipTest as e:
         print(f"[SKIP] {e}")
@@ -75,23 +101,49 @@ def main(argv):
         log_dir.mkdir(parents=True, exist_ok=True)
 
     failures = []
-    srv = h.DedicatedServer(binary, data, args.map, args.port,
-                            log_path=(log_dir / "server.log") if log_dir else None,
-                            cvars={"si_rules": "sdGameRulesObjective", "si_pure": "0"})
-    cl = RemoteClient(binary, data, args.port, args.port + 1,
-                      log_path=(log_dir / "client.log") if log_dir else None)
+    if args.listen:
+        # the host is the server: it reads the yaw of its own player's usercmds. r_vkValidation 0
+        # and no vsync, so cap 240 is reached (frame-poses measures the same way)
+        srv = cl = VulkanClient(binary, data, args.port, map_name=args.map,
+                                log_path=(log_dir / "host.log") if log_dir else None,
+                                cvars={"si_rules": "sdGameRulesObjective", "si_pure": "0", "ui_name": "TurnHost",
+                                       "com_unlockFPS": "1", "r_swapInterval": "0", "r_vkValidation": "0",
+                                       "com_logFrameTiming": "1", **TURN_CVARS})
+        cl.name, cl.slot = "Host", 0
+        procs = [("host", cl)]
+    else:
+        srv = h.DedicatedServer(binary, data, args.map, args.port,
+                                log_path=(log_dir / "server.log") if log_dir else None,
+                                cvars={"si_rules": "sdGameRulesObjective", "si_pure": "0"})
+        cl = RemoteClient(binary, data, args.port, args.port + 1,
+                          log_path=(log_dir / "client.log") if log_dir else None)
+        procs = [("client", cl), ("server", srv)]
     try:
-        srv.start()
-        if not srv.wait_for_text(READY, 180.0):
-            print("FAIL: server never became ready")
-            return 1
-        srv.sync()
-        cl.start()
-        hit = srv.wait_for(lambda s: GAME_INIT_RE.search(s), 120.0)
-        client_num = int(hit[2].group(1)) if hit else None
-        if client_num is None or not cl.wait_for(lambda s: SNAPSHOT_RE.search(s), 180.0):
-            print("FAIL: the client never connected and received a snapshot")
-            return 1
+        if args.listen:
+            cl.start()
+            if not cl.wait_for_text(READY, 180.0) or not cl.wait_for_text(f"Map: maps/{args.map}", 180.0):
+                print("FAIL: the listen server never loaded the map")
+                return 1
+            cl.sync(60.0)
+            client_num = 0
+            try:
+                # on a team with the limbo menu closed, so the keys turn the player
+                spawn(srv, cl, "gdf", timeout=60.0)
+            except Failed as e:
+                print(f"FAIL: {e}")
+                return 1
+        else:
+            srv.start()
+            if not srv.wait_for_text(READY, 180.0):
+                print("FAIL: server never became ready")
+                return 1
+            srv.sync()
+            cl.start()
+            hit = srv.wait_for(lambda s: GAME_INIT_RE.search(s), 120.0)
+            client_num = int(hit[2].group(1)) if hit else None
+            if client_num is None or not cl.wait_for(lambda s: SNAPSHOT_RE.search(s), 180.0):
+                print("FAIL: the client never connected and received a snapshot")
+                return 1
         if usercmd_yaw(srv, client_num) is None:
             print("FAIL: playerPos prints no yaw= (game module too old?)")
             return 1
@@ -100,14 +152,24 @@ def main(argv):
             cl.send(f"com_maxFPS {fps}")
             time.sleep(1.0)
             before = usercmd_yaw(srv, client_num)
+            begin = cl.mark()
             cl.send(f"+{key}")
             start = time.monotonic()
             time.sleep(HOLD)
             cl.send(f"-{key}")
             held = time.monotonic() - start
+            end = cl.mark()
             time.sleep(0.5)     # the last usercmds reach the server
             after = usercmd_yaw(srv, client_num)
             label = f"{fps} fps +{key}"
+            if args.listen:
+                # each frame of the hold that ran no tick is one the host could sample input on
+                per_tick = frames_per_tick(cl, begin, end, fps)
+                print(f"[{label}] the host ran " + (f"{per_tick:.2f} frames a tick" if per_tick else "no timed frame")
+                      + " during the hold (FRAME_TIMING)")
+                if fps > 30 and (per_tick is None or per_tick < MIN_FRAMES_PER_TICK):
+                    failures.append(f"{label}: the host ran {per_tick or 0:.2f} frames a tick during the hold"
+                                    f" (need >= {MIN_FRAMES_PER_TICK}): no render-only frames to turn through")
             if before is None or after is None:
                 failures.append(f"{label}: no yaw from playerPos")
                 continue
@@ -119,23 +181,26 @@ def main(argv):
             if abs(rate - YAW_SPEED) > TOLERANCE * YAW_SPEED:
                 failures.append(f"{label}: turned at {rate:.1f} degrees/s, expected {YAW_SPEED} +/- {TOLERANCE:.0%}")
 
-        crc = cl.quit()
-        src = srv.quit()
-        if src != 0 or crc != 0:
-            failures.append(f"quit exit codes: server {src}, client {crc}")
-        for name, proc in (("server", srv), ("client", cl)):
+        codes = {name: proc.quit() for name, proc in procs}
+        if any(c != 0 for c in codes.values()):
+            failures.append("quit exit codes: " + ", ".join(f"{name} {c}" for name, c in codes.items()))
+        for name, proc in procs:
             for b in h.scan_failures(l.text for l in proc.snapshot()):
                 failures.append(f"{name} log: {b}")
+            if args.listen:
+                failures += [f"{name} log line {i + 1}: {ln.text}" for i, ln in enumerate(proc.snapshot())
+                             if any(m in ln.text for m in BAD_MARKERS)]
     finally:
-        cl.cleanup()
-        srv.cleanup()
+        for _, proc in procs:
+            proc.cleanup()
 
     if failures:
         print("\nFAILURES:")
         for f in failures:
             print(f"  - {f}")
         return 1
-    print(f"\nPASS: key turning runs at {YAW_SPEED} degrees/s at 30 and 240 fps, both ways")
+    where = "on the listen host" if args.listen else "on a remote client"
+    print(f"\nPASS: key turning {where} runs at {YAW_SPEED} degrees/s at 30 and 240 fps, both ways")
     return 0
 
 

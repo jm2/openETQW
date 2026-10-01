@@ -53,10 +53,23 @@ Validates:
    schedule's windows, the caps in order; the com_unlockFPS 0 schedule is checked by
    draws instead, item 1).
 5. Clean shutdown with exit code 0.
+
+--listen runs the same schedules on a listen host (M5 plan step 5's listen variant): the
+Vulkan client serves the map itself (+spawnServer valley on --port, net_allowCheats 1) and
+simulates its own player as the server, where M5 step 7 changes how the frame runs. Each
+run must print the listen server's "Server spawned on ...:<port>" line, so a launch that
+fell back to single player cannot pass. Every check above applies, so SIM_HASH, SIM_VIEW
+and VEH_TRACE must be identical to cap 30's and to the com_unlockFPS 0 schedule's on every
+tick. Every schedule also logs its draws (g_logFramePoses), and the exercise check counts
+the host's unlocked draws (FRAME_POSE ud=1 cu=1) on the on-foot ticks 21-90: before step 7
+the host never calls ClientUpdateView, so there are none, and the count is reported; with
+LISTEN_HOST_UNLOCKS set (step 7) it must be above 0 at every cap above 30 and 0 with
+com_unlockFPS 0. Needs the client binary (no fallback to the dedicated one).
 """
 
 from __future__ import annotations
 
+import argparse
 import atexit
 import collections
 import dataclasses
@@ -152,6 +165,14 @@ PLAY_MIN_TICKS = 25     # a FRAME_TIMING window with fewer game ticks is loading
 CAP_OVERSHOOT = 1.03    # a schedule may run at most this much above its cap
 PACED_FRACTION = 0.98   # a cap <= REACH_FRACTION x the uncapped rate must be held this closely
 REACH_FRACTION = 0.9    # a cap above this fraction of the uncapped rate is the host's (D1: reported)
+LISTEN_PORT = 29964     # --listen's default net_port (tests/meson.build passes it too)
+# --listen's exercise check: the host's unlocked draws (FRAME_POSE ud=1 cu=1) on the ticks
+# the replay is on foot. TODO(M5 step 7): set LISTEN_HOST_UNLOCKS to True in the change
+# that makes idAsyncServer::RunFrame call ClientUpdateView on render-only frames; the
+# count is then asserted (> 0 at every cap above 30, 0 with com_unlockFPS 0) instead of
+# reported. Until then the host never draws between ticks and the count is 0.
+LISTEN_HOST_UNLOCKS = False
+ON_FOOT_TICKS = (21, 90)    # the replay walks, strafes and jumps, then fires; it enters the titan at 91
 
 
 def play_timing(lines: list[str]) -> dict | None:
@@ -205,10 +226,15 @@ def run_determinism_schedule(
     bin_path: Path,
     expected_min_ticks: int = 150,
     timeout_sec: float = 45.0,
+    listen_port: int | None = None,
 ) -> tuple[dict[int, SimHashEntry], int, list[str]]:
-    """Runs a single determinism schedule at the given com_maxFPS."""
-    print(f"\n--- [SCHEDULE {cap_label(fps)}] Launching Valley determinism replay (com_maxFPS {start_cap(fps)}) ---")
+    """Runs a single determinism schedule at the given com_maxFPS: single player
+    (+devmap), or on a listen host serving listen_port (+spawnServer)."""
+    where = "single player" if listen_port is None else f"listen host on port {listen_port}"
+    print(f"\n--- [SCHEDULE {cap_label(fps)}] Launching Valley determinism replay (com_maxFPS {start_cap(fps)}, {where}) ---")
 
+    # every listen draw is logged, for the exercise check; single player logs the locked ones
+    log_poses = "4" if fps == LOCKED else ("0" if listen_port is None else "1")
     args = [
         str(bin_path),
         "+set", "fs_basepath", str(DATA_PATH),
@@ -218,15 +244,17 @@ def run_determinism_schedule(
         "+set", "r_swapInterval", "0",
         "+set", "com_maxFPS", str(start_cap(fps)),
         "+set", "com_unlockFPS", "0" if fps == LOCKED else "1",
-        "+set", "g_logFramePoses", "4" if fps == LOCKED else "0",
+        "+set", "g_logFramePoses", log_poses,
         "+set", "com_logFrameTiming", "1",
         "+set", "g_determinismTest", "1",
         "+set", "g_simHash", "1",
-        "+devmap", "valley",
-        "+clientTeam", "gdf",
-        "+clientClass", "soldier",
-        "+closeLimbo",
     ]
+    if listen_port is None:
+        args += ["+devmap", "valley"]
+    else:
+        # g_logFramePoses is a cheat (it logs other players whatever their visibility)
+        args += ["+set", "net_port", str(listen_port), "+set", "net_allowCheats", "1", "+spawnServer", "valley"]
+    args += ["+clientTeam", "gdf", "+clientClass", "soldier", "+closeLimbo"]
 
     start_time = time.time()
     proc = subprocess.Popen(
@@ -351,7 +379,20 @@ def run_determinism_schedule(
             f"Schedule {fps} Hz captured only {len(sim_hashes)} ticks, expected >= {expected_min_ticks}"
         )
 
+    # the replay must have run on the listen server, not in a single-player session
+    if listen_port is not None and not re.search(rf"^Server spawned on \S+:{listen_port}$", full_output, re.MULTILINE):
+        raise RuntimeError(f"Schedule {cap_label(fps)}: no 'Server spawned on ...:{listen_port}' line: not a listen host")
+
     return sim_hashes, vulkan_frames, output_lines
+
+
+def unlocked_host_draws(lines: list[str]) -> tuple[int, int, int]:
+    """--listen's exercise check: (unlocked draws, draws with canUnlockFrames, all draws)
+    that FRAME_POSE logged on the on-foot ticks. An unlocked draw (ud=1) is one between
+    ticks that ClientUpdateView moved; cu=1 is the local player's IsFPSUnlock()."""
+    lo, hi = ON_FOOT_TICKS
+    poses = [p for ln in lines if (p := frame_poses.parse_pose(ln)) and lo <= p["fn"] <= hi]
+    return (sum(1 for p in poses if p["ud"] == 1 and p["cu"] == 1), sum(1 for p in poses if p["cu"] == 1), len(poses))
 
 
 def sim_views(lines: list[str], label: str) -> dict[int, str]:
@@ -364,17 +405,28 @@ def sim_views(lines: list[str], label: str) -> dict[int, str]:
     return dict(records)
 
 
-def main() -> int:
+def main(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--listen", action="store_true", help="replay on a listen host (+spawnServer) instead of single player")
+    ap.add_argument("--port", type=int, default=LISTEN_PORT, help="the listen host's net_port (with --listen)")
+    opts = ap.parse_args(argv)
+    listen_port = opts.port if opts.listen else None
+
     print("=================================================================")
-    print(" OpenETQW High-Refresh Simulation Determinism Replay Test")
+    print(" OpenETQW High-Refresh Simulation Determinism Replay Test"
+          + (f" (listen host, port {listen_port})" if opts.listen else " (single player)"))
     print(f" Working Directory: {REPO_ROOT}")
     print(f" Retail Basepath:   {DATA_PATH}")
     print(" Render Schedules:   60 Hz, 120 Hz, 144 Hz, 240 Hz, uncapped")
-    print(" Target Binary:     " + (str(CLIENT_BIN) if CLIENT_BIN.is_file() else str(DED_BIN)))
+    print(" Target Binary:     " + (str(CLIENT_BIN) if CLIENT_BIN.is_file() or opts.listen else str(DED_BIN)))
     print("=================================================================")
 
     bin_path = CLIENT_BIN
     if not bin_path.is_file():
+        if opts.listen:
+            # the listen host draws; the dedicated binary cannot stand in for it
+            print(f"[SKIP] {CLIENT_BIN} does not exist (--listen needs the client binary). Skipping test.")
+            return 77  # Meson skip code
         if DED_BIN.is_file():
             print(f"[WARN] Client binary not found, falling back to dedicated: {DED_BIN}")
             bin_path = DED_BIN
@@ -401,6 +453,7 @@ def main() -> int:
             bin_path=bin_path,
             expected_min_ticks=150,
             timeout_sec=50.0,
+            listen_port=listen_port,
         )
         results[fps] = sim_hashes
         frames[fps] = presented_frames
@@ -640,13 +693,37 @@ def main() -> int:
                                  f" ({len(veh[rates[0]])} and {len(veh[fps])} lines):\n"
                                  f"    {cap_label(rates[0])}: {base}\n    {cap_label(fps)}: {other}")
     print(f"  {len(veh[rates[0]])} VEH_TRACE lines, identical at every cap")
+    # each comparison above holds every schedule to one reference, so all are equal
+    print(f"  SIM_HASH, SIM_VIEW and VEH_TRACE: every schedule identical to {cap_label(30)} and to"
+          f" {cap_label(LOCKED)} on all {len(common_ticks)} ticks")
+
+    exercise_failures = []
+    if opts.listen:
+        # whether the caps above 30 drew between ticks on the host (M5 step 7)
+        lo, hi = ON_FOOT_TICKS
+        print(f"\n--- Unlocked host draws on the on-foot ticks {lo}-{hi} (FRAME_POSE ud=1 cu=1) ---")
+        for fps in rates:
+            unlocked, can_unlock, n = unlocked_host_draws(schedule_lines[fps])
+            print(f"  {cap_label(fps)}: {unlocked} unlocked of {n} draws ({can_unlock} with cu=1)")
+            if n == 0:
+                exercise_failures.append(f"{cap_label(fps)}: no FRAME_POSE draw on ticks {lo}-{hi} (g_logFramePoses refused?)")
+            elif LISTEN_HOST_UNLOCKS and fps == LOCKED and unlocked:
+                exercise_failures.append(f"{cap_label(fps)}: {unlocked} unlocked draws with com_unlockFPS 0")
+            elif LISTEN_HOST_UNLOCKS and fps not in (30, LOCKED) and not unlocked:
+                exercise_failures.append(f"{cap_label(fps)}: the host never drew between ticks (ClientUpdateView)")
+        if not LISTEN_HOST_UNLOCKS:
+            print("  [REPORT] counted, not asserted: until M5 step 7 the listen host never calls ClientUpdateView"
+                  " (LISTEN_HOST_UNLOCKS)")
+        for f in exercise_failures:
+            print(f"  [FAIL] {f}")
     assert not rate_failures, f"Frame rate failures: {rate_failures}"
+    assert not exercise_failures, f"Exercise check failures: {exercise_failures}"
 
     print("\n[PASSED] 100% BIT-FOR-BIT IDENTICAL SIMULATION AT CAPS 60, 120, 144, 240, UNCAPPED AND 30, AT 240 WITH"
           " com_unlockFPS 0, AND WITH THE CAP CHANGED IN PLAY; SIM_VIEW IDENTICAL TO CAP 30 ON EVERY TICK;"
-          " FRAME RATES WITHIN BOUNDS.")
+          " FRAME RATES WITHIN BOUNDS" + (" (LISTEN HOST)." if opts.listen else "."))
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))
