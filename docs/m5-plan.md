@@ -132,6 +132,23 @@ M5 is done when:
 ## Remaining criteria
 
 15. **Mixed-cap live session.** Two Vulkan clients at different caps (60 with 240, then 120 with 144) and a headless peer. Each client is checked against its own cap as in D1: the cap is never exceeded by more than 3%, the frame-pose checks of step 3 pass on every draw, and a cap this host cannot reach (144 and 240 on this 120 Hz display) is reported with the measured rate, not failed. Smooth motion at caps the display cannot reach is judged by people on real displays (D3).
+    - **Design (2026-10-01, the Mac session; a spike ran it on this Mac).** A new test `tests/test_mixed_caps.py`, meson `mixed-caps` (suites client and integration, needs retail data and a display). It reuses `test_frame_poses.py`'s parsing and its per-observer `evaluate`.
+    - **Topology.** A dedicated server on valley (objective rules, cheats allowed for `g_logFramePoses`), Vulkan clients A and B (`com_unlockFPS 1`, `r_swapInterval 0`, `g_logFramePoses 4`, `in_yawSpeed 90`) and a headless peer (the dedicated binary with `+connect`), all on GDF. They join in that order. Spawn spots follow the join order: in two runs A, B and the peer spawned at (9127, −10730), (10600, −10824) and (8963, −10600). A strafes east and B strafes west for 0.7 s (to x ≈ 9294 and ≈ 10427), so the three walk on separate lanes. Each walked forward 2 s and back 2 s unobstructed, ending 190–240 u from where it began. *[measured]*
+    - **Rounds.** First both clients run uncapped for a calibrate phase, which sets each client's ceiling while the other draws too. Then round 1 runs at A = 60, B = 240, and round 2 at A = 120, B = 144, with the caps changed at run time (step 17). In the spike, A and B both ran at 120 fps uncapped; at 60/240 they ran at 60.0 and 120; at 120/144 both ran at 120. *[measured]*
+    - **Phases, 2 s each, bracketed by echo markers on both clients:** *still*; *turnA* (`+left` on A); *walkA* (A forward, then back); *turnB*; *walkB*; *peerwalk*. A client that is not the mover stands still.
+    - **Checks, per client and round, against that client's own cap** (step 3's checks, `evaluate`):
+      - A0, presence: the viewmodel, the peer and the other client are in ≥ 99% of draws.
+      - A1, rate: never over 1.03 × cap. Where the pacer sets the rate it must reach 0.98 × cap; otherwise the rate is reported (D1).
+      - A2, game time: 1.00 × wall time.
+      - A4: view yaw changes on every draw of the client's own turn.
+      - A5, A6: the view origin and the viewmodel change on every draw of its own walk.
+      - A7: the peer's pose changes on every draw of *peerwalk*.
+      - A7o, the mixed-cap case: the other client's pose changes on every draw of the other client's walk. That client runs at the other cap.
+      - A8: the unlocked fraction and its timing.
+      - A9: nothing moves while still.
+    - **Known gaps.** A7 and A7o are `per_tick` (each changes only when a draw crosses a tick) until step 8 restores the `Entity::Present` producer on network clients. Then they must flip to pass, and the test fails on an unexpected pass, as frame-poses does.
+    - **Also checked: the server is unaffected by its clients' caps.** Its `FRAME_TIMING` play windows hold 30 ticks a second (±1) in every phase.
+    - **Size:** about 40 s of phases and about 2.5 minutes in all. The frame-poses negative control already shows these detectors can fail, so it is not repeated here.
 
 16. **GUI updates in network sessions.** Done (2026-09-25): no GUI updated during a network game (0 updates in 5 s); a client or listen host now calls `GuiFrameEvents` once per frame, as single player and Doom 3 do (60 updates/s at cap 60), and `client-network-*` check it. Originally: call `GuiFrameEvents` once per frame in multiplayer, as single player and Doom 3 do. First check that the HUD is not already updated some other way; otherwise it would update twice per frame.
 
