@@ -336,7 +336,8 @@ void idSessionLocal::Frame() {
 			++com_frameTicks;
 		}
 
-		// The old async server called ClientUpdateView between fixed game tics.
+		// The async client and a listen host call ClientUpdateView between fixed game
+		// tics as well (idAsyncClient::RunFrame, idAsyncServer::RunFrame).
 		// Without that call, PlayerView treats every foreground render as another
 		// full-tic draw and repeatedly offsets the weapon by the same origin delta.
 		// That is visible as rapid weapon drift/flicker whenever the player moves.
