@@ -21,7 +21,7 @@ Nothing in this document was built or run, except the stage 6 spike (2026-09-30)
 
 - **Vehicle physics stays on the 30 Hz tick.** Moving it off the tick would change handling, the server's results and client prediction. It also would not remove the delay the driver feels most: keys and the pilot's mouse reach physics once per tick whatever rate the physics runs at.
 - **What the player sees can leave the tick.** So can mouse look, in seats where the mouse only aims the view. This needs no protocol change and no change to the simulation.
-- **The plan has eight stages.** Stages 0–5 make every allowed seat smooth and give angle-driven seats on-foot mouse latency. Stage 6 fixes a client-prediction bug that probably hurts network pilots. Stage 7 is optional: it removes the 33 ms that interpolation costs, for each vehicle class where the physics' own next pose can be predicted.
+- **The plan has eight stages.** Stages 0–5 make every allowed seat smooth and give angle-driven seats on-foot mouse latency. Stage 6 fixes a client-prediction bug in network pilots' cyclic and collective (measured and fixed 2026-09-30). Stage 7 is optional: it removes the 33 ms that interpolation costs, for each vehicle class where the physics' own next pose can be predicted.
 - **On by default, seat by seat.** The owner decided D10 on 2026-09-25: vehicles should feel as modern and responsive as possible out of the box, without breaking game physics. A seat joins the default list once it passes the prerequisites in §3.3 (the captures, the replays and a human review); until then it keeps retail's tick-rate view.
 
 ## 1. What a player feels in vehicles today, and why
@@ -90,9 +90,9 @@ A snapshot holds the state after server tick S, and by then the client has predi
 - **Ground state.** While the landing gear is down, `isGrounded` is recomputed every tick from the restored pose; with the gear up it is false (game `VehicleControl.cpp:1902-1909`). What stays stale is the landing-gear state (toggled inside `SetupInput` by `UpdateLandingGear`), the landing timers and `lastDriverTime` (game `VehicleControl.h:528-549`).
 - **Remote aircraft.** Aircraft that the client predicts for other players are hit differently. Beyond the commands the server relays, the client repeats the last relayed one (engine `AsyncClient.cpp:400-405, 425-432`), so their first-time deltas are zero. On the replay tick they then get the whole accumulated change at once, rather than a reversal. *[inferred]*
 
-How far ahead the client runs (P−S) depends on latency: about one or two ticks on loopback, more over the internet. *[inferred]*
+How far ahead the client runs (P−S) depends on latency. On loopback it was one or two ticks, mostly two, and with 50 ms of forced latency on each side it was four to six, mostly five (stage 6). *[measured]*
 
-The server, the listen host and single player never re-predict, so they are unaffected. Retail has the same code. The effect is inferred, not observed. Stage 6 measures it and fixes it.
+The server, the listen host and single player never re-predict, so they are unaffected. Retail has the same code. Stage 6 measured the mismatch on loopback and fixed it (2026-09-30). How much a pilot feels it has not been judged.
 
 ### 1.4 OpenETQW code that leaks today
 
@@ -181,7 +181,7 @@ Drawing from copies of these touches no tick state. openQ4 did the same (openq4 
 | 3 | Presentation core and generic seat blend | 14 (blend, render copy); shares its core with 9 | empty |
 | 4 | Remote entities while seated | 8, 9 | follows stage 2 |
 | 5 | Late mouse look in angle-driven seats | 14 (sub-tick mouse turn) | angle-driven seats join as they pass §3.3 |
-| 6 | Aircraft re-prediction fix (client only) | 14a | on after its test |
+| 6 | Aircraft re-prediction fix (client only) | 14a (done 2026-09-30) | on (`g_airControlHistory 1`) |
 | 7 | Optional hull lead, using the physics' own next pose | beyond 14 | L = 0 |
 
 Engine steps 7 (listen host) and 10 (tick frames drawn at their real fraction) are needed for full coverage; see §3.4.
@@ -372,6 +372,8 @@ This stage must ship in the same release as stage 3. Otherwise targets stepping 
 
 ### Stage 6: aircraft re-prediction fix (client only; m5-plan step 14a)
 
+Done 2026-09-30: the fix, `AIR_CTL` and meson `aircraft-reprediction` are built as below, and the results are at the end of this stage (ledger row 055). The game line references in this stage stay those of game `cd18aee`, before the change.
+
 **How the frames line up** *[inspected]*
 - A snapshot carries the state after server tick S. `ClientReadSnapshot` sets `framenum = S` (game `Game_network.cpp:2450`). The engine then replays the usercmds from S up to its newest tick through `ClientPrediction` (engine `src/framework/async/AsyncClient.cpp:345-349`, after the snapshot read at `:613-638`).
 - `ClientPrediction` increments `framenum` before any entity thinks (game `Game_network.cpp:3819`). So the first replayed tick is S+1, and it consumes usercmd S. A server tick F likewise consumes usercmd F−1 (engine `AsyncServer.cpp:452-457`; game `Game_local.cpp:5192`). Both counters restart at map load.
@@ -424,7 +426,7 @@ This stage must ship in the same release as stage 3. Otherwise targets stepping 
 - The server, the listen host and single player never re-predict, and they take the unchanged path.
 - The ring is written and read only when `gameLocal.isClient` is set.
 
-**Player-visible gain:** mouse-flown Hornet, Anansi and hover-copter pilots on a network client stop losing or reversing one tick of cyclic with every snapshot, which arrives about every 50–67 ms, and their collective stops running ahead. *[inferred; not measured]*
+**Player-visible gain:** mouse-flown Hornet, Anansi and hover-copter pilots on a network client stop losing or reversing one tick of cyclic with every snapshot, which arrives about every 50–67 ms, and their collective stops running ahead. The control-state mismatch is measured (results below); how much a pilot feels it is not.
 
 **Measurement** (`tests/test_aircraft_reprediction.py`, meson `aircraft-reprediction`, needs retail data)
 - **Setup.** As in `vehicle-view-net`: a Vulkan listen host on valley (cheats allowed) and a Vulkan client as the pilot.
@@ -432,10 +434,10 @@ This stage must ship in the same release as stage 3. Otherwise targets stepping 
     - The headless dedicated binary crashes as a client in a vehicle (`tests/test_vehicle_view_net.py`).
     - A dedicated server has no local player to `spawn` from.
     - `networkSpawn` from the client puts the vehicle 80 u in front of the player, which at valley's GDF spawn is under an overhang.
-  - The host runs `spawn vehicle_anansi origin "9100 -10100 1440" angle 67` (open ground beside the badger's start spot), then `enterVehicle <pilot> vehicle_anansi`.
-  - The pilot sets `ui_advancedFlightControls 1`, `in_yawSpeed 30` and `in_angleSpeedKey 1`. It holds `clientMove 127 0 0` until the server's trace shows the aircraft 100 u up.
-  - This was tried on 2026-09-30: the anansi lifted off about 6 s after full collective and climbed to about 2,300 u. Its collective moved about 0.24 a second at `clientMove 30`, between limits of ±0.3. *[measured]*
-- **Phases**, about 6 s each:
+  - The host runs `spawn vehicle_anansi origin "9100 -10100 1700" angle 67`, about 280 u above open ground beside the badger's start spot, and then `enterVehicle <pilot> vehicle_anansi` at once. With a driver seated at once, the rotor starts before the aircraft falls far, as schedule 2 of `g_determinismTest` does. On its gear the anansi does not reliably leave the ground on collective alone: spawned on the ground, it stayed down for 30 s in two of four tries. *[measured]*
+  - The pilot sets `ui_advancedFlightControls 1`, `in_yawSpeed 30` and `in_angleSpeedKey 1`. It holds `clientMove 127 0 0` until the server's trace shows the aircraft 100 u above its lowest point.
+  - Its collective moved about 0.24 a second at `clientMove 30`, between limits of ±0.3. *[measured]*
+- **Phases**, 9 s each. On loopback only about half the snapshots start a replay: in one roll phase, 121 snapshots arrived and 62 started one, about 10 pairs a second against 20 with latency. So 6 s phases left 52 kept pairs, under the minimum. *[measured]*
   - *still*: collective held at full, so it is saturated, and the aircraft hovers where the flight ceiling fades its lift. This gives the floor that snapshot quantization sets.
   - *roll*: collective still at full; `+left` and `+right`, alternating each second (about 1° a tick, under the clamp).
   - *collective*: `clientMove -30` for 1 s, then `clientMove 30` for 1.5 s, repeated. The value moves for most of each cycle, then saturates at the top for about half a second. That realigns client and server after any duplicated command.
@@ -444,7 +446,7 @@ This stage must ship in the same release as stage 3. Otherwise targets stepping 
   - Each runs at loopback latency, and again with `net_forceLatency 50` on both processes. With that latency the client runs at least two ticks ahead, so the input is reversed rather than lost.
   - The loopback legs run first, so latency only ever goes up. When it goes up, the client's prediction takes about 3 s to absorb the change: the prediction moves 1 ms per snapshot (engine `AsyncClient.cpp:648`), and until it catches up the server duplicates commands. The next phase waits until the server logs no `dup>0` for 2 s. After 15 s the test fails as inconclusive.
   - One more leg with simple controls is reported only.
-  - About 3 minutes in total.
+  - About 4 minutes in total.
 - **Pairing.**
   - Each client line with `pred=1 since=1` is paired with the server line of the same `tick` and `ent`. Their `uf` must match, which confirms the lockstep.
   - A pair is dropped on the entry tick; when the server's line for tick S or S+1 has `dup>0`; or when `ahead=` is above 30 (`net_clientMaxPrediction`), which marks a prediction restart.
@@ -462,6 +464,22 @@ This stage must ship in the same release as stage 3. Otherwise targets stepping 
   4. **Physics, at `since=2`.** Reported, not judged: for each leg, the median and p95 of the pose and angular-velocity errors, against the still phase's floor. A bound is set once there are runs to set it from.
   5. **Elsewhere.** `vehicle-physics-golden`, `high-refresh-determinism`, `seat-gate` and the frame-poses tests are unchanged.
 - **The residual rule.** A fix-on pair that fails check 1 or 3 is a residual, unless a duplicated command or a prediction restart explains it. If one remains, `oldCmdAngles` and `collective` are networked, as the owner decided.
+
+**Results (2026-09-30, this Mac, game `m5/14a-air-control`; the range over three runs)** *[measured]*
+
+| Leg (advanced controls) | Client ahead (P−S) | Roll pairs with `base` differing | Moving-collective pairs with `coll` differing | Angular-velocity error at `since=2` (roll and collective phases), p95 |
+|---|---|---|---|---|
+| loopback, fix off | 1–2 (mostly 2) | 83 of 83 | 76–77 of 77–78 | 0.057 rad/s |
+| loopback, fix on | 1–2 | 0 of 83–84 | 0 of 77–78 | 1.4–1.7×10⁻⁵ rad/s |
+| 50 ms, fix off | 4–6 (mostly 5) | 161 of 161 | 147–151 of 147–151 | 0.066–0.067 rad/s |
+| 50 ms, fix on | 4–6 | 0 of 160–161 | 0 of 147–150 | 1.4–1.5×10⁻⁵ rad/s |
+
+- No command was duplicated and no prediction restarted, so no pair was dropped.
+- With the fix on, `in=` also matched in every pair.
+- In the simple-controls leg, `base` and collective were equal in every pair. `in=` differed wherever auto-levelling acted: in every pair of the still and collective phases, but only 2 of 161 roll pairs, because it acts when the mouse is idle. It reads the predicted pose, which carries the snapshot's quantization, as anticipated above. The leg's angular-velocity error stayed at the fix-on level (p95 about 1.3×10⁻⁵ rad/s).
+- At a direction reversal one tick ahead, the fix-off collective can match, hence 76–77 of 77–78 at loopback.
+- The origin error at `since=2` (p95 about 0.04 u) and the orientation error (p95 under 5×10⁻⁵°) are the same with the fix on and off. The snapshot's quantization sets them; one tick of wrong cyclic shows first in the angular velocity. The still phase's floor: origin p95 0.013–0.038 u, angular velocity p95 at most 1.1×10⁻⁷ rad/s.
+- There is no residual, so `oldCmdAngles` and `collective` stay un-networked.
 
 **Effort:** about 1 day for the tooling and the fix, plus 2–3 days for the test. It needs a ledger row, because this client behaviour differs from retail. *[inferred]*
 
