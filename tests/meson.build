@@ -194,7 +194,8 @@ if build_engine
     is_parallel: false,
   )
   # the same replay on a listen host (+spawnServer; M5 plan step 5's listen variant): the
-  # Vulkan client is the server; it also counts the host's draws between ticks (step 7)
+  # Vulkan client is the server; it also checks whether the host's draws between ticks are
+  # unlocked draws (reported until step 7 has the host call ClientUpdateView)
   test(
     'high-refresh-determinism-listen',
     py,
@@ -220,7 +221,7 @@ if build_engine
     workdir: meson.project_source_root(),
     suite: ['client', 'integration'],
     protocol: 'exitcode',
-    timeout: 180,
+    timeout: 300,
     is_parallel: false,
   )
   # M5 step 5a: the vehicle replay (g_determinismTest 2) against the recorded

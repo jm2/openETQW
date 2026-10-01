@@ -21,8 +21,11 @@ same rate: the host's authoritative turn rate must not scale with the cap either
 also once M5 step 7 has the host build a usercmd on its render-only frames, as the
 client does. The host logs its frame timing (com_logFrameTiming), and a hold at
 cap 240 must run at least MIN_FRAMES_PER_TICK frames a tick, or it turned through
-no render-only frame. The Vulkan client opens a window and runs from the
-repository root.
+no render-only frame. It also logs its draws (g_logFramePoses, a cheat, so the host
+sets net_allowCheats 1), and the unlocked ones during each hold (FRAME_POSE ud=1:
+ClientUpdateView ran on the draw's frame) are counted: 0 before step 7, which never
+builds a render-only usercmd on the host; reported, and asserted by step 7. The
+Vulkan client opens a window and runs from the repository root.
 
 Exit 77 when ETQW_DATA_PATH is unset/invalid or the binary is missing.
 """
@@ -38,6 +41,7 @@ import etqw_harness as h  # noqa: E402
 from test_campaign_client_maps import BAD_MARKERS, find_client  # noqa: E402
 from test_client_network import VulkanClient  # noqa: E402
 from test_reconnect_restart import Failed, spawn  # noqa: E402
+import test_frame_poses as frame_poses  # noqa: E402
 
 READY = "------------- ETQW initialized -------------"
 SNAPSHOT_RE = re.compile(r"Client received snapshot (\d+)")
@@ -80,6 +84,13 @@ def frames_per_tick(proc, begin, end, cap):
     return sum(int(m.group(2)) for m in windows) / ticks if ticks else None
 
 
+def unlocked_draws(proc, begin, end):
+    """(unlocked draws, all draws) that FRAME_POSE logged between two line indices: ud=1
+    is a draw whose frame called ClientUpdateView, which builds a render-only usercmd."""
+    poses = [p for ln in proc.snapshot(begin, end) if (p := frame_poses.parse_pose(ln.text))]
+    return sum(1 for p in poses if p["ud"] == 1), len(poses)
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--ded-binary")
@@ -108,7 +119,8 @@ def main(argv):
                                 log_path=(log_dir / "host.log") if log_dir else None,
                                 cvars={"si_rules": "sdGameRulesObjective", "si_pure": "0", "ui_name": "TurnHost",
                                        "com_unlockFPS": "1", "r_swapInterval": "0", "r_vkValidation": "0",
-                                       "com_logFrameTiming": "1", **TURN_CVARS})
+                                       "com_logFrameTiming": "1", "net_allowCheats": "1", "g_logFramePoses": "1",
+                                       **TURN_CVARS})
         cl.name, cl.slot = "Host", 0
         procs = [("host", cl)]
     else:
@@ -170,6 +182,12 @@ def main(argv):
                 if fps > 30 and (per_tick is None or per_tick < MIN_FRAMES_PER_TICK):
                     failures.append(f"{label}: the host ran {per_tick or 0:.2f} frames a tick during the hold"
                                     f" (need >= {MIN_FRAMES_PER_TICK}): no render-only frames to turn through")
+                # whether those frames built a render-only usercmd (ClientUpdateView): none before
+                # M5 step 7, which asserts it; reported here
+                unlocked, drawn = unlocked_draws(cl, begin, end)
+                print(f"[{label}] {unlocked} of {drawn} draws during the hold were unlocked (FRAME_POSE ud=1)")
+                if drawn == 0:
+                    failures.append(f"{label}: no FRAME_POSE draw during the hold (g_logFramePoses refused?)")
             if before is None or after is None:
                 failures.append(f"{label}: no yaw from playerPos")
                 continue

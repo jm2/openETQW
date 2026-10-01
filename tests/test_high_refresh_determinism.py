@@ -60,11 +60,16 @@ simulates its own player as the server, where M5 step 7 changes how the frame ru
 run must print the listen server's "Server spawned on ...:<port>" line, so a launch that
 fell back to single player cannot pass. Every check above applies, so SIM_HASH, SIM_VIEW
 and VEH_TRACE must be identical to cap 30's and to the com_unlockFPS 0 schedule's on every
-tick. Every schedule also logs its draws (g_logFramePoses), and the exercise check counts
-the host's unlocked draws (FRAME_POSE ud=1 cu=1) on the on-foot ticks 21-90: before step 7
-the host never calls ClientUpdateView, so there are none, and the count is reported; with
-LISTEN_HOST_UNLOCKS set (step 7) it must be above 0 at every cap above 30 and 0 with
-com_unlockFPS 0. Needs the client binary (no fallback to the dedicated one).
+tick. Every schedule also logs its draws (g_logFramePoses), and the exercise check takes
+the host's render-only draws on the on-foot ticks 21-90 (a draw whose tick, FRAME_POSE fn,
+is the previous draw's: its frame ran no tick). Each should be an unlocked draw (ud=1,
+ClientUpdateView called on its frame) with a fraction in (0, 1) (the call went on to
+present one). Before step 7 the host draws between ticks but never calls ClientUpdateView,
+so none is, and the counts are reported; with LISTEN_HOST_UNLOCKS set (step 7) every cap
+above 30 must have at least 20 render-only draws there, all but max(1, 1%) of them so.
+With com_unlockFPS 0 a frame that ran no tick is not drawn (item 1), so no draw can show
+whether ClientUpdateView ran there; step 7 checks that with a count of the calls
+themselves. Needs the client binary (no fallback to the dedicated one).
 """
 
 from __future__ import annotations
@@ -166,11 +171,11 @@ CAP_OVERSHOOT = 1.03    # a schedule may run at most this much above its cap
 PACED_FRACTION = 0.98   # a cap <= REACH_FRACTION x the uncapped rate must be held this closely
 REACH_FRACTION = 0.9    # a cap above this fraction of the uncapped rate is the host's (D1: reported)
 LISTEN_PORT = 29964     # --listen's default net_port (tests/meson.build passes it too)
-# --listen's exercise check: the host's unlocked draws (FRAME_POSE ud=1 cu=1) on the ticks
-# the replay is on foot. TODO(M5 step 7): set LISTEN_HOST_UNLOCKS to True in the change
-# that makes idAsyncServer::RunFrame call ClientUpdateView on render-only frames; the
-# count is then asserted (> 0 at every cap above 30, 0 with com_unlockFPS 0) instead of
-# reported. Until then the host never draws between ticks and the count is 0.
+# --listen's exercise check: the host's render-only draws (FRAME_POSE) on the ticks the
+# replay is on foot. TODO(M5 step 7): set LISTEN_HOST_UNLOCKS to True in the change that
+# makes idAsyncServer::RunFrame call ClientUpdateView on render-only frames; the check is
+# then asserted (at every cap above 30, unlocked draws with a fraction in (0, 1)) instead
+# of reported. Until then the host draws between ticks but never makes an unlocked draw.
 LISTEN_HOST_UNLOCKS = False
 ON_FOOT_TICKS = (21, 90)    # the replay walks, strafes and jumps, then fires; it enters the titan at 91
 
@@ -386,13 +391,21 @@ def run_determinism_schedule(
     return sim_hashes, vulkan_frames, output_lines
 
 
-def unlocked_host_draws(lines: list[str]) -> tuple[int, int, int]:
-    """--listen's exercise check: (unlocked draws, draws with canUnlockFrames, all draws)
-    that FRAME_POSE logged on the on-foot ticks. An unlocked draw (ud=1) is one between
-    ticks that ClientUpdateView moved; cu=1 is the local player's IsFPSUnlock()."""
+def render_only_draws(lines: list[str]) -> dict[str, int]:
+    """--listen's exercise check, over the draws FRAME_POSE logged on the on-foot ticks:
+    all of them ("drawn"), those with canUnlockFrames ("cu": the local player's
+    IsFPSUnlock()), and the render-only ones ("n": a draw whose tick, fn, is the previous
+    draw's, so its frame ran no tick), of which "not_unlocked" have ud=0 and "bad_fraction"
+    have ud=1 with a fraction outside (0, 1). ud=1 says only that ClientUpdateView was
+    called on the draw's frame (the game sets it before the function's gates); a fraction
+    in (0, 1) says the call went on to present one."""
     lo, hi = ON_FOOT_TICKS
-    poses = [p for ln in lines if (p := frame_poses.parse_pose(ln)) and lo <= p["fn"] <= hi]
-    return (sum(1 for p in poses if p["ud"] == 1 and p["cu"] == 1), sum(1 for p in poses if p["cu"] == 1), len(poses))
+    poses = [p for ln in lines if (p := frame_poses.parse_pose(ln))]
+    on_foot = [p for p in poses if lo <= p["fn"] <= hi]
+    render_only = [b for a, b in zip(poses, poses[1:]) if lo <= b["fn"] <= hi and b["fn"] == a["fn"]]
+    return {"drawn": len(on_foot), "cu": sum(1 for p in on_foot if p["cu"] == 1), "n": len(render_only),
+            "not_unlocked": sum(1 for p in render_only if p["ud"] != 1),
+            "bad_fraction": sum(1 for p in render_only if p["ud"] == 1 and not 0.0 < p["fr"] < 1.0)}
 
 
 def sim_views(lines: list[str], label: str) -> dict[int, str]:
@@ -699,18 +712,26 @@ def main(argv: list[str]) -> int:
 
     exercise_failures = []
     if opts.listen:
-        # whether the caps above 30 drew between ticks on the host (M5 step 7)
+        # whether the host's draws between ticks at the caps above 30 are unlocked ones (M5
+        # step 7). With com_unlockFPS 0 a frame that ran no tick is not drawn (locked_check),
+        # so no draw shows whether ClientUpdateView ran there: step 7 counts the calls for that
         lo, hi = ON_FOOT_TICKS
-        print(f"\n--- Unlocked host draws on the on-foot ticks {lo}-{hi} (FRAME_POSE ud=1 cu=1) ---")
+        print(f"\n--- The host's render-only draws on the on-foot ticks {lo}-{hi} (FRAME_POSE fn repeated) ---")
         for fps in rates:
-            unlocked, can_unlock, n = unlocked_host_draws(schedule_lines[fps])
-            print(f"  {cap_label(fps)}: {unlocked} unlocked of {n} draws ({can_unlock} with cu=1)")
-            if n == 0:
+            ro = render_only_draws(schedule_lines[fps])
+            misses = ro["not_unlocked"] + ro["bad_fraction"]
+            print(f"  {cap_label(fps)}: {ro['n']} render-only of {ro['drawn']} draws ({ro['cu']} with cu=1):"
+                  f" {ro['not_unlocked']} not unlocked (ud=0), {ro['bad_fraction']} unlocked with a fraction outside (0, 1)")
+            if ro["drawn"] == 0:
                 exercise_failures.append(f"{cap_label(fps)}: no FRAME_POSE draw on ticks {lo}-{hi} (g_logFramePoses refused?)")
-            elif LISTEN_HOST_UNLOCKS and fps == LOCKED and unlocked:
-                exercise_failures.append(f"{cap_label(fps)}: {unlocked} unlocked draws with com_unlockFPS 0")
-            elif LISTEN_HOST_UNLOCKS and fps not in (30, LOCKED) and not unlocked:
-                exercise_failures.append(f"{cap_label(fps)}: the host never drew between ticks (ClientUpdateView)")
+            elif LISTEN_HOST_UNLOCKS and fps not in (30, LOCKED):
+                if ro["n"] < frame_poses.MIN_PAIRS:
+                    exercise_failures.append(f"{cap_label(fps)}: only {ro['n']} render-only draws on ticks {lo}-{hi}"
+                                             f" (need >= {frame_poses.MIN_PAIRS})")
+                elif misses > frame_poses.allowed_misses(ro["n"]):
+                    exercise_failures.append(f"{cap_label(fps)}: {misses} of {ro['n']} render-only draws are not unlocked"
+                                             f" draws with a fraction in (0, 1) (ClientUpdateView; allowed"
+                                             f" {frame_poses.allowed_misses(ro['n'])})")
         if not LISTEN_HOST_UNLOCKS:
             print("  [REPORT] counted, not asserted: until M5 step 7 the listen host never calls ClientUpdateView"
                   " (LISTEN_HOST_UNLOCKS)")
