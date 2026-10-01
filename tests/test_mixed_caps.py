@@ -16,7 +16,8 @@ it, then settles. Each round's phases, bracketed by echo markers on both clients
   turnA       A turns (+left, 2 s)          walkA   A walks forward 2 s, then back 2 s
   turnB       B turns                        walkB   B walks
   peerwalk    the peer walks forward and back
-A strafes east and B west before the rounds, so the three walk on separate lanes.
+A strafes east and B west before the rounds. Valley's spawn spots vary by platform and
+timing, so the lanes are checked (W1) rather than the spots.
 
 Checks, per client and round, against that client's cap:
   C0   every draw between the markers has cap= equal to the client's intended cap (0 while
@@ -26,6 +27,9 @@ Checks, per client and round, against that client's cap:
        changing on every draw of its walk (at the other cap), still while still
   T1   the view yaw turns 90 deg/s +-2% over the trimmed turn phase at every cap (summed
        per draw pair; pairs more than 133 ms apart left out and reported)
+  W1   each walk's lane is clear: the walker gets LANE_TRAVEL from where the phase began and
+       never comes within LANE_GAP of another player (A and B from their own logs, the peer
+       from A's), so a blocked lane fails here rather than as an obscure A5
   S1   (run validity) over the dedicated server's FRAME_TIMING windows from the first
        phase marker to the last, |sum of ticks - sum of window_ms / 33| <= 2
 Known gaps (frame-poses' shapes): A7 and A7o are per_tick until M5 step 8 restores the
@@ -56,9 +60,11 @@ from test_remote_client_map_change import READY, RemoteClient  # noqa: E402
 ROUNDS = [(60, 240), (120, 144), (45, 90)]   # caps (A, B)
 PHASE_S = 2.0
 SETTLE_S = 1.5
-# where A, B and the peer spawn on valley when they join in that order (three runs)
-SPAWNS = {"A": (9127.0, -10730.0), "B": (10600.0, -10824.0), "peer": (8963.0, -10600.0)}
-SPAWN_TOL = 64.0
+# W1: a walk's lane is clear when the walker gets this far from where its phase began and
+# never this close to another player (x/y; spawn spots vary by platform and timing, so the
+# test checks the lanes, not the spots)
+LANE_TRAVEL = 300.0
+LANE_GAP = 48.0
 TURN_DEG_S = 90.0             # in_yawSpeed with in_angleSpeedKey 1
 TURN_TOL = 0.02
 TICK_MS = 33.0               # USERCMD_MSEC: the server runs 30.3 ticks a second
@@ -157,6 +163,33 @@ def evaluate_client(name, segs, slots, other):
         results[(rnd, cap, "T1")] = {"ok": counted >= MIN_PAIRS and abs(tr - TURN_DEG_S) <= TURN_TOL * TURN_DEG_S,
                                      "detail": f"view yaw {tr:.1f} deg/s over {counted} draw pairs of turn{name}"
                                                f" (need {TURN_DEG_S:.0f} +-{TURN_TOL:.0%}; {stalls} pairs over 133 ms left out)"}
+        def xy(v):
+            return (v[0], v[1])
+
+        def pose_xy(p, slot):
+            c = p["clients"].get(slot)
+            return xy(c["pose"]) if c and c.get("pose") else None
+
+        def lane(walk, mover, others):
+            """(travel, closest approach, draws) of a walker: mover(p) and others(p) give x/y
+            or None."""
+            pos = [m for p in walk if (m := mover(p)) is not None]
+            travel = max((math.dist(q, pos[0]) for q in pos), default=0.0)
+            gaps = [math.dist(m, o) for p in walk if (m := mover(p)) is not None for o in others(p) if o is not None]
+            return travel, min(gaps, default=float("inf")), len(pos)
+
+        walkers = [(f"walk{name}", own_walk, lambda p: xy(p["view"]),
+                    lambda p: [pose_xy(p, slots["peer"]), pose_xy(p, slots[other])])]
+        if name == "A":
+            walkers.append(("peerwalk", seg["peerwalk"], lambda p: pose_xy(p, slots["peer"]),
+                            lambda p: [xy(p["view"]), pose_xy(p, slots[other])]))
+        details, ok = [], True
+        for label, walk, mover, others in walkers:
+            travel, gap, n = lane(walk, mover, others)
+            ok = ok and n > MIN_PAIRS and travel >= LANE_TRAVEL and gap >= LANE_GAP
+            details.append(f"{label}: travelled {travel:.0f} u, closest {gap:.0f} u")
+        results[(rnd, cap, "W1")] = {"ok": ok, "detail": "; ".join(details)
+                                     + f" (need >= {LANE_TRAVEL:.0f} u and >= {LANE_GAP:.0f} u)"}
         report.append(f"{name} {rnd}: still {rate(seg['still']):.1f} fps at cap {cap}")
     return results, report
 
@@ -326,11 +359,7 @@ def main(argv):
             spawned[key] = spawn(srv, proc, "gdf", timeout=60.0)
         connect(srv, peer, "join")
         spawned["peer"] = spawn(srv, peer, "gdf")
-        far = {k: math.dist(spawned[k]["org"][:2], SPAWNS[k]) for k in SPAWNS}
-        if any(d > SPAWN_TOL for d in far.values()):
-            raise Failed("spawn layout changed: " + ", ".join(
-                f"{k} at ({spawned[k]['org'][0]:.0f}, {spawned[k]['org'][1]:.0f}), {far[k]:.0f} u from {SPAWNS[k]}" for k in SPAWNS)
-                + " (the walking lanes depend on it)")
+        print("[spawn] " + ", ".join(f"{k} at ({spawned[k]['org'][0]:.0f}, {spawned[k]['org'][1]:.0f})" for k in ("A", "B", "peer")))
         # separate lanes: A east, B west (docs/m5-plan.md step 15)
         a.send("clientMove 0 127 0")
         b.send("clientMove 0 -127 0")

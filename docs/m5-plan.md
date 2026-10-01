@@ -166,7 +166,10 @@ M5 is done when:
     - **Design (2026-10-01, the Mac session; spikes ran it on this Mac).** A new test `tests/test_mixed_caps.py`, meson `mixed-caps` (suites client and integration, needs retail data and a display). It reuses `test_frame_poses.py`'s parsing and `evaluate`; its own table keys results by client and cap and applies frame-poses' `per_tick` shape rule.
     - **Topology.** A dedicated server on valley, Vulkan clients A and B and a headless peer (the dedicated binary with `+connect`), all on GDF, joining in that order.
       - Settings: the frame-poses settings for the server (objective rules, `si_teamForceBalance 0`, `g_teamSwitchDelay 0`, `net_allowCheats 1`) and the clients (`com_unlockFPS 1`, `r_swapInterval 0`, `r_vkValidation 0`, `in_yawSpeed 90`, `in_angleSpeedKey 1`). `g_logFramePoses 4` is set after each client connects, because it is a cheat.
-      - Spawn spots follow the join order. In three runs, A, B and the peer spawned at (9127, −10730), (10600, −10824) and (8963, −10600). The test asserts each spawn is within 64 u of these spots, or fails with "spawn layout changed".
+      - Spawn spots are not fixed.
+        - On this Mac, in every run, A, B and the peer spawned at (9127, −10730), (10600, −10824) and (8963, −10600).
+        - On Windows (2026-10-01) they spawned at (10376, −10824), (9040, −10622) and (8941, −10677).
+        - The test reports the spots instead of asserting them, and checks the lanes directly (W1).
       - A strafes east and B strafes west for 0.7 s, to x ≈ 9294 and x ≈ 10427, so the three walk on separate lanes. Each walked forward 2 s and back 2 s unobstructed. *[measured]*
       - Both windows open at the same place, B over A. Both still reached 120 fps uncapped. *[measured]*
     - **Rounds.**
@@ -193,6 +196,7 @@ M5 is done when:
         - A9o: it stays put while still.
         - What A7o can catch: a client's cap disturbing what others see of it, through its usercmd stream.
       - **T1, turn rate:** each client's view yaw rate over its trimmed turn phase is 90°/s ± 2% at every cap, so turning speed does not depend on the client's cap. The rate is the sum of each draw pair's yaw change (modulo 360) over the sum of their gaps. Pairs more than 133 ms apart are left out and reported, because the turn scale is clamped at 4 ticks (`UsercmdGen.cpp:368`) and a loading stall would lose yaw for reasons unrelated to the cap. In the spikes, a 2 s `+left` turned 178–181° at 45, 60, 90 and 120 fps. *[measured]*
+      - **W1, clear lanes:** in each walk the walker gets 300 u from where the phase began and never comes within 48 u of another player (x/y). A and B are judged from their own logs, the peer from A's. A blocked lane fails here rather than as an obscure A5.
       - **S1, run validity (not a mixed-cap property):** over the dedicated server's `FRAME_TIMING` windows from the first phase marker to the last, which tile time exactly, |Σ ticks − Σ window_ms / 33| ≤ 2. `USERCMD_MSEC` is 33 ms, so the server runs 30.3 ticks a second. The server ticks on its own clock, so this only shows the host kept it ticking.
     - **Known gaps.** A7 and A7o are `per_tick` (a pose changes only when a draw crosses a tick) until step 8 restores the `Entity::Present` producer on network clients. Then they must flip to pass, and the test fails on an unexpected pass, as frame-poses does. Measured in the spike at 45, 60, 90 and 120 fps: the changed fraction equalled the tick-crossing fraction within 0.5%, with 1–2 misaligned pairs, for the peer (~330 u from A) and for the other client (~1130 u away) alike. *[measured]*
     - **Criterion 2 stays open** after this test lands, until step 8 turns A7 and A7o into passes.
