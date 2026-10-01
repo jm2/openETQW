@@ -12,7 +12,10 @@ tick's camera, with a fraction servers never set, and wrote the result back into
 tick's view, and the base draw after an exit between ticks rewound to the vehicle
 camera. This test came first (decision 4), with that behaviour as known gaps; step 6
 restored the SDK views and reset the origin log at the pose log, and the test now
-asserts that every AoR call returns the tick's view and changes nothing. With
+asserts that every AoR call returns the tick's view origin, and in the smooth views its
+angles too and that the call changes nothing (the standard view is compared by origin
+only: the SDK's non-full damped path recalculates the axis and rewrites
+firstPersonViewAxis and lastReturnedAxis, owner decision 7). With
 g_logVehicleViews (a cheat) the game prints, for players in a vehicle:
 
   VIEW_STATE: side at=pre|post tick client ent pos mode class ud new pose= rvo= phys= vpush=

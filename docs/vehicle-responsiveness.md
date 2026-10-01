@@ -96,7 +96,7 @@ The server, the listen host and single player never re-predict, so they are unaf
 
 ### 1.4 OpenETQW code that leaked (removed in M5 step 6)
 
-OpenETQW added vehicle interpolation that writes values from render frames into state that tick code reads:
+OpenETQW added vehicle interpolation that wrote values from render frames into state that tick code reads:
 - the damped, free-pivot and smooth view paths (game `src/game/vehicles/VehicleView.cpp:556-568, 832-844, 1168-1187`);
 - `sdTransport::ClientUpdateInterpolation` (game `Transport.cpp:5222-5247`);
 - the chassis logs, which record the physics pose (`Transport.cpp:4404-4415`);
@@ -198,7 +198,7 @@ Engine steps 7 (listen host) and 10 (tick frames drawn at their real fraction) a
 - **Game.** A second replay schedule (`g_determinismTest 2`):
   - a ground vehicle for about 150 ticks with throttle, steering, brake, a reverse and one wall contact;
   - then an aircraft, with `usercmd.angles` injected in the block at game `Game_local.cpp:5343-5376`. Today's replay injects no angles and no steering.
-  - It is kept separate so that today's `SIM_HASH` values and the `KNOWN_VIEW_LEAK` ranges do not move.
+  - It is kept separate so that schedule 1's `SIM_HASH` values and the `KNOWN_VIEW_LEAK` ranges (then allowed; gone since step 6) did not move.
 - **Engine tests.**
   - `high-refresh-determinism` also compares `VEH_TRACE` across caps.
   - A new `vehicle-physics-golden` test compares `VEH_TRACE` with a file recorded from main before any M5 vehicle PR lands. It is bit-exact within one toolchain and fixed-precision across toolchains. It is regenerated only with a flag and a stated reason.
@@ -213,7 +213,7 @@ Engine steps 7 (listen host) and 10 (tick frames drawn at their real fraction) a
 
 ### Stage 1: remove the leaks (m5-plan step 6)
 
-**Status: done 2026-09-30** (M5 step 6: the network test first, game #22 / engine #43; then game and engine `m5/6-no-presentation-in-tick`; ledger 029 widened, 056 and 057; details and numbers in `docs/m5-plan.md`). As below, with the owner's seven decisions of 2026-09-30 (STATUS): the view code is deleted, not kept as helpers (decision 1), and `unlockedDraw` keeps retail's lifetime (decision 3).
+**Status: done 2026-09-30** (M5 step 6: the network test first, game #22 / engine #43; then game #24 / engine #46; ledger 029 widened, 056 and 057; details and numbers in `docs/m5-plan.md`). As below, with the owner's seven decisions of 2026-09-30 (STATUS): the view code is deleted, not kept as helpers (decision 1), and `unlockedDraw` keeps retail's lifetime (decision 3).
 
 **What changes.** Everything in step 6: revert the three view paths to SDK code, and delete `ClientUpdateInterpolation`, the chassis logs, the `UpdateModelTransform` early return and the proxy branch. Plus two additions:
 - Run the on-foot blocks of `ClientUpdateView` only when `p->GetProxyEntity() == NULL` at draw time. The latch is taken before entity Think, and the replay enters the vehicle inside the tick with `CMD_EXEC_NOW` (game `Game_local.cpp:5362-5363`). Ledger 056.
@@ -229,10 +229,10 @@ Engine steps 7 (listen host) and 10 (tick frames drawn at their real fraction) a
 **Measurement and safety proof:**
 - `high-refresh-determinism` passes without its `KNOWN_VIEW_LEAK` allowance: `SIM_VIEW` is identical to cap 30's on every tick at every cap.
 - `seat-gate` passes without its entry-leak allowance.
-- `vehicle-view-net` (owner decision 4, added before the revert with today's behaviour as known gaps) passes with none: every AoR call returns the tick's view and changes nothing, on the server and the client, and the exit draws no rewind.
+- `vehicle-view-net` (owner decision 4, added before the revert with the old behaviour as known gaps) passes with none: every AoR call returns the tick's view origin, on the server and the client; in the smooth view it also returns the tick's angles and changes nothing (the standard view's SDK path recalculates its axis, decision 7); and the exit draws no rewind.
 - The stage-0 golden is unchanged.
 
-**Effort:** already planned; 3–5 days, including tracing which write causes the weapon-log leak. *[inferred]*
+**Effort:** estimated 3–5 days, including tracing which write caused the weapon-log leak *[inferred]*. The trace was done in step 6 (the proxy branch's `PresentWeapon`).
 
 ### Stage 2: seat predicate and switch (m5-plan step 13)
 
