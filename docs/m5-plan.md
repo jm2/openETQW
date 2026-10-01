@@ -152,7 +152,7 @@ M5 is done when:
       - *peerwalk*, the peer forward and back.
       A client that is not the mover stands still.
     - **Checks**, per client and round, keyed by client and cap:
-      - **C0, the cap in effect:** every draw's `cap=` equals that client's intended cap (0 during calibrate). On a 120 Hz display this is what shows each client really ran its own cap.
+      - **C0, the cap in effect:** every draw between the markers (untrimmed) has `cap=` equal to that client's intended cap (0 during calibrate). On a 120 Hz display this is what shows each client really ran its own cap.
       - **A0–A9:** `evaluate(cap, ceiling, peer, still, own turn, own walk, peerwalk)`, step 3's checks against the client's own cap:
         - A1 bounds each phase's average rate by 1.03 × cap; where the pacer sets the rate, it must also reach 0.98 × cap, and otherwise the rate is reported (D1).
         - A7 is the peer moving on every draw.
@@ -161,8 +161,8 @@ M5 is done when:
         - A7o: its pose (origin) changes on every draw while it walks at its own, different cap.
         - A9o: it stays put while still.
         - What A7o can catch: a client's cap disturbing what others see of it, through its usercmd stream.
-      - **T1, turn rate:** each client's view yaw rate over its trimmed turn phase is 90°/s ± 2% at every cap, so turning speed does not depend on the client's cap. In the spikes, a 2 s `+left` turned 178–181° at 45, 60, 90 and 120 fps. *[measured]*
-      - **S1, run validity (not a mixed-cap property):** every dedicated-server `FRAME_TIMING` window from the first phase marker to the last has |ticks − window_ms / 33.3| ≤ 1. The server ticks on its own clock, so this only shows the host kept it ticking.
+      - **T1, turn rate:** each client's view yaw rate over its trimmed turn phase is 90°/s ± 2% at every cap, so turning speed does not depend on the client's cap. The rate is the sum of each draw pair's yaw change (modulo 360) over the sum of their gaps. Pairs more than 133 ms apart are left out and reported, because the turn scale is clamped at 4 ticks (`UsercmdGen.cpp:368`) and a loading stall would lose yaw for reasons unrelated to the cap. In the spikes, a 2 s `+left` turned 178–181° at 45, 60, 90 and 120 fps. *[measured]*
+      - **S1, run validity (not a mixed-cap property):** over the dedicated server's `FRAME_TIMING` windows from the first phase marker to the last, which tile time exactly, |Σ ticks − Σ window_ms / 33| ≤ 2. `USERCMD_MSEC` is 33 ms, so the server runs 30.3 ticks a second. The server ticks on its own clock, so this only shows the host kept it ticking.
     - **Known gaps.** A7 and A7o are `per_tick` (a pose changes only when a draw crosses a tick) until step 8 restores the `Entity::Present` producer on network clients. Then they must flip to pass, and the test fails on an unexpected pass, as frame-poses does. Measured in the spike at 45, 60, 90 and 120 fps: the changed fraction equalled the tick-crossing fraction within 0.5%, with 1–2 misaligned pairs, for the peer (~330 u from A) and for the other client (~1130 u away) alike. *[measured]*
     - **Criterion 2 stays open** after this test lands, until step 8 turns A7 and A7o into passes.
     - **Negative controls.** Frame-poses' control already shows A4 and A5 can fail. A7o's known gap shows its detector registers poses that do not change. C0 and T1 compare against fixed values.
