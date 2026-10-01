@@ -344,8 +344,10 @@ void idMsgChannel::WriteMessageData( idBitMsg &out, const idBitMsg &msg ) {
 	tmp.SetSize( tmp.GetSize() + reliableSend.GetTotalSize() );
 	tmp.WriteShort( 0 );
 
-	// write data
-	tmp.WriteData( msg.GetData(), msg.GetSize() );
+	// write data (none for an empty message: idBitMsg::WriteData is fatal on a zero length)
+	if ( msg.GetSize() > 0 ) {
+		tmp.WriteData( msg.GetData(), msg.GetSize() );
+	}
 
 	// write message size
 	out.WriteShort( tmp.GetSize() );
@@ -436,7 +438,12 @@ void idMsgChannel::SendNextFragment( idPort &port, const int time ) {
 
 	msg.WriteShort( unsentFragmentStart );
 	msg.WriteShort( fragLength );
-	msg.WriteData( unsentMsg.GetData() + unsentFragmentStart, fragLength );
+	// a message that is a multiple of FRAGMENT_SIZE long ends with an empty
+	// fragment (the exit condition below), and idBitMsg::WriteData is fatal on a
+	// zero length: the server died on it mid-session (reconnect-restart, Windows)
+	if ( fragLength > 0 ) {
+		msg.WriteData( unsentMsg.GetData() + unsentFragmentStart, fragLength );
+	}
 
 	// send the packet
 	port.SendPacket( remoteAddress, msg.GetData(), msg.GetSize() );

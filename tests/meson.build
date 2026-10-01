@@ -114,6 +114,27 @@ strbuilder_test = executable(
 )
 test('strbuilder', strbuilder_test, suite: 'unit', timeout: 30)
 
+# 6. idMsgChannel fragmentation: a message of an exact multiple of FRAGMENT_SIZE ends
+#    with an empty fragment, which idBitMsg::WriteData is fatal on (the server died
+#    on it mid-session); the real channel, compressor and idFile_BitMsg, a captured port
+msgchannel_test = executable(
+  'openetqw-msgchannel-test',
+  files(
+    'MsgChannelTest.cpp',
+    meson.project_source_root() / 'src' / 'framework' / 'async' / 'MsgChannel.cpp',
+    meson.project_source_root() / 'src' / 'framework' / 'Compressor.cpp',
+    meson.project_source_root() / 'src' / 'libs' / 'filelib' / 'File.cpp',
+  ),
+  # compiled as the dedicated server compiles these sources (its defines and the
+  # engine's force-included precompiled.h)
+  include_directories: engine_include_dirs,
+  cpp_args: common_engine_defs + ['-DID_DEDICATED'] + engine_pch_args,
+  dependencies: test_deps + [zlib_dep],
+  link_args: test_link_args,
+  install: false,
+)
+test('msgchannel', msgchannel_test, suite: 'unit', timeout: 30)
+
 # Every package carries the licence texts (GPL, SDK EULA, third-party notices)
 test(
   'install-licenses',
