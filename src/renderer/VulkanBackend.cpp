@@ -53,7 +53,12 @@ namespace {
 
 const int NUM_VULKAN_FRAMES = 2;
 
-// FrameSyncTiming.h: the main thread takes these while a render thread may add to them
+// FrameSyncTiming.h: a frame's waits, added to the sums only once it reaches the present,
+// so a frame that fails earlier adds nothing. Frames run on the main thread, as does
+// R_TakeFrameSyncTiming; the sums are atomic only so that nothing depends on that.
+uint64_t				pendingFenceUsec = 0;
+uint64_t				pendingAcquireUsec = 0;
+uint64_t				pendingSubmitUsec = 0;
 std::atomic< int >		syncFrames( 0 );
 std::atomic< uint64_t >	syncFenceUsec( 0 );
 std::atomic< uint64_t >	syncAcquireUsec( 0 );
@@ -5809,7 +5814,7 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 			&frame.fence, VK_TRUE, UINT64_MAX ), "vkWaitForFences" ) ) {
 			return false;
 		}
-		syncFenceUsec += SyncNowUsec() - fenceStart;
+		pendingFenceUsec = SyncNowUsec() - fenceStart;
 	}
 	{
 		RENDER_METRIC_SCOPE( "Vulkan retire frame resources" );
@@ -5837,14 +5842,16 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 		acquireResult = state->AcquireNextImageKHR( state->device,
 			state->swapchain, UINT64_MAX, frame.imageAvailable, VK_NULL_HANDLE,
 			&state->imageIndex );
-		syncAcquireUsec += SyncNowUsec() - acquireStart;
+		pendingAcquireUsec = SyncNowUsec() - acquireStart;
 		if ( acquireResult == VK_ERROR_OUT_OF_DATE_KHR ) {
 			state->DeviceWaitIdle( state->device );
 			if ( !CreateSwapchain( *state, width, height ) ) {
 				return false;
 			}
+			const uint64_t reacquireStart = SyncNowUsec();
 			acquireResult = state->AcquireNextImageKHR( state->device, state->swapchain,
 				UINT64_MAX, frame.imageAvailable, VK_NULL_HANDLE, &state->imageIndex );
+			pendingAcquireUsec += SyncNowUsec() - reacquireStart;
 		}
 	}
 	if ( acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR ) {
@@ -6075,7 +6082,7 @@ void sdVulkanBackend::EndFrame( bool ) {
 			state->frameActive = false;
 			return;
 		}
-		syncSubmitUsec += SyncNowUsec() - submitStart;
+		pendingSubmitUsec = SyncNowUsec() - submitStart;
 	}
 	state->imageInitialized[ state->imageIndex ] = 1;
 	state->depthInitialized[ state->imageIndex ] = 1;
@@ -6094,6 +6101,9 @@ void sdVulkanBackend::EndFrame( bool ) {
 		const uint64_t presentStart = SyncNowUsec();
 		presentResult = state->QueuePresentKHR( state->graphicsQueue, &presentInfo );
 		syncPresentUsec += SyncNowUsec() - presentStart;
+		syncFenceUsec += pendingFenceUsec;
+		syncAcquireUsec += pendingAcquireUsec;
+		syncSubmitUsec += pendingSubmitUsec;
 		syncFrames++;
 	}
 	if ( presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR ) {

@@ -991,9 +991,9 @@ com_logFrameTiming: every host frame adds its interval (from the end of the prev
 frame's pacing to the end of its own) and its work time (from its start to the pacing
 wait). Once a second one line reports how many frames and game ticks that second had and
 the distribution of both times, so a test can tell the frame rate it got during play from
-the cap it asked for. Under Vulkan it also reports the average time a presented frame
-spent in the frame fence, the image acquire, the queue submit and the present (M5 step 4:
-which of them holds the frame rate to the display; FrameSyncTiming.h).
+the cap it asked for. Under Vulkan it also reports the average time a frame that reached
+the present spent in the frame fence, the image acquire, the queue submit and the present
+(M5 step 4: which of them holds the frame rate; FrameSyncTiming.h).
 ==================
 */
 namespace {
