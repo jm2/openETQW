@@ -32,6 +32,23 @@ def is_active_marker(line: str) -> bool:
     return ("spawned at" in line and "spectating 0" in line) or any(
         m in line for m in ("parachute::Idle", "weaponRestored", "RespawnWaves_"))
 
+NO_AUDIO_DEVICE = "SDL3: failed to open audio stream: No default audio device available"
+
+
+def audio_check(output: str) -> str | None:
+    """The phase 1 audio check: None when it passes, else the failure. A host with no
+    audio output (no speakers or headset, or a sleeping display whose HDMI audio has
+    gone) has no default playback device; the engine warns and plays on, and that is
+    the machine, not the engine, so it is reported rather than failed. Any other
+    audio failure still fails."""
+    if "SDL3 Audio initialized" in output:
+        return None
+    if NO_AUDIO_DEVICE in output:
+        print("[NOTE] this host has no default audio output device: SDL3 audio was not opened "
+              "(reported, not failed)")
+        return None
+    return "Missing SDL3 audio initialization message"
+
 CLIENT_BIN = h.build_binary("client")
 # archived cvars this test sets must not reach other runs (etqw_harness.private_savepath)
 SAVEPATH = h.private_savepath("etqw-client-test-")
@@ -108,7 +125,8 @@ def test_quick_quit() -> None:
         raise RuntimeError(f"Client quick-quit exited with non-zero exit code: {ret}")
 
     # Assertions on output
-    assert "SDL3 Audio initialized" in full_output, "Missing SDL3 audio initialization message"
+    audio_failure = audio_check(full_output)
+    assert audio_failure is None, audio_failure
     assert "renderSystem initialized" in full_output, "Missing renderSystem initialization message"
     assert "game initialized" in full_output, "Missing game initialized message"
     assert "Vulkan frames presented:" in full_output, "Missing Vulkan presentation summary"
