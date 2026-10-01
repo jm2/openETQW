@@ -16,9 +16,11 @@ it, then settles. Each round's phases, bracketed by echo markers on both clients
   turnA       A turns (+left, 2 s)          walkA   A walks forward 2 s, then back 2 s
   turnB       B turns                        walkB   B walks
   peerwalk    the peer walks forward and back
-Before the rounds, each player with another within 400 u strafes away from its nearest
-one. Valley's spawn spots vary by platform and timing, so the lanes come from where the
-players spawned and are checked (W1).
+Valley's spawn spots vary by platform and timing (the pick is random), so the lanes come
+from where the players spawned: the middle player in x stays and the outer two strafe
+outward, east or west whatever their spawn yaw, until 300 u from it; the server's positions
+must then be 250 u apart, and W1 checks every walk. The peer, which never turns, alternates
+its walk's order each round so that it does not drift.
 
 Checks, per client and round, against that client's cap:
   C0   every draw between the markers has cap= equal to the client's intended cap (0 while
@@ -28,9 +30,10 @@ Checks, per client and round, against that client's cap:
        changing on every draw of its walk (at the other cap), still while still
   T1   the view yaw turns 90 deg/s +-2% over the trimmed turn phase at every cap (summed
        per draw pair; pairs more than 133 ms apart left out and reported)
-  W1   each walk's lane is clear: the walker gets LANE_TRAVEL from where the phase began and
-       never comes within LANE_GAP of another player (A and B from their own logs, the peer
-       from A's), so a blocked lane fails here rather than as an obscure A5
+  W1   each walk's lane is clear: over every draw of the walk, the walker gets LANE_TRAVEL
+       from where the phase began and never comes within LANE_GAP of another player (A and B
+       from their own logs, the peer from A's), so a blocked lane fails here rather than as
+       an obscure A5
   S1   (run validity) over the dedicated server's FRAME_TIMING windows from the first
        phase marker to the last, |sum of ticks - sum of window_ms / 33| <= 2
 Known gaps (frame-poses' shapes): A7 and A7o are per_tick until M5 step 8 restores the
@@ -55,7 +58,7 @@ import etqw_harness as h  # noqa: E402
 from test_campaign_client_maps import BAD_MARKERS, find_client  # noqa: E402
 from test_client_network import VulkanClient  # noqa: E402
 from test_frame_poses import EDGE_S, MIN_PAIRS, evaluate, parse_pose, rate  # noqa: E402
-from test_reconnect_restart import Failed, connect, spawn  # noqa: E402
+from test_reconnect_restart import Failed, connect, player_pos, spawn  # noqa: E402
 from test_remote_client_map_change import READY, RemoteClient  # noqa: E402
 
 ROUNDS = [(60, 240), (120, 144), (45, 90)]   # caps (A, B)
@@ -64,12 +67,17 @@ SETTLE_S = 1.5
 # W1: a walk's lane is clear when the walker gets this far from where its phase began and
 # never this close to another player (x/y; spawn spots vary by platform and timing, so the
 # test checks the lanes, not the spots)
-LANE_TRAVEL = 300.0
+LANE_TRAVEL = 200.0          # a back-first walk gets about 250 u from its start
 LANE_GAP = 48.0
-# all three spawn facing north on valley, so strafing right is east (+x); a player with
-# another within NEAR_X of it strafes away from its nearest one for STRAFE_S (~170 u)
-NEAR_X = 400.0
-STRAFE_S = 0.7
+# lanes: the middle player (by spawn x) stays, and the outer two strafe outward, east or
+# west, until LANE_SPACING from it; a strafe runs at about STRAFE_U_PER_S and may take
+# MAX_STRAFE_S at most; afterwards the server's positions must be MIN_LANE_X apart
+LANE_SPACING = 300.0
+STRAFE_U_PER_S = 245.0
+MAX_STRAFE_S = 1.5
+MIN_LANE_X = 250.0
+SPAWN_ANGLES_RE = re.compile(r"Player (\d+) \('[^']*'\) spawned at \([^)]*\) angles \(([-\d.]+), ([-\d.]+), ([-\d.]+)\)"
+                             r" team (\S+) spectating (\d+)")
 TURN_DEG_S = 90.0             # in_yawSpeed with in_angleSpeedKey 1
 TURN_TOL = 0.02
 TICK_MS = 33.0               # USERCMD_MSEC: the server runs 30.3 ticks a second
@@ -82,16 +90,47 @@ TIMING_RE = re.compile(r"FRAME_TIMING: window_ms=([\d.]+) frames=(\d+) ticks=(\d
 
 
 def lane_strafes(xs):
-    """{key: +1 east, -1 west, 0 stay} from each player's spawn x: away from the nearest
-    other player when it is within NEAR_X."""
-    plan = {}
-    for k, x in xs.items():
-        nearest = min((xo for ko, xo in xs.items() if ko != k), key=lambda xo: abs(xo - x))
-        if abs(nearest - x) >= NEAR_X:
-            plan[k] = 0
-        else:
-            plan[k] = 1 if x >= nearest else -1
+    """{key: signed x distance to strafe, + east}: the middle player (by spawn x, ties by key)
+    stays; the outer two move outward until LANE_SPACING from it, when they are closer."""
+    lo, mid, hi = sorted(xs, key=lambda k: (xs[k], k))
+    plan = {k: 0.0 for k in xs}
+    plan[lo] = min(0.0, xs[mid] - LANE_SPACING - xs[lo])
+    plan[hi] = max(0.0, xs[mid] + LANE_SPACING - xs[hi])
     return plan
+
+
+def min_gap(xs):
+    """The smallest x distance between two of the players."""
+    after = sorted(xs.values())
+    return min(b - a for a, b in zip(after, after[1:]))
+
+
+def spawn_yaw(lines, slot):
+    """The yaw of a client's last non-spectating spawn in the server's log, or None."""
+    yaw = None
+    for s in lines:
+        m = SPAWN_ANGLES_RE.search(s)
+        if m and int(m.group(1)) == slot and m.group(6) == "0":
+            yaw = float(m.group(3))
+    return yaw
+
+
+def xy(v):
+    return (v[0], v[1])
+
+
+def pose_xy(p, slot):
+    c = p["clients"].get(slot)
+    return xy(c["pose"]) if c and c.get("pose") else None
+
+
+def lane(walk, mover, others):
+    """(travel, closest approach, gap samples, draws) of a walker over its walk's draws:
+    mover(p) and others(p) give x/y or None."""
+    pos = [m for p in walk if (m := mover(p)) is not None]
+    travel = max((math.dist(q, pos[0]) for q in pos), default=0.0)
+    gaps = [math.dist(m, o) for p in walk if (m := mover(p)) is not None for o in others(p) if o is not None]
+    return travel, min(gaps, default=float("inf")), len(gaps), len(pos)
 
 
 def round_name(a, b):
@@ -181,30 +220,17 @@ def evaluate_client(name, segs, slots, other):
         results[(rnd, cap, "T1")] = {"ok": counted >= MIN_PAIRS and abs(tr - TURN_DEG_S) <= TURN_TOL * TURN_DEG_S,
                                      "detail": f"view yaw {tr:.1f} deg/s over {counted} draw pairs of turn{name}"
                                                f" (need {TURN_DEG_S:.0f} +-{TURN_TOL:.0%}; {stalls} pairs over 133 ms left out)"}
-        def xy(v):
-            return (v[0], v[1])
-
-        def pose_xy(p, slot):
-            c = p["clients"].get(slot)
-            return xy(c["pose"]) if c and c.get("pose") else None
-
-        def lane(walk, mover, others):
-            """(travel, closest approach, draws) of a walker: mover(p) and others(p) give x/y
-            or None."""
-            pos = [m for p in walk if (m := mover(p)) is not None]
-            travel = max((math.dist(q, pos[0]) for q in pos), default=0.0)
-            gaps = [math.dist(m, o) for p in walk if (m := mover(p)) is not None for o in others(p) if o is not None]
-            return travel, min(gaps, default=float("inf")), len(pos)
-
-        walkers = [(f"walk{name}", own_walk, lambda p: xy(p["view"]),
+        # W1 on every draw of the walk (untrimmed): travel from where the phase began
+        whole = {ph: segs.get((rnd, ph), ([], []))[1] for ph in names}
+        walkers = [(f"walk{name}", whole["walk" + name], lambda p: xy(p["view"]),
                     lambda p: [pose_xy(p, slots["peer"]), pose_xy(p, slots[other])])]
         if name == "A":
-            walkers.append(("peerwalk", seg["peerwalk"], lambda p: pose_xy(p, slots["peer"]),
+            walkers.append(("peerwalk", whole["peerwalk"], lambda p: pose_xy(p, slots["peer"]),
                             lambda p: [xy(p["view"]), pose_xy(p, slots[other])]))
         details, ok = [], True
         for label, walk, mover, others in walkers:
-            travel, gap, n = lane(walk, mover, others)
-            ok = ok and n > MIN_PAIRS and travel >= LANE_TRAVEL and gap >= LANE_GAP
+            travel, gap, samples, n = lane(walk, mover, others)
+            ok = ok and n > MIN_PAIRS and samples > MIN_PAIRS and travel >= LANE_TRAVEL and gap >= LANE_GAP
             details.append(f"{label}: travelled {travel:.0f} u, closest {gap:.0f} u")
         results[(rnd, cap, "W1")] = {"ok": ok, "detail": "; ".join(details)
                                      + f" (need >= {LANE_TRAVEL:.0f} u and >= {LANE_GAP:.0f} u)"}
@@ -348,11 +374,12 @@ def main(argv):
             proc.send("-left")
         return drive
 
-    def walk(proc):
+    def walk(proc, first=127):
+        """Forward then back (first=127), or back then forward (first=-127)."""
         def drive(seconds):
-            proc.send("clientMove 127 0 0")
+            proc.send(f"clientMove {first} 0 0")
             time.sleep(seconds)
-            proc.send("clientMove -127 0 0")
+            proc.send(f"clientMove {-first} 0 0")
             time.sleep(seconds)
             proc.send("clientMove 0 0 0")
         return drive
@@ -378,18 +405,36 @@ def main(argv):
         connect(srv, peer, "join")
         spawned["peer"] = spawn(srv, peer, "gdf")
         print("[spawn] " + ", ".join(f"{k} at ({spawned[k]['org'][0]:.0f}, {spawned[k]['org'][1]:.0f})" for k in ("A", "B", "peer")))
-        # separate lanes from where they actually spawned (docs/m5-plan.md step 15)
+        # separate lanes from where they actually spawned (docs/m5-plan.md step 15): strafe
+        # right is east when the player faces north (sin(yaw) > 0) and west when it faces south
         procs_by_key = {"A": a, "B": b, "peer": peer}
-        plan = lane_strafes({k: spawned[k]["org"][0] for k in procs_by_key})
-        print("[lanes] " + ", ".join(f"{k} {'east' if d > 0 else 'west' if d < 0 else 'stays'}" for k, d in plan.items()))
-        for k, d in plan.items():
-            if d:
-                procs_by_key[k].send(f"clientMove 0 {127 * d} 0")
-        time.sleep(STRAFE_S)
-        for k, d in plan.items():
-            if d:
-                procs_by_key[k].send("clientMove 0 0 0")
+        xs = {k: spawned[k]["org"][0] for k in procs_by_key}
+        plan = lane_strafes(xs)
+        server_lines = [ln.text for ln in srv.snapshot()]
+        strafes = {}   # key -> (side, seconds)
+        for k, dx in plan.items():
+            if dx == 0.0:
+                continue
+            seconds = abs(dx) / STRAFE_U_PER_S
+            if seconds > MAX_STRAFE_S:
+                raise Failed(f"spawns too bunched for separate lanes: {xs}; {k} would strafe {dx:+.0f} u")
+            yaw = spawn_yaw(server_lines, procs_by_key[k].slot)
+            if yaw is None or abs(math.sin(math.radians(yaw))) < 0.5:
+                raise Failed(f"{k} spawned facing yaw {yaw}: strafing would not move it east or west")
+            east = 1 if math.sin(math.radians(yaw)) > 0 else -1
+            strafes[k] = (127 * east * (1 if dx > 0 else -1), seconds)
+        print("[lanes] " + ", ".join(f"{k} {plan[k]:+.0f} u" if plan[k] else f"{k} stays" for k in plan))
+        t0 = time.monotonic()
+        for k, (side, _) in strafes.items():
+            procs_by_key[k].send(f"clientMove 0 {side} 0")
+        for k, (_, seconds) in sorted(strafes.items(), key=lambda kv: kv[1][1]):
+            time.sleep(max(0.0, t0 + seconds - time.monotonic()))
+            procs_by_key[k].send("clientMove 0 0 0")
         time.sleep(0.5)
+        lanes = {k: player_pos(srv, procs_by_key[k].slot)["org"][0] for k in procs_by_key}
+        print("[lanes] x after the strafes: " + ", ".join(f"{k} {x:.0f}" for k, x in lanes.items()))
+        if min_gap(lanes) < MIN_LANE_X:
+            raise Failed(f"the lanes are {min_gap(lanes):.0f} u apart after the strafes (need {MIN_LANE_X:.0f}): {lanes}")
         for proc in (a, b):
             mark = proc.mark()
             proc.send("set g_logFramePoses 4")
@@ -398,7 +443,7 @@ def main(argv):
 
         set_caps(0, 0)
         phase("calibrate", "still", still, PHASE_S)
-        for capa, capb in ROUNDS:
+        for index, (capa, capb) in enumerate(ROUNDS):
             rnd = round_name(capa, capb)
             set_caps(capa, capb)
             phase(rnd, "still", still, PHASE_S)
@@ -406,7 +451,9 @@ def main(argv):
             phase(rnd, "walkA", walk(a), PHASE_S)
             phase(rnd, "turnB", turn(b), PHASE_S)
             phase(rnd, "walkB", walk(b), PHASE_S)
-            phase(rnd, "peerwalk", walk(peer), PHASE_S)
+            # a walk ends ~200 u ahead (backpedalling is slower); A and B turn 180 degrees each
+            # round, so theirs alternate, but the peer never turns: alternate its order
+            phase(rnd, "peerwalk", walk(peer, 127 if index % 2 == 0 else -127), PHASE_S)
             print(f"[{rnd}] flown")
         for proc in (a, b):
             proc.send("set g_logFramePoses 0")
