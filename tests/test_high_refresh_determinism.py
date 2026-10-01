@@ -163,6 +163,9 @@ CHANGED = -1            # the schedule whose cap changes during play (M5 plan st
 CAP_START = 60
 CAP_CHANGES = ((10, "com_unlock_maxFPS", 90), (80, "com_maxFPS", 45))  # (after tick, CVar, value); starts at CAP_START
 CAP_ORDER = [CAP_START] + [value for _, _, value in CAP_CHANGES]
+# the full-window rule below relies on the cap never returning to an earlier value
+assert len(set(CAP_ORDER)) == len(CAP_ORDER), "CAP_CHANGES must not repeat a cap"
+FULL_WINDOW_MIN_FRAMES = 20  # enough intervals for the window's median to set its rate
 PLAY_MIN_TICKS = 25     # a FRAME_TIMING window with fewer game ticks is loading or menus
 CAP_OVERSHOOT = 1.03    # a schedule may run at most this much above its cap
 PACED_FRACTION = 0.98   # a cap <= REACH_FRACTION x the uncapped rate must be held this closely
@@ -549,12 +552,15 @@ def main() -> int:
     if [c for i, c in enumerate(seen) if i == 0 or c != seen[i - 1]] not in (order, order[1:]):
         rate_failures.append(f"{cap_label(CHANGED)}: the play windows reported caps {seen}, not {order} in order")
     for cap in order[1:]:
-        # a window reports the cap of its last frame, so a play window ran wholly at a cap
-        # when the window just before it, play or not, already ended at that cap. (The
-        # predecessor is taken from every window: right after spawn a first-use stall can
-        # leave the window the change landed in with too few ticks to count as play.)
+        # a window reports the cap of its last frame, so (the caps never repeat, CAP_ORDER)
+        # a window ran wholly at a cap when the window just before it already ended at that
+        # cap. Both are taken from every window, not only play windows: right after spawn a
+        # first-use stall can leave a window with too few ticks to count as play, whether it
+        # is the one the change landed in or the next. Every printed window spans at least a
+        # second, and its median frame interval is not moved by one long frame, so a window
+        # with ticks and FULL_WINDOW_MIN_FRAMES frames still gives the rate.
         full = [1000.0 / float(m.group(5)) for i, m in enumerate(all_windows)
-                if int(m.group(3)) >= PLAY_MIN_TICKS and int(m.group(4)) == cap
+                if int(m.group(3)) > 0 and int(m.group(2)) >= FULL_WINDOW_MIN_FRAMES and int(m.group(4)) == cap
                 and i > 0 and int(all_windows[i - 1].group(4)) == cap]
         if not full:
             rate_failures.append(f"{cap_label(CHANGED)}: no full play window at cap {cap}")
