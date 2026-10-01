@@ -15,7 +15,7 @@ it, then settles. Each round's phases, bracketed by echo markers on both clients
   still       nobody moves (2 s)
   turnA       A turns (+left, 2 s)          walkA   A walks north and back (5.2 s)
   turnB       B turns                        walkB   B walks
-  peerwalk    the peer walks forward and back
+  peerwalk    the peer walks north and back
 Valley's spawn spots vary by platform and timing (the pick is random), so the lanes come
 from where the players spawned: the middle player in x stays and the outer two strafe
 outward, east or west whatever their spawn yaw, until 300 u from it; the server's positions
@@ -424,7 +424,9 @@ def main(argv):
         for k, dx in plan.items():
             yaw = spawn_yaw(server_lines, procs_by_key[k].slot)
             # the walks go north first from the facing the yaw gives, and strafes east or west
-            if yaw is None or abs(math.sin(math.radians(yaw))) < 0.5:
+            if yaw is None:
+                raise Failed(f"no spawn line with angles for {k} (slot {procs_by_key[k].slot}) in the server's log")
+            if abs(math.sin(math.radians(yaw))) < 0.5:
                 raise Failed(f"{k} spawned facing yaw {yaw}: neither north nor south, so the walks and"
                              " strafes cannot be laid out")
             sines[k] = math.sin(math.radians(yaw))
@@ -436,7 +438,8 @@ def main(argv):
             for k, dx in moves.items():
                 seconds = abs(dx) / (STRAFE_U_PER_S * abs(sines[k]))
                 if seconds > MAX_STRAFE_S:
-                    raise Failed(f"spawns too bunched for separate lanes: {xs}; {k} would strafe {dx:+.0f} u in x")
+                    raise Failed(f"{k} would strafe {seconds:.2f} s for {dx:+.0f} u in x at sin(yaw) {sines[k]:.2f}"
+                                 f" (at most {MAX_STRAFE_S} s): spawns {xs}")
                 east = 1 if sines[k] > 0 else -1
                 runs[k] = (127 * east * (1 if dx > 0 else -1), seconds)
             t0 = time.monotonic()

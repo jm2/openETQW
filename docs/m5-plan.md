@@ -173,12 +173,12 @@ M5 is done when:
       - **Lanes come from the spawn spots.** The spawn pick is a roulette over `gameLocal.random`, which advances every tick, so the spots depend on join timing (the Linux session; inferred).
         - The middle player in x stays. The outer two strafe outward, east or west, until they are 300 u from it, at about 245 u/s for at most 1.5 s. Ties are broken by name.
         - Each strafe takes its sign from the player's spawn yaw in the server log. On this Mac A and the peer spawned at yaw 74 and B at 90.
-        - The strafe time divides by |sin(yaw)|, since a strafe moves sin(yaw) of its length in x. A strafe that ends more than 30 u short gets one top-up.
+        - The strafe time divides by |sin(yaw)|, since a strafe moves sin(yaw) of its length in x. A strafe that ends off target by more than 30 u gets one top-up.
         - The run fails, rather than guessing, in three cases: the spawn yaw is within 30° of due east or west; a strafe would exceed 1.5 s; or the server's positions afterwards are less than 150 u apart in x.
         - The gap bar is 150 u because a wall can stop a strafe. On Windows the peer stops at x ≈ 8812, 227 u from B, and the top-up moves it 0 u. The walks need only W1's 48 u. *[measured]*
         - The plans: on this Mac, the peer goes 136 u west; on Windows, the peer goes 201 u west; on Linux (A and B at x 10376, the peer at 10536), A goes 300 u west and the peer 140 u east.
-      - **Walks go north first and come back.** In 2 s, backpedalling covers about 0.62 of the forward distance (2 s forward ~515 u, 4 s back ~634 u). So the backward leg is 1.6 × the forward one, 2 s then 3.2 s, and a walk returns to within a few units of its start.
-        - Facing north (the spawn yaw, flipped by each round's 180° turn), a walk goes forward then back; facing south, back then forward. No walk heads south of its start, and nobody drifts.
+      - **Walks go north first and come back.** In 2 s, backpedalling covers about 0.62 of the forward distance (2 s forward ~515 u, 4 s back ~634 u). So the backward leg is 1.6 × the forward one (2 s and 3.2 s), and a walk returns to within about 30 u of its start.
+        - Facing north (the spawn yaw, flipped by each round's 180° turn), a walk goes forward then back; facing south, back then forward. No walk heads south of its start. Drift stays under about 20 u southward a round: each walk ends on a southward leg, and the player slides 20–45 u into the next phase.
         - Equal-time legs drifted 195–220 u a round, and the peer, which never turns, drifted up to 270 u, sideways too.
         - On Windows, A spawns at x 10376, where `frame-poses` found a wall about 350 u south. A facing south after its turn walked into it (354 u; A5 at 84.6%). *[measured]*
       - On Windows, fixed strafes (A east, B west) let B walk within 38 u of the peer in one round, and A5 and A6 failed there. *[measured]*
@@ -192,9 +192,9 @@ M5 is done when:
     - **Phases**, bracketed by echo markers on both clients:
       - *still* (2 s);
       - *turnA*, `+left` on A (2 s);
-      - *walkA*, A north 2 s and back 3.2 s;
+      - *walkA*, A north and back: facing north, forward 2 s then backward 3.2 s; facing south, backward 3.2 s then forward 2 s;
       - *turnB* and *walkB*, the same for B;
-      - *peerwalk*, the peer forward and back.
+      - *peerwalk*, the peer north and back.
       A client that is not the mover stands still.
     - **Checks**, per client and round, keyed by client and cap:
       - **C0, the cap in effect:** every draw between the markers (untrimmed) has `cap=` equal to that client's intended cap (0 during calibrate). On a 120 Hz display this is what shows each client really ran its own cap.
@@ -212,7 +212,7 @@ M5 is done when:
     - **Known gaps.** A7 and A7o are `per_tick` (a pose changes only when a draw crosses a tick) until step 8 restores the `Entity::Present` producer on network clients. Then they must flip to pass, and the test fails on an unexpected pass, as frame-poses does. Measured in the spike at 45, 60, 90 and 120 fps: the changed fraction equalled the tick-crossing fraction within 0.5%, with 1–2 misaligned pairs, for the peer (~330 u from A) and for the other client (~1130 u away) alike. *[measured]*
     - **Criterion 2 stays open** after this test lands, until step 8 turns A7 and A7o into passes.
     - **Negative controls.** Frame-poses' control already shows A4 and A5 can fail. A7o's known gap shows its detector registers poses that do not change. C0 and T1 compare against fixed values.
-    - **Size:** about 20 s a round, three rounds and the calibration: about 3 minutes in all.
+    - **Size:** about 24 s a round, three rounds and the calibration: about 3 minutes in all.
     - **Done 2026-10-01** (engine `m5/15-mixed-caps`; the test as designed). `mixed-caps` passes on this Mac (macOS arm64, MoltenVK, a 120 Hz panel), three runs out of three, about 124 s each through meson:
       - Both clients reached 120 fps uncapped together.
       - The rounds measured 60.0/120.1 fps (60/240, mixed), 120.0/120.1 (120/144, not mixed here) and 45.0/90.0 (45/90, mixed).
