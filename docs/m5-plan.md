@@ -132,6 +132,41 @@ M5 is done when:
 ## Remaining criteria
 
 15. **Mixed-cap live session.** Two Vulkan clients at different caps (60 with 240, then 120 with 144) and a headless peer. Each client is checked against its own cap as in D1: the cap is never exceeded by more than 3%, the frame-pose checks of step 3 pass on every draw, and a cap this host cannot reach (144 and 240 on this 120 Hz display) is reported with the measured rate, not failed. Smooth motion at caps the display cannot reach is judged by people on real displays (D3).
+    - **Design (2026-10-01, the Mac session; spikes ran it on this Mac).** A new test `tests/test_mixed_caps.py`, meson `mixed-caps` (suites client and integration, needs retail data and a display). It reuses `test_frame_poses.py`'s parsing, `evaluate`, `fraction_check` and `judge`.
+    - **Topology.** A dedicated server on valley, Vulkan clients A and B and a headless peer (the dedicated binary with `+connect`), all on GDF, joining in that order.
+      - Settings: the frame-poses settings for the server (objective rules, `si_teamForceBalance 0`, `g_teamSwitchDelay 0`, `net_allowCheats 1`) and the clients (`com_unlockFPS 1`, `r_swapInterval 0`, `r_vkValidation 0`, `in_yawSpeed 90`, `in_angleSpeedKey 1`). `g_logFramePoses 4` is set after each client connects, because it is a cheat.
+      - Spawn spots follow the join order. In three runs, A, B and the peer spawned at (9127, −10730), (10600, −10824) and (8963, −10600). The test asserts each spawn is within 64 u of these spots, or fails with "spawn layout changed".
+      - A strafes east and B strafes west for 0.7 s, to x ≈ 9294 and x ≈ 10427, so the three walk on separate lanes. Each walked forward 2 s and back 2 s unobstructed. *[measured]*
+      - Both windows open at the same place, B over A. Both still reached 120 fps uncapped. *[measured]*
+    - **Rounds.**
+      - **Calibrate:** both clients run uncapped first, giving each its ceiling while the other draws. This is a lower bound, so it can only mark fewer caps as paced, never cause a false failure.
+      - **The plan's pairs:** A = 60 with B = 240, then A = 120 with B = 144, for hosts with faster displays.
+      - **45/90:** both caps are under this Mac's 120 Hz, so both are paced and differ here.
+      - The test reports each round's measured rates as a pair, and whether the round was mixed. In the spikes: 60/240 ran at 60.0 and 120.0, mixed; 120/144 at 120 and 120, not mixed on this Mac; 45/90 at 45.0 and 90.0, mixed. *[measured]*
+      - Caps change at run time (step 17). After each change the test waits for the new value in each client's `FRAME_POSE` `cap=` field (it logs `com_maxFPS`), then settles 1.5 s.
+    - **Phases**, bracketed by echo markers on both clients:
+      - *still* (2 s);
+      - *turnA*, `+left` on A (2 s);
+      - *walkA*, A forward 2 s then back 2 s;
+      - *turnB* and *walkB*, the same for B;
+      - *peerwalk*, the peer forward and back.
+      A client that is not the mover stands still.
+    - **Checks**, per client and round, keyed by client and cap:
+      - **C0, the cap in effect:** every draw between the markers (untrimmed) has `cap=` equal to that client's intended cap (0 during calibrate). On a 120 Hz display this is what shows each client really ran its own cap.
+      - **A0–A9:** `evaluate(cap, ceiling, peer, still, own turn, own walk, peerwalk)`, step 3's checks against the client's own cap:
+        - A1 bounds each phase's average rate by 1.03 × cap; where the pacer sets the rate, it must also reach 0.98 × cap, and otherwise the rate is reported (D1).
+        - A7 is the peer moving on every draw.
+      - **A0o, A7o, A9o, the other client:** `evaluate` again with the other client as the slot and its walk as the moving phase.
+        - A0o: the other client is present in ≥ 99% of draws.
+        - A7o: its pose (origin) changes on every draw while it walks at its own, different cap.
+        - A9o: it stays put while still.
+        - What A7o can catch: a client's cap disturbing what others see of it, through its usercmd stream.
+      - **T1, turn rate:** each client's view yaw rate over its trimmed turn phase is 90°/s ± 2% at every cap, so turning speed does not depend on the client's cap. The rate is the sum of each draw pair's yaw change (modulo 360) over the sum of their gaps. Pairs more than 133 ms apart are left out and reported, because the turn scale is clamped at 4 ticks (`UsercmdGen.cpp:368`) and a loading stall would lose yaw for reasons unrelated to the cap. In the spikes, a 2 s `+left` turned 178–181° at 45, 60, 90 and 120 fps. *[measured]*
+      - **S1, run validity (not a mixed-cap property):** over the dedicated server's `FRAME_TIMING` windows from the first phase marker to the last, which tile time exactly, |Σ ticks − Σ window_ms / 33| ≤ 2. `USERCMD_MSEC` is 33 ms, so the server runs 30.3 ticks a second. The server ticks on its own clock, so this only shows the host kept it ticking.
+    - **Known gaps.** A7 and A7o are `per_tick` (a pose changes only when a draw crosses a tick) until step 8 restores the `Entity::Present` producer on network clients. Then they must flip to pass, and the test fails on an unexpected pass, as frame-poses does. Measured in the spike at 45, 60, 90 and 120 fps: the changed fraction equalled the tick-crossing fraction within 0.5%, with 1–2 misaligned pairs, for the peer (~330 u from A) and for the other client (~1130 u away) alike. *[measured]*
+    - **Criterion 2 stays open** after this test lands, until step 8 turns A7 and A7o into passes.
+    - **Negative controls.** Frame-poses' control already shows A4 and A5 can fail. A7o's known gap shows its detector registers poses that do not change. C0 and T1 compare against fixed values.
+    - **Size:** about 20 s a round, three rounds and the calibration: about 3 minutes in all.
 
 16. **GUI updates in network sessions.** Done (2026-09-25): no GUI updated during a network game (0 updates in 5 s); a client or listen host now calls `GuiFrameEvents` once per frame, as single player and Doom 3 do (60 updates/s at cap 60), and `client-network-*` check it. Originally: call `GuiFrameEvents` once per frame in multiplayer, as single player and Doom 3 do. First check that the HUD is not already updated some other way; otherwise it would update twice per frame.
 
