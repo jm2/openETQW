@@ -249,9 +249,11 @@ def run_determinism_schedule(
     expected_min_ticks: int = 150,
     timeout_sec: float = 45.0,
     listen_port: int | None = None,
+    output_lines: list[str] | None = None,
 ) -> tuple[dict[int, SimHashEntry], int, list[str]]:
     """Runs a single determinism schedule at the given com_maxFPS: single player
-    (+devmap), or on a listen host serving listen_port (+spawnServer)."""
+    (+devmap), or on a listen host serving listen_port (+spawnServer). The output goes to
+    output_lines when given, so a caller still has it when the schedule raises."""
     where = "single player" if listen_port is None else f"listen host on port {listen_port}"
     print(f"\n--- [SCHEDULE {cap_label(fps)}] Launching Valley determinism replay (com_maxFPS {start_cap(fps)}, {where}) ---")
 
@@ -290,7 +292,7 @@ def run_determinism_schedule(
     )
     TEST_PROCS.append(proc)
 
-    output_lines: list[str] = []
+    output_lines = [] if output_lines is None else output_lines
     out_q: queue.Queue[str] = queue.Queue()
     t = threading.Thread(target=stream_reader, args=(proc.stdout, out_q), daemon=True)
     t.start()
@@ -500,21 +502,26 @@ def main(argv: list[str]) -> int:
     test_start = time.time()
 
     for fps in rates:
-        sim_hashes, presented_frames, lines = run_determinism_schedule(
-            fps=fps,
-            bin_path=bin_path,
-            expected_min_ticks=150,
-            timeout_sec=50.0,
-            listen_port=listen_port,
-        )
+        lines: list[str] = []
+        try:
+            sim_hashes, presented_frames, lines = run_determinism_schedule(
+                fps=fps,
+                bin_path=bin_path,
+                expected_min_ticks=150,
+                timeout_sec=50.0,
+                listen_port=listen_port,
+                output_lines=lines,
+            )
+        finally:
+            # also when the schedule raised: its output is what explains the failure
+            if opts.log_dir is not None:
+                opts.log_dir.mkdir(parents=True, exist_ok=True)
+                name = {LOCKED: "locked240", CHANGED: "changed"}.get(fps, "uncapped" if fps == 0 else str(fps))
+                (opts.log_dir / f"{'listen' if opts.listen else 'sp'}-{name}.log").write_text("\n".join(lines) + "\n")
         results[fps] = sim_hashes
         frames[fps] = presented_frames
         timing[fps] = play_timing(lines)
         schedule_lines[fps] = lines
-        if opts.log_dir is not None:
-            opts.log_dir.mkdir(parents=True, exist_ok=True)
-            name = {LOCKED: "locked240", CHANGED: "changed"}.get(fps, "uncapped" if fps == 0 else str(fps))
-            (opts.log_dir / f"{'listen' if opts.listen else 'sp'}-{name}.log").write_text("\n".join(lines) + "\n")
 
     print("\n=================================================================")
     print(" Cross-Schedule Determinism & Bit-for-Bit Identity Verification")
@@ -754,7 +761,11 @@ def main(argv: list[str]) -> int:
           f" {cap_label(LOCKED)} on all {len(common_ticks)} ticks")
 
     exercise_failures = []
-    exercised = bin_path == CLIENT_BIN  # the dedicated fallback draws nothing, so prepares nothing
+    # the dedicated fallback (no client binary) runs the same single-player frames and calls
+    # ClientUpdateView on its render-only ones too, but whether they present anything (a local
+    # player that can unlock, in a binary that draws nothing) was never checked, so its counts
+    # are reported, not required
+    exercised = bin_path == CLIENT_BIN
     # M5 step 7: render-only frames are prepared (ClientUpdateView) only when they can be
     # drawn; FRAME_TIMING cuv= counts them whether or not anything is drawn
     print("\n--- Render-only frames prepared for drawing (FRAME_TIMING cuv=) ---")

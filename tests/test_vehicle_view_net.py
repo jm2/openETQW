@@ -65,9 +65,12 @@ of a change of seat or view mode are left out):
       ticks after the exit differ by more than 64 u in view origin
   Sanity: both view classes seen, with >= 20 server and >= 10 client AoR lines each; the
   vehicle moved >= 100 u in each phase; the server's smooth camera moved on >= 20 judged
-  ticks and N4 has >= 20 tick pairs; ud=1 on the client, and on the server (since M5
-  step 7 the host's render-only frames set unlockedDraw: an AoR call with ud=1 ran inside
-  that window, so the checks cover it); the enter, cycle and exit messages all printed. For N5, the first on-foot game time drawn is one tick after the
+  ticks and N4 has >= 20 tick pairs; ud=1 on the client, and on the server when the host
+  ran at least 3 frames a tick in phase B (FRAME_TIMING): since M5 step 7 the host's
+  render-only frames set unlockedDraw, and such a call shows the checks cover that window;
+  a frame writes its snapshots before it presents, so a server call sees ud=1 only on the
+  second of two frames in a row that ran no tick, and a slower host reports it instead; the
+  enter, cycle and exit messages all printed. For N5, the first on-foot game time drawn is one tick after the
   last seated draw's (else a slow frame ran two ticks undrawn and the rewind, or its
   absence, was never drawn), and the vehicle camera is more than 64 u from the on-foot
   view (the first draw of the next game time), so that a rewind would fail N5. A sanity
@@ -131,6 +134,8 @@ VECTOR_RE = re.compile(r"(\w*)\(([^)]*)\)")
 POSE_KEYS = ("fpo", "fpa", "tpo", "tpa")
 
 EXCLUDE_TICKS = 2       # ticks left out on each side of a change of seat or view mode
+FRAME_TIMING_RE = re.compile(r"FRAME_TIMING: window_ms=([\d.]+) frames=(\d+) ticks=(\d+)")
+MIN_FRAMES_PER_TICK = 3.0   # the server's ud=1 check needs two frames in a row without a tick
 ANG_TOL = 1e-3          # degrees: prev_tick's slerp at fraction 0 against the logged axis
 MIN_SERVER_LINES = 20   # AoR lines per view class
 MIN_CLIENT_LINES = 10
@@ -500,11 +505,24 @@ def evaluate(host_lines, peer_lines, slot):
     if not any(r["ud"] == 1 for r in cli_aor):
         sanity.append("no client AoR call with ud=1 (unlockedDraw set by a render-only frame)")
     # M5 step 7: the host's render-only frames set unlockedDraw too, and an AoR call between
-    # one and the next tick (a snapshot write) runs inside that window
+    # one and the next tick (a snapshot write) runs inside that window. The snapshots of a
+    # frame are written before it presents, so a call sees ud=1 only on the second of two
+    # frames in a row that ran no tick: required only when the host ran >= MIN_FRAMES_PER_TICK
+    # frames a tick in phase B, the smooth view's (its FRAME_TIMING), reported otherwise
     srv_ud1 = sum(1 for _, r in srv_aor if r["ud"] == 1)
-    report.append(f"server AoR calls with ud=1 (inside the host's unlockedDraw window): {srv_ud1} of {len(srv_aor)}")
+    b, e = host_spans.get("B", (0, 0))
+    timing = [m for ln in host_lines[b:e] if (m := FRAME_TIMING_RE.search(ln))]
+    ticks = sum(int(m.group(3)) for m in timing)
+    per_tick = sum(int(m.group(2)) for m in timing) / ticks if ticks else None
+    report.append(f"server AoR calls with ud=1 (inside the host's unlockedDraw window): {srv_ud1} of {len(srv_aor)};"
+                  f" the host ran " + (f"{per_tick:.2f} frames a tick" if per_tick else "no timed frame") + " in phase B")
     if not srv_ud1:
-        sanity.append("no server AoR call with ud=1 (the host's render-only frames set unlockedDraw since M5 step 7)")
+        if per_tick is not None and per_tick >= MIN_FRAMES_PER_TICK:
+            sanity.append(f"no server AoR call with ud=1, though the host ran {per_tick:.2f} frames a tick in phase B"
+                          " (the host's render-only frames set unlockedDraw since M5 step 7)")
+        else:
+            report.append(f"no server AoR call with ud=1: not required, the host ran fewer than {MIN_FRAMES_PER_TICK:.0f}"
+                          " frames a tick in phase B")
     report.append(render_report([r for _, r in srv_aor], "server"))
     report.append(render_report(cli_aor, "client"))
     return results, sanity, report
@@ -617,7 +635,8 @@ def main(argv):
             "net_allowCheats": "1"}
     view = {"com_unlockFPS": "1", "r_swapInterval": "0", "r_vkValidation": "0"}
     host = VulkanClient(vk, data, args.port, map_name=args.map, log_path=log("host"),
-                        cvars={**game, "ui_name": "Host", "com_maxFPS": "120", "in_yawSpeed": "90", "in_angleSpeedKey": "1", **view})
+                        cvars={**game, "ui_name": "Host", "com_maxFPS": "120", "in_yawSpeed": "90", "in_angleSpeedKey": "1",
+                               "com_logFrameTiming": "1", **view})
     host.name, host.slot = "Host", None
     peer = VulkanClient(vk, data, args.port + 2, connect_to=f"127.0.0.1:{args.port}", log_path=log("peer"),
                         cvars={"si_pure": "0", "ui_name": "Peer", "net_clientShowSnapshots": "1", "com_maxFPS": "60", **view})
