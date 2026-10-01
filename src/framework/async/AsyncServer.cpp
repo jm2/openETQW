@@ -418,6 +418,19 @@ int idAsyncServer::SetBotUserName( int clientNum, const char* playerName ) {
 	return 1;
 }
 
+// the time left in the current tic for a listen host's render-only frame, as
+// idAsyncClient::GetGameTimeLeft and Com_GetGameTimeLeft give it; the clamp keeps it
+// in 1 to USERCMD_MSEC - 1 (ClientUpdateView aborts on USERCMD_MSEC)
+int idAsyncServer::GetGameTimeLeft() const {
+	int elapsedInTic = gameTimeResidual;	// the tic boundary RunFrame uses
+	if ( elapsedInTic < 1 ) {
+		elapsedInTic = 1;
+	} else if ( elapsedInTic >= USERCMD_MSEC ) {
+		elapsedInTic = USERCMD_MSEC - 1;
+	}
+	return USERCMD_MSEC - elapsedInTic;
+}
+
 void idAsyncServer::RunFrame() {
 	if ( !active ) {
 		return;

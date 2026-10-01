@@ -150,6 +150,7 @@ public:
 	netadr_t			GetBoundAdr( void ) const;
 	bool				IsActive( void ) const { return active; }
 	int					GetDelay( void ) const { return gameTimeResidual; }
+	int					GetGameTimeLeft( void ) const;
 	int					GetOutgoingRate( void ) const;
 	int					GetIncomingRate( void ) const;
 	bool				IsClientInGame( int clientNum ) const;
