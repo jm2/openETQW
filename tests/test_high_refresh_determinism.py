@@ -540,7 +540,8 @@ def main() -> int:
             rate_failures.append(f"{cap_label(LOCKED)}: play windows drew more often than they ticked (draws, ticks): {over}")
     # the cap changed during play (M5 plan step 17): the windows report the caps in order,
     # and each new cap is held in a window that starts and ends at it
-    windows = [m for ln in schedule_lines[CHANGED] if (m := FRAME_TIMING_RE.search(ln)) and int(m.group(3)) >= PLAY_MIN_TICKS]
+    all_windows = [m for ln in schedule_lines[CHANGED] if (m := FRAME_TIMING_RE.search(ln))]
+    windows = [m for m in all_windows if int(m.group(3)) >= PLAY_MIN_TICKS]
     order = CAP_ORDER
     seen = [int(m.group(4)) for m in windows]
     # (play windows need PLAY_MIN_TICKS ticks, so the short stretch at the starting cap may have
@@ -548,8 +549,13 @@ def main() -> int:
     if [c for i, c in enumerate(seen) if i == 0 or c != seen[i - 1]] not in (order, order[1:]):
         rate_failures.append(f"{cap_label(CHANGED)}: the play windows reported caps {seen}, not {order} in order")
     for cap in order[1:]:
-        full = [1000.0 / float(m.group(5)) for i, m in enumerate(windows)
-                if int(m.group(4)) == cap and i > 0 and int(windows[i - 1].group(4)) == cap]
+        # a window reports the cap of its last frame, so a play window ran wholly at a cap
+        # when the window just before it, play or not, already ended at that cap. (The
+        # predecessor is taken from every window: right after spawn a first-use stall can
+        # leave the window the change landed in with too few ticks to count as play.)
+        full = [1000.0 / float(m.group(5)) for i, m in enumerate(all_windows)
+                if int(m.group(3)) >= PLAY_MIN_TICKS and int(m.group(4)) == cap
+                and i > 0 and int(all_windows[i - 1].group(4)) == cap]
         if not full:
             rate_failures.append(f"{cap_label(CHANGED)}: no full play window at cap {cap}")
             continue
