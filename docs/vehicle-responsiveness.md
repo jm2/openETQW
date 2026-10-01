@@ -83,12 +83,15 @@ The vehicle simulation and control code is the 1.5 SDK code, unchanged. VehicleC
 
 `sdAirVehicleControl` keeps `oldCmdAngles` and `collective` between ticks. The air control is not networked (game `src/game/vehicles/VehicleControl.h:68`), and a snapshot restores only networked controls (game `src/game/vehicles/Transport.cpp:3923-3940`). *[inspected]*
 
-So on the first tick replayed after each snapshot:
-- The pitch/roll delta is taken against the newest predicted command, not the previous one. The input comes out reversed.
-- The ±2 clamp limits the error to one tick of full-deflection cyclic in the wrong direction.
-- `collective` is re-integrated from its newest value, so while a collective key is held it ramps faster than on the server (game `VehicleControl.cpp:2113-2139`).
+A snapshot holds the state after server tick S, and by then the client has predicted ahead to some tick P > S. So on S+1, the first tick it replays:
+- **Cyclic.** The pitch/roll delta is taken against tick P's command instead of tick S's: the input is cmd(S+1) − cmd(P), not cmd(S+1) − cmd(S) (game `VehicleControl.cpp:1984-1990`; mouse Y is pitch, mouse X is roll). With the mouse moving at a steady r degrees per tick, the client applies −(P−S−1)·r instead of r. One tick ahead the input is lost; two ticks ahead it is reversed; three or more, it is reversed and amplified, up to the ±2° clamp (game `TransportComponents.cpp:2775-2776`). *[inspected; the effect is derived]*
+- **Collective.** `collective` is the forward/back keys' integral, and it is re-integrated from its newest value (game `VehicleControl.cpp:2113-2139`). In the air with a collective key held, each snapshot therefore adds P−S extra ticks of ramp until the value saturates. With no key held, it decays toward its default P−S ticks early.
+- **Ground state.** `isGrounded` is recomputed every tick from the restored pose (game `VehicleControl.cpp:1901-1908`). What stays stale is the landing-gear state and the landing timers (game `VehicleControl.h:528-549`).
+- **Remote aircraft.** Aircraft the client predicts for other players have the same bug.
 
-The server, the listen host and single player never re-predict, so they are unaffected. Retail has the same code. The effect is inferred, not observed. Stage 6 fixes it.
+How far ahead the client runs (P−S) depends on latency: about one or two ticks on loopback, more over the internet. *[inferred]*
+
+The server, the listen host and single player never re-predict, so they are unaffected. Retail has the same code. The effect is inferred, not observed. Stage 6 measures it and fixes it.
 
 ### 1.4 OpenETQW code that leaks today
 
@@ -366,26 +369,91 @@ This stage must ship in the same release as stage 3. Otherwise targets stepping 
 
 **Effort:** about 1 week for the first tier, and about 1 more week for all the rate-limited classes. *[inferred]*
 
-### Stage 6: aircraft re-prediction fix (client only; not in m5-plan)
+### Stage 6: aircraft re-prediction fix (client only; m5-plan step 14a)
+
+**How the frames line up** *[inspected]*
+- A snapshot carries the state after server tick S. `ClientReadSnapshot` sets `framenum = S` (game `Game_network.cpp:2450`). The engine then replays the usercmds from S up to its newest tick through `ClientPrediction` (engine `src/framework/async/AsyncClient.cpp:345-349`, after the snapshot read at `:613-638`).
+- `ClientPrediction` increments `framenum` before any entity thinks (game `Game_network.cpp:3819`). So the first replayed tick is S+1, and it consumes usercmd S. A server tick F likewise consumes usercmd F−1 (engine `AsyncServer.cpp:452-457`; game `Game_local.cpp:5192`). Both counters restart at map load.
+- So `framenum` pairs a client's prediction of a tick with the server's run of the same tick. Each pair can be checked, because the driver's usercmd carries `gameFrame = F−1`.
+- `isNewFrame` is false on every replayed tick (game `Game_network.cpp:3836-3849`). Vehicles think on replayed ticks too (game `Transport.cpp:3339`). The control's `Update`, which calls `SetupInput`, runs before the tick's physics (`Transport.cpp:3366-3391`).
 
 **What changes (game)**
-- Keep a 64-entry ring of `oldCmdAngles`, keyed by `gameLocal.framenum`.
-- At the start of `sdAirVehicleControl::SetupInput`, when `gameLocal.isClient` is set and an entry exists for `framenum − 1`, use that entry.
-- First trace how the frame numbers line up. `ClientReadSnapshot` sets `framenum` (game `Game_network.cpp:2450`), and `ClientPrediction` increments it (`:3818`).
-- `collective` is **not** exact from history. It depends on the predicted `isGrounded` (game `VehicleControl.cpp:2113-2118`). `isGrounded`, the landing-gear state and the landing times are not rolled back either (game `VehicleControl.h:520-545`).
-- Measure first. Network `collective` and `oldCmdAngles` only if loopback shows a residual. That would bump the protocol's minor version (engine `src/framework/async/AsyncNetwork.h:49`), justified because the snapshot is the only exact source.
+- **A history ring in `sdAirVehicleControl`.**
+  - The ring has 64 slots, each holding `{ frame, oldCmdAngles, collective, collectiveDefault }`.
+  - On a client, `SetupInput` records slot `framenum & 63` at its end (after `VehicleControl.cpp:2245`).
+  - At its start, `SetupInput` restores the slot for `framenum − 1` when `gameLocal.isClient` is set, `g_airControlHistory` is on and that slot exists.
+- **Why that is enough.**
+  - On a first-time tick, the slot for `framenum − 1` holds the values already in place, so the restore changes something only on the first tick replayed after a snapshot.
+  - On that tick, it brings back tick S's command angles and the client's own collective after tick S. No rewind detection is needed.
+  - The ring records whatever the CVar says, so a test can switch the CVar at run time.
+  - 64 ticks cover `net_clientMaxPrediction` (1000 ms, 30 ticks). After a prediction restart (engine `AsyncClient.cpp:620-631`) the slot may be missing, and the tick takes today's path.
+- **`g_airControlHistory`** (`CVAR_GAME | CVAR_BOOL`, default 1). It exists for the A/B measurement. It is not a cheat, because it changes only the client's own prediction.
+- **What the ring cannot make exact on a client:**
+  - commands the server duplicated, since it reports only a count;
+  - `collective`, which comes back from the client's own prediction of tick S. An earlier misprediction persists until the value saturates, decays to its default or the aircraft lands;
+  - the landing gear and its timers;
+  - the entry tick, because `oldCmdAngles` is zero without a driver;
+  - with simple flight controls (`ui_advancedFlightControls 0`, the default), the input itself. Auto-levelling reads the predicted pose (`VehicleControl.cpp:2000-2106`), and that pose carries the snapshot's quantization.
+- **Remote aircraft** that the client predicts take the same path.
+- **Networking only if a residual remains.** `collective` and `oldCmdAngles` are networked only if loopback shows a residual (owner, 2026-09-29). That bumps the protocol's minor version (engine `src/framework/async/AsyncNetwork.h:49`), justified because the snapshot is the only exact source.
 
-**What stays authoritative:** everything. The server, the listen host and single player never re-predict, and they take the unchanged path.
+**Tooling (game, written before the fix)**
+- **An `AIR_CTL` line.** It is behind `g_logAirControl` (`CVAR_GAME | CVAR_BOOL | CVAR_CHEAT`, a cheat like `g_logVehicleViews`, because it logs other players' input). At the end of `sdAirVehicleControl::SetupInput`, it prints one line per tick for each air vehicle with a driver: on the server, and on a client for every predicted tick, first-time or replayed. Fields:
+  - `side=srv|cl`; `tick=` (`framenum`); `ent=`; `uf=` (the driver's usercmd `gameFrame`);
+  - `pred=` (1 on a replayed tick); `since=` (`framenum` minus the last snapshot's frame, kept in a new member set by `ClientReadSnapshot`);
+  - `cmd=` (the tick's command angles, as the usercmd's shorts);
+  - `base=` (the `oldCmdAngles` the delta used, after any restore, also as shorts);
+  - `in=` (the pitch, roll and yaw inputs);
+  - `coll=` and `collDef=` (after the update);
+  - `fwd=`, `grounded=` and `gear=`;
+  - the pose and velocities the tick starts from, at full precision, as `VEH_TRACE` prints them.
+- **Why a new line.**
+  - `VEH_TRACE` is compared verbatim by `vehicle-physics-golden`, `high-refresh-determinism` and `seat-gate`, and it prints only on the server.
+  - Its `cmdang` is the post-tick `oldCmdAngles`, which equals the tick's command on both sides, so it cannot show the bug.
+- **Why in `SetupInput`.**
+  - It runs on every tick a vehicle thinks, before the tick's physics, so no hook is needed in `ClientPrediction`, where step 6 adds its probes.
+  - The pose it prints is the state after the previous tick, so an input error on tick S+1 shows in the pose at `since=2`.
+- **No engine change.**
+  - The test steers with `+left`/`+right` (roll) and `clientMove` (collective).
+  - Pitch is not driven. Pitch and roll come from one subtraction (`VehicleControl.cpp:1984-1986`) and the fix restores the whole angle, so the roll axis tests both.
+  - The engine has no command that drives pitch: `UsercmdGen.cpp:384-385` reads `UB_LOOKUP`/`UB_LOOKDOWN`, but nothing sets them.
 
-**Player-visible gain:** mouse-flown Hornet, Anansi and hover-copter pilots on a network client stop getting one tick of reversed cyclic with every snapshot, which arrives about every 50–67 ms. *[inferred; not measured]*
+**What stays authoritative:** everything.
+- The server, the listen host and single player never re-predict, and they take the unchanged path.
+- The ring is written and read only when `gameLocal.isClient` is set.
 
-**Measurement**
-- Run a loopback client against a headless server, with a pilot on a scripted mouse ramp.
-- Pair the client's re-predicted `VEH_TRACE` with the server's, frame by frame.
-- Compare with and without the fix using a dev CVar. The per-snapshot error must drop.
-- The single-player and host goldens stay unchanged.
+**Player-visible gain:** mouse-flown Hornet, Anansi and hover-copter pilots on a network client stop losing or reversing one tick of cyclic with every snapshot, which arrives about every 50–67 ms, and their collective stops running ahead. *[inferred; not measured]*
 
-**Effort:** about 1 day of code plus 2–3 days for the test. Which map and spawn give an aircraft is still to be found. It needs a ledger row, because this client behaviour differs from retail. *[inferred]*
+**Measurement** (`tests/test_aircraft_reprediction.py`, meson `aircraft-reprediction`, needs retail data)
+- **Setup.** As in `vehicle-view-net`: a Vulkan listen host on valley (cheats allowed) and a Vulkan client as the pilot.
+  - Why not a dedicated server:
+    - The headless dedicated binary crashes as a client in a vehicle (`tests/test_vehicle_view_net.py`).
+    - A dedicated server has no local player to `spawn` from.
+    - `networkSpawn` from the client puts the vehicle 80 u in front of the player, which at valley's GDF spawn is under an overhang.
+  - The host runs `spawn vehicle_anansi origin "9100 -10100 1440" angle 67` (open ground beside the badger's start spot), then `enterVehicle <pilot> vehicle_anansi`.
+  - The pilot sets `ui_advancedFlightControls 1`, `in_yawSpeed 30` and `in_angleSpeedKey 1`. It holds `clientMove 127 0 0` until the server's trace shows the aircraft 100 u up.
+  - This was tried on 2026-09-30: the anansi lifted off about 6 s after full collective and climbed to about 2,300 u.
+- **Phases**, about 6 s each:
+  - *still*: collective held at full, so it is saturated, and the aircraft hovers where the flight ceiling fades its lift. This gives the floor that snapshot quantization sets.
+  - *roll*: collective still at full; `+left` and `+right`, alternating each second (about 1° a tick, under the clamp).
+  - *collective*: `clientMove 30` and `clientMove -30`, alternating each second, so the value never saturates.
+- **Legs.**
+  - The phases run with the fix off and with it on, switching `g_airControlHistory` on the pilot with a 1 s gap.
+  - Each runs at loopback latency, and again with `net_forceLatency 50` on both processes. Then the client runs at least two ticks ahead, so the input is reversed rather than lost.
+  - One more leg with simple controls is reported only.
+  - About 3 minutes in total.
+- **Pairing.**
+  - Each client line with `pred=1 since=1` is paired with the server line of the same `tick` and `ent`, and the pair is checked by `uf`.
+  - A pair is dropped on the entry tick, or when the server duplicated a command in its window. Drops are counted and reported, never dropped silently.
+- **Checks:**
+  1. **Fix on.** In every pair, the client's `base` equals the server's (exact shorts). With advanced controls, `in` matches too.
+  2. **Fix off.** This is the negative control, showing that the test sees the bug: `base` differs in at least 80% of the roll phase's pairs. The run reports the distribution of how far ahead the client ran.
+  3. **Collective.** With the fix on, `coll` equals the server's in every pair of the collective phase. The take-off saturates the value, which realigns the client with the server.
+  4. **Physics, at `since=2`.** With the fix on, the pose and angular-velocity errors are at most the fix-off errors. They also stay within a bound over the still phase's floor; the first run sets that bound.
+  5. **Elsewhere.** `vehicle-physics-golden`, `high-refresh-determinism`, `seat-gate` and the frame-poses tests are unchanged.
+- **The residual rule.** A fix-on pair that fails check 1 or 3 is a residual, unless a duplicated command or a prediction restart explains it. If one remains, `oldCmdAngles` and `collective` are networked, as the owner decided.
+
+**Effort:** about 1 day for the tooling and the fix, plus 2–3 days for the test. It needs a ledger row, because this client behaviour differs from retail. *[inferred]*
 
 ### Stage 7 (optional): hull lead using the physics' own next pose
 
