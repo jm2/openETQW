@@ -13,14 +13,15 @@ and 45/90 (both under a 120 Hz display, so both paced). The caps change at run t
 (M5 step 17); after each change the test waits for each client's FRAME_POSE cap= to show
 it, then settles. Each round's phases, bracketed by echo markers on both clients:
   still       nobody moves (2 s)
-  turnA       A turns (+left, 2 s)          walkA   A walks forward 2 s, then back 2 s
+  turnA       A turns (+left, 2 s)          walkA   A walks north and back (5.2 s)
   turnB       B turns                        walkB   B walks
   peerwalk    the peer walks forward and back
 Valley's spawn spots vary by platform and timing (the pick is random), so the lanes come
 from where the players spawned: the middle player in x stays and the outer two strafe
 outward, east or west whatever their spawn yaw, until 300 u from it; the server's positions
-must then be 250 u apart, and W1 checks every walk. The peer, which never turns, alternates
-its walk's order each round so that it does not drift.
+must then be 150 u apart (a wall can stop a strafe), and W1 checks every walk. Every walk
+goes north first and comes back (the backward leg is 1.6 times as long, since backpedalling
+is slower), so no walk heads south of its start and nobody drifts.
 
 Checks, per client and round, against that client's cap:
   C0   every draw between the markers has cap= equal to the client's intended cap (0 while
@@ -67,7 +68,8 @@ SETTLE_S = 1.5
 # W1: a walk's lane is clear when the walker gets this far from where its phase began and
 # never this close to another player (x/y; spawn spots vary by platform and timing, so the
 # test checks the lanes, not the spots)
-LANE_TRAVEL = 200.0          # a back-first walk gets about 250 u from its start
+LANE_TRAVEL = 400.0          # every walk goes about 500 u north before it comes back
+BACK_LEG = 1.6               # backward leg / forward leg, so that a walk returns to its start
 LANE_GAP = 48.0
 # lanes: the middle player (by spawn x) stays, and the outer two strafe outward, east or
 # west, until LANE_SPACING from it; a strafe runs at about STRAFE_U_PER_S and may take
@@ -376,13 +378,18 @@ def main(argv):
             proc.send("-left")
         return drive
 
-    def walk(proc, first=127):
-        """Forward then back (first=127), or back then forward (first=-127)."""
+    def walk(proc, facing_north):
+        """North first, then back to about where it began: backpedalling covers about 0.62 of
+        the forward distance in the same time (2 s forward ~515 u, 4 s back ~634 u on valley), so
+        the backward leg takes BACK_LEG times as long. Facing north that is forward, then back;
+        facing south, back, then forward. (Valley has a wall about 350 u south of one spawn,
+        x 10376.)"""
         def drive(seconds):
-            proc.send(f"clientMove {first} 0 0")
-            time.sleep(seconds)
-            proc.send(f"clientMove {-first} 0 0")
-            time.sleep(seconds)
+            back = BACK_LEG * seconds
+            legs = [(127, seconds), (-127, back)] if facing_north else [(-127, back), (127, seconds)]
+            for move, leg in legs:
+                proc.send(f"clientMove {move} 0 0")
+                time.sleep(leg)
             proc.send("clientMove 0 0 0")
         return drive
 
@@ -416,9 +423,11 @@ def main(argv):
         sines = {}
         for k, dx in plan.items():
             yaw = spawn_yaw(server_lines, procs_by_key[k].slot)
-            if dx and (yaw is None or abs(math.sin(math.radians(yaw))) < 0.5):
-                raise Failed(f"{k} spawned facing yaw {yaw}: strafing would not move it east or west")
-            sines[k] = math.sin(math.radians(yaw)) if yaw is not None else 0.0
+            # the walks go north first from the facing the yaw gives, and strafes east or west
+            if yaw is None or abs(math.sin(math.radians(yaw))) < 0.5:
+                raise Failed(f"{k} spawned facing yaw {yaw}: neither north nor south, so the walks and"
+                             " strafes cannot be laid out")
+            sines[k] = math.sin(math.radians(yaw))
         print("[lanes] " + ", ".join(f"{k} {plan[k]:+.0f} u" if plan[k] else f"{k} stays" for k in plan))
 
         def strafe(moves):
@@ -456,17 +465,19 @@ def main(argv):
 
         set_caps(0, 0)
         phase("calibrate", "still", still, PHASE_S)
-        for index, (capa, capb) in enumerate(ROUNDS):
+        # which way each faces: the spawn yaw, and each turn phase turns A or B 180 degrees
+        facing_north = {k: sines[k] > 0 for k in procs_by_key}
+        for capa, capb in ROUNDS:
             rnd = round_name(capa, capb)
             set_caps(capa, capb)
             phase(rnd, "still", still, PHASE_S)
             phase(rnd, "turnA", turn(a), PHASE_S)
-            phase(rnd, "walkA", walk(a), PHASE_S)
+            facing_north["A"] = not facing_north["A"]
+            phase(rnd, "walkA", walk(a, facing_north["A"]), PHASE_S)
             phase(rnd, "turnB", turn(b), PHASE_S)
-            phase(rnd, "walkB", walk(b), PHASE_S)
-            # a walk ends ~200 u ahead (backpedalling is slower); A and B turn 180 degrees each
-            # round, so theirs alternate, but the peer never turns: alternate its order
-            phase(rnd, "peerwalk", walk(peer, 127 if index % 2 == 0 else -127), PHASE_S)
+            facing_north["B"] = not facing_north["B"]
+            phase(rnd, "walkB", walk(b, facing_north["B"]), PHASE_S)
+            phase(rnd, "peerwalk", walk(peer, facing_north["peer"]), PHASE_S)
             print(f"[{rnd}] flown")
         for proc in (a, b):
             proc.send("set g_logFramePoses 0")

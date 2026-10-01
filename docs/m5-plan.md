@@ -177,9 +177,10 @@ M5 is done when:
         - The run fails, rather than guessing, in three cases: the spawn yaw is within 30° of due east or west; a strafe would exceed 1.5 s; or the server's positions afterwards are less than 150 u apart in x.
         - The gap bar is 150 u because a wall can stop a strafe. On Windows the peer stops at x ≈ 8812, 227 u from B, and the top-up moves it 0 u. The walks need only W1's 48 u. *[measured]*
         - The plans: on this Mac, the peer goes 136 u west; on Windows, the peer goes 201 u west; on Linux (A and B at x 10376, the peer at 10536), A goes 300 u west and the peer 140 u east.
-      - **Drift.** A forward-first walk ends about 195–220 u ahead of where it began, because backpedalling is slower.
-        - Each round's 2 s turn flips A and B by 180°, so their walks alternate direction.
-        - The peer never turns, so it alternates its walk's order instead: forward first in rounds 1 and 3, backward first in round 2. Without that it drifted up to 270 u, sideways too at yaw 74.
+      - **Walks go north first and come back.** In 2 s, backpedalling covers about 0.62 of the forward distance (2 s forward ~515 u, 4 s back ~634 u). So the backward leg is 1.6 × the forward one, 2 s then 3.2 s, and a walk returns to within a few units of its start.
+        - Facing north (the spawn yaw, flipped by each round's 180° turn), a walk goes forward then back; facing south, back then forward. No walk heads south of its start, and nobody drifts.
+        - Equal-time legs drifted 195–220 u a round, and the peer, which never turns, drifted up to 270 u, sideways too.
+        - On Windows, A spawns at x 10376, where `frame-poses` found a wall about 350 u south. A facing south after its turn walked into it (354 u; A5 at 84.6%). *[measured]*
       - On Windows, fixed strafes (A east, B west) let B walk within 38 u of the peer in one round, and A5 and A6 failed there. *[measured]*
       - Both windows open at the same place, B over A. Both still reached 120 fps uncapped. *[measured]*
     - **Rounds.**
@@ -191,7 +192,7 @@ M5 is done when:
     - **Phases**, bracketed by echo markers on both clients:
       - *still* (2 s);
       - *turnA*, `+left` on A (2 s);
-      - *walkA*, A forward 2 s then back 2 s;
+      - *walkA*, A north 2 s and back 3.2 s;
       - *turnB* and *walkB*, the same for B;
       - *peerwalk*, the peer forward and back.
       A client that is not the mover stands still.
@@ -206,7 +207,7 @@ M5 is done when:
         - A9o: it stays put while still.
         - What A7o can catch: a client's cap disturbing what others see of it, through its usercmd stream.
       - **T1, turn rate:** each client's view yaw rate over its trimmed turn phase is 90°/s ± 2% at every cap, so turning speed does not depend on the client's cap. The rate is the sum of each draw pair's yaw change (modulo 360) over the sum of their gaps. Pairs more than 133 ms apart are left out and reported, because the turn scale is clamped at 4 ticks (`UsercmdGen.cpp:368`) and a loading stall would lose yaw for reasons unrelated to the cap. In the spikes, a 2 s `+left` turned 178–181° at 45, 60, 90 and 120 fps. *[measured]*
-      - **W1, clear lanes:** over every draw of each walk, the walker gets 200 u from where the phase began and never comes within 48 u of another player (x/y). A back-first walk gets about 250 u from its start. A and B are judged from their own logs, the peer from A's. A blocked lane fails here rather than as an obscure A5.
+      - **W1, clear lanes:** over every draw of each walk, the walker gets 400 u from where the phase began (each walk goes about 510 u north) and never comes within 48 u of another player (x/y). A and B are judged from their own logs, the peer from A's. A blocked lane fails here rather than as an obscure A5.
       - **S1, run validity (not a mixed-cap property):** over the dedicated server's `FRAME_TIMING` windows from the first phase marker to the last, which tile time exactly, |Σ ticks − Σ window_ms / 33| ≤ 2. `USERCMD_MSEC` is 33 ms, so the server runs 30.3 ticks a second. The server ticks on its own clock, so this only shows the host kept it ticking.
     - **Known gaps.** A7 and A7o are `per_tick` (a pose changes only when a draw crosses a tick) until step 8 restores the `Entity::Present` producer on network clients. Then they must flip to pass, and the test fails on an unexpected pass, as frame-poses does. Measured in the spike at 45, 60, 90 and 120 fps: the changed fraction equalled the tick-crossing fraction within 0.5%, with 1–2 misaligned pairs, for the peer (~330 u from A) and for the other client (~1130 u away) alike. *[measured]*
     - **Criterion 2 stays open** after this test lands, until step 8 turns A7 and A7o into passes.
