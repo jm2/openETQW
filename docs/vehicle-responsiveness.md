@@ -402,7 +402,7 @@ This stage must ship in the same release as stage 3. Otherwise targets stepping 
 **Tooling (game, written before the fix)**
 - **An `AIR_CTL` line.** It is behind `g_logAirControl` (`CVAR_GAME | CVAR_BOOL | CVAR_CHEAT`, a cheat like `g_logVehicleViews`, because it logs other players' input). At the end of `sdAirVehicleControl::SetupInput`, it prints one line per tick for each air vehicle with a driver: on the server, and on a client for every predicted tick, first-time or replayed. Fields:
   - `side=srv|cl`; `tick=` (`framenum`); `ent=`; `uf=` (the driver's usercmd `gameFrame`); `dup=` (its `duplicateCount` as the tick runs); `adv=` (the driver's `ui_advancedFlightControls`, which reaches the server as userinfo and can lag);
-  - `pred=` (1 when `framenum` is at or below the highest frame the client has predicted, a new member; `isNewFrame` would mislabel the first-time ticks after a restart from too far ahead); `since=` (`framenum` minus the last snapshot's frame, kept in a new member set by `ClientReadSnapshot`); `ahead=` on a client (that highest predicted frame minus the snapshot's frame, which is P−S);
+  - `pred=` (1 when `isNewFrame` is false); `since=` (`framenum` minus the last snapshot's frame, kept in a new member set by `ClientReadSnapshot`); `ahead=` on a client (the highest frame it has predicted, a new member, minus the snapshot's frame, which is P−S). After a restart from too far ahead, the engine resets its frame to the snapshot's (engine `AsyncClient.cpp:621-631`), so the next first-time ticks also print `pred=1`, with `ahead=` above 30;
   - `cmd=` (the tick's command angles, as the usercmd's shorts);
   - `base=` (the `oldCmdAngles` the delta used, after any restore, also as shorts);
   - `in=` (the pitch, roll and yaw inputs);
@@ -442,15 +442,15 @@ This stage must ship in the same release as stage 3. Otherwise targets stepping 
 - **Legs.**
   - The phases run with the fix off and with it on, switching `g_airControlHistory` on the pilot with a 1 s gap.
   - Each runs at loopback latency, and again with `net_forceLatency 50` on both processes. With that latency the client runs at least two ticks ahead, so the input is reversed rather than lost.
-  - After `net_forceLatency` changes, the client's prediction takes about 3 s to absorb it. The prediction moves 1 ms per snapshot (engine `AsyncClient.cpp:648`), and until it catches up the server duplicates commands. The next phase waits until the server logs no `dup>0` for 2 s, and gives up after 15 s.
+  - The loopback legs run first, so latency only ever goes up. When it goes up, the client's prediction takes about 3 s to absorb the change: the prediction moves 1 ms per snapshot (engine `AsyncClient.cpp:648`), and until it catches up the server duplicates commands. The next phase waits until the server logs no `dup>0` for 2 s. After 15 s the test fails as inconclusive.
   - One more leg with simple controls is reported only.
   - About 3 minutes in total.
 - **Pairing.**
   - Each client line with `pred=1 since=1` is paired with the server line of the same `tick` and `ent`. Their `uf` must match, which confirms the lockstep.
-  - A pair is dropped on the entry tick, or when the server's line for tick S or S+1 has `dup>0`.
-  - For check 3, the pairs from a server duplicate until the next saturation are also dropped.
+  - A pair is dropped on the entry tick; when the server's line for tick S or S+1 has `dup>0`; or when `ahead=` is above 30 (`net_clientMaxPrediction`), which marks a prediction restart.
+  - For check 3, the pairs from a server duplicate until the next saturation are also dropped. The next saturation is the first tick at which both sides are at the limit.
   - Drops are counted and reported.
-  - Each leg and phase needs at least 60 kept pairs (about 120 snapshots arrive in 6 s at 20 Hz), and at most a quarter may be dropped. Otherwise the test fails as inconclusive, so a check cannot pass on no data.
+  - Each leg and phase needs at least 60 kept pairs, and at most a quarter may be dropped. In 6 s, 90–120 snapshots arrive, one every 50–67 ms. Otherwise the test fails as inconclusive, so a check cannot pass on no data.
 - **Checks:**
   1. **Fix on.** In every kept pair, the client's `base` equals the server's (exact shorts). Where both lines have `adv=1`, `in` matches too.
   2. **Fix off.** This is the negative control, showing that the test sees the bug:
