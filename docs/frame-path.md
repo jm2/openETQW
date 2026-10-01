@@ -638,7 +638,7 @@ Remaining stepped paths must be listed rather than claimed as interpolated, and 
   - Keeping the list would not be enough: the consumer's `Present()` also returns early while `isNewFrame` is false (`game repo: src/game/Entity.cpp:1727-1729`) *(inferred)*.
   - `idWeapon::Present` has the same gate (`game repo: src/game/Weapon.cpp:1640-1662`), so the viewmodel could lag the camera on those frames *(inferred)*.
   - Re-predicted frames also do not refresh the pose log (§6.2).
-- No mixed-cap session has been run.
+- A mixed-cap session is tested since 2026-10-01 (M5 step 15, meson `mixed-caps`). Two Vulkan clients run at different caps with a headless peer: each holds its own cap on every draw, turns at the same rate and passes the frame-pose checks. What each sees of the other client and of the peer changes once per tick, the remote-entity gap above, until step 8.
 
 **Criterion 3: captured frame data**
 - Measured 2026-09-25 with `g_logFramePoses` (game repo: `src/game/PlayerView.cpp`, one `FRAME_POSE` line per main-view draw) and `tests/test_frame_poses.py` (meson `frame-poses-join`, `frame-poses-listen`), on foot, at caps 60/120/240:

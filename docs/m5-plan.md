@@ -167,6 +167,13 @@ M5 is done when:
     - **Criterion 2 stays open** after this test lands, until step 8 turns A7 and A7o into passes.
     - **Negative controls.** Frame-poses' control already shows A4 and A5 can fail. A7o's known gap shows its detector registers poses that do not change. C0 and T1 compare against fixed values.
     - **Size:** about 20 s a round, three rounds and the calibration: about 3 minutes in all.
+    - **Done 2026-10-01** (engine `m5/15-mixed-caps`; the test as designed). `mixed-caps` passes on this Mac (macOS arm64, MoltenVK, a 120 Hz panel):
+      - Both clients reached 120 fps uncapped together.
+      - The rounds measured 60.0/120.1 fps (60/240, mixed), 120.0/120.1 (120/144, not mixed here) and 45.0/90.0 (45/90, mixed).
+      - C0: every draw ran at its client's cap.
+      - T1: the view turned 90.0°/s at every cap, with no stall left out.
+      - A0–A9, A0o and A9o pass for both clients in every round. A1 reports B's 240 and 144 at the display's 120 (D1).
+      - A7 and A7o keep the `per_tick` shape: the changed fraction equals the tick-crossing fraction (50.2% at 60 fps, 25.2% at 120, 33.8% at 90, 67.7% at 45). Criterion 2 stays open until step 8.
 
 16. **GUI updates in network sessions.** Done (2026-09-25): no GUI updated during a network game (0 updates in 5 s); a client or listen host now calls `GuiFrameEvents` once per frame, as single player and Doom 3 do (60 updates/s at cap 60), and `client-network-*` check it. Originally: call `GuiFrameEvents` once per frame in multiplayer, as single player and Doom 3 do. First check that the HUD is not already updated some other way; otherwise it would update twice per frame.
 
