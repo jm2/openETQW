@@ -476,9 +476,9 @@ Done 2026-09-30: the fix, `AIR_CTL` and meson `aircraft-reprediction` are built 
 
 - No command was duplicated and no prediction restarted, so no pair was dropped.
 - With the fix on, `in=` also matched in every pair.
-- In the simple-controls leg, `base` and collective were equal in every pair. `in=` differed wherever auto-levelling acted: in every pair of the still and collective phases, but only 2 of 161 roll pairs, because it acts when the mouse is idle. It reads the predicted pose, which carries the snapshot's quantization, as anticipated above. The leg's angular-velocity error stayed at the fix-on level (p95 about 1.3×10⁻⁵ rad/s).
+- In the simple-controls leg, `base` and collective were equal in every pair. `in=` differed wherever auto-levelling acted: in every pair of the still and collective phases, but only 2 of 161 roll pairs, because it acts when the mouse is idle. It reads the predicted pose, which carries the snapshot's quantization, as anticipated above. The leg's angular-velocity error in the roll and collective phases stayed at the fix-on level (p95 1.4–1.5×10⁻⁵ rad/s).
 - At a direction reversal one tick ahead, the fix-off collective can match, hence 76–77 of 77–78 at loopback.
-- The origin error at `since=2` (p95 about 0.04 u) and the orientation error (p95 under 5×10⁻⁵°) are the same with the fix on and off. The snapshot's quantization sets them; one tick of wrong cyclic shows first in the angular velocity. The still phase's floor: origin p95 0.013–0.038 u, angular velocity p95 at most 1.1×10⁻⁷ rad/s.
+- The origin error at `since=2` (p95 about 0.04 u) and the orientation error (p95 under 5×10⁻⁵°) are the same with the fix on and off. The snapshot's quantization sets them; one tick of wrong cyclic shows first in the angular velocity. The still phase's floor in the advanced-controls legs: origin p95 0.013–0.038 u, angular velocity p95 at most 1.1×10⁻⁷ rad/s.
 - There is no residual, so `oldCmdAngles` and `collective` stay un-networked.
 
 **Effort:** about 1 day for the tooling and the fix, plus 2–3 days for the test. It needs a ledger row, because this client behaviour differs from retail. *[inferred]*

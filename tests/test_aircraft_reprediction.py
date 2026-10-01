@@ -38,7 +38,7 @@ Checks:
                from) equals the server's; with advanced controls on both sides, so does in=
   R2 fix off   the negative control: base differs in >= 80% of the roll phase's kept
                pairs, and coll in >= 80% of the collective phase's kept pairs where the
-               server's value is between its limits
+               server's value is below the ceiling
   R3 coll      fix on: coll equals the server's in every kept pair of the collective phase
   R4 physics   report only: the origin, orientation and angular-velocity error at since=2,
                per leg, in the still phase (the floor) and in the others
