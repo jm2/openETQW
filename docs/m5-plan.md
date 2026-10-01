@@ -25,7 +25,26 @@ M5 is done when:
    - Done (2026-09-25): `ClientUpdateView` presents the weapon and the `interpolateEntities` consumer through `PresentUnlocked` even when `isNewFrame` is false. `frame-poses-join` A6 passes (100% at caps 60/120/240).
    - Done: the CVar `g_logFramePoses` (game; a cheat, since it logs other players' positions) prints one `FRAME_POSE` line per main-view draw, just before `RenderScene` in `idPlayerView::SingleView`: the view, the viewmodel, the seat and up to 8 other players' render-world poses, and the unlock state and fraction.
    - Done: `frame-poses-join` and `frame-poses-listen` (the Vulkan client with a headless peer that walks). Known gaps were written from the code before the first run (plus the one it found), each with the shape its failure must keep. A negative control makes the camera detectors fail.
-   - To do: a devmap variant with a bot, vehicle seats (D2), and a negative control for the remote-player detector once the `Entity::Present` producer is restored.
+   - To do: the devmap variant (designed below), vehicle seats (D2), and a negative control for the remote-player detector once the `Entity::Present` producer is restored.
+   - **The devmap variant (design, 2026-10-01, the Mac session).**
+     - **Why no bot.** The plan asked for a devmap variant with a bot, but a `+devmap` game cannot have one:
+       - `addbot` gets no client slot without an active async server (engine `AsyncServer.cpp:367-370`; it prints "Can't find open client slot", even with `si_maxPlayers 8`);
+       - a bot's AI runs only when `gameLocal.isServer` (game `botai/Bot.cpp:101-104`), which single player leaves false.
+
+       Bots play offline on a listen host, which `frame-poses-listen` covers with its headless peer. So the variant has no remote player.
+     - **The test.** Meson `frame-poses-devmap`: `test_frame_poses.py --observer devmap`. The Vulkan client runs `+devmap valley`; single player needs no `net_allowCheats` for `g_logFramePoses`. Phases are still, turn and walk at caps 60/120/240, after the uncapped ceiling.
+     - **Checks:**
+       - A0 checks the viewmodel only;
+       - A1, A2, A4, A5, A6 and A8 as in the other modes;
+       - A9 without the peer term;
+       - A7 is reported as not applicable;
+       - the run fails if a "Server spawned on" line appears, so it cannot quietly be a listen host.
+     - **Negative control.** With the `g_unlock_*` switches off, A4, A5 and A6 must show the `per_tick` shape. That shows the detectors can fail and the base draw still steps once per tick; the weapon block is gated on `updateViewpos || updateAngles`, game `Game_local.cpp:6058`. `locked_check` runs at `com_unlockFPS 0` as well.
+     - **The spike.** Measured 2026-10-01 at cap 60, with the edges trimmed:
+       - while turning, yaw and the viewmodel changed on 100% of draw pairs;
+       - while walking, the view origin and the viewmodel changed on 100% of draw pairs;
+       - nothing moved while still.
+     - **When.** It is built after the Linux session's step 7 PRs (#51 and the listen-host change), which edit `test_frame_poses.py`.
    - **Decision D2** (decided 2026-09-25: match retail 1.5). Retail 1.5 has no per-frame view in any vehicle seat: `idPlayer::IsFPSUnlock` (0x3dd320) returns false whenever the viewed player has a proxy entity, which covers every seat of every vehicle, the jetpack included, with no seat or vehicle-type exception; it matches the SDK check for check. Retail interpolates remote entities by `renderEntity.origin` only, one tick behind (`idEntity::Present`, 0x108224): no axes and no skeletal joints, and animation is evaluated at the tick's time. The viewmodel gets a rigid origin and axis. So "pose" means entity origins (and the viewmodel's origin and axis), not joints. The one-seat capture uses the seat view from D10 (on by default).
 
 4. **The ~120 fps ceiling.**
