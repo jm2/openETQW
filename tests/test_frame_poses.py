@@ -21,9 +21,10 @@ are that phase's draws (the engine runs one stdin line per frame, before it draw
   walk       the observer walks forward, then back (clientMove)
   peerwalk   the headless peer walks forward, then back
 An uncapped segment (com_maxFPS 0) measures the host's ceiling first. A negative
-control (join only) repeats turn and the observer's walk with g_unlock_updateAngles,
+control repeats turn and the observer's walk with g_unlock_updateAngles,
 g_unlock_updateViewpos and g_unlock_interpolateMoving off: the camera checks (A4, A5)
-must fail there, which shows they can. The remote-player detector (A7) gets its proof
+must fail there, which shows they can (on a listen host since M5 step 7, which has the
+host call ClientUpdateView). The remote-player detector (A7) gets its proof
 when the Entity::Present producer is restored and A7 stops being a known gap.
 
 Checks (0.25 s dropped at each edge of a phase; a phase needs >= 20 draw pairs):
@@ -112,11 +113,11 @@ KNOWN_GAPS = {
     # predicted: the Entity::Present producer is compiled out (#if 0, jmarshall): remote
     # players are drawn where the last tick left them
     ("join", "A7"): ("per_tick",),
-    # predicted: the listen host never calls ClientUpdateView, so every draw between
-    # ticks repeats the tick's pose, and it reads view input once per tick
-    ("listen", "A4"): ("per_tick",), ("listen", "A5"): ("per_tick",),
-    ("listen", "A6"): ("per_tick",), ("listen", "A7"): ("per_tick",),
-    ("listen", "A8"): ("never_unlocked",),
+    # predicted: the same on the listen host, where it stays a gap after M5 step 8, which
+    # restores the producer on network clients only; the host gets the producer only as
+    # step 9's presentation-only interpolation (D6). (A4-A6 and A8 were gaps here until
+    # step 7 had the host call ClientUpdateView on render-only frames.)
+    ("listen", "A7"): ("per_tick",),
 }
 MIN_PAIRS = 20
 
@@ -581,7 +582,7 @@ def main(argv):
         c4 = fraction_check(n_turn, lambda a, b: abs(a["view"][4] - b["view"][4]) > ANG_EPS, "view yaw")
         c5 = fraction_check(n_walk, lambda a, b: moved(a["view"], b["view"]), "view origin")
         print(f"[{mode}] negative control at cap {cap}: {c4['detail']}; {c5['detail']}")
-        if mode == "join" and (c4["ok"] or c5["ok"] or c4["n"] < MIN_PAIRS or c5["n"] < MIN_PAIRS):
+        if c4["ok"] or c5["ok"] or c4["n"] < MIN_PAIRS or c5["n"] < MIN_PAIRS:
             failures.append(f"negative control: with the unlock updates off the A4/A5 detectors did not fail"
                             f" ({c4['detail']}; {c5['detail']})")
 

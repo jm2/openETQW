@@ -8,8 +8,8 @@ Between ticks the server's antilag (AntiLag.cpp) and each snapshot it writes
 recalculates a seated player's view with CalculateFirstPersonView( false ); a client
 moveable's Think calls it inside a tick, in single player too. No replay asserts that
 path. Until step 6, OpenETQW's smooth vehicle view interpolated there from the previous
-tick's camera, with a fraction servers never set, and wrote the result back into the
-tick's view, and the base draw after an exit between ticks rewound to the vehicle
+tick's camera, with a fraction a server never set (a listen host has set its own since M5
+step 7), and wrote the result back into the tick's view, and the base draw after an exit between ticks rewound to the vehicle
 camera. This test came first (decision 4), with that behaviour as known gaps; step 6
 restored the SDK views and reset the origin log at the pose log, and the test now
 asserts that every AoR call returns the tick's view origin, and in the smooth views its
@@ -65,8 +65,9 @@ of a change of seat or view mode are left out):
       ticks after the exit differ by more than 64 u in view origin
   Sanity: both view classes seen, with >= 20 server and >= 10 client AoR lines each; the
   vehicle moved >= 100 u in each phase; the server's smooth camera moved on >= 20 judged
-  ticks and N4 has >= 20 tick pairs; ud=1 on the client; the enter, cycle and exit
-  messages all printed. For N5, the first on-foot game time drawn is one tick after the
+  ticks and N4 has >= 20 tick pairs; ud=1 on the client, and on the server (since M5
+  step 7 the host's render-only frames set unlockedDraw: an AoR call with ud=1 ran inside
+  that window, so the checks cover it); the enter, cycle and exit messages all printed. For N5, the first on-foot game time drawn is one tick after the
   last seated draw's (else a slow frame ran two ticks undrawn and the rewind, or its
   absence, was never drawn), and the vehicle camera is more than 64 u from the on-foot
   view (the first draw of the next game time), so that a rewind would fail N5. A sanity
@@ -78,9 +79,10 @@ CHANGED SHAPE", and a known gap that passes fails as "UNEXPECTED PASS". Before s
 (engine #43) the table held these shapes, and the failing checks' details still count
 violations of that shape, so a return of the old code is recognisable:
   prev_tick (N1, N4)  the first AoR call of each tick in which the camera moved returns
-      the previous tick's camera: its result origin equals post(n-1).tpo exactly, its
-      angles are within 0.001 degrees of post(n-1).tpa (the slerp at fraction 0), and f
-      is 0; the tick's later calls pass. For N4, pre(n+1) holds that camera in fpo and
+      the previous tick's camera: its result origin equals post(n-1).tpo exactly and its
+      angles are within 0.001 degrees of post(n-1).tpa (the slerp at fraction 0: f was 0
+      on the server then; the shape no longer tests f, since a listen host sets its own
+      fraction from M5 step 7); the tick's later calls pass. For N4, pre(n+1) holds that camera in fpo and
       tpo. Every violation has this shape, and for N1 every such tick has one.
   rewind (N5)  every draw of exactly one game time after the exit is at the vehicle
       camera (the last seated draw's view origin, within 0.01 u) and the next draw is
@@ -364,7 +366,7 @@ def evaluate(host_lines, peer_lines, slot):
         prev = post.get(r["tick"] - 1)
         first = first_call.get(r["tick"]) == i
         first1 += first
-        if (prev is not None and first and r["f"] == 0.0 and r["result"]["org"] == prev["pose"]["tpo"]
+        if (prev is not None and first and r["result"]["org"] == prev["pose"]["tpo"]
                 and angle_diff(r["result"]["ang"], prev["pose"]["tpa"]) <= ANG_TOL):
             shaped1 += 1
     ticks1 = {r["tick"] for _, r in smooth}
@@ -497,6 +499,12 @@ def evaluate(host_lines, peer_lines, slot):
             sanity.append(f"phase {name}: the vehicle moved {travel:.1f} u (need {MIN_TRAVEL:.0f})")
     if not any(r["ud"] == 1 for r in cli_aor):
         sanity.append("no client AoR call with ud=1 (unlockedDraw set by a render-only frame)")
+    # M5 step 7: the host's render-only frames set unlockedDraw too, and an AoR call between
+    # one and the next tick (a snapshot write) runs inside that window
+    srv_ud1 = sum(1 for _, r in srv_aor if r["ud"] == 1)
+    report.append(f"server AoR calls with ud=1 (inside the host's unlockedDraw window): {srv_ud1} of {len(srv_aor)}")
+    if not srv_ud1:
+        sanity.append("no server AoR call with ud=1 (the host's render-only frames set unlockedDraw since M5 step 7)")
     report.append(render_report([r for _, r in srv_aor], "server"))
     report.append(render_report(cli_aor, "client"))
     return results, sanity, report
@@ -603,7 +611,8 @@ def main(argv):
     # both players on GDF (team balancing would refuse the second one); g_logVehicleViews
     # and g_logFramePoses are cheats, and the remote client sets its own once connected,
     # when it has the server's net_allowCheats. The remote client draws at 60 fps, so half
-    # its frames are render-only (ud=1 at its snapshot reads).
+    # its frames are render-only (ud=1 at its snapshot reads); the host draws at 120, and
+    # since M5 step 7 its render-only frames set unlockedDraw (ud=1 at some of its AoR calls).
     game = {"si_rules": "sdGameRulesObjective", "si_pure": "0", "g_teamSwitchDelay": "0", "si_teamForceBalance": "0",
             "net_allowCheats": "1"}
     view = {"com_unlockFPS": "1", "r_swapInterval": "0", "r_vkValidation": "0"}
