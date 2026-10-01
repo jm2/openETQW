@@ -43,13 +43,13 @@ Step 13 builds the switch and its evidence, and nothing that uses it: no consume
 ## What step 14 reads
 
 - On ticks: `gameLocal.unlock.seatAllowed` and the latched seat (`seatProxySpawnId`, `seatPositionId`, `seatViewMode`).
-- At every draw: `gameLocal.RecheckSeatPresentation()`; a mismatch draws the tick pose with no blend and no late look.
+- At every draw: `gameLocal.RecheckSeatPresentation()`; a mismatch draws the tick pose with no blend and no late look. Since M5 step 6, `ClientUpdateView` runs its on-foot blocks only when the viewer has no proxy at draw time (ledger 056); step 14's seat branch goes next to that guard (`else if ( RecheckSeatPresentation() )`), and its latch return widens to `!canUnlockFrames && !seatAllowed`. Step 6 also resets `originlog` at the pose log when the view player's seat changes (ledger 057), so a seat view starts from a history that holds no other seat's camera.
 - The recipe: `sdSeatGate::FindRecipe( kind, viewType )` returns a `seatRecipe_t`, which step 14 extends with its presentation hooks. A pointer to a test recipe is valid only until `g_seatGateTestRecipe` changes. `testOnly` recipes are never presentable.
 - Seats join `seatDefaultList` as they meet §3.3; `seat-gate`'s `DEFAULT_LIST` mirrors it.
 
 ## Consequences
 
-- Step 13 changes nothing drawn or simulated. `IsFPSUnlock` is byte-identical; `canUnlockFrames`, `ClientUpdateView` and schedules 1 and 2 are unchanged. `seat-gate` shows `SIM_HASH`, `VEH_TRACE`, `canUnlockFrames` and `SIM_VIEW` identical tick by tick with the gate shut, with every seat listed, and with the latch set by the test recipe (the weapon log alone may differ from tick 22, the entry leak step 6 removes).
+- Step 13 changes nothing drawn or simulated. `IsFPSUnlock` is byte-identical; `canUnlockFrames`, `ClientUpdateView` and schedules 1 and 2 are unchanged. `seat-gate` shows `SIM_HASH`, `VEH_TRACE`, `canUnlockFrames` and `SIM_VIEW` identical tick by tick with the gate shut, with every seat listed, and with the latch set by the test recipe. (Until M5 step 6 the weapon log alone could differ from tick 22, the entry leak; step 6 removed it and the allowance.)
 - The copied `IsFPSUnlock` checks can drift from the original; the predicate's comment names `IsFPSUnlock`, and a change to either must change both.
 - The IK column misses joints moved by scripts, animation and wheels.
 - The network client runs the latch on re-predicted frames, but only the single-player replay is tested.

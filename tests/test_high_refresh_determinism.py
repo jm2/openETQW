@@ -15,27 +15,24 @@ Validates:
    others, and instead of the cap rules it must draw no render-only frame: it logs
    every draw (g_logFramePoses), each must be a base draw of a new game time
    (test_frame_poses.locked_check), and no play window may draw more often than it
-   ticks (FRAME_TIMING draws= <= ticks=). Which schedules produce the same SIM_VIEW as
-   cap 30 is reported (M5 step 6 is to make every cap match it).
+   ticks (FRAME_TIMING draws= <= ticks=).
    A further schedule changes the cap during play (M5 plan step 17): it starts at 60,
    sets com_unlock_maxFPS 90 once tick 10 is logged and com_maxFPS 45 once tick 80 is
    (over stdin, as a player would at the console), about 70 ticks at each so that a
    FRAME_TIMING window of about a second falls wholly inside each whatever the phase.
    It is compared like the others; its FRAME_TIMING windows must report the caps in
    that order (the alias carries com_unlock_maxFPS into com_maxFPS), and each new cap
-   must be held in a full window at it, by the same rule as the fixed caps. (At cap 45
-   the entry tick has zero or one render-only frame, so its wlog leak, if any, has the
-   shape of cap 60's, which KNOWN_VIEW_LEAK's bounds were measured on.)
+   must be held in a full window at it, by the same rule as the fixed caps.
 2. Bit-for-bit identical CRC32 simulation hashes (SIM_HASH) across all schedules, and
-   identical SIM_VIEW lines: state each tick produces that later ticks read back and that
-   a render frame could write into (the view angles after UpdateViewAngles, the tick's
-   logged view origin and weapon offset and orientation, the vehicle's last pushed pose and
-   the axis its view last returned; docs/frame-path.md section 6.9). One divergence is
-   known and allowed in a bounded
-   shape (KNOWN_VIEW_LEAK): after the replay enters the vehicle, the logged weapon pose
-   (wlog) can differ between schedules, because the render frames of the entering tick
-   still run the on-foot unlock path and write the weapon's render entity, which the
-   vehicle ticks then log. Any other SIM_VIEW difference fails. Every schedule must print
+   SIM_VIEW identical to cap 30's on every tick in every schedule: state each tick
+   produces that later ticks read back and that a render frame could write into (the view
+   angles after UpdateViewAngles, the tick's logged view origin and weapon offset and
+   orientation, the vehicle's last pushed pose and the axis its view last returned;
+   docs/frame-path.md section 6.9). Cap 30 runs no render-only frame, so any difference
+   is render-frame state leaking into a tick; the first 10 are printed. (Until M5 step 6
+   the render frames of the tick that enters the vehicle wrote the weapon pose the
+   vehicle ticks then logged, and the test allowed that wlog divergence as
+   KNOWN_VIEW_LEAK.) Every schedule must print
    SIM_HASH and SIM_VIEW exactly once per tick, on the same ticks, each SIM_VIEW line with
    a view player, every field and finite values, and the replay must log a weapon pose, a
    vehicle pose and a vehicle view axis on some tick.
@@ -137,21 +134,6 @@ _TRIPLE = rf"\({_NUM},{_NUM},{_NUM}\)"
 SIM_VIEW_FIELDS_RE = re.compile(
     rf"view=(\d+) ang={_TRIPLE} olog={_TRIPLE} wlog=(\({_NUM}(?:,{_NUM}){{5}}\)|-)"
     rf" vpush=({_TRIPLE}) vpang={_TRIPLE} vret=({_TRIPLE}|-)")
-# found 2026-09-25 (docs/frame-path.md section 9): in some runs wlog differs from the
-# tick after the replay's enterVehicle (91) to the end of the replay, between one
-# schedule and the 60 Hz one. At full precision (game PR #10) it covers 55-56 of the 59
-# ticks 92-150 when it appears (7 of 10 runs, DVD and 1.5 data); two decimals had hidden
-# the smaller differences (31-40 ticks visible). Allowed only in that shape: the wlog
-# field alone, a weapon pose on both sides, starting at tick 92, on 45-59 ticks per
-# schedule. Nothing else may differ.
-# 2026-09-26 (game 78ec05e): the stream now enters the map's only vehicle_titan instead
-# of the nearest vehicle. From where the replay is at tick 90 the two nearest are
-# icarus_78 (2210.6 u) and desecrator_77 (2225.9 u), so the arm64/x86_64 difference in
-# the path decided it: Linux took the icarus, whose view logs no axis (the test needs
-# one), and macOS the desecrator, the 55-56-tick shape above. With the titan, on antec
-# (5 runs, 17 comparisons) the leak starts at tick 92 and covers 43 or 53-55 ticks; the
-# bounds cover both vehicles. Not yet measured with the titan on macOS.
-KNOWN_VIEW_LEAK = {"field": "wlog", "from_tick": 92, "to_tick": 150, "min_ticks": 40, "max_ticks": 59}
 
 FRAME_TIMING_RE = re.compile(
     r"FRAME_TIMING: window_ms=([\d.]+) frames=(\d+) ticks=(\d+) cap=(-?\d+)"
@@ -624,43 +606,22 @@ def main() -> int:
     def fields_of(line):
         return dict(re.findall(r"(\w+)=(\([^)]*\)|\S+)", line or ""))
 
-    view_mismatches, known = [], 0
-    known_span: dict[int, list[int]] = {}
-    for fps in rates[1:]:
-        for tick, line in views[rates[0]].items():
-            other = views[fps].get(tick)
-            if other == line:
-                continue
-            a, b = fields_of(line), fields_of(other)
-            differing = sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k))
-            field = KNOWN_VIEW_LEAK["field"]
-            if (differing == [field] and KNOWN_VIEW_LEAK["from_tick"] <= tick <= KNOWN_VIEW_LEAK["to_tick"]
-                    and a.get(field, "-").startswith("(") and b.get(field, "-").startswith("(")):
-                known += 1
-                known_span.setdefault(fps, []).append(tick)
-                continue
-            view_mismatches.append(f"tick {tick} ({', '.join(differing)}): {cap_label(rates[0])} {line} | {cap_label(fps)} {other}")
-    print(f"  {len(views[rates[0]])} ticks per schedule; {len(view_mismatches)} unexpected differences,"
-          f" {known} known (the weapon log after entering the vehicle)")
-    for fps, ticks in sorted(known_span.items()):
-        print(f"    known: {cap_label(fps)} against {cap_label(rates[0])}, ticks {min(ticks)}-{max(ticks)} ({len(ticks)})")
-        # the observed shape: it starts on the tick after entering the vehicle and covers
-        # 43-56 ticks at full precision (see KNOWN_VIEW_LEAK); a divergence that starts
-        # later or is much smaller is new
-        if (min(ticks) != KNOWN_VIEW_LEAK["from_tick"]
-                or not KNOWN_VIEW_LEAK["min_ticks"] <= len(ticks) <= KNOWN_VIEW_LEAK["max_ticks"]):
-            view_mismatches.append(f"{cap_label(fps)}: a weapon-log divergence on ticks {min(ticks)}-{max(ticks)}"
-                                   f" ({len(ticks)} ticks) does not have the known shape (from tick"
-                                   f" {KNOWN_VIEW_LEAK['from_tick']}, {KNOWN_VIEW_LEAK['min_ticks']}-{KNOWN_VIEW_LEAK['max_ticks']} ticks)")
-    # M5 step 6's target: every schedule's SIM_VIEW equal to cap 30's (no render-only frames,
-    # the base-draw path on); reported until step 6 lands
+    # every schedule's SIM_VIEW equal to cap 30's on every tick (cap 30 runs no render-only
+    # frame, with the base-draw path on; M5 step 6 removed the last known difference)
+    view_mismatches = []
     for fps in (r for r in rates if r != 30):
         diff = sorted(t for t in views[30] if views[fps].get(t) != views[30][t])
         print(f"  SIM_VIEW against cap 30: {cap_label(fps)}: "
               + ("identical" if not diff else f"differs on {len(diff)} ticks ({diff[0]}-{diff[-1]})"))
+        for tick in diff:
+            a, b = fields_of(views[30][tick]), fields_of(views[fps].get(tick))
+            differing = sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k))
+            view_mismatches.append(f"tick {tick} ({', '.join(differing)}): {cap_label(30)} {views[30][tick]}"
+                                   f" | {cap_label(fps)} {views[fps].get(tick)}")
+    print(f"  {len(views[30])} ticks per schedule; {len(view_mismatches)} differences from cap 30")
     for m in view_mismatches[:10]:
         print(f"  [FAIL] {m}")
-    assert not view_mismatches, f"render-frame state leaked into {len(view_mismatches)} tick(s) (SIM_VIEW)"
+    assert not view_mismatches, f"render-frame state leaked into {len(view_mismatches)} tick(s) (SIM_VIEW against cap 30)"
 
     # M5 step 5a: the occupied vehicle's full physics and control state (the titan,
     # ticks 92-115), every field in full precision, must not depend on the cap either
@@ -682,7 +643,8 @@ def main() -> int:
     assert not rate_failures, f"Frame rate failures: {rate_failures}"
 
     print("\n[PASSED] 100% BIT-FOR-BIT IDENTICAL SIMULATION AT CAPS 60, 120, 144, 240, UNCAPPED AND 30, AT 240 WITH"
-          " com_unlockFPS 0, AND WITH THE CAP CHANGED IN PLAY; FRAME RATES WITHIN BOUNDS.")
+          " com_unlockFPS 0, AND WITH THE CAP CHANGED IN PLAY; SIM_VIEW IDENTICAL TO CAP 30 ON EVERY TICK;"
+          " FRAME RATES WITHIN BOUNDS.")
     return 0
 
 

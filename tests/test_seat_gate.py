@@ -56,12 +56,11 @@ Checks:
    unchanged since tick n-1 and pred[n]. The run must show the latch set, a camera
    cycle clearing pred under a set latch, and a seat swap into a seat that also
    has a recipe (latch and pred both 1, draw 0: the identity re-check).
-6. Nothing changes: SIM_HASH, VEH_TRACE and cu are identical tick by tick in all
-   four runs, and so is SIM_VIEW except the weapon log (wlog) as one unbroken run
-   of ticks from 22: the render frames of tick 21, the entry from on foot, run the
-   vehicle proxy branch of ClientUpdateView, whose weapon presentation the vehicle
-   ticks log. That is the leak high-refresh-determinism allows as KNOWN_VIEW_LEAK;
-   step 6 removes it, and then this allowance goes too. All four runs execute the
+6. Nothing changes: SIM_HASH, VEH_TRACE, cu and SIM_VIEW are identical tick by
+   tick in all four runs. (Until M5 step 6 the render frames of tick 21, the entry
+   from on foot, ran the vehicle proxy branch of ClientUpdateView, whose weapon
+   presentation the vehicle ticks logged, and the test allowed that wlog run as
+   ENTRY_LEAK; step 6 removed both.) All four runs execute the
    same new code (the latch, SEAT_GATE, listSeatViews at 121) and differ only in
    the two CVars, so this shows that the gate's state changes nothing; that the
    code itself changes nothing against main rests on vehicle-physics-golden (its
@@ -99,11 +98,6 @@ SEATED_TICKS = range(21, 125)
 # the game's built-in default list (seatDefaultList in openETQW-game vehicles/SeatGate.cpp):
 # empty in step 13; keep it in step as seats join it
 DEFAULT_LIST: tuple[str, ...] = ()
-# the entry leak (see the docstring, check 6): only this field, and only as one unbroken
-# run of ticks starting at this one (the weapon lag filter diverges on the entry tick's
-# render frames and stays apart; it is not reset while seated). A leak starting anywhere
-# else, a later entry's say, is a new one and fails.
-ENTRY_LEAK = {"field": "wlog", "from_tick": ENTRY_TICK + 1}
 
 SIM_HASH_RE = re.compile(r"^SIM_HASH: tick=(\d+) ")
 SIM_VIEW_RE = re.compile(r"^SIM_VIEW: tick=(\d+) (.*)$")
@@ -412,22 +406,18 @@ def check_unchanged(base: Run, runs: list[Run]) -> list[str]:
         if sorted(run.views_by_tick) != sorted(base.views_by_tick):
             problems.append(f"{pair}: SIM_VIEW ticks differ")
             continue
-        leaks = []
+        view_diffs = 0
         for tick in sorted(base.views_by_tick):
             a, b = view_fields(base.views_by_tick[tick]), view_fields(run.views_by_tick[tick])
             differ = sorted(f for f in set(a) | set(b) if a.get(f) != b.get(f))
             if not differ:
                 continue
-            if differ == [ENTRY_LEAK["field"]] and tick == ENTRY_LEAK["from_tick"] + len(leaks):
-                leaks.append(tick)
-            else:
-                problems.append(f"{pair}: SIM_VIEW tick {tick}: {', '.join(differ)} differ"
-                                f"\n    {base.name}: {base.views_by_tick[tick]}\n    {run.name}: {run.views_by_tick[tick]}")
-        if leaks:
-            print(f"  {pair}: wlog differs on {len(leaks)} ticks, {leaks[0]}-{leaks[-1]} (the entry leak; step 6)")
+            view_diffs += 1
+            problems.append(f"{pair}: SIM_VIEW tick {tick}: {', '.join(differ)} differ"
+                            f"\n    {base.name}: {base.views_by_tick[tick]}\n    {run.name}: {run.views_by_tick[tick]}")
         print(f"  {pair}: SIM_HASH {'identical' if run.hashes == base.hashes else 'DIFFERENT'},"
               f" VEH_TRACE {'identical' if run.veh == base.veh else 'DIFFERENT'},"
-              f" SIM_VIEW {'identical' if not leaks else 'identical but for the entry leak'}", flush=True)
+              f" SIM_VIEW {'identical' if not view_diffs else f'DIFFERENT on {view_diffs} ticks'}", flush=True)
     return problems[:20]
 
 
@@ -552,7 +542,7 @@ def report(failures: list[str]) -> int:
         return h.EXIT_FAIL
     print("PASS: the seat gate stayed shut without a recipe, never opened for the jetpack, matched keys as the"
           " reference does, latched and re-checked as specified, and changed nothing in SIM_HASH, VEH_TRACE,"
-          " canUnlockFrames or SIM_VIEW (but the known entry leak)")
+          " canUnlockFrames or SIM_VIEW")
     return h.EXIT_PASS
 
 

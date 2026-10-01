@@ -2,15 +2,21 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Vehicle views on the network: do area-of-relevance calls see the tick's view?
 
-M5 step 6, owner decision 4 (docs/m5-plan.md; docs/vehicle-responsiveness.md stage 1):
-the network test comes before the vehicle views go back to SDK code. Between ticks the
-server's antilag (AntiLag.cpp) and each snapshot it writes (AORManager.cpp), and a
-client reading a snapshot, call idPlayer::GetAORView, which recalculates a seated
-player's view with CalculateFirstPersonView( false ). OpenETQW's smooth vehicle view
-interpolates there from the previous tick's camera, with a fraction servers never set,
-and writes the result back into the tick's view; no replay asserts that path (a client
-moveable's Think reaches it inside a tick, in single player too). With g_logVehicleViews
-(a cheat) the game prints, for players in a vehicle:
+M5 step 6, owner decision 4 (docs/m5-plan.md; docs/vehicle-responsiveness.md stage 1).
+Between ticks the server's antilag (AntiLag.cpp) and each snapshot it writes
+(AORManager.cpp), and a client reading a snapshot, call idPlayer::GetAORView, which
+recalculates a seated player's view with CalculateFirstPersonView( false ); a client
+moveable's Think calls it inside a tick, in single player too. No replay asserts that
+path. Until step 6, OpenETQW's smooth vehicle view interpolated there from the previous
+tick's camera, with a fraction servers never set, and wrote the result back into the
+tick's view, and the base draw after an exit between ticks rewound to the vehicle
+camera. This test came first (decision 4), with that behaviour as known gaps; step 6
+restored the SDK views and reset the origin log at the pose log, and the test now
+asserts that every AoR call returns the tick's view origin, and in the smooth views its
+angles too and that the call changes nothing (the standard view is compared by origin
+only: the SDK's non-full damped path recalculates the axis and rewrites
+firstPersonViewAxis and lastReturnedAxis, owner decision 7). With
+g_logVehicleViews (a cheat) the game prints, for players in a vehicle:
 
   VIEW_STATE: side at=pre|post tick client ent pos mode class ud new pose= rvo= phys= vpush=
       at=pre before the tick's entity Think, at=post at its end (a server: every client
@@ -53,8 +59,8 @@ of a change of seat or view mode are left out):
       control: it shows the comparison can hold)
   N1  server, smooth view: the result equals before.tpo/tpa and after equals before
   N4  server, smooth view: VIEW_STATE pre(n+1) equals post(n) (fpo, fpa, tpo, tpa)
-  N2  client, smooth view: as N1                          (reported, not judged)
-  N3  client, standard view: as N0                        (reported, not judged)
+  N2  client, smooth view: as N1
+  N3  client, standard view: as N0
   N5  the host, after the console exit: no two consecutive on-foot draws (seat=-) of the
       ticks after the exit differ by more than 64 u in view origin
   Sanity: both view classes seen, with >= 20 server and >= 10 client AoR lines each; the
@@ -66,10 +72,11 @@ of a change of seat or view mode are left out):
   view (the first draw of the next game time), so that a rewind would fail N5. A sanity
   failure fails the test, whatever the checks say.
 
-A check the code fails today is listed in KNOWN_GAPS with the shape its failure must
-have, as in frame-poses; a gap outside its shape fails as "GAP CHANGED SHAPE", and a
-known gap that passes fails as "UNEXPECTED PASS", so the table is updated when the code
-changes:
+KNOWN_GAPS is empty since step 6. As in frame-poses, a check the code fails is listed
+there with the shape its failure must have; a gap outside its shape fails as "GAP
+CHANGED SHAPE", and a known gap that passes fails as "UNEXPECTED PASS". Before step 6
+(engine #43) the table held these shapes, and the failing checks' details still count
+violations of that shape, so a return of the old code is recognisable:
   prev_tick (N1, N4)  the first AoR call of each tick in which the camera moved returns
       the previous tick's camera: its result origin equals post(n-1).tpo exactly, its
       angles are within 0.001 degrees of post(n-1).tpa (the slerp at fraction 0), and f
@@ -78,11 +85,12 @@ changes:
   rewind (N5)  every draw of exactly one game time after the exit is at the vehicle
       camera (the last seated draw's view origin, within 0.01 u) and the next draw is
       more than 100 u away: the base draw's rewind to the previous tick's logged origin
-      (originlog), which the exit between ticks leaves at the vehicle camera.
-N2 and N3 are reported with the ud and f of each violation, split by where the call
-ran (from the line order): between ticks, a snapshot read, or inside a predicted tick, a
-client moveable's Think (rvClientMoveable::Think calls SetupClientAoR). The client's
-behaviour was never measured before this test (docs/frame-path.md section 6.9).
+      (originlog), which the exit between ticks left at the vehicle camera.
+N2 and N3 give the ud and f of each violation, split by where the call ran (from the
+line order): between ticks, a snapshot read, or inside a predicted tick, a client
+moveable's Think (rvClientMoveable::Think calls SetupClientAoR). Before step 6 the
+snapshot reads already passed, but a client moveable's Think ran the smooth
+interpolation with a stale fraction in some runs (2 of 11 on antec, and on macOS).
 
 Also reported, not judged: the server's smooth camera from the cycle on (post tpo/tpa),
 as each tick's offset from the midpoint of its two neighbours, sampled at a few ticks
@@ -137,14 +145,10 @@ DRIVES = {
     "B": [((127, 0), 1.0), ((127, -127), 0.5), ((-127, 0), 0.8)],
 }
 
-# Checks the current code fails, with the shape the failure must have (M5 step 6 plan,
-# section 4, written from the code before this test first ran). Step 6's revert empties it.
-KNOWN_GAPS = {
-    "N1": ("prev_tick",),
-    "N4": ("prev_tick",),
-    "N5": ("rewind",),
-}
-REPORT_ONLY = ("N2", "N3")
+# Checks the current code fails, with the shape the failure must have. Empty since M5
+# step 6; until then {"N1": ("prev_tick",), "N4": ("prev_tick",), "N5": ("rewind",)}.
+KNOWN_GAPS: dict[str, tuple] = {}
+REPORT_ONLY = ()
 
 
 def parse_view(text):
@@ -560,7 +564,7 @@ def finish(host_lines, peer_lines, slot, failures):
             print(f"  - {f}")
         return 1
     print(f"\nPASS: every check matched the expected state (known gaps: {', '.join(sorted(KNOWN_GAPS)) or 'none'};"
-          f" reported: {', '.join(REPORT_ONLY)})")
+          f" reported only: {', '.join(REPORT_ONLY) or 'none'})")
     return 0
 
 
