@@ -2,12 +2,12 @@
 
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
-Updated: 2026-09-30 · session/agent: Claude Code integrator session 3a9edf51 · host: mbp-m1max, macOS 27.0 (Darwin 27.0.0), arm64 (Apple M1 Max)
-Engine repo `~/openETQW`: `main` with PR #30 (`tools/ci/companion.ref` pins game 98756d8) · game repo `~/openETQW-game`: `main` 98756d8 (PR #17, merged 2026-09-30) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none; upstream checked 2026-09-24)
+Updated: 2026-09-30 · session/agent: Claude Code integrator session 3a9edf51 · host: mbp16-m1max, macOS 27.0 (Darwin 27.0.0), arm64 (Apple M1 Max)
+Engine repo `~/openETQW`: `main` with PR #44 (`tools/ci/companion.ref` pins game fa743d0) · game repo `~/openETQW-game`: `main` fa743d0 (PR #21, merged 2026-09-30) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none; upstream checked 2026-09-24)
 
 Both histories were rewritten on 2026-09-24 (`docs/provenance.md` §7). Every commit ID changed: engine 2104090 → 84a224b and 53d0172 → fef1e53; game 285eaa1 → 24f58bf and 9b3a02b → 19a709a. Engine SHAs quoted in older docs (`CHECKPOINT_STOCK_MAPS_PHASE.md`, ledger rows, earlier STATUS text) are pre-rewrite IDs. The game's historical `tools/ci/engine.ref` pins name engine commits that no longer exist.
 
-**Integrator role:** held by Claude Code integrator session 3a9edf51 on mbp-m1max
+**Integrator role:** held by Claude Code integrator session 3a9edf51 on mbp16-m1max
 
 ## Owner decisions in effect
 D1 public source and binaries · D2 all RE methods · D3 hard fork · D4 macOS / Windows 11 / Arch / Fedora / Debian, inputs on request · D5 two repos: GPL-3.0-or-later engine; SDK license + MIT game · D6 Meson · D7 clean network break from retail 1.5 (2026-09-22; deferred 2026-09-24; **dropped 2026-09-25**: OpenETQW does not aim for retail 1.5 network compatibility, matching openQ4; retail 1.5 data stays required and supported)
@@ -46,7 +46,7 @@ From the owner, 2026-09-30, on the `game->Init()` proposal ("go with your recomm
 Environment corrections vs. SESSION_BRIEF: the macOS arm64 host is joined by `antec` (Fedora 44, x86_64, GCC 16.2.1, AMD RX 6400 / RADV NAVI24) since 2026-09-26 and by a Windows 11 26H2 x64 host (VS 2026 MSVC 19.51.36260, AMD RX 6400 / Adrenalin 26.8.1) since 2026-09-28; the Linux engine and game module build and run the full retail suite on `antec`, and on the Windows host the engine, dedicated server and game module build with MSVC, debug and optimized (debugoptimized), and run the full retail suite (rows below; the Windows leg is engine PR #23 with game PR #13). VS 2026 is the Windows toolchain baseline everywhere, including CI. GitHub Actions minutes for private repositories ran out on 2026-09-24, so hosted CI does not run. Local checks, local independent reviews and CodeRabbit (about one review an hour) replace it (`CONTRIBUTING.md`). Merge gates are a convention; the free plan has no branch protection.
 
 ## Toolchain and commands (this session)
-- Host / OS / arch: mbp-m1max, macOS 27.0 (build 26A428), Darwin 27.0.0, arm64, Apple M1 Max
+- Host / OS / arch: mbp16-m1max (MacBookPro18,2; STATUS called it mbp-m1max until 2026-09-30), macOS 27.0 (build 26A428), Darwin 27.0.0, arm64, Apple M1 Max; also a build host for antec's xmat controller (jm2/xmat, the cross-host build-and-test runner) since 2026-09-30
 - Compiler, Meson, Ninja, and other tool versions: Apple clang 21.0.0 (clang-2100.3.34.2, target arm64-apple-darwin27.0.0, through ccache) · Meson 1.12.0 · Ninja 1.13.2 · Python 3.14.7 · Git 2.55.0. On this host both repos build as `buildtype=debug` (-O0). Optimized (`debugoptimized`) engine builds exist on the Windows host (the full suite, since 2026-09-28) and wherever `openetqw_validate.py` runs, whose profiles build `debugoptimized` (Linux `push`, 2026-09-29; Windows `pr`, 2026-09-30).
 - Setup / compile / test commands, exactly as run (from `~/openETQW`; the game repo is the sibling `../openETQW-game`):
 ```sh
@@ -127,6 +127,7 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 - Owner decision (2026-09-26), done: `frame-poses` A8 counts the ticks with an off-clock draw (max(1, 5%)) and bounds each miss (8 ms beyond the 4 ms slack) instead of counting draws; smoothing the prediction clock itself is a candidate for M5 step 10.
 
 ### Found this session
+- **Step 17's cap-change check failed on Windows** (the Windows session, 2026-09-30, debug and debugoptimized on `main`): right after spawn a first-use stall (562 ms) fell in the window the change to 90 landed in, leaving it 16 ticks, too few to count as play, and the full-window rule only took play windows as predecessors. Fixed in engine #44: a window ran wholly at a cap when the window before it, of any kind, already ended there, and any window with ticks and 20 frames can be that full window. #44 passes on Windows (90.0 and 45.0 fps in both builds, simulation identical) and on macOS.
 - **An optimized game module could not start a map on macOS** (2026-09-30, the macOS validation pass). `sdPropertyValue() {}` (game `src/idlib/Properties.h:70`) left `value` uninitialized, and `operator=` compares it before assigning (`PropertiesImpl.h:455`). For the `int` a `handle` global property creates (`PlayerProperties.cpp:1739-1743`), Apple Clang 21 at `-O2` treats that read as undefined behaviour and removed the branch, so `sdGlobalPropertiesNameSpace::Init` rejected `Invalid Type 'handle'`, `game->Init` failed on the retail data, and the map load crashed (SIGSEGV in `idCompiler::ParseSysObjectCall`). Debug builds, which every macOS retail row used, were unaffected; releases build `debugoptimized` (`manual-release.yml`). Fixed by value-initializing (game `fix/property-value-init`). The assetless smoke's stub decls now carry a `guiGlobals` stringMap with a `handle` entry: with an optimized build it fails on the old module and passes on the fixed one.
 - **The macOS app could not be packaged.** The renderer reaches Vulkan only through `SDL_Vulkan_LoadLibrary` (`VK_NO_PROTOTYPES`), so Meson's default `b_asneeded` (`-dead_strip_dylibs` on macOS) dropped the Vulkan loader from the client, and `package_release.py` refuses a client that does not link it. The client now links it on macOS (`override_options`, engine `fix/macos-release-build`); the app then loads the bundled loader, which finds the bundled MoltenVK through `Contents/Resources/vulkan/icd.d`.
 - **The data was not 1.5.** `~/etqw_data` held the unpatched English DVD paks, so every result before 2026-09-25 14:49 ran the SDK 1.5 game code on 1.0 scripts. The 1.5 paks were added from the official Linux 1.5 client installer on the owner's drive. On them, `main` failed 20 of 28 tests: PR #1's "retail" script-event signatures had been fitted to the DVD scripts, and the harness counts the reconcile warnings as failures (details under Demonstrated and ledger 050). With game PR #11 and engine PR #17, the full suite passes on the 1.5 data (28/28).
@@ -144,7 +145,7 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 - **Kept outside the repositories** (gitignored `~/openETQW/.agents/`): the research notes and scripts (`research-2026-09-25/`), the docs audit, the branch-review findings, and the verified pre-purge backup bundles (`backups-2026-09-24-prepurge/`; they contain the purged bitmap and must never be pushed).
 
 ### Demonstrated
-All rows: host mbp-m1max, macOS 27 arm64, Apple Clang 21, debug build, retail data at `$HOME/etqw_data`. Rows before 2026-09-25 14:49 ran on the English DVD paks alone (the SDK 1.5 game code on 1.0 scripts and maps); the rows marked **1.5 data** ran with `pak005`–`pak008` and `zpak_english001`–`003` added. Network tests use loopback (127.0.0.1) only.
+All rows: host mbp16-m1max, macOS 27 arm64, Apple Clang 21, debug build, retail data at `$HOME/etqw_data`. Rows before 2026-09-25 14:49 ran on the English DVD paks alone (the SDK 1.5 game code on 1.0 scripts and maps); the rows marked **1.5 data** ran with `pak005`–`pak008` and `zpak_english001`–`003` added. Network tests use loopback (127.0.0.1) only.
 
 | Claim | Evidence level | Host / OS / arch / compiler | Command | Result (log path) |
 |---|---|---|---|---|
@@ -290,7 +291,7 @@ Notes on the per-map results:
 - **Include letter case in the Radiant editor.** `src/tools/radiant` (Windows-only MFC, not built by Meson) has about 80 includes whose case does not match the file; `check_include_case.py` excludes it.
 
 ## Capability matrix
-Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>`. Linux x86_64 engine evidence is from `antec` (Fedora 44, GCC 16.2.1, RX 6400 / RADV, debug, since 2026-09-26); Windows 11 x64 from the Windows host (Windows 11 26H2, VS 2026 MSVC 19.51, RX 6400 / Adrenalin 26.8.1, debug and debugoptimized, since 2026-09-28); the rest from mbp-m1max, macOS 27 arm64, Apple Clang 21, debug. "No engine build" means the engine has never been configured on that OS: there is no host, Actions minutes ran out 2026-09-24, and the engine CI legs skip while `openETQW-game` is private.
+Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>`. Linux x86_64 engine evidence is from `antec` (Fedora 44, GCC 16.2.1, RX 6400 / RADV, debug, since 2026-09-26); Windows 11 x64 from the Windows host (Windows 11 26H2, VS 2026 MSVC 19.51, RX 6400 / Adrenalin 26.8.1, debug and debugoptimized, since 2026-09-28); the rest from mbp16-m1max, macOS 27 arm64, Apple Clang 21, debug. "No engine build" means the engine has never been configured on that OS: there is no host, Actions minutes ran out 2026-09-24, and the engine CI legs skip while `openETQW-game` is private.
 
 | Capability | Linux x86_64 | Windows 11 x64 | macOS arm64 | macOS x86_64 (dropped 2026-09-30; earlier evidence kept) | Linux arm64 | Notes |
 |---|---|---|---|---|---|---|
