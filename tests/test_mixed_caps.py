@@ -102,7 +102,7 @@ def turn_rate(poses):
     is left out: the turn scale is clamped at 4 ticks (UsercmdGen.cpp), so a stall loses yaw
     for a reason unrelated to the cap."""
     turned = gap = 0.0
-    skipped = 0
+    skipped = counted = 0
     for a, b in zip(poses, poses[1:]):
         dt = b["us"] - a["us"]
         if dt > STALL_US:
@@ -110,11 +110,15 @@ def turn_rate(poses):
             continue
         turned += ((b["view"][4] - a["view"][4] + 180.0) % 360.0) - 180.0
         gap += dt
-    return (abs(turned) / (gap / 1e6) if gap > 0 else 0.0), skipped
+        counted += 1
+    return (abs(turned) / (gap / 1e6) if gap > 0 else 0.0), skipped, counted
 
 
 def gap_shaped(r):
-    return r.get("misaligned", 1 << 30) <= max(1, int(0.05 * r.get("n", 0)))
+    """frame-poses' per_tick shape (test_frame_poses.judge): enough draw pairs, and the pose
+    changed exactly on the pairs that crossed a tick, but for 5% (at least 1)."""
+    n = r.get("n", 0)
+    return n >= MIN_PAIRS and r.get("misaligned", 1 << 30) <= max(1, int(0.05 * n))
 
 
 def evaluate_client(name, segs, slots, other):
@@ -128,6 +132,8 @@ def evaluate_client(name, segs, slots, other):
                                        "detail": f"cap= {caps0} over {len(cal_every)} calibrate draws (need [0])"}
     report.append(f"{name}: uncapped {ceiling:.1f} fps while the other client drew too")
     if ceiling <= 0:
+        results[("calibrate", 0, "A1")] = {"ok": False, "detail": "fewer than 2 calibrate draws: no ceiling, so no round"
+                                                                   " of this client can be judged"}
         return results, report
     for capa, capb in ROUNDS:
         rnd = round_name(capa, capb)
@@ -143,12 +149,13 @@ def evaluate_client(name, segs, slots, other):
         for check, r in evaluate(cap, ceiling, slots["peer"], seg["still"], own_turn, own_walk, seg["peerwalk"]).items():
             results[(rnd, cap, check)] = r
         o = evaluate(cap, ceiling, slots[other], seg["still"], own_turn, own_walk, other_walk)
-        results[(rnd, cap, "A0o")] = {**o["A0"], "detail": o["A0"]["detail"].replace("peer in", f"client {other} in")}
+        results[(rnd, cap, "A0o")] = {**o["A0"], "detail": o["A0"]["detail"].replace("peer in", f"client {other} in")
+                                      .replace("peerwalk", f"walk{other}")}
         results[(rnd, cap, "A7o")] = {**o["A7"], "detail": o["A7"]["detail"].replace("peer's", f"client {other}'s")}
         results[(rnd, cap, "A9o")] = {**o["A9"], "detail": o["A9"]["detail"].replace("peer", f"client {other}")}
-        tr, stalls = turn_rate(own_turn)
-        results[(rnd, cap, "T1")] = {"ok": len(own_turn) > MIN_PAIRS and abs(tr - TURN_DEG_S) <= TURN_TOL * TURN_DEG_S,
-                                     "detail": f"view yaw {tr:.1f} deg/s over {len(own_turn)} draws of turn{name}"
+        tr, stalls, counted = turn_rate(own_turn)
+        results[(rnd, cap, "T1")] = {"ok": counted >= MIN_PAIRS and abs(tr - TURN_DEG_S) <= TURN_TOL * TURN_DEG_S,
+                                     "detail": f"view yaw {tr:.1f} deg/s over {counted} draw pairs of turn{name}"
                                                f" (need {TURN_DEG_S:.0f} +-{TURN_TOL:.0%}; {stalls} pairs over 133 ms left out)"}
         report.append(f"{name} {rnd}: still {rate(seg['still']):.1f} fps at cap {cap}")
     return results, report
@@ -157,7 +164,8 @@ def evaluate_client(name, segs, slots, other):
 def judge(results):
     failures = []
     print(f"\n{'client':<6} {'round':<10} {'cap':>4} {'check':<5} {'result':<18} detail")
-    for (client, rnd, cap, check), r in sorted(results.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][3])):
+    order = ["calibrate"] + [round_name(a, b) for a, b in ROUNDS]
+    for (client, rnd, cap, check), r in sorted(results.items(), key=lambda kv: (kv[0][0], order.index(kv[0][1]), kv[0][3])):
         gap = KNOWN_GAPS.get(check)
         if gap is None:
             verdict = "pass" if r["ok"] else "FAIL"
@@ -191,7 +199,9 @@ def finish(a_lines, b_lines, slots, server_windows, failures):
         rb = rate(sb.get((rnd, "still"), ([], []))[0])
         mixed = abs(ra - rb) > 0.05 * max(ra, rb, 1.0)
         print(f"  round {rnd}: A {ra:.1f} fps, B {rb:.1f} fps ({'mixed' if mixed else 'not mixed on this host'})")
-    if server_windows is not None:
+    if server_windows is None:
+        print("  server: S1 not judged (it needs a live run's server log with harness times)")
+    else:
         # the windows tile time exactly, so their sums compare ticks with time
         ms = sum(w for w, _ in server_windows)
         ticks = sum(t for _, t in server_windows)

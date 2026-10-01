@@ -605,7 +605,7 @@ endif
 #     passes the frame-pose checks of step 3 against its own cap, logs that cap on every
 #     draw, and turns at 90 deg/s whatever its cap; the other client is checked as a
 #     remote player (known gap until step 8: remote players change once per tick)
-if build_engine
+if build_engine and build_dedicated
   test(
     'mixed-caps',
     py,
