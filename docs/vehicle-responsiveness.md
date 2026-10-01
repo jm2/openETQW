@@ -2,11 +2,12 @@
 
 This is the plan for decision D10 of [`m5-plan.md`](m5-plan.md), written 2026-09-25 from a design study (three readers, three designs from different angles, two adversarial judges). It is a proposal for review; the owner's questions are in §5.1. The owner's goal (D10): "let's get vehicles feeling as modern/responsive as possible without breaking game physics. If we can move vehicles entirely out of tick rate and modernize them safely, we should explore that."
 
-Nothing in this document was built or run. The analysis comes from reading the code. Every millisecond, degree and distance below is arithmetic from the 33 ms tick, unless it says "measured".
+Nothing in this document was built or run, except the stage 6 spike (2026-09-30), which is marked *[measured]*. The analysis comes from reading the code. Every millisecond, degree and distance below is arithmetic from the 33 ms tick, unless it says "measured".
 
 **How to read the references**
 - `game` = openETQW-game at `f00f4d3`.
 - `engine` = openETQW at `228a5c8`.
+- §1.3 and stage 6 were rewritten on 2026-09-30, and their references are to game `cd18aee` and engine `7368e68`.
 - `SDK` = the 1.5 SDK copy in `.agents/upstreams/etqw_sdk_comparison/sdk/source`.
 - `openQ4-game` at `9889d9e` and `openq4` at `b37b1456`. These are used for patterns only.
 
@@ -14,7 +15,7 @@ Nothing in this document was built or run. The analysis comes from reading the c
 - *[inspected]*: read in the code.
 - *[inferred]*: reasoned from the code, not observed.
 - *[derived]*: arithmetic.
-- *[measured]*: taken from an existing capture in [`frame-path.md`](frame-path.md).
+- *[measured]*: taken from an existing capture in [`frame-path.md`](frame-path.md), or from the stage 6 spike.
 
 ## Summary
 
@@ -83,12 +84,15 @@ The vehicle simulation and control code is the 1.5 SDK code, unchanged. VehicleC
 
 `sdAirVehicleControl` keeps `oldCmdAngles` and `collective` between ticks. The air control is not networked (game `src/game/vehicles/VehicleControl.h:68`), and a snapshot restores only networked controls (game `src/game/vehicles/Transport.cpp:3923-3940`). *[inspected]*
 
-So on the first tick replayed after each snapshot:
-- The pitch/roll delta is taken against the newest predicted command, not the previous one. The input comes out reversed.
-- The ±2 clamp limits the error to one tick of full-deflection cyclic in the wrong direction.
-- `collective` is re-integrated from its newest value, so while a collective key is held it ramps faster than on the server (game `VehicleControl.cpp:2113-2139`).
+A snapshot holds the state after server tick S, and by then the client has predicted ahead to some tick P > S. So on S+1, the first tick it replays:
+- **Cyclic.** The pitch/roll delta is taken against tick P's command instead of tick S's: the input is cmd(S+1) − cmd(P), not cmd(S+1) − cmd(S) (game `VehicleControl.cpp:1984-1990`; mouse Y is pitch, mouse X is roll). With the mouse moving at a steady r degrees per tick, the client applies −(P−S−1)·r instead of r. One tick ahead the input is lost; two ticks ahead it is reversed; three or more, it is reversed and amplified, up to the ±2° clamp (game `TransportComponents.cpp:2775-2776`). *[inspected; the effect is derived]*
+- **Collective.** `collective` is the forward/back keys' integral, and it is re-integrated from its newest value (game `VehicleControl.cpp:2113-2139`). In the air with a collective key held, each snapshot therefore adds P−S extra ticks of ramp until the value saturates. With no key held, it decays toward its default P−S ticks early.
+- **Ground state.** While the landing gear is down, `isGrounded` is recomputed every tick from the restored pose; with the gear up it is false (game `VehicleControl.cpp:1902-1909`). What stays stale is the landing-gear state (toggled inside `SetupInput` by `UpdateLandingGear`), the landing timers and `lastDriverTime` (game `VehicleControl.h:528-549`).
+- **Remote aircraft.** Aircraft that the client predicts for other players are hit differently. Beyond the commands the server relays, the client repeats the last relayed one (engine `AsyncClient.cpp:400-405, 425-432`), so their first-time deltas are zero. On the replay tick they then get the whole accumulated change at once, rather than a reversal. *[inferred]*
 
-The server, the listen host and single player never re-predict, so they are unaffected. Retail has the same code. The effect is inferred, not observed. Stage 6 fixes it.
+How far ahead the client runs (P−S) depends on latency: about one or two ticks on loopback, more over the internet. *[inferred]*
+
+The server, the listen host and single player never re-predict, so they are unaffected. Retail has the same code. The effect is inferred, not observed. Stage 6 measures it and fixes it.
 
 ### 1.4 OpenETQW code that leaks today
 
@@ -146,7 +150,7 @@ Drawing from copies of these touches no tick state. openQ4 did the same (openq4 
 
 ### 3.1 Rules every stage keeps
 
-1. **No simulation code changes.** The one exception is stage 6, which runs only when `gameLocal.isClient` is set, so the server, the listen host and single player take byte-identical code paths.
+1. **No simulation code changes.** The one exception is stage 6's fix, which runs only when `gameLocal.isClient` is set, so the server, the listen host and single player take byte-identical code paths. Its probe (`AIR_CTL`) is a read-only print on both sides, behind a cheat CVar.
 2. **Samples are taken only on new ticks.** They read the post-decay `renderEntity` and the tick camera, never the physics pose (openQ4's lesson, openQ4-game `src/game/Entity.cpp:1898-1904`). Sampling reads fields directly. It never calls `GetWorldOrigin`/`GetWorldAxis`, which write `renderEntity` through `UpdateModelTransform` (game `Entity.cpp:3614-3651`).
 3. **Render frames write only three things:**
    - the presentation's own members;
@@ -177,7 +181,7 @@ Drawing from copies of these touches no tick state. openQ4 did the same (openq4 
 | 3 | Presentation core and generic seat blend | 14 (blend, render copy); shares its core with 9 | empty |
 | 4 | Remote entities while seated | 8, 9 | follows stage 2 |
 | 5 | Late mouse look in angle-driven seats | 14 (sub-tick mouse turn) | angle-driven seats join as they pass §3.3 |
-| 6 | Aircraft re-prediction fix (client only) | not in the plan | on after its test |
+| 6 | Aircraft re-prediction fix (client only) | 14a | on after its test |
 | 7 | Optional hull lead, using the physics' own next pose | beyond 14 | L = 0 |
 
 Engine steps 7 (listen host) and 10 (tick frames drawn at their real fraction) are needed for full coverage; see §3.4.
@@ -366,26 +370,100 @@ This stage must ship in the same release as stage 3. Otherwise targets stepping 
 
 **Effort:** about 1 week for the first tier, and about 1 more week for all the rate-limited classes. *[inferred]*
 
-### Stage 6: aircraft re-prediction fix (client only; not in m5-plan)
+### Stage 6: aircraft re-prediction fix (client only; m5-plan step 14a)
+
+**How the frames line up** *[inspected]*
+- A snapshot carries the state after server tick S. `ClientReadSnapshot` sets `framenum = S` (game `Game_network.cpp:2450`). The engine then replays the usercmds from S up to its newest tick through `ClientPrediction` (engine `src/framework/async/AsyncClient.cpp:345-349`, after the snapshot read at `:613-638`).
+- `ClientPrediction` increments `framenum` before any entity thinks (game `Game_network.cpp:3819`). So the first replayed tick is S+1, and it consumes usercmd S. A server tick F likewise consumes usercmd F−1 (engine `AsyncServer.cpp:452-457`; game `Game_local.cpp:5192`). Both counters restart at map load.
+- So `framenum` pairs a client's prediction of a tick with the server's run of the same tick. The driver's usercmd carries `gameFrame = F−1` on both sides, and that confirms `framenum` and the usercmd index move in lockstep.
+- **What that check cannot see.** It cannot see a command the server duplicated because it arrived late. A duplicate keeps `gameFrame = F−1` and only increments `duplicateCount`, and a late arrival overwrites the slot with `duplicateCount = 0` (engine `UsercmdCodec.cpp:90-97`, `AsyncServer.cpp:627-639, 1255-1259`). So the server's count must be logged when the tick runs.
+- `isNewFrame` is false on every replayed tick (game `Game_network.cpp:3836-3849`). A replayed tick thinks only the entities the snapshot made visible (`:3913-3920`), so the local pilot's aircraft does replay; an aircraft outside the PVS does not. The control's `Update`, which calls `SetupInput`, runs before the tick's physics (`Transport.cpp:3366-3391`).
 
 **What changes (game)**
-- Keep a 64-entry ring of `oldCmdAngles`, keyed by `gameLocal.framenum`.
-- At the start of `sdAirVehicleControl::SetupInput`, when `gameLocal.isClient` is set and an entry exists for `framenum − 1`, use that entry.
-- First trace how the frame numbers line up. `ClientReadSnapshot` sets `framenum` (game `Game_network.cpp:2450`), and `ClientPrediction` increments it (`:3818`).
-- `collective` is **not** exact from history. It depends on the predicted `isGrounded` (game `VehicleControl.cpp:2113-2118`). `isGrounded`, the landing-gear state and the landing times are not rolled back either (game `VehicleControl.h:520-545`).
-- Measure first. Network `collective` and `oldCmdAngles` only if loopback shows a residual. That would bump the protocol's minor version (engine `src/framework/async/AsyncNetwork.h:49`), justified because the snapshot is the only exact source.
+- **A history ring in `sdAirVehicleControl`.**
+  - The ring has 64 slots, each holding `{ frame, oldCmdAngles, collective, collectiveDefault }`. Every slot starts with `frame = -1`.
+  - On a client, `SetupInput` records slot `framenum & 63` at its end (after `VehicleControl.cpp:2245`).
+  - At its start, `SetupInput` restores the slot for `framenum − 1` when `gameLocal.isClient` is set, `g_airControlHistory` is on and that slot exists.
+- **Why that is enough.**
+  - On a first-time tick, the slot for `framenum − 1` holds the values already in place, so the restore changes something only on the first tick replayed after a snapshot.
+  - On that tick, it brings back tick S's command angles and the client's own collective after tick S. No rewind detection is needed.
+  - The ring records whatever the CVar says, so a test can switch the CVar at run time.
+  - 64 ticks cover `net_clientMaxPrediction` (1000 ms, 30 ticks). After a prediction restart (engine `AsyncClient.cpp:621-631`) the slot may be missing, and the tick takes today's path.
+- **`g_airControlHistory`** (`CVAR_GAME | CVAR_BOOL`, default 1). It exists for the A/B measurement. It is not a cheat, because it changes only the client's own prediction.
+- **What the ring cannot make exact on a client:**
+  - commands the server duplicated. It reports only a count, and the difference stays in `collective` until the value next saturates;
+  - `collective`, which comes back from the client's own prediction of tick S. An earlier misprediction persists until the value saturates, decays to its default or the aircraft lands;
+  - the landing gear, its timers and `lastDriverTime`;
+  - the entry tick, because `oldCmdAngles` is zero without a driver;
+  - with simple flight controls (`ui_advancedFlightControls 0`, the default), the input itself. Auto-levelling reads the predicted pose (`VehicleControl.cpp:2000-2106`), and that pose carries the snapshot's quantization.
+- **Remote aircraft** that the client predicts take the same path. For them the ring restores the client's own guess of the earlier command, which is exact only if the previous snapshot relayed it (engine `AsyncServer.cpp:1681-1691`). The test does not cover them. *[inferred]*
+- **Networking only if a residual remains.** `collective` and `oldCmdAngles` are networked only if loopback shows a residual (owner, 2026-09-29). That bumps the protocol's minor version (engine `src/framework/async/AsyncNetwork.h:49`), justified because the snapshot is the only exact source.
 
-**What stays authoritative:** everything. The server, the listen host and single player never re-predict, and they take the unchanged path.
+**Tooling (game, written before the fix)**
+- **An `AIR_CTL` line.** It is behind `g_logAirControl` (`CVAR_GAME | CVAR_BOOL | CVAR_CHEAT`, a cheat like `g_logVehicleViews`, because it logs other players' input). At the end of `sdAirVehicleControl::SetupInput`, it prints one line per tick for each air vehicle with a driver: on the server, and on a client for every predicted tick, first-time or replayed. Fields:
+  - `side=srv|cl`; `tick=` (`framenum`); `ent=`; `uf=` (the driver's usercmd `gameFrame`); `dup=` (its `duplicateCount` as the tick runs); `adv=` (the driver's `ui_advancedFlightControls`, which reaches the server as userinfo and can lag);
+  - `pred=` (1 when `isNewFrame` is false); `since=` (`framenum` minus the last snapshot's frame, kept in a new member set by `ClientReadSnapshot`); `ahead=` on a client (the highest frame it has predicted, a new member, minus the snapshot's frame, which is P−S). After a restart from too far ahead, the engine resets its frame to the snapshot's (engine `AsyncClient.cpp:621-631`), so the next first-time ticks also print `pred=1`, with `ahead=` above 30;
+  - `cmd=` (the tick's command angles, as the usercmd's shorts);
+  - `base=` (the `oldCmdAngles` the delta used, after any restore, also as shorts);
+  - `in=` (the pitch, roll and yaw inputs);
+  - `coll=` and `collDef=` (after the update);
+  - `fwd=`, `grounded=` and `gear=`;
+  - the pose and velocities the tick starts from, at full precision, as `VEH_TRACE` prints them.
+- **Why a new line.**
+  - `VEH_TRACE` is compared verbatim by `vehicle-physics-golden`, `high-refresh-determinism` and `seat-gate`, and it prints only on the server.
+  - Its `cmdang` is the post-tick `oldCmdAngles`, which equals the tick's command on both sides, so it cannot show the bug.
+- **Why in `SetupInput`.**
+  - It runs on every tick a vehicle thinks, before the tick's physics, so no hook is needed in `ClientPrediction`, where step 6 adds its probes.
+  - The pose it prints is the state after the previous tick, so an input error on tick S+1 shows in the pose at `since=2`.
+- **No engine change.**
+  - The test steers with `+left`/`+right` (roll) and `clientMove` (collective).
+  - Pitch is not driven. Pitch and roll come from one subtraction (`VehicleControl.cpp:1984-1986`) and the fix restores the whole angle, so the roll axis tests both.
+  - The engine has no command that drives pitch: `UsercmdGen.cpp:384-385` reads `UB_LOOKUP`/`UB_LOOKDOWN`, but nothing sets them.
 
-**Player-visible gain:** mouse-flown Hornet, Anansi and hover-copter pilots on a network client stop getting one tick of reversed cyclic with every snapshot, which arrives about every 50–67 ms. *[inferred; not measured]*
+**What stays authoritative:** everything.
+- The server, the listen host and single player never re-predict, and they take the unchanged path.
+- The ring is written and read only when `gameLocal.isClient` is set.
 
-**Measurement**
-- Run a loopback client against a headless server, with a pilot on a scripted mouse ramp.
-- Pair the client's re-predicted `VEH_TRACE` with the server's, frame by frame.
-- Compare with and without the fix using a dev CVar. The per-snapshot error must drop.
-- The single-player and host goldens stay unchanged.
+**Player-visible gain:** mouse-flown Hornet, Anansi and hover-copter pilots on a network client stop losing or reversing one tick of cyclic with every snapshot, which arrives about every 50–67 ms, and their collective stops running ahead. *[inferred; not measured]*
 
-**Effort:** about 1 day of code plus 2–3 days for the test. Which map and spawn give an aircraft is still to be found. It needs a ledger row, because this client behaviour differs from retail. *[inferred]*
+**Measurement** (`tests/test_aircraft_reprediction.py`, meson `aircraft-reprediction`, needs retail data)
+- **Setup.** As in `vehicle-view-net`: a Vulkan listen host on valley (cheats allowed) and a Vulkan client as the pilot.
+  - Why not a dedicated server:
+    - The headless dedicated binary crashes as a client in a vehicle (`tests/test_vehicle_view_net.py`).
+    - A dedicated server has no local player to `spawn` from.
+    - `networkSpawn` from the client puts the vehicle 80 u in front of the player, which at valley's GDF spawn is under an overhang.
+  - The host runs `spawn vehicle_anansi origin "9100 -10100 1440" angle 67` (open ground beside the badger's start spot), then `enterVehicle <pilot> vehicle_anansi`.
+  - The pilot sets `ui_advancedFlightControls 1`, `in_yawSpeed 30` and `in_angleSpeedKey 1`. It holds `clientMove 127 0 0` until the server's trace shows the aircraft 100 u up.
+  - This was tried on 2026-09-30: the anansi lifted off about 6 s after full collective and climbed to about 2,300 u. Its collective moved about 0.24 a second at `clientMove 30`, between limits of ±0.3. *[measured]*
+- **Phases**, about 6 s each:
+  - *still*: collective held at full, so it is saturated, and the aircraft hovers where the flight ceiling fades its lift. This gives the floor that snapshot quantization sets.
+  - *roll*: collective still at full; `+left` and `+right`, alternating each second (about 1° a tick, under the clamp).
+  - *collective*: `clientMove -30` for 1 s, then `clientMove 30` for 1.5 s, repeated. The value moves for most of each cycle, then saturates at the top for about half a second. That realigns client and server after any duplicated command.
+- **Legs.**
+  - The phases run with the fix off and with it on, switching `g_airControlHistory` on the pilot with a 1 s gap.
+  - Each runs at loopback latency, and again with `net_forceLatency 50` on both processes. With that latency the client runs at least two ticks ahead, so the input is reversed rather than lost.
+  - The loopback legs run first, so latency only ever goes up. When it goes up, the client's prediction takes about 3 s to absorb the change: the prediction moves 1 ms per snapshot (engine `AsyncClient.cpp:648`), and until it catches up the server duplicates commands. The next phase waits until the server logs no `dup>0` for 2 s. After 15 s the test fails as inconclusive.
+  - One more leg with simple controls is reported only.
+  - About 3 minutes in total.
+- **Pairing.**
+  - Each client line with `pred=1 since=1` is paired with the server line of the same `tick` and `ent`. Their `uf` must match, which confirms the lockstep.
+  - A pair is dropped on the entry tick; when the server's line for tick S or S+1 has `dup>0`; or when `ahead=` is above 30 (`net_clientMaxPrediction`), which marks a prediction restart.
+  - For check 3, the pairs from a server duplicate until the next saturation are also dropped. The next saturation is the first tick at which both sides are at the limit.
+  - Drops are counted and reported.
+  - Each leg and phase needs at least 60 kept pairs, and at most a quarter may be dropped. In 6 s, 90–120 snapshots arrive, one every 50–67 ms. Otherwise the test fails as inconclusive, so a check cannot pass on no data.
+- **Checks:**
+  1. **Fix on.** In every kept pair, the client's `base` equals the server's (exact shorts). Where both lines have `adv=1`, `in` matches too.
+  2. **Fix off.** This is the negative control, showing that the test sees the bug:
+     - `base` differs in at least 80% of the roll phase's kept pairs;
+     - `coll` differs in at least 80% of the collective phase's kept pairs where the server's value is between its limits.
+
+     The run reports the distribution of `ahead=`.
+  3. **Collective.** With the fix on, `coll` equals the server's in every kept pair of the collective phase.
+  4. **Physics, at `since=2`.** Reported, not judged: for each leg, the median and p95 of the pose and angular-velocity errors, against the still phase's floor. A bound is set once there are runs to set it from.
+  5. **Elsewhere.** `vehicle-physics-golden`, `high-refresh-determinism`, `seat-gate` and the frame-poses tests are unchanged.
+- **The residual rule.** A fix-on pair that fails check 1 or 3 is a residual, unless a duplicated command or a prediction restart explains it. If one remains, `oldCmdAngles` and `collective` are networked, as the owner decided.
+
+**Effort:** about 1 day for the tooling and the fix, plus 2–3 days for the test. It needs a ledger row, because this client behaviour differs from retail. *[inferred]*
 
 ### Stage 7 (optional): hull lead using the physics' own next pose
 
@@ -542,7 +620,7 @@ Stages 0–7 come to about 5–7 weeks of focused work for one engineer. That do
 
   The eye is what the damped views (`standard`, `pivot`, `freepivot`) follow; the smooth views use it only as the orbit origin. Clamps: the titan's views limit their turn rate (yaw and pitch at 110 degrees a second in the driver's `pivot` view, 240 in the others), while the badger's only bound the angles (the driver's first view to -65..80 yaw and -20..12 pitch, the gunner's pitch to -50..17). `listSeatViews` also lists valley's trojan, husky, platypus, goliath, hog and desecrator, with the same pattern; the titan driver's first view is the only first view that is third person.
 - **Whether the anti-roll, anti-pitch and pseudo-hover constraints are active on aircraft in flight.** This decides whether stage 7 is exact there; `VEH_PRED` answers it.
-- **Whether the aircraft mis-prediction is visible in play,** and exactly how the frame numbers line up for the history.
+- **Whether the aircraft mis-prediction is visible in play.** Stage 6 now traces how the frame numbers line up.
 - **Other vehicle state that is not networked and not rolled back** during re-prediction. Only the air control was traced.
 - **Think order of a transport and its seated player** (inferred from game `Game_local.cpp:5091-5130`).
 - **Whether any seat's eye joint is parented to a joint the IK drives,** which would put that camera one tick behind the turret. *Answered 2026-09-30 by `listSeatViews` on valley: yes, for most gunner seats and several third-person views.* The joints are written less by the position IK systems than by the vehicle weapons' aimers (`sdVehicleWeaponFixedMinigun`'s yaw and pitch joints), which the listing includes. On the badger, the gunner's two views and the passenger's second view sit under `gun2`, which the gunner's minigun aimer turns; on the titan, both of the driver's views sit under the main gun's aimer joints (`gun`, `turret`) and both of the passenger's under `gpmg_mount`. The drivers' and passengers' first-person `standard` views and the icarus have none. The other valley vehicles show the same (the platypus gunner under its `sdVehicleIKArms`, the goliath driver under its `sdVehicleSwivel`, the hog, trojan and desecrator gun views under their aimers). Aimers and IK update after the seat cameras in `sdTransport::PostThink` (`UpdatePlayerViews`, then `positionManager.Think`, then each weapon's `Update`), so these cameras read the turret pose of the previous tick *[inferred from the call order; not measured]*. Joints moved by scripts, animation or wheels are not in the listing.
