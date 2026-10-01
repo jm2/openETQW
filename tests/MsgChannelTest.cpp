@@ -79,6 +79,9 @@ private:
 static TestCommonMock s_testCommon;
 idCommon * common = &s_testCommon;
 idSys * sys = NULL;	// idLib's Math.cpp refers to it
+// idLib's inline idDeclType helpers (decllib/declType.h) refer to it; GCC keeps
+// them, as StructLayoutTest.cpp found (nothing here calls them)
+idDeclManager * declManager = NULL;
 idCVar * idCVar::staticVars = NULL;
 idCVarSystem * cvarSystem = NULL;
 idFileSystem * fileSystem = NULL;
