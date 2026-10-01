@@ -132,7 +132,8 @@ def parse_pose(line):
         pose = None if c.group(2) == "-" else [float(v) for v in c.group(2).split(",")]
         clients[int(c.group(1))] = {"pose": pose, "aor": int(c.group(3)), "hid": int(c.group(4)), "veh": int(c.group(5))}
     return {"n": int(m.group(1)), "us": int(m.group(2)), "cap": int(m.group(3)), "gt": int(m.group(4)),
-            "ud": int(m.group(6)), "fr": float(m.group(8)), "view": view, "wpn": wpn, "clients": clients}
+            "fn": int(m.group(5)), "ud": int(m.group(6)), "cu": int(m.group(7)), "fr": float(m.group(8)),
+            "view": view, "wpn": wpn, "clients": clients}
 
 
 def phase_poses(proc, begin, end):

@@ -193,6 +193,37 @@ if build_engine
     timeout: 360,
     is_parallel: false,
   )
+  # the same replay on a listen host (+spawnServer; M5 plan step 5's listen variant): the
+  # Vulkan client is the server; it also checks whether the host's draws between ticks are
+  # unlocked draws (reported until step 7 has the host call ClientUpdateView)
+  test(
+    'high-refresh-determinism-listen',
+    py,
+    args: [meson.project_source_root() / 'tests' / 'test_high_refresh_determinism.py', '--listen', '--port', '29964'],
+    env: client_test_env,
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    timeout: 360,
+    is_parallel: false,
+  )
+  # key turning on a listen host: the Vulkan client turns its own player at caps 30 and
+  # 240, and the server's usercmds must turn at in_yawSpeed a second at both
+  test(
+    'turn-rate-listen',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_turn_rate.py',
+      '--listen',
+      '--client-binary', campaign_client,
+      '--port', '29994',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'turn-rate-listen',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 300,
+    is_parallel: false,
+  )
   # M5 step 5a: the vehicle replay (g_determinismTest 2) against the recorded
   # golden; the local merge gate of every game PR touching vehicles or physics
   test(
