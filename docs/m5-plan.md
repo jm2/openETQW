@@ -170,7 +170,11 @@ M5 is done when:
         - On this Mac, in every run, A, B and the peer spawned at (9127, −10730), (10600, −10824) and (8963, −10600).
         - On Windows (2026-10-01) they spawned at (10376, −10824), (9040, −10622) and (8941, −10677).
         - The test reports the spots instead of asserting them, and checks the lanes directly (W1).
-      - A strafes east and B strafes west for 0.7 s, to x ≈ 9294 and x ≈ 10427, so the three walk on separate lanes. Each walked forward 2 s and back 2 s unobstructed. *[measured]*
+      - **Lanes come from the spawn spots.** All three face north, so strafing right moves east. A player with another within 400 u strafes away from its nearest one for 0.7 s (about 170 u); a player with nobody that close stays.
+        - On this Mac: A east, the peer west, B stays.
+        - On Windows: B east, the peer west, A stays.
+      - Each walk ends about 190 u ahead of where it began, because backpedalling is slower. Positions therefore drift from round to round, and lanes need sideways room.
+      - On Windows, fixed strafes (A east, B west) let B walk within 38 u of the peer in one round, and A5 and A6 failed there. *[measured]*
       - Both windows open at the same place, B over A. Both still reached 120 fps uncapped. *[measured]*
     - **Rounds.**
       - **Calibrate:** both clients run uncapped first, giving each its ceiling while the other draws. This is a lower bound, so it can only mark fewer caps as paced, never cause a false failure.

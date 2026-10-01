@@ -16,8 +16,9 @@ it, then settles. Each round's phases, bracketed by echo markers on both clients
   turnA       A turns (+left, 2 s)          walkA   A walks forward 2 s, then back 2 s
   turnB       B turns                        walkB   B walks
   peerwalk    the peer walks forward and back
-A strafes east and B west before the rounds. Valley's spawn spots vary by platform and
-timing, so the lanes are checked (W1) rather than the spots.
+Before the rounds, each player with another within 400 u strafes away from its nearest
+one. Valley's spawn spots vary by platform and timing, so the lanes come from where the
+players spawned and are checked (W1).
 
 Checks, per client and round, against that client's cap:
   C0   every draw between the markers has cap= equal to the client's intended cap (0 while
@@ -65,6 +66,10 @@ SETTLE_S = 1.5
 # test checks the lanes, not the spots)
 LANE_TRAVEL = 300.0
 LANE_GAP = 48.0
+# all three spawn facing north on valley, so strafing right is east (+x); a player with
+# another within NEAR_X of it strafes away from its nearest one for STRAFE_S (~170 u)
+NEAR_X = 400.0
+STRAFE_S = 0.7
 TURN_DEG_S = 90.0             # in_yawSpeed with in_angleSpeedKey 1
 TURN_TOL = 0.02
 TICK_MS = 33.0               # USERCMD_MSEC: the server runs 30.3 ticks a second
@@ -74,6 +79,19 @@ STALL_US = 133000            # 4 ticks: TurnTimeScale's clamp
 KNOWN_GAPS = {"A7": "per_tick", "A7o": "per_tick"}
 MARK_RE = re.compile(r"^MC_(BEGIN|END) (\S+) (\S+)\s*$")
 TIMING_RE = re.compile(r"FRAME_TIMING: window_ms=([\d.]+) frames=(\d+) ticks=(\d+)")
+
+
+def lane_strafes(xs):
+    """{key: +1 east, -1 west, 0 stay} from each player's spawn x: away from the nearest
+    other player when it is within NEAR_X."""
+    plan = {}
+    for k, x in xs.items():
+        nearest = min((xo for ko, xo in xs.items() if ko != k), key=lambda xo: abs(xo - x))
+        if abs(nearest - x) >= NEAR_X:
+            plan[k] = 0
+        else:
+            plan[k] = 1 if x >= nearest else -1
+    return plan
 
 
 def round_name(a, b):
@@ -360,12 +378,17 @@ def main(argv):
         connect(srv, peer, "join")
         spawned["peer"] = spawn(srv, peer, "gdf")
         print("[spawn] " + ", ".join(f"{k} at ({spawned[k]['org'][0]:.0f}, {spawned[k]['org'][1]:.0f})" for k in ("A", "B", "peer")))
-        # separate lanes: A east, B west (docs/m5-plan.md step 15)
-        a.send("clientMove 0 127 0")
-        b.send("clientMove 0 -127 0")
-        time.sleep(0.7)
-        a.send("clientMove 0 0 0")
-        b.send("clientMove 0 0 0")
+        # separate lanes from where they actually spawned (docs/m5-plan.md step 15)
+        procs_by_key = {"A": a, "B": b, "peer": peer}
+        plan = lane_strafes({k: spawned[k]["org"][0] for k in procs_by_key})
+        print("[lanes] " + ", ".join(f"{k} {'east' if d > 0 else 'west' if d < 0 else 'stays'}" for k, d in plan.items()))
+        for k, d in plan.items():
+            if d:
+                procs_by_key[k].send(f"clientMove 0 {127 * d} 0")
+        time.sleep(STRAFE_S)
+        for k, d in plan.items():
+            if d:
+                procs_by_key[k].send("clientMove 0 0 0")
         time.sleep(0.5)
         for proc in (a, b):
             mark = proc.mark()
