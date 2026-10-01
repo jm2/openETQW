@@ -411,27 +411,38 @@ def main(argv):
         xs = {k: spawned[k]["org"][0] for k in procs_by_key}
         plan = lane_strafes(xs)
         server_lines = [ln.text for ln in srv.snapshot()]
-        strafes = {}   # key -> (side, seconds)
+        sines = {}
         for k, dx in plan.items():
-            if dx == 0.0:
-                continue
-            seconds = abs(dx) / STRAFE_U_PER_S
-            if seconds > MAX_STRAFE_S:
-                raise Failed(f"spawns too bunched for separate lanes: {xs}; {k} would strafe {dx:+.0f} u")
             yaw = spawn_yaw(server_lines, procs_by_key[k].slot)
-            if yaw is None or abs(math.sin(math.radians(yaw))) < 0.5:
+            if dx and (yaw is None or abs(math.sin(math.radians(yaw))) < 0.5):
                 raise Failed(f"{k} spawned facing yaw {yaw}: strafing would not move it east or west")
-            east = 1 if math.sin(math.radians(yaw)) > 0 else -1
-            strafes[k] = (127 * east * (1 if dx > 0 else -1), seconds)
+            sines[k] = math.sin(math.radians(yaw)) if yaw is not None else 0.0
         print("[lanes] " + ", ".join(f"{k} {plan[k]:+.0f} u" if plan[k] else f"{k} stays" for k in plan))
-        t0 = time.monotonic()
-        for k, (side, _) in strafes.items():
-            procs_by_key[k].send(f"clientMove 0 {side} 0")
-        for k, (_, seconds) in sorted(strafes.items(), key=lambda kv: kv[1][1]):
-            time.sleep(max(0.0, t0 + seconds - time.monotonic()))
-            procs_by_key[k].send("clientMove 0 0 0")
-        time.sleep(0.5)
-        lanes = {k: player_pos(srv, procs_by_key[k].slot)["org"][0] for k in procs_by_key}
+
+        def strafe(moves):
+            """moves: key -> signed x distance. A strafe moves sin(yaw) of its length in x."""
+            runs = {}
+            for k, dx in moves.items():
+                seconds = abs(dx) / (STRAFE_U_PER_S * abs(sines[k]))
+                if seconds > MAX_STRAFE_S:
+                    raise Failed(f"spawns too bunched for separate lanes: {xs}; {k} would strafe {dx:+.0f} u in x")
+                east = 1 if sines[k] > 0 else -1
+                runs[k] = (127 * east * (1 if dx > 0 else -1), seconds)
+            t0 = time.monotonic()
+            for k, (side, _) in runs.items():
+                procs_by_key[k].send(f"clientMove 0 {side} 0")
+            for k, (_, seconds) in sorted(runs.items(), key=lambda kv: kv[1][1]):
+                time.sleep(max(0.0, t0 + seconds - time.monotonic()))
+                procs_by_key[k].send("clientMove 0 0 0")
+            time.sleep(0.5)
+            return {k: player_pos(srv, procs_by_key[k].slot)["org"][0] for k in procs_by_key}
+
+        lanes = strafe({k: dx for k, dx in plan.items() if dx})
+        # one correction: a strafe can come up short (acceleration, a slope); top it up
+        short = {k: xs[k] + plan[k] - lanes[k] for k in plan if plan[k] and abs(xs[k] + plan[k] - lanes[k]) > 30.0}
+        if short:
+            print("[lanes] topping up: " + ", ".join(f"{k} {dx:+.0f} u" for k, dx in short.items()))
+            lanes = strafe(short)
         print("[lanes] x after the strafes: " + ", ".join(f"{k} {x:.0f}" for k, x in lanes.items()))
         if min_gap(lanes) < MIN_LANE_X:
             raise Failed(f"the lanes are {min_gap(lanes):.0f} u apart after the strafes (need {MIN_LANE_X:.0f}): {lanes}")
