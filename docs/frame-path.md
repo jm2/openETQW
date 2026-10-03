@@ -144,7 +144,7 @@ Provenance: the `ClientUpdateView` call, `GetGameTimeLeft` and the client branch
 - Relayed usercmds are stored per frame, up to `MAX_USERCMD_RELAY` (`src/framework/async/AsyncNetwork.h:56`; `src/framework/async/AsyncClient.cpp:381-404`). The frames after the relayed ones are cleared, so prediction duplicates the last relayed command (`src/framework/async/AsyncClient.cpp:398-404`, `src/framework/async/AsyncClient.cpp:423-431`).
 - Remote players think and move once per predicted tick (`game repo: src/game/Player.cpp:6691`, `game repo: src/game/Player.cpp:6743`). Prediction-error decay advances only on new frames (`game repo: src/game/PredictionErrorDecay.cpp:357-360`).
 - They are presented once per tick (`game repo: src/game/Player.cpp:6862-6867`). There is no snapshot interpolation.
-- Nothing updates their render entities between ticks, because the remote-entity producer is compiled out (§6.6).
+- Nothing updated their render entities between ticks before M5 step 8, because the remote-entity producer was compiled out (§6.6); since step 8 a network client interpolates them (one tick behind).
 - At caps 60/120/144/240 they therefore hold still for about 2/4/4.8/8 rendered frames *(derived)*.
 
 ### 4.3 Listen host (`+spawnServer` in the client binary)
@@ -376,7 +376,7 @@ The four `g_unlock_*` CVars used above default to 1 and match the SDK (`game rep
 
 ### 6.6 Remote-entity interpolation: the `Entity::Present` producer and its consumer
 
-**Producer (compiled out).** In `idEntity::Present` (`game repo: src/game/Entity.cpp:1726-1791`), the block at `game repo: src/game/Entity.cpp:1737-1758` sits inside `#if 0 // jmarshall - unlock fps` (`game repo: src/game/Entity.cpp:1736`) … `#endif` (`game repo: src/game/Entity.cpp:1759`). Those two lines, which replace blank lines of the SDK, are the only difference from `SDK: game/Entity.cpp:1737-1758` for this feature. jmarshall's tree has the same `#if 0`. His repository has three commits (6de0697 "Initial Commit.", 961cb21, f2b655c); `Entity.cpp`'s history is only the initial commit, which records no reason.
+**Producer (restored on network clients by M5 step 8, 2026-10-03; ledger 059).** It runs again when `gameLocal.isClient`, with a NULL check on `com_unlockFPS`, and not for the local view player; `ClientPrediction` now clears `interpolateEntities` on new frames only. The rest of this section describes the code as it was before. In `idEntity::Present` (`game repo: src/game/Entity.cpp:1726-1791`), the block at `game repo: src/game/Entity.cpp:1737-1758` sits inside `#if 0 // jmarshall - unlock fps` (`game repo: src/game/Entity.cpp:1736`) … `#endif` (`game repo: src/game/Entity.cpp:1759`). Those two lines, which replace blank lines of the SDK, are the only difference from `SDK: game/Entity.cpp:1737-1758` for this feature. jmarshall's tree has the same `#if 0`. His repository has three commits (6de0697 "Initial Commit.", 961cb21, f2b655c); `Entity.cpp`'s history is only the initial commit, which records no reason.
 
 The SDK block runs when all of these hold:
 - the frame is new and the entity has `TH_UPDATEVISUALS` (`game repo: src/game/Entity.cpp:1727-1733`);
@@ -634,7 +634,7 @@ Remaining stepped paths must be listed rather than claimed as interpolated, and 
 - Render-only samples run the game's usercmd callbacks (§5), so the weapon lock and other client button state can depend on the frame rate.
 
 **Criterion 2: smooth motion at mixed caps**
-- Remote entities step at 30 Hz on every client, because the producer is compiled out (§6.6).
+- Remote entities stepped at 30 Hz on every client while the producer was compiled out (§6.6). Since M5 step 8 a network client interpolates them; the listen host and single player still step them until step 9.
 - **Tick-frame timing error** *(derived from code)*.
   - A frame that ran a tick is a base draw at fraction 0, but the real time since the tick boundary can be anything up to one frame period, because the pacer is not aligned to ticks.
   - The pose therefore lags once per tick by up to one frame period: about 0.5 tick at 60 fps, 0.25 at 120, 0.21 at 144 and 0.13 at 240. That gives a 30 Hz judder.
