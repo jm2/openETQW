@@ -43,6 +43,12 @@ Checks (0.25 s dropped at each edge of a phase; a phase needs >= 20 draw pairs):
   A6 viewmodel the viewmodel pose changes between consecutive draws (walk)
   A7 remote    the peer's render-world pose changes between consecutive draws
                (A2 and A4-A7 allow max(1, 1%) exceptions)
+  A7b steady   the peer's drawn pose does not step back: its walk (forward, then
+               backpedal) reverses once, and a draw whose movement points against the
+               previous one's (by more than 120 degrees, both above 0.01 u) counts as a
+               reversal; at most 2, the walk's and one more (a stale or wrong fraction
+               draws a jump ahead and a snap back, two reversals each time; M5 step 9
+               review)
   A8 phase     a draw with the same game time as the previous one is an unlocked
                draw (ud=1); within one game time the fraction never falls, and at most
                max(1, 1%) draws may repeat it (timeLeft is whole milliseconds, and the
@@ -300,6 +306,26 @@ def fraction_check(poses, key, what):
             "detail": f"{what} changed in {f:.1%} of {n} draw pairs ({crossing / n if n else 0:.1%} cross a tick)"}
 
 
+def reversal_check(poses, what):
+    """A7b: how often consecutive movements of a walked pose point against each other."""
+    last = None
+    reversals = moves = 0
+    for a, b in zip(poses, poses[1:]):
+        if a is None or b is None:
+            continue
+        d = [y - x for x, y in zip(a[:3], b[:3])]
+        size = math.sqrt(sum(c * c for c in d))
+        if size <= POS_EPS:
+            continue
+        moves += 1
+        if last is not None and sum(x * y for x, y in zip(d, last[0])) < -0.5 * size * last[1]:
+            reversals += 1
+        last = (d, size)
+    allowed = 2
+    return {"ok": moves >= MIN_PAIRS and reversals <= allowed,
+            "detail": f"{what} reversed direction {reversals} times in {moves} movements (allowed {allowed})"}
+
+
 def peer_pose(p, slot):
     """The peer's render-world pose in a draw, or None."""
     return (p["clients"].get(slot) or {}).get("pose")
@@ -356,6 +382,7 @@ def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
     res["A5"] = fraction_check(p_walk, lambda a, b: moved(a["view"], b["view"]), "view origin")
     res["A6"] = fraction_check(p_walk, lambda a, b: moved(a["wpn"], b["wpn"]), "viewmodel")
     res["A7"] = fraction_check(p_peer, lambda a, b: moved(peer(a), peer(b)), "peer's render-world pose")
+    res["A7b"] = reversal_check([peer(p) for p in p_peer], "peer's render-world pose")
     all_p = p_turn + p_walk + p_peer
     wrong8, back8, flat8 = phase_errors(all_p)
     same = sum(1 for a, b in zip(all_p, all_p[1:]) if a["gt"] == b["gt"])
