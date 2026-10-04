@@ -166,6 +166,7 @@ M5 is done when:
    - **Decision D6** (decided 2026-09-25): presentation-only writes on authoritative hosts. The SDK way leaks render-frame values into server state (see step 6): in retail a listen host relinked hit models at drawn positions. Ledger row.
 
 10. **Engine: draw tick frames at their real sub-tick fraction.**
+    - **Done 2026-10-04** (engine and game PRs, ledger row 061): single player, the network client and the listen host call `ClientUpdateView` on frames that ran a tick too, with the tick's own usercmd and the residual; `com_unlock_tickFrames` (default 1) turns it off. The game applies the base draw's weapon shift to the cycle's reference when no base draw preceded it. New `frame-poses` check A10 (tick frames unlocked and presented within 3 ms of the render-only draws; before: +7.3/+3.9 ms at caps 60/120, none unlocked) with a `com_unlock_tickFrames 0` negative control; A7b fits each tick's path from its draws. The prediction-clock smoothing candidate below stays open.
     - Frames that ran a tick are currently drawn as "base" frames at the tick boundary. That produces a 30 Hz judder.
     - The fix is to call `ClientUpdateView` on every drawn frame, with `timeLeft` from the residual left after the tick.
     - **Decision D7** (decided 2026-09-25): this, not a tick-aligned frame scheduler (retail timing methods 1 and 2). It is simpler, works at any cap and adds no latency.
