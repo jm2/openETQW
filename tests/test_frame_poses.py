@@ -120,13 +120,11 @@ ANG_EPS = 0.001       # degrees
 # Checks the current code fails, from docs/frame-path.md (section 9) and the M5 plan,
 # written before this test first ran. A known gap that passes is reported too.
 KNOWN_GAPS = {
-    # predicted: the Entity::Present producer is compiled out (#if 0, jmarshall): remote
-    # players are drawn where the last tick left them
-    ("join", "A7"): ("per_tick",),
-    # predicted: the same on the listen host, where it stays a gap after M5 step 8, which
-    # restores the producer on network clients only; the host gets the producer only as
-    # step 9's presentation-only interpolation (D6). (A4-A6 and A8 were gaps here until
-    # step 7 had the host call ClientUpdateView on render-only frames.)
+    # the listen host draws remote players where the last tick left them: M5 step 8
+    # restored the Entity::Present producer on network clients only (A7 passes in join
+    # mode since); the host gets it only as step 9's presentation-only interpolation (D6).
+    # (A4-A6 and A8 were gaps here until step 7 had the host call ClientUpdateView on
+    # render-only frames.)
     ("listen", "A7"): ("per_tick",),
 }
 MIN_PAIRS = 20
@@ -305,10 +303,15 @@ def fraction_check(poses, key, what):
             "detail": f"{what} changed in {f:.1%} of {n} draw pairs ({crossing / n if n else 0:.1%} cross a tick)"}
 
 
+def peer_pose(p, slot):
+    """The peer's render-world pose in a draw, or None."""
+    return (p["clients"].get(slot) or {}).get("pose")
+
+
 def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
     """The A0-A9 results for one cap's phases."""
     def peer(p):
-        return (p["clients"].get(slot) or {}).get("pose")
+        return peer_pose(p, slot)
     res = {}
     phases = {"turn": p_turn, "walk": p_walk, "peerwalk": p_peer}
     short = [f"{k} ({max(0, len(v) - 1)})" for k, v in {"still": p_still, **phases}.items() if len(v) - 1 < MIN_PAIRS]
@@ -622,6 +625,15 @@ def main(argv):
         if c4["ok"] or c5["ok"] or c4["n"] < MIN_PAIRS or c5["n"] < MIN_PAIRS:
             failures.append(f"negative control: with the unlock updates off the A4/A5 detectors did not fail"
                             f" ({c4['detail']}; {c5['detail']})")
+        if mode == "join":
+            # M5 step 8: with g_unlock_interpolateMoving off the client draws the peer where the
+            # last tick left it, so the A7 detector must fail too
+            n_peer = phase("controlpeerwalk", cap, walk_proc(peer), args.phase_seconds)
+            c7 = fraction_check(n_peer, lambda a, b: moved(peer_pose(a, slot), peer_pose(b, slot)), "peer's render-world pose")
+            print(f"[{mode}] negative control at cap {cap}: {c7['detail']}")
+            if c7["ok"] or c7["n"] < MIN_PAIRS:
+                failures.append(f"negative control: with g_unlock_interpolateMoving off the A7 detector did not fail"
+                                f" ({c7['detail']})")
 
         # com_unlockFPS 0 (M5 plan step 11, D8): one draw per tick, at the highest cap
         for cv in ("g_unlock_updateAngles", "g_unlock_updateViewpos", "g_unlock_interpolateMoving"):

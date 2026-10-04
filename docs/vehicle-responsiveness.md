@@ -54,7 +54,7 @@ The vehicle simulation and control code is the 1.5 SDK code, unchanged. VehicleC
 1. **Everything you see steps at 30 Hz.** This covers the camera, the hull, wheels, rotors and turret, the other riders, the cockpit and camera shake.
    - At 90°/s of yaw each step is 3°. At 800 u/s each step is 26 units. *[derived]*
    - The frame pacer is not aligned to ticks, so poses are held for an uneven number of frames (4 or 5 at 144 Hz). That adds judder on top of the stepping (engine `src/framework/Common.cpp:1086-1139`; frame-path §7.1). *[inferred]*
-2. **Other vehicles, players and projectiles also step at 30 Hz.** The remote-entity producer is compiled out (game `src/game/Entity.cpp:1736-1759`). Even retail switches it off while you are seated, because it needs `canUnlockFrames`. *[inspected]* On foot, remote players change on only 50.5% and 25.2% of draw pairs at caps 60 and 120 (frame-path §9). *[measured]*
+2. **Other vehicles, players and projectiles also step at 30 Hz.** The remote-entity producer was compiled out (game `src/game/Entity.cpp:1736-1759`) until M5 step 8 restored it on network clients. Even retail switches it off while you are seated, because it needs `canUnlockFrames`. *[inspected]* On foot, remote players change on only 50.5% and 25.2% of draw pairs at caps 60 and 120 (frame-path §9). *[measured]*
 3. **Mouse look in a seat waits for the next tick.**
    - The engine does sample input on every render-only frame (engine `src/framework/Session.cpp:332-345`, `src/framework/async/AsyncClient.cpp:351-355`), but in a seat the game discards that sample.
    - The turn builds up in the usercmd generator's view angles (engine `src/framework/UsercmdGen.cpp:486-489`) and appears at the next tick as one jump.

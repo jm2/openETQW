@@ -37,9 +37,8 @@ Checks, per client and round, against that client's cap:
        an obscure A5
   S1   (run validity) over the dedicated server's FRAME_TIMING windows from the first
        phase marker to the last, |sum of ticks - sum of window_ms / 33| <= 2
-Known gaps (frame-poses' shapes): A7 and A7o are per_tick until M5 step 8 restores the
-Entity::Present producer on network clients; then they must pass, and an unexpected pass
-fails the test. Each round reports its measured rate pair and whether it was mixed.
+Known gaps: none. A7 and A7o were per_tick until M5 step 8 restored the Entity::Present
+producer on network clients; both must pass since. Each round reports its measured rate pair and whether it was mixed.
 
 Usage: python tests/test_mixed_caps.py --ded-binary build/openETQW-ded_arm64
        --client-binary build/openETQW-client_arm64
@@ -88,7 +87,7 @@ TICK_MS = 33.0               # USERCMD_MSEC: the server runs 30.3 ticks a second
 STALL_US = 133000            # 4 ticks: TurnTimeScale's clamp
 # frame-poses' join shape: a remote player's drawn pose changes only on draws that cross
 # a tick (the Entity::Present producer is compiled out until M5 step 8)
-KNOWN_GAPS = {"A7": "per_tick", "A7o": "per_tick"}
+KNOWN_GAPS: dict[str, str] = {}
 MARK_RE = re.compile(r"^MC_(BEGIN|END) (\S+) (\S+)\s*$")
 TIMING_RE = re.compile(r"FRAME_TIMING: window_ms=([\d.]+) frames=(\d+) ticks=(\d+)")
 
@@ -297,7 +296,7 @@ def finish(a_lines, b_lines, slots, server_windows, failures):
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("PASS: each client held its own cap and passed the frame-pose checks (known gaps: A7, A7o until M5 step 8)")
+    print("PASS: each client held its own cap and passed the frame-pose checks (no known gaps)")
     return 0
 
 
