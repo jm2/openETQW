@@ -586,7 +586,8 @@ endif
 #    (g_logFramePoses) while the observer turns and walks and a headless peer walks, at
 #    caps 60/120/240; known gaps are listed in the test (needs both binaries; a window)
 if build_engine and build_dedicated
-  foreach observer : ['join', 'listen']
+  frame_poses_ports = {'join': '29920', 'listen': '29924', 'devmap': '29928'}
+  foreach observer : ['join', 'listen', 'devmap']
     test(
       'frame-poses-' + observer,
       py,
@@ -595,7 +596,7 @@ if build_engine and build_dedicated
         '--observer', observer,
         '--ded-binary', all_stock_maps_ded,
         '--client-binary', campaign_client,
-        '--port', observer == 'join' ? '29920' : '29924',
+        '--port', frame_poses_ports[observer],
         '--log-dir', meson.project_build_root() / 'meson-logs' / 'frame-poses',
       ],
       workdir: meson.project_source_root(),
