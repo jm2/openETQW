@@ -334,7 +334,7 @@ def onpath_check(poses, pose_of, what):
         checked += 1
         off += dev > ONPATH_EPS
         worst = max(worst, dev)
-    return {"ok": checked >= MIN_PAIRS and off <= allowed_misses(checked),
+    return {"ok": checked >= MIN_PAIRS and off <= allowed_misses(checked), "n": checked,
             "detail": f"{what} off its interpolation path by more than {ONPATH_EPS} u in {off} of {checked}"
                       f" unlocked draws (worst {worst:.3f} u)"}
 
@@ -679,7 +679,7 @@ def main(argv):
         c7 = fraction_check(n_peer, lambda a, b: moved(peer_pose(a, slot), peer_pose(b, slot)), "peer's render-world pose")
         c7b = onpath_check(n_peer, lambda p: peer_pose(p, slot), "peer's render-world pose")
         print(f"[{mode}] negative control at cap {cap}: {c7['detail']}; {c7b['detail']}")
-        if c7["ok"] or c7["n"] < MIN_PAIRS or c7b["ok"]:
+        if c7["ok"] or c7["n"] < MIN_PAIRS or c7b["ok"] or c7b["n"] < MIN_PAIRS:
             failures.append(f"negative control: with g_unlock_interpolateMoving off the A7/A7b detectors did not fail"
                             f" ({c7['detail']}; {c7b['detail']})")
 
