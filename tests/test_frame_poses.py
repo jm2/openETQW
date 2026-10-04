@@ -11,7 +11,12 @@ drives motion and checks those lines.
 --observer join: a dedicated server, the Vulkan client and a headless peer (the
   dedicated binary with +connect). --observer listen: the Vulkan client hosts
   (+spawnServer) and the headless peer joins. Both players join GDF, so they spawn
-  near each other.
+  near each other. --observer devmap: the Vulkan client alone in single player
+  (+devmap), with no remote player: a +devmap game has no async server, so addbot gets
+  no client slot, and a bot's AI runs only on a server (docs/m5-plan.md step 3). It has
+  no peerwalk phase and no A7/A7b; A0 checks the viewmodel only; its negative control
+  requires A4, A5 and A6 to fail in the per_tick shape (the pose changes only on the draw
+  pairs that cross a tick); and the run fails if a listen server starts.
 
 For each cap (default 60, 120, 240) the observer runs these phases, each bracketed by
 'echo FP_BEGIN <phase> <cap>' / 'echo FP_END' so the FRAME_POSE lines between them
@@ -345,18 +350,25 @@ def peer_pose(p, slot):
 
 
 def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
-    """The A0-A9 results for one cap's phases."""
+    """The A0-A9 results for one cap's phases. p_peer None: no remote player (devmap), so
+    no peerwalk phase, no A7/A7b and A0 checks the viewmodel only."""
     def peer(p):
-        return peer_pose(p, slot)
+        return peer_pose(p, slot) if p_peer is not None else None
     res = {}
-    phases = {"turn": p_turn, "walk": p_walk, "peerwalk": p_peer}
+    phases = {"turn": p_turn, "walk": p_walk}
+    if p_peer is not None:
+        phases["peerwalk"] = p_peer
+    p_peer = p_peer or []
     short = [f"{k} ({max(0, len(v) - 1)})" for k, v in {"still": p_still, **phases}.items() if len(v) - 1 < MIN_PAIRS]
     wpn_have = [p["wpn"] is not None for p in p_still + p_walk]
-    peer_have = [peer(p) is not None for p in p_still + p_peer]
-    have = min(sum(wpn_have) / max(1, len(wpn_have)), sum(peer_have) / max(1, len(peer_have)))
+    have = sum(wpn_have) / max(1, len(wpn_have))
+    detail = f"viewmodel present in {sum(wpn_have)}/{len(wpn_have)}"
+    if "peerwalk" in phases:
+        peer_have = [peer(p) is not None for p in p_still + p_peer]
+        have = min(have, sum(peer_have) / max(1, len(peer_have)))
+        detail += f", peer in {sum(peer_have)}/{len(peer_have)}"
     res["A0"] = {"ok": not short and have >= 0.99,
-                 "detail": f"viewmodel present in {sum(wpn_have)}/{len(wpn_have)}, peer in {sum(peer_have)}/{len(peer_have)} draws"
-                           + (f"; too few draw pairs in {', '.join(short)}" if short else "")}
+                 "detail": detail + " draws" + (f"; too few draw pairs in {', '.join(short)}" if short else "")}
     paced = cap <= 0.9 * ceiling
     timed = {"still": p_still, **phases}  # A1 and A2 cover every phase
     rates = {k: rate(v) for k, v in timed.items()}
@@ -400,14 +412,15 @@ def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
     res["A4"] = fraction_check(p_turn, lambda a, b: abs(a["view"][4] - b["view"][4]) > ANG_EPS, "view yaw")
     res["A5"] = fraction_check(p_walk, lambda a, b: moved(a["view"], b["view"]), "view origin")
     res["A6"] = fraction_check(p_walk, lambda a, b: moved(a["wpn"], b["wpn"]), "viewmodel")
-    res["A7"] = fraction_check(p_peer, lambda a, b: moved(peer(a), peer(b)), "peer's render-world pose")
-    res["A7b"] = onpath_check(p_peer, peer, "peer's render-world pose")
+    if "peerwalk" in phases:
+        res["A7"] = fraction_check(p_peer, lambda a, b: moved(peer(a), peer(b)), "peer's render-world pose")
+        res["A7b"] = onpath_check(p_peer, peer, "peer's render-world pose")
     all_p = p_turn + p_walk + p_peer
     wrong8, back8, flat8 = phase_errors(all_p)
     same = sum(1 for a, b in zip(all_p, all_p[1:]) if a["gt"] == b["gt"])
     checked8 = late8 = ticks8 = late_ticks8 = 0
     worst8 = 0.0
-    for p in (p_turn, p_walk, p_peer):  # per phase: phases are separate time spans
+    for p in phases.values():  # per phase: phases are separate time spans
         c, b, t, bt, w = fraction_timing_errors(p)
         checked8 += c
         late8 += b
@@ -437,8 +450,10 @@ def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
         if angular:
             return max(abs((x - y + 180.0) % 360.0 - 180.0) for v in vals for x, y in zip(v[3:6], vals[0][3:6]))
         return max(abs(x - y) for v in vals for x, y in zip(v[:3], vals[0][:3]))
-    drift = {"view": spread(lambda p: p["view"]), "viewmodel": spread(lambda p: p["wpn"]), "peer": spread(peer),
+    drift = {"view": spread(lambda p: p["view"]), "viewmodel": spread(lambda p: p["wpn"]),
              "view angles": spread(lambda p: p["view"], angular=True)}
+    if "peerwalk" in phases:
+        drift["peer"] = spread(peer)
     drift_ok = all(v <= 0.1 for k, v in drift.items() if k != "view angles") and drift["view angles"] <= 0.05
     res["A9"] = {"ok": len(p_still) - 1 >= MIN_PAIRS and f9 == 0.0 and drift_ok,
                  "detail": f"something moved in {f9:.1%} of {max(0, len(p_still) - 1)} still draw pairs; drift over the phase: "
@@ -498,7 +513,8 @@ def replay(path, mode, slot):
     caps = sorted({int(ln.split()[2]) for ln in lines if ln.startswith("FP_BEGIN still ")})
     results = {}
     for cap in caps:
-        for check, res in evaluate(cap, ceiling, slot, seg("still", cap), seg("turn", cap), seg("walk", cap), seg("peerwalk", cap)).items():
+        p_peer = None if mode == "devmap" else seg("peerwalk", cap)
+        for check, res in evaluate(cap, ceiling, slot, seg("still", cap), seg("turn", cap), seg("walk", cap), p_peer).items():
             results[(cap, check)] = res
     print(f"[replay {mode}] uncapped: {ceiling:.1f} fps")
     failures = judge(mode, results)
@@ -513,9 +529,18 @@ def replay(path, mode, slot):
     return 1 if failures else 0
 
 
+class DevmapClient(VulkanClient):
+    """The Vulkan client in single player: +devmap instead of +spawnServer."""
+
+    def command_line(self):
+        args = super().command_line()
+        assert args[-2] == "+spawnServer"
+        return args[:-2] + ["+devmap", self.listen_map]
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--observer", choices=("join", "listen"))
+    ap.add_argument("--observer", choices=("join", "listen", "devmap"))
     ap.add_argument("--ded-binary")
     ap.add_argument("--client-binary")
     ap.add_argument("--map", default="valley")
@@ -530,7 +555,8 @@ def main(argv):
         return replay(args.replay_log, args.observer or "join", args.peer_slot)
 
     try:
-        ded = h.find_ded_binary(args.ded_binary)
+        # single player needs no dedicated binary
+        ded = h.find_ded_binary(args.ded_binary) if args.observer != "devmap" else None
         vk = find_client(args.client_binary)
         data = h.resolve_data_path()
     except h.SkipTest as e:
@@ -564,16 +590,24 @@ def main(argv):
         obs = VulkanClient(vk, data, args.port + 1, connect_to=f"127.0.0.1:{args.port}", log_path=log("vulkan"),
                            cvars={"si_pure": "0", "ui_name": "Observer", "net_clientShowSnapshots": "1", **view_cvars})
         procs = [("vulkan", obs), ("server", srv)]
-    else:
+    elif mode == "listen":
         obs = VulkanClient(vk, data, args.port, map_name=args.map, log_path=log("host"),
                            cvars={**game, "ui_name": "Host", **view_cvars})
         srv = obs
         procs = [("host", obs)]
+    else:
+        # single player: cheats are allowed without net_allowCheats (no async network)
+        obs = DevmapClient(vk, data, args.port, map_name=args.map, log_path=log("devmap"),
+                           cvars={"si_rules": "sdGameRulesObjective", "ui_name": "Player", **view_cvars})
+        srv = obs
+        procs = [("devmap", obs)]
     obs.name, obs.slot = "Observer", None
-    peer = RemoteClient(ded, data, args.port, args.port + 2, log_path=log("peer"))
-    peer.cvars["ui_name"] = "Peer"
-    peer.name, peer.slot = "Peer", None
-    procs.insert(0, ("peer", peer))
+    peer = None
+    if mode != "devmap":
+        peer = RemoteClient(ded, data, args.port, args.port + 2, log_path=log("peer"))
+        peer.cvars["ui_name"] = "Peer"
+        peer.name, peer.slot = "Peer", None
+        procs.insert(0, ("peer", peer))
 
     results = {}   # (cap, check) -> (ok, detail)
     failures = []
@@ -615,13 +649,15 @@ def main(argv):
         else:
             obs.start()
             if not obs.wait_for_text(READY, 180.0) or not obs.wait_for_text(f"Map: maps/{args.map}", 180.0):
-                raise Failed("the listen server never loaded the map")
+                raise Failed(f"the {'listen server' if mode == 'listen' else 'single-player game'} never loaded the map")
             obs.sync(60.0)
             obs.slot = 0
         spawn(srv, obs, "gdf", timeout=60.0)
-        connect(srv, peer, mode)
-        spawn(srv, peer, "gdf")
-        slot = peer.slot
+        slot = None
+        if peer is not None:
+            connect(srv, peer, mode)
+            spawn(srv, peer, "gdf")
+            slot = peer.slot
         # Separate the walking lanes. On valley both spawn facing north on x = 10376, the
         # peer 64 u behind; every turn is 180 degrees, a forward leg covers ~515 u and a
         # walk ends ~190 u ahead of where it began (backpedalling is slower). On that line
@@ -653,7 +689,7 @@ def main(argv):
             p_still = phase("still", cap, still, args.phase_seconds)
             p_turn = phase("turn", cap, turn, args.phase_seconds)
             p_walk = phase("walk", cap, walk_proc(obs), args.phase_seconds)
-            p_peer = phase("peerwalk", cap, walk_proc(peer), args.phase_seconds)
+            p_peer = phase("peerwalk", cap, walk_proc(peer), args.phase_seconds) if peer is not None else None
             for check, res in evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer).items():
                 results[(cap, check)] = res
 
@@ -673,15 +709,26 @@ def main(argv):
         if c4["ok"] or c5["ok"] or c4["n"] < MIN_PAIRS or c5["n"] < MIN_PAIRS:
             failures.append(f"negative control: with the unlock updates off the A4/A5 detectors did not fail"
                             f" ({c4['detail']}; {c5['detail']})")
+        if mode == "devmap":
+            # single player has no snapshots to nudge the clock, so with the updates off the
+            # camera and the viewmodel change exactly on the draw pairs that cross a tick
+            # (the weapon block is gated on updateViewpos || updateAngles, game Game_local.cpp)
+            c6 = fraction_check(n_walk, lambda a, b: moved(a["wpn"], b["wpn"]), "viewmodel")
+            print(f"[{mode}] negative control at cap {cap}: {c6['detail']}")
+            for name, c in (("A4", c4), ("A5", c5), ("A6", c6)):
+                if c["ok"] or c["n"] < MIN_PAIRS or c["misaligned"] > max(1, int(0.05 * c["n"])):
+                    failures.append(f"negative control: with the unlock updates off {name} did not fail in the"
+                                    f" per_tick shape ({c['detail']}; {c['misaligned']} misaligned)")
         # M5 steps 8 and 9: with g_unlock_interpolateMoving off the client or listen host
         # draws the peer where the last tick left it, so the A7 and A7b detectors must fail too
-        n_peer = phase("controlpeerwalk", cap, walk_proc(peer), args.phase_seconds)
-        c7 = fraction_check(n_peer, lambda a, b: moved(peer_pose(a, slot), peer_pose(b, slot)), "peer's render-world pose")
-        c7b = onpath_check(n_peer, lambda p: peer_pose(p, slot), "peer's render-world pose")
-        print(f"[{mode}] negative control at cap {cap}: {c7['detail']}; {c7b['detail']}")
-        if c7["ok"] or c7["n"] < MIN_PAIRS or c7b["ok"] or c7b["n"] < MIN_PAIRS:
-            failures.append(f"negative control: with g_unlock_interpolateMoving off the A7/A7b detectors did not fail"
-                            f" ({c7['detail']}; {c7b['detail']})")
+        if peer is not None:
+            n_peer = phase("controlpeerwalk", cap, walk_proc(peer), args.phase_seconds)
+            c7 = fraction_check(n_peer, lambda a, b: moved(peer_pose(a, slot), peer_pose(b, slot)), "peer's render-world pose")
+            c7b = onpath_check(n_peer, lambda p: peer_pose(p, slot), "peer's render-world pose")
+            print(f"[{mode}] negative control at cap {cap}: {c7['detail']}; {c7b['detail']}")
+            if c7["ok"] or c7["n"] < MIN_PAIRS or c7b["ok"] or c7b["n"] < MIN_PAIRS:
+                failures.append(f"negative control: with g_unlock_interpolateMoving off the A7/A7b detectors did not fail"
+                                f" ({c7['detail']}; {c7b['detail']})")
 
         # com_unlockFPS 0 (M5 plan step 11, D8): one draw per tick, at the highest cap
         for cv in ("g_unlock_updateAngles", "g_unlock_updateViewpos", "g_unlock_interpolateMoving"):
@@ -734,6 +781,7 @@ def main(argv):
         codes = {}
         for name, proc in procs:
             codes[name] = proc.quit() if proc.alive() else None
+        obs_lines = [ln.text for ln in obs.snapshot()]
         for name, proc in procs:
             for f in h.scan_failures(ln.text for ln in proc.snapshot()):
                 failures.append(f"{name} log line {f['line']}: {f['text']}")
@@ -743,6 +791,8 @@ def main(argv):
                         failures.append(f"{name} log line {i + 1}: {ln.text}")
             proc.cleanup()
     print(f"quit exit codes: {codes}")
+    if mode == "devmap" and any("Server spawned on" in s for s in obs_lines):
+        failures.append("the single-player run started a listen server ('Server spawned on')")
     if not failures and any(c != 0 for c in codes.values()):
         failures.append(f"quit exit codes: {codes}")
 
