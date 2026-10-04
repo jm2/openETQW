@@ -374,10 +374,16 @@ def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
         steps += len(s)
         misses = max(misses, sum(1 for d in s if d != 33) - allowed_misses(len(s)))
     worst_ratio = max(ratios, key=lambda r: abs(r - 1.0))
-    res["A2"] = {"ok": not ratio_bad and misses <= 0,
+    # D1: where the host, not the pacer, sets the rate (cap above 0.9 x the ceiling), a frame
+    # longer than a tick is the host's limit, so the step count is reported, not failed; the
+    # game-time ratio is judged at every cap
+    res["A2"] = {"ok": not ratio_bad and (misses <= 0 or not paced),
                  "detail": f"game time runs at {worst_ratio:.3f} x wall time at worst"
                            + (f" (out of bounds: {', '.join(ratio_bad)})" if ratio_bad else "")
                            + f"; steps other than one tick beyond the allowance: {max(0, misses)} ({steps} steps)"}
+    if not paced and misses > 0:
+        res["A2"]["report"] = (f"host-limited (cap {cap} above 0.9 x ceiling {ceiling:.1f}): {misses} steps beyond the"
+                               " allowance reported, not failed (D1)")
     res["A4"] = fraction_check(p_turn, lambda a, b: abs(a["view"][4] - b["view"][4]) > ANG_EPS, "view yaw")
     res["A5"] = fraction_check(p_walk, lambda a, b: moved(a["view"], b["view"]), "view origin")
     res["A6"] = fraction_check(p_walk, lambda a, b: moved(a["wpn"], b["wpn"]), "viewmodel")
@@ -395,13 +401,18 @@ def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
         ticks8 += t
         late_ticks8 += bt
         worst8 = max(worst8, w)
+    timing8 = late_ticks8 <= max(1, int(FRACTION_TICK_ALLOWANCE * ticks8)) and worst8 <= FRACTION_WORST_US
+    # D1, as for A2: the wall-clock timing is reported where the host sets the rate; whether
+    # each draw within a tick is unlocked and its fraction never falls is judged at every cap
     res["A8"] = {"ok": wrong8 == 0 and back8 == 0 and flat8 <= allowed_misses(same) and checked8 > 0
-                 and late_ticks8 <= max(1, int(FRACTION_TICK_ALLOWANCE * ticks8))
-                 and worst8 <= FRACTION_WORST_US,
+                 and (timing8 or not paced),
                  "wrong": wrong8, "same": same,
                  "detail": f"{wrong8} of {same} draws within a tick not unlocked; {back8} step the fraction back, {flat8} repeat it;"
                            f" {late8} of {checked8} unlocked fractions off the wall clock, in {late_ticks8} of {ticks8} ticks"
                            + (f", worst {worst8 / 1000:.1f} ms beyond the slack" if late8 else "")}
+    if not paced and not timing8:
+        res["A8"]["report"] = (f"host-limited (cap {cap} above 0.9 x ceiling {ceiling:.1f}): the wall-clock timing"
+                               " reported, not failed (D1)")
     f9 = changed_fraction(p_still, lambda a, b: moved(a["view"], b["view"], STILL_EPS) or moved(a["wpn"], b["wpn"], STILL_EPS)
                           or rotated(a["view"], b["view"])
                           or moved(peer(a), peer(b), STILL_EPS))
