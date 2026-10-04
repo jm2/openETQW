@@ -37,7 +37,8 @@ Checks (0.25 s dropped at each edge of a phase; a phase needs >= 20 draw pairs):
                "reached" at 98%), not failed: no high-refresh hardware is part of testing
   A2 ticks     within each phase, game time advances 1.00 s per wall-clock second,
                +/- 0.05 plus one tick (33 ms) over the phase's length, and its steps
-               between draws are one tick: no tick goes undrawn
+               between draws are one tick: no tick goes undrawn (where the cap is above
+               0.9 x the ceiling, as for A1, the step count is reported, not failed: D1)
   A4 turn      the view yaw changes between consecutive draws
   A5 walk      the view origin changes between consecutive draws
   A6 viewmodel the viewmodel pose changes between consecutive draws (walk)
@@ -62,7 +63,9 @@ Checks (0.25 s dropped at each edge of a phase; a phase needs >= 20 draw pairs):
                and at a high cap that is several draws, so the misses are counted by tick:
                at most max(1, 5%) of the checked ticks may have one, and no draw may miss
                by more than 8 ms beyond the 4 ms (a stuck fraction or one running at the
-               wrong speed misses on most ticks or by far more)
+               wrong speed misses on most ticks or by far more). Where the cap is above
+               0.9 x the ceiling, as for A1, this wall-clock timing is reported, not
+               failed (D1); the unlocked draws and the never-falling fraction always count
   A9 still     view, viewmodel and peer poses stay put: between consecutive draws
                < 0.05 u (a standing player's physics can still settle by about 0.01 u
                a tick) and the view angles < 0.01 degrees; over the whole phase each
@@ -358,7 +361,7 @@ def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
         # what it could reach, min(cap, ceiling), as high-refresh-determinism does
         target = min(cap, ceiling)
         reached = "reached" if rates[worst] >= 0.98 * target else "not reached"
-        res["A1"]["report"] = (f"cap {cap} is above 0.9 x the ceiling ({ceiling:.1f} fps), so the host sets the rate:"
+        res["A1"]["report"] = (f"host-limited: cap {cap} is above 0.9 x the ceiling ({ceiling:.1f} fps), so the host sets the rate:"
                                f" the lowest phase ran {rates[worst]:.1f} fps, {rates[worst] / target:.0%} of"
                                f" min(cap, ceiling) = {target:.1f} ({reached}; reported, not failed: D1)")
     ratios, misses, steps = [], 0, 0
@@ -739,8 +742,10 @@ def main(argv):
         for f in failures:
             print(f"  - {f}")
         return 1
+    limited = [f"cap {cap} {check}" for (cap, check), r in sorted(results.items()) if "host-limited" in r.get("report", "")]
     print(f"\nPASS: every {mode} check matched the expected state (known gaps: "
-          f"{', '.join(sorted(c for m, c in KNOWN_GAPS if m == mode)) or 'none'})")
+          f"{', '.join(sorted(c for m, c in KNOWN_GAPS if m == mode)) or 'none'})"
+          + (f"; host-limited, reported not judged (D1): {', '.join(limited)}" if limited else ""))
     return 0
 
 
