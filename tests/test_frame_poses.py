@@ -37,7 +37,8 @@ Checks (0.25 s dropped at each edge of a phase; a phase needs >= 20 draw pairs):
                "reached" at 98%), not failed: no high-refresh hardware is part of testing
   A2 ticks     within each phase, game time advances 1.00 s per wall-clock second,
                +/- 0.05 plus one tick (33 ms) over the phase's length, and its steps
-               between draws are one tick: no tick goes undrawn
+               between draws are one tick: no tick goes undrawn (where the cap is above
+               0.9 x the ceiling, as for A1, the step count is reported, not failed: D1)
   A4 turn      the view yaw changes between consecutive draws
   A5 walk      the view origin changes between consecutive draws
   A6 viewmodel the viewmodel pose changes between consecutive draws (walk)
@@ -62,7 +63,9 @@ Checks (0.25 s dropped at each edge of a phase; a phase needs >= 20 draw pairs):
                and at a high cap that is several draws, so the misses are counted by tick:
                at most max(1, 5%) of the checked ticks may have one, and no draw may miss
                by more than 8 ms beyond the 4 ms (a stuck fraction or one running at the
-               wrong speed misses on most ticks or by far more)
+               wrong speed misses on most ticks or by far more). Where the cap is above
+               0.9 x the ceiling, as for A1, this wall-clock timing is reported, not
+               failed (D1); the unlocked draws and the never-falling fraction always count
   A9 still     view, viewmodel and peer poses stay put: between consecutive draws
                < 0.05 u (a standing player's physics can still settle by about 0.01 u
                a tick) and the view angles < 0.01 degrees; over the whole phase each
@@ -358,7 +361,7 @@ def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
         # what it could reach, min(cap, ceiling), as high-refresh-determinism does
         target = min(cap, ceiling)
         reached = "reached" if rates[worst] >= 0.98 * target else "not reached"
-        res["A1"]["report"] = (f"cap {cap} is above 0.9 x the ceiling ({ceiling:.1f} fps), so the host sets the rate:"
+        res["A1"]["report"] = (f"host-limited: cap {cap} is above 0.9 x the ceiling ({ceiling:.1f} fps), so the host sets the rate:"
                                f" the lowest phase ran {rates[worst]:.1f} fps, {rates[worst] / target:.0%} of"
                                f" min(cap, ceiling) = {target:.1f} ({reached}; reported, not failed: D1)")
     ratios, misses, steps = [], 0, 0
@@ -374,10 +377,16 @@ def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
         steps += len(s)
         misses = max(misses, sum(1 for d in s if d != 33) - allowed_misses(len(s)))
     worst_ratio = max(ratios, key=lambda r: abs(r - 1.0))
-    res["A2"] = {"ok": not ratio_bad and misses <= 0,
+    # D1: where the host, not the pacer, sets the rate (cap above 0.9 x the ceiling), a frame
+    # longer than a tick is the host's limit, so the step count is reported, not failed; the
+    # game-time ratio is judged at every cap
+    res["A2"] = {"ok": not ratio_bad and (misses <= 0 or not paced),
                  "detail": f"game time runs at {worst_ratio:.3f} x wall time at worst"
                            + (f" (out of bounds: {', '.join(ratio_bad)})" if ratio_bad else "")
                            + f"; steps other than one tick beyond the allowance: {max(0, misses)} ({steps} steps)"}
+    if not paced and misses > 0:
+        res["A2"]["report"] = (f"host-limited (cap {cap} above 0.9 x ceiling {ceiling:.1f}): {misses} steps beyond the"
+                               " allowance reported, not failed (D1)")
     res["A4"] = fraction_check(p_turn, lambda a, b: abs(a["view"][4] - b["view"][4]) > ANG_EPS, "view yaw")
     res["A5"] = fraction_check(p_walk, lambda a, b: moved(a["view"], b["view"]), "view origin")
     res["A6"] = fraction_check(p_walk, lambda a, b: moved(a["wpn"], b["wpn"]), "viewmodel")
@@ -395,13 +404,18 @@ def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
         ticks8 += t
         late_ticks8 += bt
         worst8 = max(worst8, w)
+    timing8 = late_ticks8 <= max(1, int(FRACTION_TICK_ALLOWANCE * ticks8)) and worst8 <= FRACTION_WORST_US
+    # D1, as for A2: the wall-clock timing is reported where the host sets the rate; whether
+    # each draw within a tick is unlocked and its fraction never falls is judged at every cap
     res["A8"] = {"ok": wrong8 == 0 and back8 == 0 and flat8 <= allowed_misses(same) and checked8 > 0
-                 and late_ticks8 <= max(1, int(FRACTION_TICK_ALLOWANCE * ticks8))
-                 and worst8 <= FRACTION_WORST_US,
+                 and (timing8 or not paced),
                  "wrong": wrong8, "same": same,
                  "detail": f"{wrong8} of {same} draws within a tick not unlocked; {back8} step the fraction back, {flat8} repeat it;"
                            f" {late8} of {checked8} unlocked fractions off the wall clock, in {late_ticks8} of {ticks8} ticks"
                            + (f", worst {worst8 / 1000:.1f} ms beyond the slack" if late8 else "")}
+    if not paced and not timing8:
+        res["A8"]["report"] = (f"host-limited (cap {cap} above 0.9 x ceiling {ceiling:.1f}): the wall-clock timing"
+                               " reported, not failed (D1)")
     f9 = changed_fraction(p_still, lambda a, b: moved(a["view"], b["view"], STILL_EPS) or moved(a["wpn"], b["wpn"], STILL_EPS)
                           or rotated(a["view"], b["view"])
                           or moved(peer(a), peer(b), STILL_EPS))
@@ -728,8 +742,10 @@ def main(argv):
         for f in failures:
             print(f"  - {f}")
         return 1
+    limited = [f"cap {cap} {check}" for (cap, check), r in sorted(results.items()) if "host-limited" in r.get("report", "")]
     print(f"\nPASS: every {mode} check matched the expected state (known gaps: "
-          f"{', '.join(sorted(c for m, c in KNOWN_GAPS if m == mode)) or 'none'})")
+          f"{', '.join(sorted(c for m, c in KNOWN_GAPS if m == mode)) or 'none'})"
+          + (f"; host-limited, reported not judged (D1): {', '.join(limited)}" if limited else ""))
     return 0
 
 

@@ -296,7 +296,10 @@ def finish(a_lines, b_lines, slots, server_windows, failures):
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("PASS: each client held its own cap and passed the frame-pose checks (no known gaps)")
+    limited = [f"{client} cap {cap} {check}" for (client, rnd, cap, check), r in sorted(results.items())
+               if "host-limited" in r.get("report", "")]
+    print("PASS: each client held its own cap and passed the frame-pose checks (no known gaps)"
+          + (f"; host-limited, reported not judged (D1): {', '.join(limited)}" if limited else ""))
     return 0
 
 
