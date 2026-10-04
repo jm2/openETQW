@@ -12,6 +12,9 @@
 #include <execinfo.h>	// backtrace() in FatalError
 #include <unistd.h>
 #endif
+#if defined( __APPLE__ )
+#include <sys/event.h>	// PacerSleepUsec
+#endif
 #include <algorithm>
 #include <chrono>
 #include <mutex>
@@ -1007,6 +1010,32 @@ uint64_t MonotonicUsec() {
 		std::chrono::steady_clock::now().time_since_epoch() ).count() );
 }
 
+/*
+The frame pacer's sleep. Since macOS 27.0.1, sleep_for and mach_wait_until wake about half
+the sleep late, up to about 10 ms (measured 2026-10-04: 2.5 ms late for 5 ms, 9.5 ms for
+25 ms), past the pacer's spin margin, so caps 30 and 45 ran at 26.8 and 43 fps. A kqueue
+timer marked critical with no leeway wakes within about 0.05 ms (2.6 ms at worst).
+*/
+void PacerSleepUsec( uint64_t usec ) {
+#if defined( __APPLE__ )
+	static const int timerQueue = kqueue();
+	if ( timerQueue >= 0 ) {
+		struct kevent64_s timer = {};
+		timer.ident = 1;
+		timer.filter = EVFILT_TIMER;
+		timer.flags = EV_ADD | EV_ONESHOT;
+		timer.fflags = NOTE_USECONDS | NOTE_CRITICAL | NOTE_LEEWAY;
+		timer.data = static_cast< int64_t >( usec );
+		timer.ext[ 1 ] = 0;	// the leeway
+		struct kevent64_s fired;
+		if ( kevent64( timerQueue, &timer, 1, &fired, 1, 0, NULL ) >= 0 ) {
+			return;
+		}
+	}
+#endif
+	std::this_thread::sleep_for( std::chrono::microseconds( usec ) );
+}
+
 class FrameTimingLog {
 public:
 	void	AddFrame( uint64_t frameStartUsec, uint64_t workEndUsec, uint64_t frameEndUsec, int ticks, bool drawn, int updateViews, int cap );
@@ -1173,7 +1202,7 @@ void idCommonLocal::Frame() {
 						if ( waitUsec > spinUsec ) {
 							const uint64_t sleepUsec = waitUsec - spinUsec;
 							const uint64_t sleepStartUsec = monotonicUsec();
-							std::this_thread::sleep_for( std::chrono::microseconds( sleepUsec ) );
+							PacerSleepUsec( sleepUsec );
 							const uint64_t sleptUsec = monotonicUsec() - sleepStartUsec;
 							const uint64_t latenessUsec = sleptUsec > sleepUsec ? sleptUsec - sleepUsec : 0;
 							sleepLatenessUsec = std::max( sleepLatenessUsec, std::min( latenessUsec, maxLatenessUsec ) );
