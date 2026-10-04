@@ -341,11 +341,19 @@ void idSessionLocal::Frame() {
 		// Without that call, PlayerView treats every foreground render as another
 		// full-tic draw and repeatedly offsets the weapon by the same origin delta.
 		// That is visible as rapid weapon drift/flicker whenever the player moves.
-		// com_unlockFPS 0 draws no render-only frame (idCommonLocal::Frame), so none is prepared
-		if ( renderOnlyFrame && mapSpawned && game != NULL && com_unlockFPS.GetBool() ) {
-			const usercmd_t cmd = usercmdGen->GetDirectUsercmd();
-			game->ClientUpdateView( cmd, Com_GetGameTimeLeft() );
-			++com_frameUpdateViews;
+		// com_unlockFPS 0 draws no render-only frame (idCommonLocal::Frame), so none is prepared.
+		// M5 step 10 (D7): a frame that ran a tic is prepared too, at the part of the tic
+		// already elapsed, with the tic's own command (no new sample: render-only samples
+		// can consume impulses, docs/frame-path.md section 5)
+		if ( mapSpawned && game != NULL && com_unlockFPS.GetBool() ) {
+			if ( renderOnlyFrame ) {
+				const usercmd_t cmd = usercmdGen->GetDirectUsercmd();
+				game->ClientUpdateView( cmd, Com_GetGameTimeLeft() );
+				++com_frameUpdateViews;
+			} else if ( com_unlock_tickFrames.GetBool() ) {
+				game->ClientUpdateView( mapSpawnData.mapSpawnUsercmd[ 0 ], Com_GetGameTimeLeft() );
+				++com_frameUpdateViews;
+			}
 		}
 	}
 }

@@ -91,6 +91,12 @@ idCVar com_maxFPS( "com_maxFPS", "60", CVAR_INTEGER | CVAR_SYSTEM | CVAR_ARCHIVE
 	"maximum frames per second presented (0 = unlimited / VSync-only)" );
 idCVar com_unlock_maxFPS( "com_unlock_maxFPS", "60", CVAR_INTEGER | CVAR_SYSTEM | CVAR_NOCHEAT,
 	"retail's cap on unlocked frames; OpenETQW keeps it equal to com_maxFPS - zero = no limit" );
+// M5 step 10 (decision D7): a frame that ran a tick is prepared by ClientUpdateView too, at
+// the fraction of the tick already elapsed when it presents, instead of drawing the tick
+// boundary (fraction 0, the base draw), which judders at 30 Hz at any cap. 0 restores the
+// base draw on such frames (the negative control of the frame-pose tests)
+idCVar com_unlock_tickFrames( "com_unlock_tickFrames", "1", CVAR_BOOL | CVAR_SYSTEM | CVAR_NOCHEAT,
+	"frames that ran a game tick present at their sub-tick fraction (with com_unlockFPS)" );
 idCVar com_logFrameTiming( "com_logFrameTiming", "0", CVAR_BOOL | CVAR_SYSTEM | CVAR_NOCHEAT,
 	"print a FRAME_TIMING line every second: frames, game ticks and the distribution of frame intervals and frame work times" );
 

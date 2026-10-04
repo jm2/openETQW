@@ -349,12 +349,19 @@ void idAsyncClient::RunFrame() {
 		}
 		ProcessReliableServerMessages();
 
-		// com_unlockFPS 0 draws no render-only frame (idCommonLocal::Frame), so none is prepared
-		if ( gameFrame == startFrame && game != NULL && com_unlockFPS.GetBool() ) {
-			const usercmd_t cmd = usercmdGen->GetDirectUsercmd();
-			const int timeLeft = GetGameTimeLeft();
-			game->ClientUpdateView( cmd, timeLeft );
-			++com_frameUpdateViews;
+		// com_unlockFPS 0 draws no render-only frame (idCommonLocal::Frame), so none is prepared.
+		// M5 step 10 (D7): a frame that ran a tick is prepared too, with the last tick's
+		// command (as in single player, no new sample)
+		if ( game != NULL && com_unlockFPS.GetBool() ) {
+			if ( gameFrame == startFrame ) {
+				const usercmd_t cmd = usercmdGen->GetDirectUsercmd();
+				const int timeLeft = GetGameTimeLeft();
+				game->ClientUpdateView( cmd, timeLeft );
+				++com_frameUpdateViews;
+			} else if ( com_unlock_tickFrames.GetBool() ) {
+				game->ClientUpdateView( userCmds[ ( gameFrame - 1 ) & ( MAX_USERCMD_BACKUP - 1 ) ][ clientNum ], GetGameTimeLeft() );
+				++com_frameUpdateViews;
+			}
 		}
 	} else if ( clientState >= CS_CONNECTED && !sessLocal.insideExecuteMapChange ) {
 		SendUsercmdsToServer();

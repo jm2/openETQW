@@ -93,6 +93,7 @@ extern bool			com_frameInGame;
 extern idCVar		com_unlockFPS;
 extern idCVar		com_maxFPS;
 extern idCVar		com_unlock_maxFPS;
+extern idCVar		com_unlock_tickFrames;
 
 extern int			time_gameFrame;			// game logic time
 extern int			time_gameDraw;			// game present time
