@@ -43,6 +43,12 @@ Checks (0.25 s dropped at each edge of a phase; a phase needs >= 20 draw pairs):
   A6 viewmodel the viewmodel pose changes between consecutive draws (walk)
   A7 remote    the peer's render-world pose changes between consecutive draws
                (A2 and A4-A7 allow max(1, 1%) exceptions)
+  A7b steady   the peer's drawn pose does not step back: its walk (forward, then
+               backpedal) reverses once, and a draw whose movement points against the
+               previous one's (by more than 120 degrees, both above 0.01 u) counts as a
+               reversal; at most 2, the walk's and one more (a stale or wrong fraction
+               draws a jump ahead and a snap back, two reversals each time; M5 step 9
+               review)
   A8 phase     a draw with the same game time as the previous one is an unlocked
                draw (ud=1); within one game time the fraction never falls, and at most
                max(1, 1%) draws may repeat it (timeLeft is whole milliseconds, and the
@@ -119,14 +125,11 @@ ANG_EPS = 0.001       # degrees
 
 # Checks the current code fails, from docs/frame-path.md (section 9) and the M5 plan,
 # written before this test first ran. A known gap that passes is reported too.
-KNOWN_GAPS = {
-    # the listen host draws remote players where the last tick left them: M5 step 8
-    # restored the Entity::Present producer on network clients only (A7 passes in join
-    # mode since); the host gets it only as step 9's presentation-only interpolation (D6).
-    # (A4-A6 and A8 were gaps here until step 7 had the host call ClientUpdateView on
-    # render-only frames.)
-    ("listen", "A7"): ("per_tick",),
-}
+# (None left: A4-A6 and A8 were listen gaps until M5 step 7 had the host call
+# ClientUpdateView on render-only frames, A7 a join gap until step 8 restored the
+# Entity::Present producer on network clients and a listen gap until step 9 drew the
+# host's remote players from presentation copies.)
+KNOWN_GAPS: dict[tuple[str, str], tuple] = {}
 MIN_PAIRS = 20
 SPECTATE_ROUNDS = 10        # listen only: the viewer-change rounds (M5 step 7)
 SPECTATE_MIN_ROUNDS = 3     # rounds whose switch must land between ticks
@@ -303,6 +306,26 @@ def fraction_check(poses, key, what):
             "detail": f"{what} changed in {f:.1%} of {n} draw pairs ({crossing / n if n else 0:.1%} cross a tick)"}
 
 
+def reversal_check(poses, what):
+    """A7b: how often consecutive movements of a walked pose point against each other."""
+    last = None
+    reversals = moves = 0
+    for a, b in zip(poses, poses[1:]):
+        if a is None or b is None:
+            continue
+        d = [y - x for x, y in zip(a[:3], b[:3])]
+        size = math.sqrt(sum(c * c for c in d))
+        if size <= POS_EPS:
+            continue
+        moves += 1
+        if last is not None and sum(x * y for x, y in zip(d, last[0])) < -0.5 * size * last[1]:
+            reversals += 1
+        last = (d, size)
+    allowed = 2
+    return {"ok": moves >= MIN_PAIRS and reversals <= allowed,
+            "detail": f"{what} reversed direction {reversals} times in {moves} movements (allowed {allowed})"}
+
+
 def peer_pose(p, slot):
     """The peer's render-world pose in a draw, or None."""
     return (p["clients"].get(slot) or {}).get("pose")
@@ -359,6 +382,7 @@ def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
     res["A5"] = fraction_check(p_walk, lambda a, b: moved(a["view"], b["view"]), "view origin")
     res["A6"] = fraction_check(p_walk, lambda a, b: moved(a["wpn"], b["wpn"]), "viewmodel")
     res["A7"] = fraction_check(p_peer, lambda a, b: moved(peer(a), peer(b)), "peer's render-world pose")
+    res["A7b"] = reversal_check([peer(p) for p in p_peer], "peer's render-world pose")
     all_p = p_turn + p_walk + p_peer
     wrong8, back8, flat8 = phase_errors(all_p)
     same = sum(1 for a, b in zip(all_p, all_p[1:]) if a["gt"] == b["gt"])
@@ -625,15 +649,14 @@ def main(argv):
         if c4["ok"] or c5["ok"] or c4["n"] < MIN_PAIRS or c5["n"] < MIN_PAIRS:
             failures.append(f"negative control: with the unlock updates off the A4/A5 detectors did not fail"
                             f" ({c4['detail']}; {c5['detail']})")
-        if mode == "join":
-            # M5 step 8: with g_unlock_interpolateMoving off the client draws the peer where the
-            # last tick left it, so the A7 detector must fail too
-            n_peer = phase("controlpeerwalk", cap, walk_proc(peer), args.phase_seconds)
-            c7 = fraction_check(n_peer, lambda a, b: moved(peer_pose(a, slot), peer_pose(b, slot)), "peer's render-world pose")
-            print(f"[{mode}] negative control at cap {cap}: {c7['detail']}")
-            if c7["ok"] or c7["n"] < MIN_PAIRS:
-                failures.append(f"negative control: with g_unlock_interpolateMoving off the A7 detector did not fail"
-                                f" ({c7['detail']})")
+        # M5 steps 8 and 9: with g_unlock_interpolateMoving off the client or listen host
+        # draws the peer where the last tick left it, so the A7 detector must fail too
+        n_peer = phase("controlpeerwalk", cap, walk_proc(peer), args.phase_seconds)
+        c7 = fraction_check(n_peer, lambda a, b: moved(peer_pose(a, slot), peer_pose(b, slot)), "peer's render-world pose")
+        print(f"[{mode}] negative control at cap {cap}: {c7['detail']}")
+        if c7["ok"] or c7["n"] < MIN_PAIRS:
+            failures.append(f"negative control: with g_unlock_interpolateMoving off the A7 detector did not fail"
+                            f" ({c7['detail']})")
 
         # com_unlockFPS 0 (M5 plan step 11, D8): one draw per tick, at the highest cap
         for cv in ("g_unlock_updateAngles", "g_unlock_updateViewpos", "g_unlock_interpolateMoving"):
