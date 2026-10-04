@@ -13,6 +13,7 @@
 #include <unistd.h>
 #endif
 #if defined( __APPLE__ )
+#include <cerrno>
 #include <sys/event.h>	// PacerSleepUsec
 #endif
 #include <algorithm>
@@ -1028,9 +1029,14 @@ void PacerSleepUsec( uint64_t usec ) {
 		timer.data = static_cast< int64_t >( usec );
 		timer.ext[ 1 ] = 0;	// the leeway
 		struct kevent64_s fired;
-		if ( kevent64( timerQueue, &timer, 1, &fired, 1, 0, NULL ) >= 0 ) {
+		const int events = kevent64( timerQueue, &timer, 1, &fired, 1, 0, NULL );
+		if ( events == 1 && !( fired.flags & EV_ERROR ) ) {
 			return;
 		}
+		if ( events < 0 && errno == EINTR ) {
+			return;	// a signal: the pacer's spin covers the rest of the wait
+		}
+		// a failed EV_ADD comes back as an EV_ERROR event: sleep the ordinary way
 	}
 #endif
 	std::this_thread::sleep_for( std::chrono::microseconds( usec ) );
