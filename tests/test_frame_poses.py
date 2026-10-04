@@ -706,10 +706,14 @@ def main(argv):
         c4 = fraction_check(n_turn, lambda a, b: abs(a["view"][4] - b["view"][4]) > ANG_EPS, "view yaw")
         c5 = fraction_check(n_walk, lambda a, b: moved(a["view"], b["view"]), "view origin")
         print(f"[{mode}] negative control at cap {cap}: {c4['detail']}; {c5['detail']}")
-        if c4["ok"] or c5["ok"] or c4["n"] < MIN_PAIRS or c5["n"] < MIN_PAIRS:
+        if mode != "devmap" and (c4["ok"] or c5["ok"] or c4["n"] < MIN_PAIRS or c5["n"] < MIN_PAIRS):
             failures.append(f"negative control: with the unlock updates off the A4/A5 detectors did not fail"
                             f" ({c4['detail']}; {c5['detail']})")
         if mode == "devmap":
+            # the per_tick shape needs draws between ticks: at a cap of 30 or less every draw
+            # pair crosses a tick, and a pose that changes on all of them would pass
+            if cap <= 30:
+                raise Failed(f"the devmap negative control needs its cap above 30 fps (got {cap})")
             # single player has no snapshots to nudge the clock, so with the updates off the
             # camera and the viewmodel change exactly on the draw pairs that cross a tick
             # (the weapon block is gated on updateViewpos || updateAngles, game Game_local.cpp)
@@ -786,9 +790,9 @@ def main(argv):
             for f in h.scan_failures(ln.text for ln in proc.snapshot()):
                 failures.append(f"{name} log line {f['line']}: {f['text']}")
             if proc is obs:
-                for i, ln in enumerate(proc.snapshot()):
-                    if any(m in ln.text for m in BAD_MARKERS):
-                        failures.append(f"{name} log line {i + 1}: {ln.text}")
+                for i, text in enumerate(obs_lines):
+                    if any(m in text for m in BAD_MARKERS):
+                        failures.append(f"{name} log line {i + 1}: {text}")
             proc.cleanup()
     print(f"quit exit codes: {codes}")
     if mode == "devmap" and any("Server spawned on" in s for s in obs_lines):
