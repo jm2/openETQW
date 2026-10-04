@@ -31,7 +31,7 @@ M5 is done when:
    - Done (2026-09-25): `ClientUpdateView` presents the weapon and the `interpolateEntities` consumer through `PresentUnlocked` even when `isNewFrame` is false. `frame-poses-join` A6 passes (100% at caps 60/120/240).
    - Done: the CVar `g_logFramePoses` (game; a cheat, since it logs other players' positions) prints one `FRAME_POSE` line per main-view draw, just before `RenderScene` in `idPlayerView::SingleView`: the view, the viewmodel, the seat and up to 8 other players' render-world poses, and the unlock state and fraction.
    - Done: `frame-poses-join` and `frame-poses-listen` (the Vulkan client with a headless peer that walks). Known gaps were written from the code before the first run (plus the one it found), each with the shape its failure must keep. A negative control makes the camera detectors fail.
-   - To do: the devmap variant (designed below), vehicle seats (D2), and a negative control for the remote-player detector once the `Entity::Present` producer is restored.
+   - To do: vehicle seats (D2). The devmap variant is done (below).
    - **The devmap variant (design, 2026-10-01, the Mac session).**
      - **Why no bot.** The plan asked for a devmap variant with a bot, but a `+devmap` game cannot have one:
        - `addbot` gets no client slot without an active async server. The engine refuses at `NetworkSystem.cpp:261-266`, before `AsyncServer.cpp:367-370` would. The game's `DWarning` "Can't find open client slot" (`AdminSystem.cpp:1326-1329`) prints because devmap sets `developer 1`. The spike saw it even with `si_maxPlayers 8`.
@@ -63,6 +63,11 @@ M5 is done when:
        - while walking, the view origin and the viewmodel changed on 100% of draw pairs;
        - nothing moved while still.
      - **When.** It is built after the Linux session's step 7 listen-host PR, which edits the listen known gaps in `test_frame_poses.py`. #51 is merged and changed only `parse_pose`.
+     - **Done 2026-10-04** (meson `frame-poses-devmap`, built as designed). On this Mac (uncapped 116 fps), at caps 60, 120 and 240:
+       - A4, A5 and A6 change on 100% of draw pairs, and no draw between ticks fails to unlock.
+       - Negative control at cap 60: A4, A5 and A6 fail in the `per_tick` shape (yaw 50.0% changed against 50.0% crossing a tick; origin and viewmodel 50.5% against 50.5%).
+       - `com_unlockFPS 0` draws 30.3 times a second with no unlocked draws.
+       - It takes 64 s.
    - **Decision D2** (decided 2026-09-25: match retail 1.5). Retail 1.5 has no per-frame view in any vehicle seat: `idPlayer::IsFPSUnlock` (0x3dd320) returns false whenever the viewed player has a proxy entity, which covers every seat of every vehicle, the jetpack included, with no seat or vehicle-type exception; it matches the SDK check for check. Retail interpolates remote entities by `renderEntity.origin` only, one tick behind (`idEntity::Present`, 0x108224): no axes and no skeletal joints, and animation is evaluated at the tick's time. The viewmodel gets a rigid origin and axis. So "pose" means entity origins (and the viewmodel's origin and axis), not joints. The one-seat capture uses the seat view from D10 (on by default).
 
 4. **The ~120 fps ceiling.**
