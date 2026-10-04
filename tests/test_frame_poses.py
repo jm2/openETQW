@@ -58,6 +58,16 @@ Checks (0.25 s dropped at each edge of a phase; a phase needs >= 20 draw pairs):
                check instead. Not a direction check: on a network client a distant
                peer's tick poses can step back (AoR corrections), and that path is what
                is drawn (M5 step 9 review)
+  A10 tick    the frames that run a tick are unlocked draws at their sub-tick fraction
+               (M5 step 10, decision D7): in turn, walk and peerwalk, at least 99% of
+               the draws that start a new game time are unlocked (ud=1), and on average
+               they present within TICK_LAG_MS of the render-only draws around them. A
+               draw presents game time gt + fr x 33 ms at its wall time; its lag is the
+               difference, taken against the median lag of the phase's render-only
+               draws. A base draw (fraction 0) on a tick frame lags by the part of the
+               tick already elapsed, a 30 Hz judder: half a frame period on average
+               (8 ms at cap 60). With com_unlock_tickFrames 0 (the negative control, at
+               the lowest cap) A10 must fail
   A8 phase     a draw with the same game time as the previous one is an unlocked
                draw (ud=1); within one game time the fraction never falls, and at most
                max(1, 1%) draws may repeat it (timeLeft is whole milliseconds, and the
@@ -321,27 +331,75 @@ ONPATH_EPS = 0.05     # u: A7b
 
 
 def onpath_check(poses, pose_of, what):
-    """A7b: how far each unlocked draw's pose lies from lerp(P(n), P(n+1), fr), P(n) the
-    pose in game time n's base draw."""
-    base = {}
-    for p in poses:
-        if p["ud"] == 0 and pose_of(p) is not None:
-            base.setdefault(p["gt"], pose_of(p))
-    checked = off = 0
-    worst = 0.0
+    """A7b: whether the draws lie on one interpolation path. Game time n's draws should be
+    P(n) + f x (P(n+1) - P(n)), f the draw's fraction (0 for a base draw). P(n) and the step
+    are fitted by least squares over the tick's draws (at least two, with fractions at
+    least 0.05 apart); each draw must lie within ONPATH_EPS of its tick's fit, and tick n's
+    fit must end where tick n+1's starts. Since M5 step 10 the frames that run a tick are
+    unlocked draws at their fraction, so no base draw shows P(n) by itself."""
+    ticks = {}
     for p in poses:
         q = pose_of(p)
-        a, b = base.get(p["gt"]), base.get(p["gt"] + 33)
-        if p["ud"] != 1 or q is None or a is None or b is None:
+        if q is not None:
+            ticks.setdefault(p["gt"], []).append((0.0 if p["ud"] == 0 else p["fr"], q[:3]))
+    fits = {}
+    off = checked = 0
+    worst = 0.0
+    for gt, draws in ticks.items():
+        fs = [f for f, _ in draws]
+        if len(draws) < 2 or max(fs) - min(fs) < 0.05:
             continue
-        expected = [x + p["fr"] * (y - x) for x, y in zip(a[:3], b[:3])]
-        dev = max(abs(x - y) for x, y in zip(expected, q[:3]))
-        checked += 1
-        off += dev > ONPATH_EPS
-        worst = max(worst, dev)
-    return {"ok": checked >= MIN_PAIRS and off <= allowed_misses(checked), "n": checked,
-            "detail": f"{what} off its interpolation path by more than {ONPATH_EPS} u in {off} of {checked}"
-                      f" unlocked draws (worst {worst:.3f} u)"}
+        fm = sum(fs) / len(fs)
+        var = sum((f - fm) ** 2 for f in fs)
+        start, step = [], []
+        for k in range(3):
+            xm = sum(q[k] for _, q in draws) / len(draws)
+            slope = sum((f - fm) * (q[k] - xm) for f, q in draws) / var
+            step.append(slope)
+            start.append(xm - slope * fm)
+        fits[gt] = (start, step)
+        for f, q in draws:
+            dev = max(abs(start[k] + f * step[k] - q[k]) for k in range(3))
+            checked += 1
+            off += dev > ONPATH_EPS
+            worst = max(worst, dev)
+    joins = 0
+    for gt, (start, step) in fits.items():
+        nxt = fits.get(gt + 33)
+        if nxt is not None:
+            dev = max(abs(start[k] + step[k] - nxt[0][k]) for k in range(3))
+            joins += 1
+            off += dev > ONPATH_EPS
+            worst = max(worst, dev)
+    return {"ok": checked >= MIN_PAIRS and joins >= 1 and off <= allowed_misses(checked + joins), "n": checked,
+            "detail": f"{what} off its interpolation path by more than {ONPATH_EPS} u in {off} of {checked} draws"
+                      f" and {joins} tick joins (worst {worst:.3f} u)"}
+
+
+TICK_LAG_MS = 3.0
+
+
+def tick_frame_check(phases):
+    """A10: whether the draws that start a new game time are unlocked draws presented at
+    their fraction, as the render-only draws are."""
+    tick_frames = unlocked = 0
+    lags = []
+    for ps in phases:
+        lag = [p["us"] / 1000.0 - (p["gt"] + (0.0 if p["ud"] == 0 else p["fr"]) * 33.0) for p in ps]
+        starts = [i for i in range(1, len(ps)) if ps[i]["gt"] != ps[i - 1]["gt"]]
+        between = sorted(lag[i] for i in range(1, len(ps)) if ps[i]["gt"] == ps[i - 1]["gt"])
+        tick_frames += len(starts)
+        unlocked += sum(1 for i in starts if ps[i]["ud"] == 1)
+        if between:
+            median = between[len(between) // 2]
+            lags += [lag[i] - median for i in starts]
+    mean = sum(lags) / len(lags) if lags else float("inf")
+    return {"ok": tick_frames >= MIN_PAIRS and tick_frames - unlocked <= allowed_misses(tick_frames)
+                  and abs(mean) <= TICK_LAG_MS,
+            "n": tick_frames,
+            "detail": f"{unlocked} of {tick_frames} tick frames unlocked; they present {mean:+.2f} ms from the"
+                      f" render-only draws on average (need {tick_frames - allowed_misses(tick_frames)}+ unlocked,"
+                      f" within +-{TICK_LAG_MS:.0f} ms)"}
 
 
 def peer_pose(p, slot):
@@ -430,6 +488,7 @@ def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
     timing8 = late_ticks8 <= max(1, int(FRACTION_TICK_ALLOWANCE * ticks8)) and worst8 <= FRACTION_WORST_US
     # D1, as for A2: the wall-clock timing is reported where the host sets the rate; whether
     # each draw within a tick is unlocked and its fraction never falls is judged at every cap
+    res["A10"] = tick_frame_check(list(phases.values()))
     res["A8"] = {"ok": wrong8 == 0 and back8 == 0 and flat8 <= allowed_misses(same) and checked8 > 0
                  and (timing8 or not paced),
                  "wrong": wrong8, "same": same,
@@ -723,6 +782,20 @@ def main(argv):
                 if c["ok"] or c["n"] < MIN_PAIRS or c["misaligned"] > max(1, int(0.05 * c["n"])):
                     failures.append(f"negative control: with the unlock updates off {name} did not fail in the"
                                     f" per_tick shape ({c['detail']}; {c['misaligned']} misaligned)")
+        # M5 step 10: with com_unlock_tickFrames 0 the tick frames are base draws again (A10)
+        for cv in ("g_unlock_updateAngles", "g_unlock_updateViewpos", "g_unlock_interpolateMoving"):
+            obs.send(f"set {cv} 1")
+        obs.send("set com_unlock_tickFrames 0")
+        time.sleep(1.0)
+        n_tick = phase("controltick", cap, walk_proc(obs), args.phase_seconds)
+        obs.send("set com_unlock_tickFrames 1")
+        for cv in ("g_unlock_updateAngles", "g_unlock_updateViewpos", "g_unlock_interpolateMoving"):
+            obs.send(f"set {cv} 0")
+        time.sleep(1.0)
+        c10 = tick_frame_check([n_tick])
+        print(f"[{mode}] negative control at cap {cap}: com_unlock_tickFrames 0: {c10['detail']}")
+        if c10["ok"] or c10["n"] < MIN_PAIRS:
+            failures.append(f"negative control: with com_unlock_tickFrames 0 the A10 detector did not fail ({c10['detail']})")
         # M5 steps 8 and 9: with g_unlock_interpolateMoving off the client or listen host
         # draws the peer where the last tick left it, so the A7 and A7b detectors must fail too
         if peer is not None:
