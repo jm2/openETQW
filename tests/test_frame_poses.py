@@ -44,12 +44,15 @@ Checks (0.25 s dropped at each edge of a phase; a phase needs >= 20 draw pairs):
   A6 viewmodel the viewmodel pose changes between consecutive draws (walk)
   A7 remote    the peer's render-world pose changes between consecutive draws
                (A2 and A4-A7 allow max(1, 1%) exceptions)
-  A7b steady   the peer's drawn pose does not step back: its walk (forward, then
-               backpedal) reverses once, and a draw whose movement points against the
-               previous one's (by more than 120 degrees, both above 0.01 u) counts as a
-               reversal; at most 2, the walk's and one more (a stale or wrong fraction
-               draws a jump ahead and a snap back, two reversals each time; M5 step 9
-               review)
+  A7b on path  each unlocked draw of the peer lies on its interpolation path: within
+               0.05 u of lerp(P(n), P(n+1), fr), where P(n) is the peer's pose in the
+               base draw of game time n (the base draw shows the tick before; M5 steps
+               8 and 9) and fr the draw's fraction; at most max(1, 1%) draws off it (a
+               draw prepared before ClientUpdateView computed its fraction shows P(n)).
+               A wrong or stale fraction that is logged as drawn fails A8's wall-clock
+               check instead. Not a direction check: on a network client a distant
+               peer's tick poses can step back (AoR corrections), and that path is what
+               is drawn (M5 step 9 review)
   A8 phase     a draw with the same game time as the previous one is an unlocked
                draw (ud=1); within one game time the fraction never falls, and at most
                max(1, 1%) draws may repeat it (timeLeft is whole milliseconds, and the
@@ -309,24 +312,31 @@ def fraction_check(poses, key, what):
             "detail": f"{what} changed in {f:.1%} of {n} draw pairs ({crossing / n if n else 0:.1%} cross a tick)"}
 
 
-def reversal_check(poses, what):
-    """A7b: how often consecutive movements of a walked pose point against each other."""
-    last = None
-    reversals = moves = 0
-    for a, b in zip(poses, poses[1:]):
-        if a is None or b is None:
+ONPATH_EPS = 0.05     # u: A7b
+
+
+def onpath_check(poses, pose_of, what):
+    """A7b: how far each unlocked draw's pose lies from lerp(P(n), P(n+1), fr), P(n) the
+    pose in game time n's base draw."""
+    base = {}
+    for p in poses:
+        if p["ud"] == 0 and pose_of(p) is not None:
+            base.setdefault(p["gt"], pose_of(p))
+    checked = off = 0
+    worst = 0.0
+    for p in poses:
+        q = pose_of(p)
+        a, b = base.get(p["gt"]), base.get(p["gt"] + 33)
+        if p["ud"] != 1 or q is None or a is None or b is None:
             continue
-        d = [y - x for x, y in zip(a[:3], b[:3])]
-        size = math.sqrt(sum(c * c for c in d))
-        if size <= POS_EPS:
-            continue
-        moves += 1
-        if last is not None and sum(x * y for x, y in zip(d, last[0])) < -0.5 * size * last[1]:
-            reversals += 1
-        last = (d, size)
-    allowed = 2
-    return {"ok": moves >= MIN_PAIRS and reversals <= allowed,
-            "detail": f"{what} reversed direction {reversals} times in {moves} movements (allowed {allowed})"}
+        expected = [x + p["fr"] * (y - x) for x, y in zip(a[:3], b[:3])]
+        dev = max(abs(x - y) for x, y in zip(expected, q[:3]))
+        checked += 1
+        off += dev > ONPATH_EPS
+        worst = max(worst, dev)
+    return {"ok": checked >= MIN_PAIRS and off <= allowed_misses(checked),
+            "detail": f"{what} off its interpolation path by more than {ONPATH_EPS} u in {off} of {checked}"
+                      f" unlocked draws (worst {worst:.3f} u)"}
 
 
 def peer_pose(p, slot):
@@ -391,7 +401,7 @@ def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
     res["A5"] = fraction_check(p_walk, lambda a, b: moved(a["view"], b["view"]), "view origin")
     res["A6"] = fraction_check(p_walk, lambda a, b: moved(a["wpn"], b["wpn"]), "viewmodel")
     res["A7"] = fraction_check(p_peer, lambda a, b: moved(peer(a), peer(b)), "peer's render-world pose")
-    res["A7b"] = reversal_check([peer(p) for p in p_peer], "peer's render-world pose")
+    res["A7b"] = onpath_check(p_peer, peer, "peer's render-world pose")
     all_p = p_turn + p_walk + p_peer
     wrong8, back8, flat8 = phase_errors(all_p)
     same = sum(1 for a, b in zip(all_p, all_p[1:]) if a["gt"] == b["gt"])
@@ -664,13 +674,14 @@ def main(argv):
             failures.append(f"negative control: with the unlock updates off the A4/A5 detectors did not fail"
                             f" ({c4['detail']}; {c5['detail']})")
         # M5 steps 8 and 9: with g_unlock_interpolateMoving off the client or listen host
-        # draws the peer where the last tick left it, so the A7 detector must fail too
+        # draws the peer where the last tick left it, so the A7 and A7b detectors must fail too
         n_peer = phase("controlpeerwalk", cap, walk_proc(peer), args.phase_seconds)
         c7 = fraction_check(n_peer, lambda a, b: moved(peer_pose(a, slot), peer_pose(b, slot)), "peer's render-world pose")
-        print(f"[{mode}] negative control at cap {cap}: {c7['detail']}")
-        if c7["ok"] or c7["n"] < MIN_PAIRS:
-            failures.append(f"negative control: with g_unlock_interpolateMoving off the A7 detector did not fail"
-                            f" ({c7['detail']})")
+        c7b = onpath_check(n_peer, lambda p: peer_pose(p, slot), "peer's render-world pose")
+        print(f"[{mode}] negative control at cap {cap}: {c7['detail']}; {c7b['detail']}")
+        if c7["ok"] or c7["n"] < MIN_PAIRS or c7b["ok"]:
+            failures.append(f"negative control: with g_unlock_interpolateMoving off the A7/A7b detectors did not fail"
+                            f" ({c7['detail']}; {c7b['detail']})")
 
         # com_unlockFPS 0 (M5 plan step 11, D8): one draw per tick, at the highest cap
         for cv in ("g_unlock_updateAngles", "g_unlock_updateViewpos", "g_unlock_interpolateMoving"):
