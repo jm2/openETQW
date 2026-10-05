@@ -31,10 +31,11 @@ and with the seat unlisted the peer's pose never changes within a tick while it 
 
 Negative control (the lowest cap): with g_unlock_vehicleSeats empty the seat is not
 listed, and the view and hull never change within a tick (at most one pair) while they
-move (a stationary tick would break an exact per-tick count). Guards, with every seat listed ('*'): the badger driver's
-chase camera (smooth_locked, cycled with cycleVehicleCamera; no presentable recipe) and
-the icarus (a jetpack: no recipe can cover it) draw the tick's view: their view (and the
-chase camera's hull) never changes within a tick (at most one pair), while it moves.
+move (a stationary tick would break an exact per-tick count). The chase camera (every seat listed; the driver's second view, smooth_locked, cycled
+with cycleVehicleCamera): C1/C2 the view and the hull change on >= 99% of draw pairs,
+C3/C4 both lie on one interpolation path (its own tick cameras are blended in the world).
+Guard: the icarus (a jetpack: no recipe can cover it), listed, never changes its view
+within a tick (at most one pair) while it moves.
 
 Safety (nothing presented reaches tick state) is shown by meson seat-gate: its run B lists
 every seat, so the presentation runs during the seat tour, and SIM_HASH, VEH_TRACE and
@@ -324,27 +325,28 @@ def main(argv):
                 failures.append(f"negative control: unlisted, the {what} changed within a tick on {changed} of {n} pairs"
                                 f" ({moving} moved in all)")
 
-        # guards, every seat listed: the chase camera (no presentable recipe), then the icarus
+        # the chase camera (the driver's second view, smooth_locked), every seat listed: its
+        # own tick cameras blended in the world (M5 step 14, chase views)
         obs.send("set g_unlock_vehicleSeats *")
         seat_up()
-        # the driver's second view (mode 1, smooth_locked): cycle until the draws show it
         for _ in range(2):
             srv.send(f"cycleVehicleCamera {obs.slot}")
             time.sleep(1.5)
             last = next((p for ln in reversed(obs.snapshot()) if (p := parse_pose(ln.text))), None)
             if last is not None and (seat_fields(last["seat"]) or (0, 0, 0))[2] == 1:
                 break
-        poses = phase("guardchase", cap, drive)
+        poses = phase("chasedrive", cap, drive)
         modes = {(seat_fields(p["seat"]) or (0, 0, -1))[2] for p in poses}
+        view, hull = shapes(poses)
+        cview = onpath_check(poses, lambda p: p["view"], "chase camera's drawn origin")
+        chull = onpath_check(poses, lambda p: p["veh"], "vehicle's drawn pose")
+        print(f"[seat] chase camera (listed) at cap {cap}, view modes {sorted(modes)}:")
+        for check, res in (("C1", view), ("C2", hull), ("C3", cview), ("C4", chull)):
+            print(f"  {cap:3} {check}  {'pass' if res['ok'] else 'FAIL'}  {res['detail']}")
+            if not res["ok"]:
+                failures.append(f"chase cap {cap} {check}: {res['detail']}")
         if modes != {1}:
-            failures.append(f"guard: the chase-camera phase drew view modes {sorted(modes)}, not only the chase view (1)")
-        for key, what in (("view", "view"), ("veh", "hull")):
-            changed, n = within_tick_changes(poses, key)
-            print(f"[seat] guard (chase camera, listed) at cap {cap}: the {what} changed within a tick on {changed} of {n} pairs")
-            moving = sum(1 for a, b in zip(poses, poses[1:]) if moved(a[key], b[key]))
-            if n < MIN_PAIRS or changed > 1 or moving < MIN_PAIRS:
-                failures.append(f"guard: the chase camera's {what} changed within a tick on {changed} of {n} pairs"
-                                f" ({moving} pairs moved in all)")
+            failures.append(f"the chase phase drew view modes {sorted(modes)}, not only the chase view (1)")
         seat_up("vehicle_icarus")
         poses = phase("guardicarus", cap, drive)
         changed, n = within_tick_changes(poses, "view")
