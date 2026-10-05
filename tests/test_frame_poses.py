@@ -62,25 +62,28 @@ Checks (0.25 s dropped at each edge of a phase; a phase needs >= 20 draw pairs):
                (M5 step 10, decision D7): in turn, walk and peerwalk, at least 99% of
                the draws that start a new game time are unlocked (ud=1, cu=1, a
                fraction in (0, 1)), and the mean and median of their lag from the
-               render-only draws around them are within max(3 ms, a quarter of the
-               cap's frame period: 4.2 ms at 60, 5.6 at 45; few render-only draws at a
+               render-only draws around them are within max(3 ms, a fifth of the
+               cap's frame period: 3.3 ms at 60, 4.4 at 45; few render-only draws at a
                low cap sit at the top of the tick and bias the reference). A
                draw presents game time gt + fr x 33 ms at its wall time; its lag is the
                difference, taken against the median lag of the phase's render-only
                draws. A base draw (fraction 0) on a tick frame lags by the part of the
                tick already elapsed, a 30 Hz judder: half a frame period on average
-               (8 ms at cap 60). With com_unlock_tickFrames 0 (the negative control, at
-               the lowest cap) A10 must fail
+               (8 ms at cap 60; less where the display phase-locks the frames to the
+               ticks: +5.7 ms mean on a 120 Hz Mac). With com_unlock_tickFrames 0 (the
+               negative control, at the lowest cap) both parts must fail, the lag's mean
+               by at least CONTROL_MARGIN_MS beyond the bound
   A8 phase     a draw with the same game time as the previous one is an unlocked
                draw (ud=1); within one game time the fraction never falls, and at most
-               max(1, 1%) draws may repeat it (timeLeft is whole milliseconds, and the
-               game holds the fraction when a snapshot's prediction-clock correction
-               would move it back; docs/frame-path.md section 9). Each unlocked draw's fraction
+               max(1, 1%) draws may repeat it (timeLeft is whole milliseconds; when a
+               snapshot's prediction-clock correction would move the fraction back,
+               the game advances it at half the wall-clock rate instead, since M5 step
+               10; docs/frame-path.md section 9). Each unlocked draw's fraction
                is also checked against wall time: it predicts when the tick ends (its
                time + (1 - fraction) x 33 ms), which must fall between the tick's last
                draw and the next tick's first draw, +/- 4 ms. A snapshot's
                prediction-clock correction (docs/frame-path.md section 2) can leave the
-               draws of one tick a few ms off (the fraction held, or the next tick early),
+               draws of one tick a few ms off (the fraction slowed, or the next tick early),
                and at a high cap that is several draws, so the misses are counted by tick:
                at most max(1, 5%) of the checked ticks may have one, and no draw may miss
                by more than 8 ms beyond the 4 ms (a stuck fraction or one running at the
@@ -398,15 +401,17 @@ def onpath_check(poses, pose_of, what):
 
 
 TICK_LAG_MS = 3.0
+CONTROL_MARGIN_MS = 1.0   # A10's negative control: its mean lag clears the bound by this much
 
 
 def tick_frame_check(phases, cap):
     """A10: whether the draws that start a new game time are unlocked draws prepared at
     their fraction (cu=1, 0 < fr < 1), presented as the render-only draws are: the mean
     and the median of their lag from the phase's render-only draws within the larger of
-    TICK_LAG_MS and a quarter of the cap's frame period (a base draw on a tick frame lags
+    TICK_LAG_MS and a fifth of the cap's frame period (a base draw on a tick frame lags
     by about half a frame period; at low caps the few render-only draws sit at the top of
-    the tick and bias the reference by a few ms: -2 to -3.3 ms at cap 45).
+    the tick and bias the reference by a few ms: -2 to -3.3 ms at cap 45). "bound" is
+    returned so the negative control can require a margin over it.
     "unlocked_ok" and "lag_ok" are the two parts (the negative control must fail both);
     "report" is set instead of a failure when no phase has render-only draws to compare
     with (a cap of 30 or less, or a host that cannot draw faster)."""
@@ -422,7 +427,8 @@ def tick_frame_check(phases, cap):
             median = between[len(between) // 2]
             lags += [lag[i] - median for i in starts]
     unlocked_ok = tick_frames >= MIN_PAIRS and tick_frames - unlocked <= allowed_misses(tick_frames)
-    res = {"n": tick_frames, "unlocked_ok": unlocked_ok}
+    bound = max(TICK_LAG_MS, 0.2 * 1000.0 / cap) if cap > 0 else TICK_LAG_MS
+    res = {"n": tick_frames, "unlocked_ok": unlocked_ok, "bound": bound, "mean": None}
     if not lags:
         res.update(ok=unlocked_ok, lag_ok=None,
                    detail=f"{unlocked} of {tick_frames} tick frames unlocked; no render-only draws to compare their lag with",
@@ -431,9 +437,9 @@ def tick_frame_check(phases, cap):
     lags.sort()
     mean = sum(lags) / len(lags)
     median = lags[len(lags) // 2]
-    bound = max(TICK_LAG_MS, 0.25 * 1000.0 / cap) if cap > 0 else TICK_LAG_MS
+    bound = max(TICK_LAG_MS, 0.2 * 1000.0 / cap) if cap > 0 else TICK_LAG_MS
     lag_ok = abs(mean) <= bound and abs(median) <= bound
-    res.update(ok=unlocked_ok and lag_ok, lag_ok=lag_ok,
+    res.update(ok=unlocked_ok and lag_ok, lag_ok=lag_ok, mean=mean,
                detail=f"{unlocked} of {tick_frames} tick frames unlocked at a fraction; they present {mean:+.2f} ms"
                       f" (median {median:+.2f}) from the render-only draws (need"
                       f" {tick_frames - allowed_misses(tick_frames)}+ unlocked, mean and median within +-{bound:.1f} ms)")
@@ -626,7 +632,8 @@ def replay(path, mode, slot):
         # the negative control of M5 step 10: both parts of A10 must fail
         c10 = tick_frame_check([seg("controltick", ticked[0])], ticked[0])
         print(f"[replay {mode}] com_unlock_tickFrames 0: {c10['detail']}")
-        if c10["unlocked_ok"] or c10["lag_ok"] is not False or c10["n"] < MIN_PAIRS:
+        if (c10["unlocked_ok"] or c10["lag_ok"] is not False or c10["n"] < MIN_PAIRS
+                or c10["mean"] is None or c10["mean"] < c10["bound"] + CONTROL_MARGIN_MS):
             failures.append(f"negative control: with com_unlock_tickFrames 0 the A10 detector did not fail ({c10['detail']})")
     for f in failures:
         print(f"  - {f}")
@@ -840,7 +847,8 @@ def main(argv):
         c10 = tick_frame_check([n_tick], cap)
         print(f"[{mode}] negative control at cap {cap}: com_unlock_tickFrames 0: {c10['detail']}")
         # both parts must fail: no tick frame unlocked, and the lag detector sees the base draws
-        if c10["unlocked_ok"] or c10["lag_ok"] is not False or c10["n"] < MIN_PAIRS:
+        if (c10["unlocked_ok"] or c10["lag_ok"] is not False or c10["n"] < MIN_PAIRS
+                or c10["mean"] is None or c10["mean"] < c10["bound"] + CONTROL_MARGIN_MS):
             failures.append(f"negative control: with com_unlock_tickFrames 0 the A10 detector did not fail ({c10['detail']})")
         # M5 steps 8 and 9: with g_unlock_interpolateMoving off the client or listen host
         # draws the peer where the last tick left it, so the A7 and A7b detectors must fail too
