@@ -316,6 +316,8 @@ Engine step 10 (tick frames drawn at their real fraction) is needed for full cov
 
 ### Stage 4: remote entities while seated (m5-plan steps 8, 9)
 
+*Status (2026-10-05): built (ledger row 063): the producer and both consumers run while a seat's presentation is allowed, the local seat's vehicle and riders are left to `sdPresentation`, and riders of interpolated vehicles use the carrier rule. Meson `seat-poses-join`/`-listen` measure a remote player; remote vehicles are not measured yet.*
+
 **What changes.** Steps 8 and 9 restore the producer as render copies: origin only and one tick behind (D5), with nothing written back (D6). This stage makes two further changes:
 - It changes their gate from `canUnlockFrames` to `canUnlockFrames || seatActive`, and keeps retail's `AOR_INHIBIT_IK` exclusion (retail `idEntity::Present` 0x10839f).
 - Riders of remote vehicles use the carrier rule. Otherwise a rider would slide against the seat, because origins are lerped independently while axes snap. *[inferred]*

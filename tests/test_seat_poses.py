@@ -5,7 +5,8 @@ a vehicle seat whose presentation the seat gate allows.
 
 --mode devmap: single player on valley (+devmap). --mode join: the Vulkan client joins a
 dedicated server, so the network client's tick sample (ClientPrediction, new frames only)
-and re-prediction after snapshots are exercised. The player spawns, enters a badger's
+and re-prediction after snapshots are exercised. --mode listen: the Vulkan client hosts
+(+spawnServer), the authoritative path with presentation copies. The player spawns, enters a badger's
 driver seat (enterVehicle, from the server's console when joined) and drives forward,
 then backs up (clientMove). g_logFramePoses prints one
 FRAME_POSE line per draw: the drawn view, the seat and the vehicle's render-world pose
@@ -19,6 +20,14 @@ FRAME_POSE line per draw: the drawn view, the seat and the vehicle's render-worl
   S4 steps    the hull's step across a tick is at most 2.5 x the median step within one
               (the presentation draws a fixed age; a stepped hull would cross a tick in
               one step of a whole tick's motion: 4x at cap 120)
+
+Remote entities while seated (stage 4; join and listen, which have a headless peer): at
+cap 120, with the driver parked in the listed seat, the peer walks forward, then back:
+
+  R1 peer     the peer's drawn pose changes between consecutive draws (>= 99%)
+  R2 path     it lies on one interpolation path (A7b's knot fit)
+
+and with the seat unlisted the peer's pose changes only on the pairs that cross a tick.
 
 Negative control (the lowest cap): with g_unlock_vehicleSeats empty the seat is not
 listed, and the view and hull change only on the draw pairs that cross a tick: S1 and S2
@@ -48,7 +57,7 @@ from test_client_network import VulkanClient  # noqa: E402
 from test_frame_poses import (DevmapClient, EDGE_S, MIN_PAIRS, POS_EPS, fraction_check,  # noqa: E402
                               moved, onpath_check, parse_pose, rate)
 from test_reconnect_restart import Failed, connect, spawn  # noqa: E402
-from test_remote_client_map_change import READY  # noqa: E402
+from test_remote_client_map_change import READY, RemoteClient  # noqa: E402
 
 LISTED = "badger:*:standard"
 # the badger single player enters by entityDef (valley's 57), named so that a dedicated
@@ -100,7 +109,7 @@ def within_tick_changes(poses, key):
 
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--mode", choices=("devmap", "join"), default="devmap")
+    ap.add_argument("--mode", choices=("devmap", "join", "listen"), default="devmap")
     ap.add_argument("--ded-binary")
     ap.add_argument("--client-binary")
     ap.add_argument("--map", default="valley")
@@ -111,7 +120,7 @@ def main(argv):
     args = ap.parse_args(argv)
     try:
         vk = find_client(args.client_binary)
-        ded = h.find_ded_binary(args.ded_binary) if args.mode == "join" else None
+        ded = h.find_ded_binary(args.ded_binary) if args.mode != "devmap" else None
         data = h.resolve_data_path()
     except h.SkipTest as e:
         print(f"[SKIP] {e}")
@@ -134,12 +143,26 @@ def main(argv):
                                   "g_unlock_vehicleSeats": LISTED, **view_cvars})
         obs.name = "DRIVER"
         procs = [("client", obs), ("server", srv)]
+    elif args.mode == "listen":
+        game = {"si_rules": "sdGameRulesObjective", "si_pure": "0", "g_teamSwitchDelay": "0",
+                "si_teamForceBalance": "0", "net_allowCheats": "1"}
+        obs = VulkanClient(vk, data, args.port, map_name=args.map, log_path=log("host"),
+                           cvars={**game, "ui_name": "Driver", "g_unlock_vehicleSeats": LISTED, **view_cvars})
+        obs.name = "DRIVER"
+        srv = obs
+        procs = [("host", obs)]
     else:
         obs = DevmapClient(vk, data, args.port, map_name=args.map, log_path=log("devmap"),
                            cvars={"si_rules": "sdGameRulesObjective", "ui_name": "Driver", "g_unlock_vehicleSeats": LISTED,
                                   **view_cvars})
         srv = obs
         procs = [("devmap", obs)]
+    peer = None
+    if args.mode != "devmap":
+        peer = RemoteClient(ded, data, args.port, args.port + 2, log_path=log("peer"))
+        peer.cvars["ui_name"] = "Peer"
+        peer.name, peer.slot = "Peer", None
+        procs.insert(0, ("peer", peer))
     failures = []
 
     def phase(name, cap, drive):
@@ -151,6 +174,13 @@ def main(argv):
         if not hit:
             raise Failed(f"no end of phase {name} at cap {cap}")
         return seat_phase_poses(obs, begin, hit[0])
+
+    def peer_walk():
+        peer.send("clientMove 127 0 0")
+        time.sleep(args.phase_seconds)
+        peer.send("clientMove -127 0 0")
+        time.sleep(args.phase_seconds)
+        peer.send("clientMove 0 0 0")
 
     def drive():
         # three-quarter throttle: at full throttle the badger can roll or wreck itself
@@ -194,10 +224,13 @@ def main(argv):
         else:
             obs.start()
             if not obs.wait_for_text(READY, 180.0) or not obs.wait_for_text(f"Map: maps/{args.map}", 180.0):
-                raise Failed("single player never loaded the map")
+                raise Failed("the map never loaded")
             obs.sync(60.0)
             obs.slot = 0
         spawn(srv, obs, "gdf", timeout=60.0)
+        if peer is not None:
+            connect(srv, peer, args.mode)
+            spawn(srv, peer, "gdf")
         obs.send("set g_logFramePoses 1")
 
         for cap in caps:
@@ -217,6 +250,33 @@ def main(argv):
                 print(f"  {cap:3} {check}  {'pass' if res['ok'] else 'FAIL'}  {res['detail']}")
                 if not res["ok"]:
                     failures.append(f"cap {cap} {check}: {res['detail']}")
+
+        if peer is not None:
+            # stage 4: the peer walks while the driver sits parked in the listed seat
+            cap = 120
+            obs.send(f"set com_maxFPS {cap}")
+            seat_up()
+            def peer_pose_of(p):
+                return (p["clients"].get(peer.slot) or {}).get("pose")
+            poses = phase("seatpeer", cap, peer_walk)
+            r1 = fraction_check(poses, lambda a, b: moved(peer_pose_of(a), peer_pose_of(b)), "peer's drawn pose")
+            r2 = onpath_check(poses, peer_pose_of, "peer's drawn pose")
+            seated = {p["seat"] for p in poses}
+            print(f"[seat] remote entities while seated at cap {cap} (seats {sorted(x or '-' for x in seated)}):")
+            for check, res in (("R1", r1), ("R2", r2)):
+                print(f"  {cap:3} {check}  {'pass' if res['ok'] else 'FAIL'}  {res['detail']}")
+                if not res["ok"]:
+                    failures.append(f"cap {cap} {check}: {res['detail']}")
+            if None in seated:
+                failures.append(f"the driver was not seated throughout the seatpeer phase ({sorted(x or '-' for x in seated)})")
+            obs.send("set g_unlock_vehicleSeats \"\"")
+            time.sleep(1.0)
+            poses = phase("controlpeer", cap, peer_walk)
+            c = fraction_check(poses, lambda a, b: moved(peer_pose_of(a), peer_pose_of(b)), "peer's drawn pose")
+            print(f"[seat] negative control (not listed) at cap {cap}: {c['detail']}")
+            if not per_tick(c):
+                failures.append(f"negative control: unlisted, the peer was not drawn in the per_tick shape ({c['detail']}, {c['misaligned']} misaligned)")
+            obs.send(f"set g_unlock_vehicleSeats {LISTED}")
 
         # negative control: the seat not listed
         cap = caps[0]
