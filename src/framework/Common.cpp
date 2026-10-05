@@ -992,7 +992,9 @@ int Com_GetGameTimeLeft() {
 	// prepared, not the moment it began (a 15 ms tick on a slow host drew a tick frame at
 	// 1/33 15 ms late, frame-poses A8 on macmini-m1). Presentation only: the tick loop
 	// still tests the residual itself
-	int elapsedInTic = static_cast< int >( mainThreadTicResidual ) + std::max( 0, Sys_Milliseconds() - mainThreadLastTicMsec );
+	// (in game time: the residual is scaled by com_timescale, Com_UpdateGameTime)
+	const double elapsedGameMsec = std::max( 0, Sys_Milliseconds() - mainThreadLastTicMsec ) * static_cast< double >( com_timescale.GetFloat() );
+	int elapsedInTic = static_cast< int >( mainThreadTicResidual + elapsedGameMsec );
 	if ( elapsedInTic < 1 ) {
 		elapsedInTic = 1;
 	} else if ( elapsedInTic >= USERCMD_MSEC ) {
