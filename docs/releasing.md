@@ -89,7 +89,7 @@ the data by itself when it is started from, or stored in, the ET:QW directory). 
 macOS app always needs `+set fs_basepath`: it takes its content root from
 `Contents/Resources`, so a `base/` next to the app is not searched. Saves, configs and the shader
 cache go to the per-user directory (`~/.local/share/openetqw`,
-`%LOCALAPPDATA%\openETQW`, `~/Library/Application Support/openETQW`).
+`$env:LOCALAPPDATA\openETQW`, `~/Library/Application Support/openETQW`).
 
 ## Making a release
 
