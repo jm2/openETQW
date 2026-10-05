@@ -104,6 +104,9 @@ DEFAULT_LIST: tuple[str, ...] = ()
 # the view classes the game's built-in recipes cover for transports (game SeatGate.cpp,
 # seatRecipes; M5 step 14: the first-person standard view and the chase views sdPresentation draws)
 BUILTIN_RECIPES = frozenset({"standard", "smooth", "smooth_free", "smooth_locked"})
+# the classes whose recipe draws a third-person camera blended in the world; a view whose
+# thirdPerson flag does not match its class's recipe is not presented (game seatRecipes)
+WORLD_CAMERA_RECIPES = frozenset({"smooth", "smooth_free", "smooth_locked"})
 
 SIM_HASH_RE = re.compile(r"^SIM_HASH: tick=(\d+) ")
 SIM_VIEW_RE = re.compile(r"^SIM_VIEW: tick=(\d+) (.*)$")
@@ -404,7 +407,11 @@ def check_presented(run: Run, presenting: bool) -> list[str]:
     prepared = blended = 0
     for prev, g in zip(run.gate, run.gate[1:]):
         same = (g["ent"], g["pos"], g["mode"]) == (prev["ent"], prev["pos"], prev["mode"])
-        if prev["draw"] and g["draw"] and same and g["type"].lower() in BUILTIN_RECIPES:
+        view = run.view_for(g["ent"], g["pos"], g["mode"])
+        cls = g["type"].lower()
+        # presented only where the view's thirdPerson flag matches its class's recipe
+        matches = view is not None and bool(view["third"]) == (cls in WORLD_CAMERA_RECIPES)
+        if prev["draw"] and g["draw"] and same and cls in BUILTIN_RECIPES and matches:
             prepared += run.prepared[g["tick"]]
             blended += run.blended[g["tick"]]
     print(f"  run {run.name}: {blended} of {prepared} draws prepared in open seats were blended")

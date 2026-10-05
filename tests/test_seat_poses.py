@@ -366,6 +366,26 @@ def main(argv):
                 failures.append(f"negative control: unlisted, the {what} changed within a tick on {changed} of {n} pairs"
                                 f" ({moving} moved in all)")
 
+        # the chase camera unlisted (only the standard views are): it must not blend
+        obs.send(f"set g_unlock_vehicleSeats {LISTED}")
+        seat_up()
+        for _ in range(2):
+            srv.send(f"cycleVehicleCamera {obs.slot}")
+            time.sleep(1.5)
+            last = next((p for ln in reversed(obs.snapshot()) if (p := parse_pose(ln.text))), None)
+            if last is not None and (seat_fields(last["seat"]) or (0, 0, 0))[2] == 1:
+                break
+        poses = phase("chasecontrol", cap, drive)
+        for key, what in (("view", "view"), ("veh", "hull")):
+            changed, n = within_tick_changes(poses, key)
+            moving = sum(1 for a, b in zip(poses, poses[1:]) if moved(a[key], b[key]))
+            print(f"[seat] chase camera unlisted at cap {cap}: the {what} changed within a tick on {changed} of {n} pairs"
+                  f" ({moving} pairs moved in all)")
+            if n < MIN_PAIRS or changed > 1 or moving < MIN_PAIRS:
+                failures.append(f"chase control: unlisted, the {what} changed within a tick on {changed} of {n} pairs")
+        srv.send(f"cycleVehicleCamera {obs.slot}")   # back to the first view
+        time.sleep(1.5)
+
         # the chase camera (the driver's second view, smooth_locked), every seat listed: its
         # own tick cameras blended in the world (M5 step 14, chase views)
         obs.send("set g_unlock_vehicleSeats *")
