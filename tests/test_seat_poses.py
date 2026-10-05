@@ -191,12 +191,16 @@ def main(argv):
         time.sleep(args.phase_seconds)
         peer.send("clientMove 0 0 0")
 
+    legs = {"order": 1}
+
     def drive():
-        # three-quarter throttle: at full throttle the badger can roll or wreck itself
-        obs.send(f"clientMove {THROTTLE} 0 0")
-        time.sleep(args.phase_seconds)
-        obs.send(f"clientMove -{THROTTLE} 0 0")
-        time.sleep(args.phase_seconds)
+        # three-quarter throttle: at full throttle the badger can roll or wreck itself. The
+        # legs alternate (forward then back, then back then forward): the badger reverses
+        # slower than it drives, so the same order every phase walks it into an obstacle
+        legs["order"] = -legs["order"]
+        for sign in (legs["order"], -legs["order"]):
+            obs.send(f"clientMove {sign * THROTTLE} 0 0")
+            time.sleep(args.phase_seconds)
         obs.send("clientMove 0 0 0")
 
     def seat_up(vehicle=BADGER):
