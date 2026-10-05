@@ -80,20 +80,20 @@ The commands are the macOS ones, with `game_x64.so` in the symlink step.
 
 You need Windows x64, Visual Studio 2026 (MSVC 19.51 or later, the "Desktop development with C++" workload), Python 3 with `meson` and `ninja`, the Vulkan SDK (the client compiles its shaders with its `glslangValidator`), and vcpkg (triplet `x64-windows`) with `sdl3[vulkan]`, `zlib`, `vulkan-headers`, `vulkan-loader` and `pkgconf`.
 
-```bat
-rem vcpkg's prefix; PKG_CONFIG lets Meson find SDL3 and zlib through pkg-config
-set VCPKG=%USERPROFILE%\vcpkg\installed\x64-windows
-set PKG_CONFIG=%VCPKG%\tools\pkgconf\pkgconf.exe
-set PKG_CONFIG_PATH=%VCPKG%\lib\pkgconfig;%VCPKG%\share\pkgconfig
+```powershell
+# vcpkg's prefix; PKG_CONFIG lets Meson find SDL3 and zlib through pkg-config
+$vcpkg = "$env:USERPROFILE\vcpkg\installed\x64-windows"
+$env:PKG_CONFIG = "$vcpkg\tools\pkgconf\pkgconf.exe"
+$env:PKG_CONFIG_PATH = "$vcpkg\lib\pkgconfig;$vcpkg\share\pkgconfig"
 
-rem 1. Game module and SDK idLib (build this first)
-cd openETQW-game
+# 1. Game module and SDK idLib (build this first)
+Set-Location openETQW-game
 meson setup build --vsenv
 meson compile -C build
 
-rem 2. Engine client, dedicated server and tests
-cd ..\openETQW
-meson setup build --vsenv -Dbuild_engine=true -Dbuild_dedicated=true -Dbuild_tests=true -Dcmake_prefix_path=%VCPKG%
+# 2. Engine client, dedicated server and tests
+Set-Location ..\openETQW
+meson setup build --vsenv -Dbuild_engine=true -Dbuild_dedicated=true -Dbuild_tests=true "-Dcmake_prefix_path=$vcpkg"
 meson compile -C build
 ```
 
@@ -103,7 +103,7 @@ The engine links the idLib in the game repository's `build` directory, so for an
 
 ## Install and packages
 
-`meson install -C build` stages a portable engine tree in `.install/` (or `-Dinstall_root=<dir>`): the client, the dedicated server, the game module, `base/vkprogs` and `licenses/`. That tree runs from anywhere: the engine finds its shaders and its game module next to its executable, and keeps configs, logs and the shader cache in the per-user directory (`~/.local/share/openetqw`, `%LOCALAPPDATA%\openETQW`, `~/Library/Application Support/openETQW`). Point it at the retail data with `+set fs_basepath`, or put the tree in the ET:QW install directory.
+`meson install -C build` stages a portable engine tree in `.install/` (or `-Dinstall_root=<dir>`): the client, the dedicated server, the game module, `base/vkprogs` and `licenses/`. That tree runs from anywhere: the engine finds its shaders and its game module next to its executable, and keeps configs, logs and the shader cache in the per-user directory (`~/.local/share/openetqw`, `$env:LOCALAPPDATA\openETQW`, `~/Library/Application Support/openETQW`). Point it at the retail data with `+set fs_basepath`, or put the tree in the ET:QW install directory.
 
 `python3 tools/validation/openetqw_validate.py pr` builds both repositories, runs the unit suite, stages the tree and checks it, as CI does. [`docs/releasing.md`](docs/releasing.md) describes the CI workflows, the packages and how a release is made.
 
@@ -120,6 +120,13 @@ ETQW_DATA_PATH=/path/to/etqw meson test -C build -j 1
 ETQW_DATA_PATH=/path/to/etqw meson test -C build -j 1 --no-suite soak
 ```
 
+On Windows, in PowerShell:
+
+```powershell
+$env:ETQW_DATA_PATH = "C:\path\to\ETQW"
+meson test -C build -j 1
+```
+
 `ETQW_DATA_PATH` is the retail 1.5 install root, whose `base/` holds `pak000.pk4`–`pak008.pk4` (base game and 1.5 patch). Without it, or with any of those paks missing, every retail-data test exits 77 and Meson reports it as skipped.
 
 ## Run
@@ -131,6 +138,13 @@ build/openETQW-ded_arm64 +set dedicated 1 +set fs_basepath "$ETQW_DATA_PATH" +se
 
 # Client in a local devmap session (cheats on; this does not start a network server)
 build/openETQW-client_arm64 +set fs_basepath "$ETQW_DATA_PATH" +set fs_game base \
+  +set si_rules sdGameRulesObjective +devmap valley
+```
+
+On Windows, in PowerShell from the repository root:
+
+```powershell
+.\build\openETQW-client_x64.exe +set fs_basepath "$env:ETQW_DATA_PATH" +set fs_game base `
   +set si_rules sdGameRulesObjective +devmap valley
 ```
 

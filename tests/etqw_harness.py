@@ -49,7 +49,7 @@ EXIT_FAIL = 1
 EXIT_SKIP = 77  # meson 'exitcode' protocol: 77 == SKIP
 
 # An engine started without a fs_savepath of its own saves under the per-user
-# directory: $XDG_DATA_HOME/openetqw on Linux, %LOCALAPPDATA%\openETQW on Windows.
+# directory: $XDG_DATA_HOME/openetqw on Linux, $env:LOCALAPPDATA\openETQW on Windows.
 # Every process a test starts gets a test directory instead, so no test reads or
 # writes the developer's own configs, logs or downloaded paks: under Meson the
 # build directory's (OPENETQW_TEST_HOME, set by the default test setup), when a
