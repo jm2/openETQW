@@ -258,7 +258,20 @@ def main(argv):
             seat_up()
             def peer_pose_of(p):
                 return (p["clients"].get(peer.slot) or {}).get("pose")
-            poses = phase("seatpeer", cap, peer_walk)
+            def peer_phase(name):
+                """A peer phase, retried once after the peer strafes clear if it barely moved
+                (a spawn behind the parked badger blocks the walk)."""
+                poses = phase(name, cap, peer_walk)
+                moving = sum(1 for a, b in zip(poses, poses[1:]) if moved(peer_pose_of(a), peer_pose_of(b)))
+                if moving < MIN_PAIRS:
+                    print(f"[seat] {name}: the peer moved on only {moving} draw pairs; strafing clear and retrying")
+                    peer.send("clientMove 0 127 0")
+                    time.sleep(1.5)
+                    peer.send("clientMove 0 0 0")
+                    time.sleep(0.5)
+                    poses = phase(name, cap, peer_walk)
+                return poses
+            poses = peer_phase("seatpeer")
             r1 = fraction_check(poses, lambda a, b: moved(peer_pose_of(a), peer_pose_of(b)), "peer's drawn pose")
             r2 = onpath_check(poses, peer_pose_of, "peer's drawn pose")
             seated = {p["seat"] for p in poses}
@@ -271,7 +284,7 @@ def main(argv):
                 failures.append(f"the driver was not seated throughout the seatpeer phase ({sorted(x or '-' for x in seated)})")
             obs.send("set g_unlock_vehicleSeats \"\"")
             time.sleep(1.0)
-            poses = phase("controlpeer", cap, peer_walk)
+            poses = peer_phase("controlpeer")
             c = fraction_check(poses, lambda a, b: moved(peer_pose_of(a), peer_pose_of(b)), "peer's drawn pose")
             print(f"[seat] negative control (not listed) at cap {cap}: {c['detail']}")
             if not per_tick(c):
