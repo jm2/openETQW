@@ -59,7 +59,7 @@ from test_campaign_client_maps import BAD_MARKERS, find_client  # noqa: E402
 from test_client_network import VulkanClient  # noqa: E402
 from test_frame_poses import (DevmapClient, EDGE_S, MIN_PAIRS, POS_EPS, fraction_check,  # noqa: E402
                               moved, onpath_check, parse_pose, rate)
-from test_reconnect_restart import Failed, connect, spawn  # noqa: E402
+from test_reconnect_restart import Failed, connect, player_pos, spawn  # noqa: E402
 from test_remote_client_map_change import READY, RemoteClient  # noqa: E402
 
 LISTED = "badger:*:standard"
@@ -275,22 +275,38 @@ def main(argv):
             def peer_pose_of(p):
                 return (p["clients"].get(peer.slot) or {}).get("pose")
             def peer_phase(name):
-                """A peer phase, retried once after the peer strafes clear if it barely moved
-                (a spawn behind the parked badger blocks the walk) or jumped (it died and
-                respawned: the interpolation smears a teleport across a tick, as in the SDK)."""
-                poses = phase(name, cap, peer_walk)
-                moving = sum(1 for a, b in zip(poses, poses[1:]) if moved(peer_pose_of(a), peer_pose_of(b)))
-                jumped = any(peer_pose_of(a) and peer_pose_of(b) and math.dist(peer_pose_of(a)[:3], peer_pose_of(b)[:3]) > 200.0
-                             for a, b in zip(poses, poses[1:]))
-                if moving < MIN_PAIRS or jumped:
-                    print(f"[seat] {name}: the peer moved on {moving} draw pairs{', and jumped (a respawn)' if jumped else ''};"
-                          f" strafing clear and retrying")
-                    time.sleep(3.0 if jumped else 0.0)
-                    peer.send("clientMove 0 127 0")
-                    time.sleep(1.5)
-                    peer.send("clientMove 0 0 0")
-                    time.sleep(0.5)
+                """A peer phase. If the peer barely moved, the server says whether it really
+                did not move (playerPos): wedged against the parked badger next to its spawn
+                (Windows' GDF spawn spot), it strafes clear, and if that fails it respawns
+                elsewhere ('kill'), before one retry. A jump of more than 200 u between draws
+                is a respawn mid-phase (the interpolation smears a teleport across a tick, as in
+                the SDK), also retried."""
+                for attempt in range(3):
+                    before = player_pos(srv, peer.slot)["org"]
                     poses = phase(name, cap, peer_walk)
+                    after = player_pos(srv, peer.slot)["org"]
+                    moving = sum(1 for a, b in zip(poses, poses[1:]) if moved(peer_pose_of(a), peer_pose_of(b)))
+                    jumped = any(peer_pose_of(a) and peer_pose_of(b) and
+                                 math.dist(peer_pose_of(a)[:3], peer_pose_of(b)[:3]) > 200.0
+                                 for a, b in zip(poses, poses[1:]))
+                    if moving >= MIN_PAIRS and not jumped:
+                        return poses
+                    server_moved = math.dist(before[:3], after[:3])
+                    print(f"[seat] {name}: the peer's drawn pose moved on {moving} draw pairs"
+                          f"{', and jumped (a respawn)' if jumped else ''}; on the server it moved {server_moved:.1f} u"
+                          f" ({before[0]:.0f},{before[1]:.0f} to {after[0]:.0f},{after[1]:.0f})")
+                    if attempt == 2:
+                        break
+                    if attempt == 0 and not jumped:
+                        peer.send("clientMove 0 127 0")
+                        time.sleep(1.5)
+                        peer.send("clientMove 0 0 0")
+                        time.sleep(0.5)
+                    else:
+                        # still stuck (or just respawned): respawn somewhere else
+                        mark = srv.mark()
+                        peer.send("kill")
+                        spawn(srv, peer, "gdf", mark=mark)
                 return poses
             poses = peer_phase("seatpeer")
             r1 = fraction_check(poses, lambda a, b: moved(peer_pose_of(a), peer_pose_of(b)), "peer's drawn pose")
