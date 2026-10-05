@@ -27,11 +27,11 @@ cap 120, with the driver parked in the listed seat, the peer walks forward, then
   R1 peer     the peer's drawn pose changes between consecutive draws (>= 99%)
   R2 path     it lies on one interpolation path (A7b's knot fit)
 
-and with the seat unlisted the peer's pose changes only on the pairs that cross a tick.
+and with the seat unlisted the peer's pose never changes within a tick while it walks.
 
 Negative control (the lowest cap): with g_unlock_vehicleSeats empty the seat is not
-listed, and the view and hull change only on the draw pairs that cross a tick: S1 and S2
-fail in the per_tick shape. Guards, with every seat listed ('*'): the badger driver's
+listed, and the view and hull never change within a tick (at most one pair) while they
+move (a stationary tick would break an exact per-tick count). Guards, with every seat listed ('*'): the badger driver's
 chase camera (smooth_locked, cycled with cycleVehicleCamera; no presentable recipe) and
 the icarus (a jetpack: no recipe can cover it) draw the tick's view: their view (and the
 chase camera's hull) never changes within a tick (at most one pair), while it moves.
@@ -269,11 +269,16 @@ def main(argv):
                 return (p["clients"].get(peer.slot) or {}).get("pose")
             def peer_phase(name):
                 """A peer phase, retried once after the peer strafes clear if it barely moved
-                (a spawn behind the parked badger blocks the walk)."""
+                (a spawn behind the parked badger blocks the walk) or jumped (it died and
+                respawned: the interpolation smears a teleport across a tick, as in the SDK)."""
                 poses = phase(name, cap, peer_walk)
                 moving = sum(1 for a, b in zip(poses, poses[1:]) if moved(peer_pose_of(a), peer_pose_of(b)))
-                if moving < MIN_PAIRS:
-                    print(f"[seat] {name}: the peer moved on only {moving} draw pairs; strafing clear and retrying")
+                jumped = any(peer_pose_of(a) and peer_pose_of(b) and math.dist(peer_pose_of(a)[:3], peer_pose_of(b)[:3]) > 200.0
+                             for a, b in zip(poses, poses[1:]))
+                if moving < MIN_PAIRS or jumped:
+                    print(f"[seat] {name}: the peer moved on {moving} draw pairs{', and jumped (a respawn)' if jumped else ''};"
+                          f" strafing clear and retrying")
+                    time.sleep(3.0 if jumped else 0.0)
                     peer.send("clientMove 0 127 0")
                     time.sleep(1.5)
                     peer.send("clientMove 0 0 0")
@@ -294,10 +299,14 @@ def main(argv):
             obs.send("set g_unlock_vehicleSeats \"\"")
             time.sleep(1.0)
             poses = peer_phase("controlpeer")
-            c = fraction_check(poses, lambda a, b: moved(peer_pose_of(a), peer_pose_of(b)), "peer's drawn pose")
-            print(f"[seat] negative control (not listed) at cap {cap}: {c['detail']}")
-            if not per_tick(c):
-                failures.append(f"negative control: unlisted, the peer was not drawn in the per_tick shape ({c['detail']}, {c['misaligned']} misaligned)")
+            within = [(a, b) for a, b in zip(poses, poses[1:]) if a["gt"] == b["gt"]]
+            changed = sum(1 for a, b in within if moved(peer_pose_of(a), peer_pose_of(b)))
+            moving = sum(1 for a, b in zip(poses, poses[1:]) if moved(peer_pose_of(a), peer_pose_of(b)))
+            print(f"[seat] negative control (not listed) at cap {cap}: the peer changed within a tick on {changed}"
+                  f" of {len(within)} pairs ({moving} pairs moved in all)")
+            if len(within) < MIN_PAIRS or changed > 1 or moving < MIN_PAIRS:
+                failures.append(f"negative control: unlisted, the peer changed within a tick on {changed} of {len(within)}"
+                                f" pairs ({moving} moved in all)")
             obs.send(f"set g_unlock_vehicleSeats {LISTED}")
 
         # negative control: the seat not listed
@@ -305,11 +314,15 @@ def main(argv):
         obs.send(f"set com_maxFPS {cap}")
         obs.send("set g_unlock_vehicleSeats \"\"")
         seat_up()
-        view, hull = shapes(phase("controldrive", cap, drive))
-        print(f"[seat] negative control (not listed) at cap {cap}: {view['detail']}; {hull['detail']}")
-        if not per_tick(view) or not per_tick(hull):
-            failures.append(f"negative control: unlisted, the seat did not draw in the per_tick shape"
-                            f" ({view['detail']}, {view['misaligned']} misaligned; {hull['detail']}, {hull['misaligned']} misaligned)")
+        poses = phase("controldrive", cap, drive)
+        for key, what in (("view", "view"), ("veh", "hull")):
+            changed, n = within_tick_changes(poses, key)
+            moving = sum(1 for a, b in zip(poses, poses[1:]) if moved(a[key], b[key]))
+            print(f"[seat] negative control (not listed) at cap {cap}: the {what} changed within a tick on {changed}"
+                  f" of {n} pairs ({moving} pairs moved in all)")
+            if n < MIN_PAIRS or changed > 1 or moving < MIN_PAIRS:
+                failures.append(f"negative control: unlisted, the {what} changed within a tick on {changed} of {n} pairs"
+                                f" ({moving} moved in all)")
 
         # guards, every seat listed: the chase camera (no presentable recipe), then the icarus
         obs.send("set g_unlock_vehicleSeats *")
