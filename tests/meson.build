@@ -612,8 +612,8 @@ endif
 #     stage 3): single player and a joined client, the badger's driver seat driving at caps 60/120/240, with
 #     an unlisted negative control and the chase camera and icarus as guards
 if build_engine and build_dedicated
-  seat_poses_ports = {'devmap': '29932', 'join': '29934'}
-  foreach mode : ['devmap', 'join']
+  seat_poses_ports = {'devmap': '29932', 'join': '29934', 'listen': '29938'}
+  foreach mode : ['devmap', 'join', 'listen']
     test(
       'seat-poses-' + mode,
       py,
