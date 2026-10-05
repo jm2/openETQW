@@ -352,7 +352,7 @@ void idSessionLocal::Frame() {
 				++com_frameUpdateViews;
 			} else if ( com_unlock_tickFrames.GetBool() ) {
 				game->ClientUpdateView( mapSpawnData.mapSpawnUsercmd[ 0 ], Com_GetGameTimeLeft() );
-				++com_frameUpdateViews;
+				++com_frameTickUpdateViews;
 			}
 		}
 	}

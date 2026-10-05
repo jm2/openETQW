@@ -360,7 +360,7 @@ void idAsyncClient::RunFrame() {
 				++com_frameUpdateViews;
 			} else if ( com_unlock_tickFrames.GetBool() ) {
 				game->ClientUpdateView( userCmds[ ( gameFrame - 1 ) & ( MAX_USERCMD_BACKUP - 1 ) ][ clientNum ], GetGameTimeLeft() );
-				++com_frameUpdateViews;
+				++com_frameTickUpdateViews;
 			}
 		}
 	} else if ( clientState >= CS_CONNECTED && !sessLocal.insideExecuteMapChange ) {
