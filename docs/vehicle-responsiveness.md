@@ -262,6 +262,8 @@ Engine step 10 (tick frames drawn at their real fraction) is needed for full cov
 
 ### Stage 3: presentation core and generic seat blend (m5-plan step 14, first part)
 
+*Status (2026-10-05): built for the first-person damped views (`standard`, `pivot`, `freepivot`); ledger row 062, meson `seat-poses`. Chase views, the jetpack, the `SIM_VIEW` proxy-def field and the narrow audit CVar are not built yet.*
+
 **What changes (game)**
 - **A new presentation object.** `sdPresentation` (proposed as `src/game/Presentation.{h,cpp}`), owned by `idGameLocal`.
 - **Tick sample, on new ticks only.**

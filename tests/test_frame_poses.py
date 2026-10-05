@@ -179,7 +179,10 @@ def parse_pose(line):
         clients[int(c.group(1))] = {"pose": pose, "aor": int(c.group(3)), "hid": int(c.group(4)), "veh": int(c.group(5))}
     return {"n": int(m.group(1)), "us": int(m.group(2)), "cap": int(m.group(3)), "gt": int(m.group(4)),
             "fn": int(m.group(5)), "ud": int(m.group(6)), "cu": int(m.group(7)), "fr": float(m.group(8)),
-            "vp": int(m.group(9)), "view": view, "wpn": wpn, "clients": clients}
+            "vp": int(m.group(9)), "view": view, "wpn": wpn, "clients": clients,
+            # the seat (entity:position, or None on foot) and the vehicle's render-world pose
+            "seat": None if m.group(12) == "-" else m.group(12),
+            "veh": None if m.group(13) == "-" else [float(v) for v in m.group(13).split(",")]}
 
 
 def spectate_round(poses, host_slot, peer_slot):
