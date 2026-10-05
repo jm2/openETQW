@@ -67,24 +67,6 @@ The engine builds against the game at the commit pinned in `tools/ci/companion.r
    `python3 tools/ci/bump_companion.py --sha <full 40-character sha>`.
 3. Merge the engine PR.
 
-## History rewrite (2026-09-24)
-Both repositories' histories were rewritten on 2026-09-24 to remove a retail file
-(`src/sys/win32/rc/res/etqw_splash.bmp`, ET:QW cover art) from every commit. `main` and
-`wip/stock-maps-m2-checkpoint` were force-pushed. Every commit ID changed: engine `main`
-is now `84a224b` (was `2104090`), game `main` is `24f58bf` (was `285eaa1`).
-- Re-clone any clone made before the rewrite, or hard-reset each branch to its new remote
-  branch. Carry unpushed work over by cherry-picking it onto the new commits.
-- Never push a branch or tag that still contains pre-rewrite commits: that would bring
-  the file back.
-- Engine commit IDs quoted in older docs are pre-rewrite IDs. The historical
-  `companion.ref` values were remapped and still resolve; the game repository's historical
-  `engine.ref` pins name engine commits that no longer exist.
-- GitHub still keeps `refs/pull/1/head` in each repository, pointing at the old history
-  (engine `53d0172`, game `9b3a02b`). Removing it needs GitHub Support or new
-  repositories. The owner deferred it on 2026-09-25 and expects to recreate the repositories;
-  when that happens, check that no ref reaches the purged bitmap (release gate 5 stays open
-  until then).
-
 ## What never goes in
 - Retail game data, retail executables, PDBs, raw disassembly or decompiler output, and
   packet captures. This holds for both repositories and their whole history.

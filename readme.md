@@ -20,9 +20,18 @@ The layout follows openQ4 and openQ4-game. The engine and the game module are bu
 
 ## Retail game data is required
 
-OpenETQW needs the data from a full retail ET:QW install patched to 1.5: `pak000`–`pak008` in `base/` (required, and checked by checksum) and the edition's language paks, for English `zpak_english000`–`003` (not checked; without a base dialogue pak the client warns, as openQ4's does). Only the English edition has been checked. You must own the game. The 1.5 patch paks come from the official 1.5 patch (for example the Linux 1.5 client installer); the Steam data package examined had only `pak000`–`pak004`. The unpatched DVD data alone is not supported. Until 2026-09-25 everything was tested on the DVD paks only; the runs on the 1.5 data are in `STATUS.md`. The branches of both repositories contain no retail game data, executables or media, and none may be added. One retail image was purged from both histories on 2026-09-24; GitHub still keeps it in pull-request refs until those are removed (see `STATUS.md`, release gate 5). No retail executable is used at run time.
+OpenETQW needs the game data from a legitimately owned retail ET:QW install, patched to version 1.5. You must own the game. Both the base game's paks and the 1.5 patch's paks are required in `base/`:
 
-The engine refuses to start unless `base/` holds `pak000`–`pak008` with their retail checksums: openQ4's retail-install check (`fs_validateOfficialPaks`; checksums and sources in `docs/official-pk4-checksums.md`). It is one of the release-gate safeguards. Tests on synthetic data turn it off with `+set fs_validateOfficialPaks 0`.
+| Set | Files | Checked at startup |
+|---|---|---|
+| Base game | `pak000.pk4`–`pak004.pk4` | yes, by checksum |
+| Official 1.5 patch | `pak005.pk4`–`pak008.pk4` | yes, by checksum |
+| Language (base game) | `zpak_<language>000.pk4` | no |
+| Language (1.5 patch) | `zpak_<language>001.pk4`–`003.pk4` | no |
+
+This split follows the file list in the official 1.5 patch README. Without a base dialogue pak (`zpak_<language>000.pk4`) the client warns, as openQ4's does. Unpatched data is not supported. Neither repository contains retail game data, executables or media, and none may be added. No retail executable is used at run time.
+
+The engine refuses to start unless `base/` holds `pak000`–`pak008` with their retail checksums: openQ4's retail-install check (`fs_validateOfficialPaks`; the checksums are listed in [`docs/official-pk4-checksums.md`](docs/official-pk4-checksums.md)). It is one of the release-gate safeguards. Tests on synthetic data turn it off with `+set fs_validateOfficialPaks 0`.
 
 ## Network play: OpenETQW only
 
@@ -32,11 +41,11 @@ This follows openQ4: retail 1.5 network compatibility is not a goal. Retail 1.5 
 
 ## Status
 
-Until 2026-09-25, every engine build and every runtime result came from one host: macOS arm64 (Apple Silicon, Apple Clang 21, debug builds). The game module alone also compiled in hosted CI on Linux, Windows and macOS x64 before the Actions minutes ran out. On that host the dedicated server loads every stock map with its scripts and navigation, and bots move. The Vulkan client (through MoltenVK) has rendered five maps, checked by draw counters rather than images. A dedicated server has hosted two clients over loopback, through a reconnect, a map restart and a 10-minute lossy session, and the Vulkan client has joined a dedicated server and hosted a listen server (automated tests, 2026-09-25). Since 2026-09-25 the runtime results come from the retail data patched to 1.5 (the full suite passes on it); earlier ones came from the unpatched DVD data. Since then the engine has also been built and run on Linux x86_64 (Fedora 44, GCC, 2026-09-26) and Windows 11 x64 (MSVC, 2026-09-28), where the full retail suite runs too ([`STATUS.md`](STATUS.md) has the results and the known failures). [`STATUS.md`](STATUS.md) has the evidence levels, the exact commands and the open items.
+The engine builds and runs on macOS arm64 (Apple Clang), Linux x86_64 (GCC) and Windows x64 (MSVC). The dedicated server loads every stock map with its scripts and navigation, and bots move. The Vulkan client (through MoltenVK on macOS) renders maps, joins dedicated servers and hosts listen servers. Automated tests cover a dedicated server hosting multiple clients over loopback, reconnects, map restarts and a long lossy session. [`STATUS.md`](STATUS.md) has the evidence levels, the exact commands, the known failures and the open items.
 
 ## Build on macOS
 
-The development host uses Apple Clang from the Xcode command line tools, Python 3, and these Homebrew packages: `meson`, `ninja`, `pkgconf`, `sdl3`, `vulkan-headers`, `vulkan-loader`, `molten-vk`.
+You need Apple Clang from the Xcode command line tools, Python 3, and these Homebrew packages: `meson`, `ninja`, `pkgconf`, `sdl3`, `vulkan-headers`, `vulkan-loader`, `molten-vk`.
 
 Clone both repositories side by side. The engine looks for the game repository at `../openETQW-game`, or at `$OPENETQW_GAME_REPO` when that is set.
 
@@ -52,7 +61,7 @@ meson setup build -Dbuild_engine=true -Dbuild_dedicated=true -Dbuild_tests=true
 meson compile -C build
 
 # 3. The engine loads the game module from the directory of its executable.
-#    The engine build does not copy it here; the development host uses a symlink.
+#    The engine build does not copy it here; a symlink works.
 #    (On Windows the engine build copies game_x64.dll, see Build on Windows.)
 ln -s "$PWD/../openETQW-game/build/game_arm64.dylib" build/game_arm64.dylib
 ```
@@ -63,13 +72,13 @@ Configuring the engine copies headers and a few sources from the game repository
 
 ## Build on Linux
 
-The Linux host (`antec`) runs Fedora 44 with GCC 16, Python 3, Meson and Ninja, and these packages: `gcc-c++`, `meson`, `ninja-build`, `pkgconf`, `SDL3-devel`, `vulkan-loader-devel`, `vulkan-headers`, `zlib-ng-compat-devel`, `mesa-libGL-devel`, plus `glslang` (the client compiles its shaders with `glslangValidator`) and `vulkan-validation-layers` for the tests. Ubuntu 24.04 has no SDL3 package; `tools/ci/linux_deps.sh` installs the rest and builds SDL3 into a private prefix, as CI does.
+You need GCC, Python 3, Meson and Ninja, and these packages (Fedora names): `gcc-c++`, `meson`, `ninja-build`, `pkgconf`, `SDL3-devel`, `vulkan-loader-devel`, `vulkan-headers`, `zlib-ng-compat-devel`, `mesa-libGL-devel`, plus `glslang` (the client compiles its shaders with `glslangValidator`) and `vulkan-validation-layers` for the tests. Ubuntu 24.04 has no SDL3 package; `tools/ci/linux_deps.sh` installs the rest and builds SDL3 into a private prefix, as CI does.
 
 The commands are the macOS ones, with `game_x64.so` in the symlink step.
 
 ## Build on Windows
 
-The Windows host uses Windows 11 x64, Visual Studio 2026 (MSVC 19.51, the "Desktop development with C++" workload), Python 3 with `meson` and `ninja`, the Vulkan SDK (the client compiles its shaders with its `glslangValidator`), and vcpkg (triplet `x64-windows`) with `sdl3[vulkan]`, `zlib`, `vulkan-headers`, `vulkan-loader` and `pkgconf`.
+You need Windows x64, Visual Studio 2026 (MSVC 19.51 or later, the "Desktop development with C++" workload), Python 3 with `meson` and `ninja`, the Vulkan SDK (the client compiles its shaders with its `glslangValidator`), and vcpkg (triplet `x64-windows`) with `sdl3[vulkan]`, `zlib`, `vulkan-headers`, `vulkan-loader` and `pkgconf`.
 
 ```bat
 rem vcpkg's prefix; PKG_CONFIG lets Meson find SDL3 and zlib through pkg-config
@@ -111,7 +120,7 @@ ETQW_DATA_PATH=/path/to/etqw meson test -C build -j 1
 ETQW_DATA_PATH=/path/to/etqw meson test -C build -j 1 --no-suite soak
 ```
 
-`ETQW_DATA_PATH` is the retail install root, whose `base/` holds `pak000.pk4`–`pak008.pk4`. Without it, or with any of those paks missing, every retail-data test exits 77 and Meson reports it as skipped.
+`ETQW_DATA_PATH` is the retail 1.5 install root, whose `base/` holds `pak000.pk4`–`pak008.pk4` (base game and 1.5 patch). Without it, or with any of those paks missing, every retail-data test exits 77 and Meson reports it as skipped.
 
 ## Run
 
@@ -128,12 +137,12 @@ build/openETQW-client_arm64 +set fs_basepath "$ETQW_DATA_PATH" +set fs_game base
 ## Licensing
 
 - New engine code is GPL-3.0-or-later. Code derived from the Doom 3 GPL release keeps id Software's notices and additional terms. Third-party libraries keep their own licenses.
-- At HEAD this repository contains no SDK-licensed files (checked by the `zero-sdk` test). Its history does, through jmarshall's root commits; the owner decided on 2026-09-25 to leave that history in place. The engine build uses SDK-licensed code from the game repository: it links the game's SDK idLib (`libidLib.a`) and compiles headers and `DeclType.cpp` staged from it. The owner approved these as tracked exceptions on 2026-09-25, following openQ4's precedent (`docs/provenance.md` §4), so engine packages must carry the SDK EULA as well as the GPL (`docs/decisions/0001-sdk-code-in-the-engine-build.md`).
-- The SDK EULA allows modifications that operate only with ET:QW. Whether that covers a game module running on OpenETQW is untested; the owner accepted that risk on 2026-09-25, as openQ4 does for Quake 4, with two safeguards, both in place: the engine refuses to run without the retail 1.5 data (openQ4's check), and `meson install` puts the licence texts in every package (the GPL, the SDK EULA and the third-party notices under `licenses/`; `docs/decisions/0002-sdk-eula-risk-and-retail-install-check.md`).
-- `docs/provenance.md` records the origin and license of each imported file. The 2026-09-24 audit found gaps in it: files added after the split are not in it yet, the SDK code the engine build uses was under-registered, and some files were labeled wrongly (corrected on 2026-09-24).
-- This repository is a hard fork of jmarshall's ET:QW source reconstruction (jmarshall/etqw), and its history starts from his commits. That code has no license file, and some of it describes itself as derived from the retail binaries. Whether it can be redistributed is unresolved; the owner deferred the remediation (a licence from him or replacement code) on 2026-09-25, and release gate item 1 stays blocking.
+- At HEAD this repository contains no SDK-licensed files (checked by the `zero-sdk` test). Its history does, through jmarshall's root commits. The engine build uses SDK-licensed code from the game repository: it links the game's SDK idLib (`libidLib.a`) and compiles headers and `DeclType.cpp` staged from it. These are tracked exceptions, following openQ4's precedent (`docs/provenance.md` §4), so engine packages must carry the SDK EULA as well as the GPL (`docs/decisions/0001-sdk-code-in-the-engine-build.md`).
+- The SDK EULA allows modifications that operate only with ET:QW. Whether that covers a game module running on OpenETQW is untested; the project accepts that risk, as openQ4 does for Quake 4, with two safeguards, both in place: the engine refuses to run without the retail 1.5 data (openQ4's check), and `meson install` puts the licence texts in every package (the GPL, the SDK EULA and the third-party notices under `licenses/`; `docs/decisions/0002-sdk-eula-risk-and-retail-install-check.md`).
+- `docs/provenance.md` records the origin and license of each imported file. It does not yet cover every file (release gate item 3).
+- This repository is a hard fork of jmarshall's ET:QW source reconstruction (jmarshall/etqw), and its history starts from his commits. That code has no license file, and some of it describes itself as derived from the retail binaries. Whether it can be redistributed is unresolved; until it is (a licence from him or replacement code), release gate item 1 stays blocking.
 
-The release gate has six items: a redistributable license for jmarshall's code (or its replacement); engine binaries that link no SDK code, apart from exceptions the owner approves; provenance that covers every file; LICENSE and README files that explain the split, the SDK license and the retail-data requirement; no retail content anywhere in either repository's history; and the SDK EULA with every package, an enforced retail-install requirement, and nothing sold. None of the items is cleared yet. For item 2, the owner approved the SDK exceptions on 2026-09-25. Its condition, the SDK EULA in every engine package, is met: `meson install` carries it (checked by the `install-licenses` test). The SDK files in the engine's early history still need EULA §5 handling before publishing, so the item is not cleared yet. The READMEs of both repositories are the work toward the fourth item, pending the owner's review.
+The release gate has six items: a redistributable license for jmarshall's code (or its replacement); engine binaries that link no SDK code, apart from exceptions the owner approves; provenance that covers every file; LICENSE and README files that explain the split, the SDK license and the retail-data requirement; no retail content anywhere in either repository's history; and the SDK EULA with every package, an enforced retail-install requirement, and nothing sold. None of the items is cleared yet. For item 2, the SDK exceptions are approved and their condition, the SDK EULA in every engine package, is met: `meson install` carries it (checked by the `install-licenses` test). The SDK files in the engine's early history still need EULA §5 handling before publishing, so the item is not cleared yet. The READMEs of both repositories are the work toward the fourth item, pending the owner's review.
 
 ## Documents
 
