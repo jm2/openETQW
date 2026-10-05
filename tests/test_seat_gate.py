@@ -108,6 +108,7 @@ BUILTIN_RECIPES = frozenset({"standard", "pivot", "freepivot"})
 SIM_HASH_RE = re.compile(r"^SIM_HASH: tick=(\d+) ")
 SIM_VIEW_RE = re.compile(r"^SIM_VIEW: tick=(\d+) (.*)$")
 VEH_TRACE_RE = re.compile(r"^VEH_TRACE: (tick=\d+ .*)$")
+SEAT_PRESENT_RE = re.compile(r"^SEAT_PRESENT: tick=(\d+) prepared=(\d+) blended=(\d+)$")
 SEAT_GATE_RE = re.compile(
     r"^SEAT_GATE: tick=(?P<tick>\d+) cu=(?P<cu>[01]) latch=(?P<latch>[01]) pred=(?P<pred>[01]) draw=(?P<draw>[01])"
     r" kind=(?P<kind>none|other|transport|jetpack) ent=(?P<ent>-?\d+) pos=(?P<pos>-?\d+) mode=(?P<mode>-?\d+)"
@@ -139,6 +140,9 @@ class Run:
         self.veh = [m.group(1) for ln in lines if (m := VEH_TRACE_RE.match(ln))]
         self.views_by_tick = {int(m.group(1)): m.group(2) for ln in lines if (m := SIM_VIEW_RE.match(ln))}
         self.gate_raw = [ln for ln in lines if ln.startswith("SEAT_GATE:")]
+        # M5 step 14: the draws blended between the previous tick and this one
+        self.prepared = {int(m.group(1)): int(m.group(2)) for ln in lines if (m := SEAT_PRESENT_RE.match(ln))}
+        self.blended = {int(m.group(1)): int(m.group(3)) for ln in lines if (m := SEAT_PRESENT_RE.match(ln))}
         self.gate = []
         self.malformed = []
         for ln in self.gate_raw:
@@ -373,6 +377,38 @@ def check_listed(run: Run) -> list[str]:
     return problems[:20]
 
 
+def check_presented(run: Run, presenting: bool) -> list[str]:
+    """M5 step 14: SEAT_PRESENT counts the draws the seat presentation prepared between
+    ticks n-1 and n and how many it blended. With the built-in recipes listed (run B), on
+    the ticks a first-person seat is open throughout (draw[n-1], draw[n], the same seat)
+    at least 90% of the prepared draws are blended (the rest are guards: an entry, a
+    camera cycle), and there are at least 50 such draws; with nothing listed (run A) no
+    draw is ever blended."""
+    problems = []
+    missing = [g["tick"] for g in run.gate if g["tick"] not in run.blended]
+    if missing:
+        return [f"run {run.name}: no SEAT_PRESENT line at ticks {missing[:10]}"]
+    if not presenting:
+        blended = [(t, b) for t, b in sorted(run.blended.items()) if b]
+        if blended:
+            problems.append(f"run {run.name}: draws blended with nothing listed: {blended[:10]}")
+        return problems
+    prepared = blended = 0
+    for prev, g in zip(run.gate, run.gate[1:]):
+        same = (g["ent"], g["pos"], g["mode"]) == (prev["ent"], prev["pos"], prev["mode"])
+        view = run.view_for(g["ent"], g["pos"], g["mode"])
+        # sdPresentation draws first-person views only (a third-person view of a built-in
+        # class, the titan driver's pivot, opens the gate but draws the tick's view)
+        first_person = view is not None and not view["third"]
+        if prev["draw"] and g["draw"] and same and first_person and g["type"].lower() in BUILTIN_RECIPES:
+            prepared += run.prepared[g["tick"]]
+            blended += run.blended[g["tick"]]
+    print(f"  run {run.name}: {blended} of {prepared} draws prepared in open first-person seats were blended")
+    if prepared < 50 or blended < 0.9 * prepared:
+        problems.append(f"run {run.name}: the presentation blended {blended} of {prepared} prepared draws in open seats")
+    return problems
+
+
 def check_plumbing(run: Run, recipe_types: set[str]) -> list[str]:
     """Run D. The latch is taken at the start of RunFrame for tick n and pred at the end
     of tick n-1 (EmitSeatGate, after VEH_TRACE); nothing between them changes the seat
@@ -546,6 +582,7 @@ def main() -> int:
         failures += check_listing(run, types)
     failures += check_list_c(c, expect_c)
     failures += check_plumbing(d, recipe_types)
+    failures += check_presented(a, False) + check_presented(b, True)
     failures += check_unchanged(a, [b, c, d])
 
     print_seat_table(a)

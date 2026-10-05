@@ -170,7 +170,9 @@ _NUM = r"-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?"
 _TRIPLE = rf"\({_NUM},{_NUM},{_NUM}\)"
 SIM_VIEW_FIELDS_RE = re.compile(
     rf"view=(\d+) ang={_TRIPLE} olog={_TRIPLE} wlog=(\({_NUM}(?:,{_NUM}){{5}}\)|-)"
-    rf" vpush=({_TRIPLE}) vpang={_TRIPLE} vret=({_TRIPLE}|-)")
+    rf" vpush=({_TRIPLE}) vpang={_TRIPLE} vret=({_TRIPLE}|-)"
+    # M5 step 14: the vehicle's render-world def at the tick's entry ('-' on foot)
+    rf" vdef=(\({_NUM}(?:,{_NUM}){{5}}\)|-)")
 
 FRAME_TIMING_RE = re.compile(
     r"FRAME_TIMING: window_ms=([\d.]+) frames=(\d+) ticks=(\d+) cap=(-?\d+)"
