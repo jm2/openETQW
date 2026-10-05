@@ -933,7 +933,9 @@ bool idImage::CheckPrecompressedImage( bool ) {
 	}
 
 	const byte* bytes = static_cast< const byte* >( fileBuffer );
-	const unsigned long magic = LittleLong( *reinterpret_cast< const unsigned long* >( bytes ) );
+	uint32_t rawMagic;	// 4 bytes on every ABI; unsigned long is 8 on LP64
+	memcpy( &rawMagic, bytes, sizeof( rawMagic ) );
+	const unsigned long magic = LittleLong( static_cast< unsigned long >( rawMagic ) );
 	const ddsFileHeader_t* header = reinterpret_cast< const ddsFileHeader_t* >( bytes + 4 );
 	const unsigned long pixelFlags = LittleLong( header->ddspf.dwFlags );
 	if ( magic != DDS_MAKEFOURCC( 'D', 'D', 'S', ' ' ) ) {
