@@ -495,10 +495,16 @@ void idAsyncServer::RunFrame() {
 	// it presents; the frames after it, up to the next tic, write theirs inside the
 	// unlockedDraw window it opens, as on a client (vehicle-view-net checks those AoR calls).
 	// com_unlockFPS 0 draws no render-only frame (idCommonLocal::Frame), so none is prepared
-	if ( localClientNum >= 0 && gameFrame == startFrame && game != NULL && com_unlockFPS.GetBool() ) {
-		const usercmd_t cmd = usercmdGen->GetDirectUsercmd();
-		game->ClientUpdateView( cmd, GetGameTimeLeft() );
-		++com_frameUpdateViews;
+	// M5 step 10 (D7): a frame that ran a tic is prepared too, with the host's last tic command
+	if ( localClientNum >= 0 && game != NULL && com_unlockFPS.GetBool() ) {
+		if ( gameFrame == startFrame ) {
+			const usercmd_t cmd = usercmdGen->GetDirectUsercmd();
+			game->ClientUpdateView( cmd, GetGameTimeLeft() );
+			++com_frameUpdateViews;
+		} else if ( com_unlock_tickFrames.GetBool() ) {
+			game->ClientUpdateView( userCmds[ ( gameFrame - 1 ) & ( MAX_USERCMD_BACKUP - 1 ) ][ localClientNum ], GetGameTimeLeft() );
+			++com_frameTickUpdateViews;
+		}
 	}
 	MasterHeartbeat();
 }
