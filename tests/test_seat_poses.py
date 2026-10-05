@@ -69,6 +69,14 @@ STEP_RATIO = 2.5
 SHAPE_TOL = 0.05     # per_tick shape: at most this fraction of pairs may disagree
 
 
+def seat_fields(seat):
+    """FRAME_POSE seat= as (entity, position, view mode), or None on foot."""
+    if seat is None:
+        return None
+    parts = [int(x) for x in seat.split(":")]
+    return tuple(parts) if len(parts) == 3 else (parts[0], parts[1], -1)
+
+
 def seat_phase_poses(proc, begin, end):
     poses = [p for ln in proc.snapshot(begin, end) if (p := parse_pose(ln.text))]
     if len(poses) < 3:
@@ -238,8 +246,9 @@ def main(argv):
             seat_up()
             poses = phase("seatdrive", cap, drive)
             seats = {p["seat"] for p in poses}
+            # the driver's seat (position 0) in its first view (mode 0, the standard view)
             ok0 = len(poses) - 1 >= MIN_PAIRS and len(seats) == 1 and None not in seats \
-                and next(iter(seats)).endswith(":0")
+                and seat_fields(next(iter(seats)))[1:] == (0, 0)
             view, hull = shapes(poses)
             path = onpath_check(poses, lambda p: p["veh"], "vehicle's drawn pose")
             steps = step_check(poses)
@@ -305,9 +314,17 @@ def main(argv):
         # guards, every seat listed: the chase camera (no presentable recipe), then the icarus
         obs.send("set g_unlock_vehicleSeats *")
         seat_up()
-        srv.send(f"cycleVehicleCamera {obs.slot}")
-        time.sleep(1.5)
+        # the driver's second view (mode 1, smooth_locked): cycle until the draws show it
+        for _ in range(2):
+            srv.send(f"cycleVehicleCamera {obs.slot}")
+            time.sleep(1.5)
+            last = next((p for ln in reversed(obs.snapshot()) if (p := parse_pose(ln.text))), None)
+            if last is not None and (seat_fields(last["seat"]) or (0, 0, 0))[2] == 1:
+                break
         poses = phase("guardchase", cap, drive)
+        modes = {(seat_fields(p["seat"]) or (0, 0, -1))[2] for p in poses}
+        if modes != {1}:
+            failures.append(f"guard: the chase-camera phase drew view modes {sorted(modes)}, not only the chase view (1)")
         for key, what in (("view", "view"), ("veh", "hull")):
             changed, n = within_tick_changes(poses, key)
             print(f"[seat] guard (chase camera, listed) at cap {cap}: the {what} changed within a tick on {changed} of {n} pairs")
