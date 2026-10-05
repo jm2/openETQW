@@ -212,9 +212,11 @@ def evaluate_client(name, segs, slots, other):
         caps = sorted({p["cap"] for p in drawn})
         results[(rnd, cap, "C0")] = {"ok": bool(drawn) and caps == [cap],
                                      "detail": f"cap= {caps} over {len(drawn)} draws (need [{cap}])"}
-        for check, r in evaluate(cap, ceiling, slots["peer"], seg["still"], own_turn, own_walk, seg["peerwalk"]).items():
+        # both clients are network clients (a dedicated server): A8's network allowance
+        for check, r in evaluate(cap, ceiling, slots["peer"], seg["still"], own_turn, own_walk, seg["peerwalk"],
+                                 network=True).items():
             results[(rnd, cap, check)] = r
-        o = evaluate(cap, ceiling, slots[other], seg["still"], own_turn, own_walk, other_walk)
+        o = evaluate(cap, ceiling, slots[other], seg["still"], own_turn, own_walk, other_walk, network=True)
         results[(rnd, cap, "A0o")] = {**o["A0"], "detail": o["A0"]["detail"].replace("peer in", f"client {other} in")
                                       .replace("peerwalk", f"walk{other}")}
         results[(rnd, cap, "A7o")] = {**o["A7"], "detail": o["A7"]["detail"].replace("peer's", f"client {other}'s")}

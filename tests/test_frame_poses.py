@@ -85,7 +85,10 @@ Checks (0.25 s dropped at each edge of a phase; a phase needs >= 20 draw pairs):
                prediction-clock correction (docs/frame-path.md section 2) can leave the
                draws of one tick a few ms off (the fraction slowed, or the next tick early),
                and at a high cap that is several draws, so the misses are counted by tick:
-               at most max(1, 5%) of the checked ticks may have one, and no draw may miss
+               at most max(1, 5%) of the checked ticks may have one (max(1, 8%) on a
+               network client, which gets the corrections: since M5 step 10 its tick
+               frames are checked too, and Windows x64 measured 8-14 of 257 ticks at cap
+               240; owner decision 2026-10-05), and no draw may miss
                by more than 8 ms beyond the 4 ms (a stuck fraction or one running at the
                wrong speed misses on most ticks or by far more). Where the cap is above
                0.9 x the ceiling, as for A1, this wall-clock timing is reported, not
@@ -269,7 +272,8 @@ def phase_errors(poses):
 
 FRACTION_SLACK_US = 4000       # A8: the prediction-clock nudge
 FRACTION_WORST_US = 8000       # A8: the most a miss may exceed the slack by
-FRACTION_TICK_ALLOWANCE = 0.05  # A8: ticks allowed a miss (snapshot corrections)
+FRACTION_TICK_ALLOWANCE = 0.05  # A8: ticks allowed a miss on an authoritative game
+FRACTION_TICK_ALLOWANCE_NET = 0.08  # A8: on a network client (snapshot corrections; owner, 2026-10-05)
 
 
 def fraction_timing_errors(poses):
@@ -451,7 +455,7 @@ def peer_pose(p, slot):
     return (p["clients"].get(slot) or {}).get("pose")
 
 
-def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
+def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer, network=False):
     """The A0-A9 results for one cap's phases. p_peer None: no remote player (devmap), so
     no peerwalk phase, no A7/A7b and A0 checks the viewmodel only."""
     def peer(p):
@@ -529,7 +533,8 @@ def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
         ticks8 += t
         late_ticks8 += bt
         worst8 = max(worst8, w)
-    timing8 = late_ticks8 <= max(1, int(FRACTION_TICK_ALLOWANCE * ticks8)) and worst8 <= FRACTION_WORST_US
+    allowance8 = FRACTION_TICK_ALLOWANCE_NET if network else FRACTION_TICK_ALLOWANCE
+    timing8 = late_ticks8 <= max(1, int(allowance8 * ticks8)) and worst8 <= FRACTION_WORST_US
     # D1, as for A2: the wall-clock timing is reported where the host sets the rate; whether
     # each draw within a tick is unlocked and its fraction never falls is judged at every cap
     res["A10"] = tick_frame_check(list(phases.values()), cap)
@@ -538,6 +543,7 @@ def evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer):
                  "wrong": wrong8, "same": same,
                  "detail": f"{wrong8} of {same} draws within a tick not unlocked; {back8} step the fraction back, {flat8} repeat it;"
                            f" {late8} of {checked8} unlocked fractions off the wall clock, in {late_ticks8} of {ticks8} ticks"
+                           f" (allowed {max(1, int(allowance8 * ticks8))})"
                            + (f", worst {worst8 / 1000:.1f} ms beyond the slack" if late8 else "")}
     if not paced and not timing8:
         res["A8"]["report"] = (f"host-limited (cap {cap} above 0.9 x ceiling {ceiling:.1f}): the wall-clock timing"
@@ -617,7 +623,8 @@ def replay(path, mode, slot):
     results = {}
     for cap in caps:
         p_peer = None if mode == "devmap" else seg("peerwalk", cap)
-        for check, res in evaluate(cap, ceiling, slot, seg("still", cap), seg("turn", cap), seg("walk", cap), p_peer).items():
+        for check, res in evaluate(cap, ceiling, slot, seg("still", cap), seg("turn", cap), seg("walk", cap), p_peer,
+                                   network=mode == "join").items():
             results[(cap, check)] = res
     print(f"[replay {mode}] uncapped: {ceiling:.1f} fps")
     failures = judge(mode, results)
@@ -801,7 +808,7 @@ def main(argv):
             p_turn = phase("turn", cap, turn, args.phase_seconds)
             p_walk = phase("walk", cap, walk_proc(obs), args.phase_seconds)
             p_peer = phase("peerwalk", cap, walk_proc(peer), args.phase_seconds) if peer is not None else None
-            for check, res in evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer).items():
+            for check, res in evaluate(cap, ceiling, slot, p_still, p_turn, p_walk, p_peer, network=mode == "join").items():
                 results[(cap, check)] = res
 
         # negative control: with the unlock updates off, the change-every-frame checks must fail
