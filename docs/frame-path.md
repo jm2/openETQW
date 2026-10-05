@@ -44,7 +44,7 @@ interpFraction = ( USERCMD_MSEC - timeLeft ) / USERCMD_MSEC
 
 This is at `game repo: src/game/Game_local.cpp:6024` (`SDK: game/Game_local.cpp:4941`). The game aborts with a warning when `timeLeft == USERCMD_MSEC` (`game repo: src/game/Game_local.cpp:5977-5980`; `SDK: game/Game_local.cpp:4894-4897`).
 
-Three engine functions produce `timeLeft` (the listen host's since M5 step 7), and all clamp the elapsed part to [1, 32] ms:
+Three engine functions produce `timeLeft` (the listen host's since M5 step 7), and all clamp the elapsed part to [1, 32] ms. Since the M5 step 10 follow-up (2026-10-05, #68) each adds the real time since its residual was measured at frame start (`realTime` on the client and host, `mainThreadLastTicMsec` in single player, there scaled by `com_timescale` and none with `com_preciseTic 0`), so the fraction is the one at the `ClientUpdateView` call:
 
 | Mode | Function | Residual used |
 |---|---|---|
@@ -54,7 +54,7 @@ Three engine functions produce `timeLeft` (the listen host's since M5 step 7), a
 
 Consequences:
 - `interpFraction` takes values from 1/33 to 32/33 in steps of 1/33. The integer-ms `timeLeft` keeps successive fractions distinct only while frames are at least 1 ms apart *(derived)*.
-- The residual is read at the start of the frame (`src/framework/Common.cpp:1040` in single player, `src/framework/async/AsyncClient.cpp:311` on a client, `src/framework/async/AsyncServer.cpp:439` on a listen host), before the draw. A frame therefore shows the pose for the moment its frame began, not the moment it is presented *(inferred)*.
+- The residual is read at the start of the frame (`Com_UpdateGameTime` in single player, `UpdateTime` on a client and on a listen host), before the ticks and the draw. Until the M5 step 10 follow-up a frame therefore showed the pose for the moment it began: on macmini-m1 a ~15 ms tick drew a tick frame at 1/33 that late (`frame-poses` A8). Since then the elapsed time is added, so a frame shows the moment `ClientUpdateView` prepares it. What comes after that call (the GPU fence or swapchain wait in `BeginFrame`) still delays the draw: one devmap run on macmini-m1 drew 12 ms after its fraction (known; waiting for the GPU at frame start would remove it). The same added time shortens `com_unlockFPS 0`'s wait for the next tick by the frame's work.
 - On a client, every snapshot moves the prediction clock: `clientPredictTime -= delta / PREDICTION_FAST_ADJUST ± 1`, with `PREDICTION_FAST_ADJUST` = 4 (`src/framework/async/AsyncClient.cpp:19`, `src/framework/async/AsyncClient.cpp:648-649`). The out-of-range reset in §4.2 also moves both terms. Because `timeLeft` includes `clientPredictTime`, the fraction can jump slightly when a snapshot is processed *(inferred)*.
 - The client branch of `Com_GetGameTimeLeft` (`src/framework/Common.cpp:940-942`) is unreachable. Its only caller (`src/framework/Session.cpp:344`) runs only when no async session is active (`src/framework/Session.cpp:318`).
 - `Com_GetGameTimeLeft` must not be reused on a listen host. There the client is not active, so it would return the single-player accumulator, which advances every frame (`src/framework/Common.cpp:1040`) but has a different phase from the server's `gameTimeResidual`. The host uses `idAsyncServer::GetGameTimeLeft` (M5 step 7). The server's residual gets no prediction nudges, so the game's held fraction (`unlock.lastFraction`) never applies there *(inferred)*.
