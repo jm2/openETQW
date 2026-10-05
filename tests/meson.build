@@ -608,6 +608,27 @@ if build_engine and build_dedicated
   endforeach
 endif
 
+# 9a. What the Vulkan client draws from a vehicle seat the seat gate allows (M5 step 14,
+#     stage 3): single player, the badger's driver seat driving at caps 60/120/240, with
+#     an unlisted negative control and the chase camera and icarus as guards
+if build_engine
+  test(
+    'seat-poses',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_seat_poses.py',
+      '--client-binary', campaign_client,
+      '--port', '29932',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'seat-poses',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
+endif
+
 # 10. Vehicle views on the network (M5 step 6, owner decision 4): the listen host puts a
 #     remote client in the badger and cycles it into a smooth view; AOR_VIEW and
 #     VIEW_STATE lines from the game (g_logVehicleViews) show whether the server's and the
