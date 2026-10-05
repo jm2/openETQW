@@ -20,9 +20,18 @@ The layout follows openQ4 and openQ4-game. The engine and the game module are bu
 
 ## Retail game data is required
 
-OpenETQW needs the game data from a legitimately owned retail ET:QW install, patched to version 1.5. You must own the game. Unpatched data is not supported. Neither repository contains retail game data, executables or media, and none may be added. No retail executable is used at run time.
+OpenETQW needs the game data from a legitimately owned retail ET:QW install, patched to version 1.5. You must own the game. Both the base game's paks and the 1.5 patch's paks are required in `base/`:
 
-The engine refuses to start unless `base/` holds the official paks with their retail checksums: openQ4's retail-install check (`fs_validateOfficialPaks`; the accepted files and checksums are listed in [`docs/official-pk4-checksums.md`](docs/official-pk4-checksums.md)). It is one of the release-gate safeguards. Tests on synthetic data turn it off with `+set fs_validateOfficialPaks 0`.
+| Set | Files | Checked at startup |
+|---|---|---|
+| Base game | `pak000.pk4`–`pak004.pk4` | yes, by checksum |
+| Official 1.5 patch | `pak005.pk4`–`pak008.pk4` | yes, by checksum |
+| Language (base game) | `zpak_<language>000.pk4` | no |
+| Language (1.5 patch) | `zpak_<language>001.pk4`–`003.pk4` | no |
+
+This split follows the file list in the official 1.5 patch README. Without a base dialogue pak (`zpak_<language>000.pk4`) the client warns, as openQ4's does. Unpatched data is not supported. Neither repository contains retail game data, executables or media, and none may be added. No retail executable is used at run time.
+
+The engine refuses to start unless `base/` holds `pak000`–`pak008` with their retail checksums: openQ4's retail-install check (`fs_validateOfficialPaks`; the checksums are listed in [`docs/official-pk4-checksums.md`](docs/official-pk4-checksums.md)). It is one of the release-gate safeguards. Tests on synthetic data turn it off with `+set fs_validateOfficialPaks 0`.
 
 ## Network play: OpenETQW only
 
@@ -111,7 +120,7 @@ ETQW_DATA_PATH=/path/to/etqw meson test -C build -j 1
 ETQW_DATA_PATH=/path/to/etqw meson test -C build -j 1 --no-suite soak
 ```
 
-`ETQW_DATA_PATH` is the retail 1.5 install root, whose `base/` holds the official paks. Without it, or with any of those paks missing, every retail-data test exits 77 and Meson reports it as skipped.
+`ETQW_DATA_PATH` is the retail 1.5 install root, whose `base/` holds `pak000.pk4`–`pak008.pk4` (base game and 1.5 patch). Without it, or with any of those paks missing, every retail-data test exits 77 and Meson reports it as skipped.
 
 ## Run
 
