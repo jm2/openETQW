@@ -28,18 +28,21 @@ layout( location = 0 ) out vec4 outColor;
 
 void main() {
 	// color.a < 0: MegaTexture terrain, whose albedo lives in the megatexture
-	// tiles, not in a stage texture.  The base already holds albedo * ambient,
-	// so this writes direct / ambient (color.rgb = 1 / ambient) and the
-	// pipeline blends dst * src + dst = albedo * (ambient + direct).
+	// tiles, not in a stage texture.  Binding 0 is then the light block's
+	// snapshot of the unlit opaque base, read at this pixel.
 	const bool relative = pc.color.a < 0.0;
-	vec4 diffuse = relative ? vec4( 1.0 ) : texture( diffuseTexture, fragmentTexCoord );
+	vec4 diffuse = relative ? texelFetch( diffuseTexture, ivec2( gl_FragCoord.xy ), 0 ) :
+		texture( diffuseTexture, fragmentTexCoord );
 	if ( !relative && pc.parameters.w > 0.5 && diffuse.a < pc.parameters.z ) {
 		discard;
 	}
 
+	// lightColorDirectional.w: 1 for the sun, + 2 for a two-sided material
+	const bool directional = mod( pc.lightColorDirectional.w, 2.0 ) > 0.5;
+	const bool twoSided = pc.lightColorDirectional.w > 1.5;
 	vec3 lightDirection;
 	float attenuation = 1.0;
-	if ( pc.lightColorDirectional.w > 0.5 ) {
+	if ( directional ) {
 		lightDirection = normalize( pc.lightOriginRadius.xyz );
 	} else {
 		vec3 toLight = pc.lightOriginRadius.xyz - fragmentPosition;
@@ -53,6 +56,9 @@ void main() {
 	}
 
 	vec3 geometricNormal = normalize( fragmentNormal );
+	if ( twoSided && dot( geometricNormal, lightDirection ) < 0.0 ) {
+		geometricNormal = -geometricNormal;	// a cloth or foliage card lit from behind
+	}
 	if ( dot( geometricNormal, lightDirection ) <= 0.0 ) {
 		discard;
 	}
@@ -68,7 +74,7 @@ void main() {
 			fragmentBitangent * tangentXY.y + geometricNormal * tangentZ );
 	}
 	float lambert = max( dot( normal, lightDirection ), 0.0 );
-	vec3 lit = ( relative ? pc.color.rgb : diffuse.rgb * fragmentColor.rgb ) *
+	vec3 lit = diffuse.rgb * ( relative ? vec3( 1.0 ) : fragmentColor.rgb ) *
 		pc.lightColorDirectional.rgb * ( lambert * attenuation );
 	// additive into colour only; destination alpha is left as the base pass wrote it
 	outColor = vec4( lit, 0.0 );

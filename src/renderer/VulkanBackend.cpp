@@ -627,9 +627,8 @@ struct sdVulkanBackendState {
 	// rasterized lighting (no ray-query device): unshadowed lights, and the
 	// ambient scale applied to the opaque base before the interactions
 	VkPipeline				worldInteractionUnshadowedPipeline;
-	// MegaTexture terrain: blend dst * src + dst with src = direct / ambient
-	VkPipeline				worldInteractionRelativePipeline;
-	VkPipeline				worldInteractionRelativeUnshadowedPipeline;
+	// set while the light block's snapshot of the opaque base is in _currentRender
+	bool					sceneAlbedoCopied;
 	VkPipeline				worldLightAmbientPipeline;
 	// floats in the shared push-constant range: 40 when the device allows the
 	// interaction's light block (160 bytes), else the original 32
@@ -856,8 +855,7 @@ struct sdVulkanBackendState {
 		worldShadowFailPipeline = VK_NULL_HANDLE;
 		worldInteractionPipeline = VK_NULL_HANDLE;
 		worldInteractionUnshadowedPipeline = VK_NULL_HANDLE;
-		worldInteractionRelativePipeline = VK_NULL_HANDLE;
-		worldInteractionRelativeUnshadowedPipeline = VK_NULL_HANDLE;
+		sceneAlbedoCopied = false;
 		worldLightAmbientPipeline = VK_NULL_HANDLE;
 		pushConstantFloats = 32;
 		maxPushConstantsSize = 128;
@@ -3365,14 +3363,6 @@ void DestroyGuiResources( sdVulkanBackendState& state ) {
 		state.DestroyPipeline( state.device, state.worldInteractionUnshadowedPipeline, NULL );
 		state.worldInteractionUnshadowedPipeline = VK_NULL_HANDLE;
 	}
-	if ( state.worldInteractionRelativePipeline != VK_NULL_HANDLE ) {
-		state.DestroyPipeline( state.device, state.worldInteractionRelativePipeline, NULL );
-		state.worldInteractionRelativePipeline = VK_NULL_HANDLE;
-	}
-	if ( state.worldInteractionRelativeUnshadowedPipeline != VK_NULL_HANDLE ) {
-		state.DestroyPipeline( state.device, state.worldInteractionRelativeUnshadowedPipeline, NULL );
-		state.worldInteractionRelativeUnshadowedPipeline = VK_NULL_HANDLE;
-	}
 	if ( state.worldLightAmbientPipeline != VK_NULL_HANDLE ) {
 		state.DestroyPipeline( state.device, state.worldLightAmbientPipeline, NULL );
 		state.worldLightAmbientPipeline = VK_NULL_HANDLE;
@@ -4131,18 +4121,6 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 			state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
 			&state.worldInteractionUnshadowedPipeline ),
 			"vkCreateGraphicsPipelines(worldInteractionUnshadowed)" );
-		// MegaTexture terrain: dst * src + dst
-		blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_DST_COLOR;
-		blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
-		created = created && CheckVulkanResult( state.CreateGraphicsPipelines(
-			state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
-			&state.worldInteractionRelativeUnshadowedPipeline ),
-			"vkCreateGraphicsPipelines(worldInteractionRelativeUnshadowed)" );
-		depthStencil.stencilTestEnable = VK_TRUE;
-		created = created && CheckVulkanResult( state.CreateGraphicsPipelines(
-			state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
-			&state.worldInteractionRelativePipeline ),
-			"vkCreateGraphicsPipelines(worldInteractionRelative)" );
 	}
 
 	state.DestroyShaderModule( state.device, vertexModule, NULL );
@@ -5568,6 +5546,116 @@ bool GetVulkanHeatHazeDescriptor( sdVulkanBackendState& state,
 	const int heatDescriptorIndex = state.materialDescriptors.Append( heatDescriptor );
 	state.materialDescriptorHash.Add( descriptorHashKey, heatDescriptorIndex );
 	descriptorSet = heatDescriptor.descriptorSet;
+	return true;
+}
+
+// The rasterized lighting path snapshots the opaque base (albedo) into
+// _currentRender before the ambient pass; MegaTexture terrain, whose albedo
+// lives in the megatexture tiles rather than a stage texture, reads it back
+// per pixel in interaction.frag.  Binding 0 is the snapshot, the rest neutral.
+bool GetVulkanSceneAlbedoDescriptor( sdVulkanBackendState& state,
+	VkDescriptorSet& descriptorSet ) {
+	static const int sceneAlbedoKey = 0;	// identity only, never dereferenced
+	const materialStage_t* const sceneAlbedoOwner =
+		reinterpret_cast< const materialStage_t* >( &sceneAlbedoKey );
+	descriptorSet = VK_NULL_HANDLE;
+	if ( globalImages == NULL || state.currentRenderResource.view == VK_NULL_HANDLE ||
+		state.currentRenderResource.sampler == VK_NULL_HANDLE ) {
+		return false;
+	}
+	idImage* fallbackImages[ 4 ] = { globalImages->flatNormalMap, globalImages->blackImage,
+		globalImages->blackImage, globalImages->blackCubeMapImage };
+	const sdVulkanImageResource* fallbackResources[ 4 ];
+	for ( int fallbackIndex = 0; fallbackIndex < 4; ++fallbackIndex ) {
+		if ( fallbackImages[ fallbackIndex ] == NULL ) {
+			return false;
+		}
+		if ( !fallbackImages[ fallbackIndex ]->IsLoaded() ) {
+			fallbackImages[ fallbackIndex ]->BindFragment();
+		}
+	}
+	// resolve after every BindFragment: it can reallocate state.imageResources
+	for ( int fallbackIndex = 0; fallbackIndex < 4; ++fallbackIndex ) {
+		fallbackResources[ fallbackIndex ] = FindVulkanImageResource( state,
+			fallbackImages[ fallbackIndex ] );
+		if ( fallbackResources[ fallbackIndex ] == NULL ) {
+			return false;
+		}
+	}
+	const void* owners[ VULKAN_MATERIAL_TEXTURES ] = {
+		&state.currentRenderResource, fallbackImages[ 0 ], fallbackImages[ 1 ],
+		fallbackImages[ 2 ], fallbackImages[ 3 ]
+	};
+	VkImageView views[ VULKAN_MATERIAL_TEXTURES ] = {
+		state.currentRenderResource.view, fallbackResources[ 0 ]->view,
+		fallbackResources[ 1 ]->view, fallbackResources[ 2 ]->view,
+		fallbackResources[ 3 ]->view
+	};
+	VkSampler samplers[ VULKAN_MATERIAL_TEXTURES ] = {
+		state.currentRenderResource.sampler, fallbackResources[ 0 ]->sampler,
+		fallbackResources[ 1 ]->sampler, fallbackResources[ 2 ]->sampler,
+		fallbackResources[ 3 ]->sampler
+	};
+	const int descriptorHashKey = sdVulkanPointerHash::Hash(
+		state.materialDescriptorHash, sceneAlbedoOwner );
+	for ( int descriptorIndex = state.materialDescriptorHash.GetFirst(
+		descriptorHashKey ); descriptorIndex != idHashIndex::NULL_INDEX;
+		descriptorIndex = state.materialDescriptorHash.GetNext( descriptorIndex ) ) {
+		if ( descriptorIndex < 0 || descriptorIndex >= state.materialDescriptors.Num() ) {
+			continue;
+		}
+		const sdVulkanMaterialDescriptor& cached = state.materialDescriptors[ descriptorIndex ];
+		if ( cached.owner != sceneAlbedoOwner ) {
+			continue;
+		}
+		bool matches = true;
+		for ( int imageIndex = 0; imageIndex < VULKAN_MATERIAL_TEXTURES; ++imageIndex ) {
+			if ( cached.imageOwners[ imageIndex ] != owners[ imageIndex ] ||
+				cached.imageViews[ imageIndex ] != views[ imageIndex ] ) {
+				matches = false;
+				break;
+			}
+		}
+		if ( matches ) {
+			descriptorSet = cached.descriptorSet;
+			return true;
+		}
+	}
+	sdVulkanMaterialDescriptor albedoDescriptor;
+	memset( &albedoDescriptor, 0, sizeof( albedoDescriptor ) );
+	albedoDescriptor.owner = sceneAlbedoOwner;
+	VkDescriptorSetAllocateInfo allocateInfo;
+	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
+	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocateInfo.descriptorPool = state.guiDescriptorPool;
+	allocateInfo.descriptorSetCount = 1;
+	allocateInfo.pSetLayouts = &state.guiDescriptorSetLayout;
+	if ( !CheckVulkanResult( state.AllocateDescriptorSets( state.device,
+		&allocateInfo, &albedoDescriptor.descriptorSet ),
+		"vkAllocateDescriptorSets(scene albedo)" ) ) {
+		return false;
+	}
+	VkDescriptorImageInfo imageInfos[ VULKAN_MATERIAL_TEXTURES ];
+	VkWriteDescriptorSet writes[ VULKAN_MATERIAL_TEXTURES ];
+	memset( imageInfos, 0, sizeof( imageInfos ) );
+	memset( writes, 0, sizeof( writes ) );
+	for ( int imageIndex = 0; imageIndex < VULKAN_MATERIAL_TEXTURES; ++imageIndex ) {
+		albedoDescriptor.imageOwners[ imageIndex ] = owners[ imageIndex ];
+		albedoDescriptor.imageViews[ imageIndex ] = views[ imageIndex ];
+		imageInfos[ imageIndex ].sampler = samplers[ imageIndex ];
+		imageInfos[ imageIndex ].imageView = views[ imageIndex ];
+		imageInfos[ imageIndex ].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		writes[ imageIndex ].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		writes[ imageIndex ].dstSet = albedoDescriptor.descriptorSet;
+		writes[ imageIndex ].dstBinding = imageIndex;
+		writes[ imageIndex ].descriptorCount = 1;
+		writes[ imageIndex ].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		writes[ imageIndex ].pImageInfo = &imageInfos[ imageIndex ];
+	}
+	state.UpdateDescriptorSets( state.device, VULKAN_MATERIAL_TEXTURES, writes, 0, NULL );
+	const int albedoDescriptorIndex = state.materialDescriptors.Append( albedoDescriptor );
+	state.materialDescriptorHash.Add( descriptorHashKey, albedoDescriptorIndex );
+	descriptorSet = albedoDescriptor.descriptorSet;
 	return true;
 }
 
@@ -8595,16 +8683,13 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 			break;
 		}
 	}
-	const float ambient = cvarSystem->GetCVarFloat( "r_rayTracingAmbient" );
-	const bool relativeInteraction = litInteraction && megaTextureSurface && ambient > 0.01f &&
-		state.worldInteractionRelativePipeline != VK_NULL_HANDLE;
+	// MegaTexture terrain reads its albedo from the light block's snapshot
+	VkDescriptorSet sceneAlbedoSet = VK_NULL_HANDLE;
+	const bool sceneAlbedoInteraction = litInteraction && megaTextureSurface &&
+		state.sceneAlbedoCopied && GetVulkanSceneAlbedoDescriptor( state, sceneAlbedoSet );
 	VkPipeline pipeline = unshadowed ?
 		( litInteraction ? state.worldInteractionUnshadowedPipeline : state.worldMaterialAddPipeline ) :
 		state.worldInteractionPipeline;
-	if ( relativeInteraction ) {
-		pipeline = unshadowed ? state.worldInteractionRelativeUnshadowedPipeline :
-			state.worldInteractionRelativePipeline;
-	}
 	if ( pipeline == VK_NULL_HANDLE ) {
 		pipeline = state.worldMaterialAddPipeline != VK_NULL_HANDLE ?
 			state.worldMaterialAddPipeline : state.worldAddPipeline;
@@ -8708,11 +8793,10 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		// the terms of raytracing/lighting.comp (N.L, (1 - d/r)^2, a directional
 		// sun); the surface colour is the stage's diffuse only
 		pushConstants[ 16 ] = pushConstants[ 17 ] = pushConstants[ 18 ] = 1.0f;
-		if ( relativeInteraction ) {
-			pushConstants[ 16 ] = pushConstants[ 17 ] = pushConstants[ 18 ] = 1.0f / ambient;
+		if ( sceneAlbedoInteraction ) {
 			pushConstants[ 19 ] = -1.0f;
 		}
-		if ( !relativeInteraction && stage != NULL && stage->hasAlphaTest && surface->materialRegisters != NULL ) {
+		if ( !sceneAlbedoInteraction && stage != NULL && stage->hasAlphaTest && surface->materialRegisters != NULL ) {
 			pushConstants[ 30 ] = surface->materialRegisters[ stage->alphaTestRegister ];
 			pushConstants[ 31 ] = 1.0f;
 		}
@@ -8753,7 +8837,9 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		pushConstants[ 36 ] = lightColor.x;
 		pushConstants[ 37 ] = lightColor.y;
 		pushConstants[ 38 ] = lightColor.z;
-		pushConstants[ 39 ] = directional ? 1.0f : 0.0f;
+		// w: 1 for the sun, + 2 for a two-sided material (lit from either side)
+		pushConstants[ 39 ] = ( directional ? 1.0f : 0.0f ) +
+			( surface->material->GetCullType() == CT_TWO_SIDED ? 2.0f : 0.0f );
 	}
 
 	sdVulkanFrame& frame = state.frames[ state.frameIndex ];
@@ -8762,7 +8848,8 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	state.CmdSetDepthBias( frame.commandBuffer, 0.0f, 0.0f, 0.0f );
 	state.CmdBindPipeline( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
 	state.CmdBindDescriptorSets( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-		state.guiPipelineLayout, 0, 1, &descriptorSet, 0, NULL );
+		state.guiPipelineLayout, 0, 1, sceneAlbedoInteraction ? &sceneAlbedoSet : &descriptorSet,
+		0, NULL );
 	state.CmdBindVertexBuffers( frame.commandBuffer, 0, 1, &vertexResource->buffer, &vertexOffset );
 	state.CmdBindIndexBuffer( frame.commandBuffer, indexResource->buffer, indexOffset, VK_INDEX_TYPE_UINT16 );
 	state.CmdPushConstants( frame.commandBuffer, state.guiPipelineLayout,
@@ -9912,6 +9999,13 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 
 	if ( view->viewLights != NULL && !R_RayTracingIsInitialized() ) {
 		RENDER_METRIC_SCOPE( "Vulkan light interactions" );
+		// Snapshot the unlit opaque base for MegaTexture terrain before the ambient
+		// pass scales it (CopyCurrentRender restarts rendering; dynamic state stays).
+		state->sceneAlbedoCopied = state->worldInteractionUnshadowedPipeline != VK_NULL_HANDLE &&
+			CopyCurrentRender( *state );
+		if ( state->sceneAlbedoCopied ) {
+			currentRenderCopied = true;
+		}
 		// Shadow volumes, the ambient scale and world interactions use the world's
 		// depth range; the last base-pass draw may have left a weapon's.
 		VkViewport worldViewport = viewport;
@@ -10053,6 +10147,7 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 				DrawVulkanLightInteraction( *state, surf, light, view, true );
 			}
 		}
+		state->sceneAlbedoCopied = false;
 	}
 
 	if ( rayTracingGeometries.Num() != 0 && R_RayTracingIsInitialized() ) {
