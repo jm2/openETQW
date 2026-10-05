@@ -624,6 +624,17 @@ struct sdVulkanBackendState {
 	VkPipeline				worldShadowPassPipeline;
 	VkPipeline				worldShadowFailPipeline;
 	VkPipeline				worldInteractionPipeline;
+	// rasterized lighting (no ray-query device): unshadowed lights, and the
+	// ambient scale applied to the opaque base before the interactions
+	VkPipeline				worldInteractionUnshadowedPipeline;
+	// MegaTexture terrain: blend dst * src + dst with src = direct / ambient
+	VkPipeline				worldInteractionRelativePipeline;
+	VkPipeline				worldInteractionRelativeUnshadowedPipeline;
+	VkPipeline				worldLightAmbientPipeline;
+	// floats in the shared push-constant range: 40 when the device allows the
+	// interaction's light block (160 bytes), else the original 32
+	int						pushConstantFloats;
+	uint32_t				maxPushConstantsSize;
 	VkFormat				depthStencilFormat;
 	VkFormat				guiPipelineFormat;
 
@@ -844,6 +855,12 @@ struct sdVulkanBackendState {
 		worldShadowPassPipeline = VK_NULL_HANDLE;
 		worldShadowFailPipeline = VK_NULL_HANDLE;
 		worldInteractionPipeline = VK_NULL_HANDLE;
+		worldInteractionUnshadowedPipeline = VK_NULL_HANDLE;
+		worldInteractionRelativePipeline = VK_NULL_HANDLE;
+		worldInteractionRelativeUnshadowedPipeline = VK_NULL_HANDLE;
+		worldLightAmbientPipeline = VK_NULL_HANDLE;
+		pushConstantFloats = 32;
+		maxPushConstantsSize = 128;
 		depthStencilFormat = VK_FORMAT_UNDEFINED;
 		guiPipelineFormat = VK_FORMAT_UNDEFINED;
 
@@ -1483,6 +1500,7 @@ bool SelectPhysicalDevice( sdVulkanBackendState& state ) {
 			idStr::Copynz( state.deviceName, properties.deviceName,
 				sizeof( state.deviceName ) );
 			state.fillModeNonSolid = features2.features.fillModeNonSolid == VK_TRUE;
+			state.maxPushConstantsSize = properties.limits.maxPushConstantsSize;
 			state.jointUniformAlignment =
 				properties.limits.minUniformBufferOffsetAlignment > 1 ?
 				properties.limits.minUniformBufferOffsetAlignment : 1;
@@ -3343,6 +3361,22 @@ void DestroyGuiResources( sdVulkanBackendState& state ) {
 		state.DestroyPipeline( state.device, state.worldInteractionPipeline, NULL );
 		state.worldInteractionPipeline = VK_NULL_HANDLE;
 	}
+	if ( state.worldInteractionUnshadowedPipeline != VK_NULL_HANDLE ) {
+		state.DestroyPipeline( state.device, state.worldInteractionUnshadowedPipeline, NULL );
+		state.worldInteractionUnshadowedPipeline = VK_NULL_HANDLE;
+	}
+	if ( state.worldInteractionRelativePipeline != VK_NULL_HANDLE ) {
+		state.DestroyPipeline( state.device, state.worldInteractionRelativePipeline, NULL );
+		state.worldInteractionRelativePipeline = VK_NULL_HANDLE;
+	}
+	if ( state.worldInteractionRelativeUnshadowedPipeline != VK_NULL_HANDLE ) {
+		state.DestroyPipeline( state.device, state.worldInteractionRelativeUnshadowedPipeline, NULL );
+		state.worldInteractionRelativeUnshadowedPipeline = VK_NULL_HANDLE;
+	}
+	if ( state.worldLightAmbientPipeline != VK_NULL_HANDLE ) {
+		state.DestroyPipeline( state.device, state.worldLightAmbientPipeline, NULL );
+		state.worldLightAmbientPipeline = VK_NULL_HANDLE;
+	}
 	if ( state.guiPipeline != VK_NULL_HANDLE ) {
 		state.DestroyPipeline( state.device, state.guiPipeline, NULL );
 		state.guiPipeline = VK_NULL_HANDLE;
@@ -3606,7 +3640,12 @@ bool CreateWorldPipeline( sdVulkanBackendState& state ) {
 			state.worldSkyboxAddPipeline ) &&
 		CreateWorldPipelineVariant( state, "vkprogs/world/sky.vert",
 			"vkprogs/world/sky.frag", VK_BLEND_FACTOR_ONE,
-			VK_BLEND_FACTOR_ZERO, false, false, true, state.skyPipeline );
+			VK_BLEND_FACTOR_ZERO, false, false, true, state.skyPipeline ) &&
+		// rasterized lighting: dst *= ambient wherever geometry is nearer than the sky
+		CreateWorldPipelineVariant( state, "vkprogs/world/sky.vert",
+			"vkprogs/world/light_ambient.frag", VK_BLEND_FACTOR_ZERO,
+			VK_BLEND_FACTOR_SRC_COLOR, true, false, true,
+			state.worldLightAmbientPipeline, VK_COMPARE_OP_GREATER );
 }
 
 bool CreateSkinnedWorldPipelineVariant( sdVulkanBackendState& state,
@@ -3693,9 +3732,14 @@ bool CreateShadowPipelines( sdVulkanBackendState& state ) {
 		"layout( location = 0 ) in vec4 inPosition;\n"
 		"layout( push_constant ) uniform ShadowPushConstants {\n"
 		"    mat4 modelViewProjection;\n"
+		"    vec4 localLightOrigin;\n"
 		"} pc;\n"
+		// shadowCache_t holds each vertex twice: w = 1 is the vertex, w = 0 the
+		// copy projected to infinity away from the light (id Tech 4's shadow.vp)
 		"void main() {\n"
-		"    gl_Position = pc.modelViewProjection * inPosition;\n"
+		"    vec4 position = inPosition.w > 0.5 ? vec4( inPosition.xyz, 1.0 ) :\n"
+		"        vec4( inPosition.xyz - pc.localLightOrigin.xyz, 0.0 );\n"
+		"    gl_Position = pc.modelViewProjection * position;\n"
 		"}\n";
 
 	const char* shadowFragGlsl =
@@ -3814,7 +3858,9 @@ bool CreateShadowPipelines( sdVulkanBackendState& state ) {
 	depthStencilPass.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
 	depthStencilPass.depthTestEnable = VK_TRUE;
 	depthStencilPass.depthWriteEnable = VK_FALSE;
-	depthStencilPass.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+	// LESS, as id Tech 4's stencil shadow pass: the volume's caps and sides lie
+	// on the casting surface, and LEQUAL counts them there, shadowing lit surfaces
+	depthStencilPass.depthCompareOp = VK_COMPARE_OP_LESS;
 	depthStencilPass.stencilTestEnable = VK_TRUE;
 
 	depthStencilPass.front.failOp = VK_STENCIL_OP_KEEP;
@@ -3859,7 +3905,9 @@ bool CreateShadowPipelines( sdVulkanBackendState& state ) {
 	depthStencilFail.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
 	depthStencilFail.depthTestEnable = VK_TRUE;
 	depthStencilFail.depthWriteEnable = VK_FALSE;
-	depthStencilFail.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+	// LESS, as id Tech 4's stencil shadow pass: the volume's caps and sides lie
+	// on the casting surface, and LEQUAL counts them there, shadowing lit surfaces
+	depthStencilFail.depthCompareOp = VK_COMPARE_OP_LESS;
 	depthStencilFail.stencilTestEnable = VK_TRUE;
 
 	depthStencilFail.front.failOp = VK_STENCIL_OP_KEEP;
@@ -3893,11 +3941,16 @@ bool CreateShadowPipelines( sdVulkanBackendState& state ) {
 }
 
 bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
+	// The lit interaction needs the 160-byte light block; on a device whose
+	// push-constant limit is the minimum 128 bytes the old albedo pass remains.
+	const bool litInteraction = state.pushConstantFloats >= 40;
 	VkShaderModule vertexModule = VK_NULL_HANDLE;
 	VkShaderModule fragmentModule = VK_NULL_HANDLE;
-	if ( !CompileVulkanShaderModule( state, "vkprogs/world/material.vert",
+	if ( !CompileVulkanShaderModule( state, litInteraction ?
+		"vkprogs/world/interaction.vert" : "vkprogs/world/material.vert",
 		SPIRV_SHADER_STAGE_VERTEX, vertexModule ) ||
-		!CompileVulkanShaderModule( state, "vkprogs/world/material.frag",
+		!CompileVulkanShaderModule( state, litInteraction ?
+			"vkprogs/world/interaction.frag" : "vkprogs/world/material.frag",
 			SPIRV_SHADER_STAGE_FRAGMENT, fragmentModule ) ) {
 		if ( vertexModule != VK_NULL_HANDLE ) {
 			state.DestroyShaderModule( state.device, vertexModule, NULL );
@@ -3999,7 +4052,8 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 	blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
 	blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
 	blendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
-	blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+	// light adds to colour only; destination alpha stays as the base pass wrote it
+	blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
 	blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
 	blendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
 	blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
@@ -4067,9 +4121,29 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 	pipelineInfo.pDynamicState = &dynamicState;
 	pipelineInfo.layout = state.guiPipelineLayout;
 
-	const bool created = CheckVulkanResult( state.CreateGraphicsPipelines(
+	bool created = CheckVulkanResult( state.CreateGraphicsPipelines(
 		state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
 		&state.worldInteractionPipeline ), "vkCreateGraphicsPipelines(worldInteraction)" );
+	if ( created && litInteraction ) {
+		// the same interaction for a light without shadows: no stencil test
+		depthStencil.stencilTestEnable = VK_FALSE;
+		created = CheckVulkanResult( state.CreateGraphicsPipelines(
+			state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
+			&state.worldInteractionUnshadowedPipeline ),
+			"vkCreateGraphicsPipelines(worldInteractionUnshadowed)" );
+		// MegaTexture terrain: dst * src + dst
+		blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_DST_COLOR;
+		blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+		created = created && CheckVulkanResult( state.CreateGraphicsPipelines(
+			state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
+			&state.worldInteractionRelativeUnshadowedPipeline ),
+			"vkCreateGraphicsPipelines(worldInteractionRelativeUnshadowed)" );
+		depthStencil.stencilTestEnable = VK_TRUE;
+		created = created && CheckVulkanResult( state.CreateGraphicsPipelines(
+			state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
+			&state.worldInteractionRelativePipeline ),
+			"vkCreateGraphicsPipelines(worldInteractionRelative)" );
+	}
 
 	state.DestroyShaderModule( state.device, vertexModule, NULL );
 	state.DestroyShaderModule( state.device, fragmentModule, NULL );
@@ -4318,7 +4392,8 @@ bool CreateGuiResources( sdVulkanBackendState& state ) {
 	memset( &pushRange, 0, sizeof( pushRange ) );
 	pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT |
 		VK_SHADER_STAGE_FRAGMENT_BIT;
-	pushRange.size = sizeof( float ) * 32;
+	state.pushConstantFloats = state.maxPushConstantsSize >= sizeof( float ) * 40 ? 40 : 32;
+	pushRange.size = sizeof( float ) * state.pushConstantFloats;
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo;
 	memset( &pipelineLayoutInfo, 0, sizeof( pipelineLayoutInfo ) );
 	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -8365,9 +8440,19 @@ void DrawVulkanShadowSurface( sdVulkanBackendState& state, const drawSurf_s* sur
 		r_shadowPolygonFactor.GetFloat(), 0.0f, -r_shadowPolygonOffset.GetFloat() );
 	state.CmdBindVertexBuffers( frame.commandBuffer, 0, 1, &vertexResource->buffer, &vertexOffset );
 	state.CmdBindIndexBuffer( frame.commandBuffer, indexResource->buffer, indexOffset, VK_INDEX_TYPE_UINT16 );
+	float shadowConstants[ 20 ];
+	memcpy( shadowConstants, mvp, sizeof( mvp ) );
+	{
+		const float* m = surface->space->modelMatrix;	// axis rows 0-2, 4-6, 8-10, origin 12-14
+		const idVec3 delta = light->globalLightOrigin - idVec3( m[ 12 ], m[ 13 ], m[ 14 ] );
+		shadowConstants[ 16 ] = delta.x * m[ 0 ] + delta.y * m[ 1 ] + delta.z * m[ 2 ];
+		shadowConstants[ 17 ] = delta.x * m[ 4 ] + delta.y * m[ 5 ] + delta.z * m[ 6 ];
+		shadowConstants[ 18 ] = delta.x * m[ 8 ] + delta.y * m[ 9 ] + delta.z * m[ 10 ];
+		shadowConstants[ 19 ] = 1.0f;
+	}
 	state.CmdPushConstants( frame.commandBuffer, state.guiPipelineLayout,
 		VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-		sizeof( mvp ), mvp );
+		sizeof( shadowConstants ), shadowConstants );
 	state.CmdDrawIndexed( frame.commandBuffer, numIndexes, 1, 0, 0, 0 );
 	state.worldShadowDrawCalls++;
 }
@@ -8500,7 +8585,26 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		return;
 	}
 
-	VkPipeline pipeline = unshadowed ? state.worldMaterialAddPipeline : state.worldInteractionPipeline;
+	const bool litInteraction = state.worldInteractionUnshadowedPipeline != VK_NULL_HANDLE;
+	bool megaTextureSurface = false;
+	for ( int stageIndex = 0; surface->material != NULL &&
+		stageIndex < surface->material->GetNumStages(); ++stageIndex ) {
+		const materialStage_t* megaStage = surface->material->GetStage( stageIndex );
+		if ( megaStage != NULL && megaStage->megaTexture != NULL ) {
+			megaTextureSurface = true;
+			break;
+		}
+	}
+	const float ambient = cvarSystem->GetCVarFloat( "r_rayTracingAmbient" );
+	const bool relativeInteraction = litInteraction && megaTextureSurface && ambient > 0.01f &&
+		state.worldInteractionRelativePipeline != VK_NULL_HANDLE;
+	VkPipeline pipeline = unshadowed ?
+		( litInteraction ? state.worldInteractionUnshadowedPipeline : state.worldMaterialAddPipeline ) :
+		state.worldInteractionPipeline;
+	if ( relativeInteraction ) {
+		pipeline = unshadowed ? state.worldInteractionRelativeUnshadowedPipeline :
+			state.worldInteractionRelativePipeline;
+	}
 	if ( pipeline == VK_NULL_HANDLE ) {
 		pipeline = state.worldMaterialAddPipeline != VK_NULL_HANDLE ?
 			state.worldMaterialAddPipeline : state.worldAddPipeline;
@@ -8509,11 +8613,46 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		return;
 	}
 
+	// The projection and viewport depth range the base pass drew this surface
+	// with (DrawView's per-space submission): the world in
+	// [r_depthRangeStartDefault, 1], a weapon in [0, r_depthRangeWeaponHackEnd]
+	// with its own field of view.  An interaction drawn with any other range
+	// does not meet the base pass's depth and leaks onto occluded surfaces.
 	float surfaceProjection[ 16 ];
 	memcpy( surfaceProjection, view->projectionMatrix, sizeof( surfaceProjection ) );
+	float surfaceMinDepth = idMath::ClampFloat( 0.0f, 1.0f,
+		cvarSystem->GetCVarFloat( "r_depthRangeStartDefault" ) );
+	float surfaceMaxDepth = 1.0f;
 	if ( surface->space->weaponDepthHack ) {
-		surfaceProjection[ 14 ] -= surface->space->modelDepthHack;
+		const float zNear = Max( cvarSystem->GetCVarFloat( "r_znear" ), 0.001f );
+		surfaceMinDepth = 0.0f;
+		surfaceMaxDepth = idMath::ClampFloat( 0.0f, 1.0f,
+			cvarSystem->GetCVarFloat( "r_depthRangeWeaponHackEnd" ) );
+		const float weaponFovX = surface->space->weaponDepthHackFOV_x;
+		const float weaponFovY = surface->space->weaponDepthHackFOV_y;
+		if ( weaponFovX > 0.0f && weaponFovY > 0.0f ) {
+			const float xMax = zNear * idMath::Tan( weaponFovX * idMath::M_DEG2RAD * 0.5f );
+			const float yMax = zNear * idMath::Tan( weaponFovY * idMath::M_DEG2RAD * 0.5f );
+			surfaceProjection[ 0 ] = zNear / Max( xMax, 0.001f );
+			surfaceProjection[ 5 ] = zNear / Max( yMax, 0.001f );
+			surfaceProjection[ 8 ] = 0.0f;
+			surfaceProjection[ 9 ] = 0.0f;
+		}
+		surfaceProjection[ 14 ] *= cvarSystem->GetCVarFloat( "r_depthRangeWeaponHackScale" );
 	}
+	if ( surface->space->modelDepthHack != 0.0f ) {
+		surfaceProjection[ 14 ] -= surface->space->modelDepthHack;
+		surfaceMinDepth = idMath::ClampFloat( 0.0f, 1.0f,
+			cvarSystem->GetCVarFloat( "r_depthRangeStartDefault" ) );
+		surfaceMaxDepth = 1.0f;
+	}
+	VkViewport surfaceViewport;
+	surfaceViewport.x = static_cast< float >( view->viewport.x1 );
+	surfaceViewport.y = static_cast< float >( state.extent.height - view->viewport.y1 );
+	surfaceViewport.width = static_cast< float >( Max( 1, view->viewport.x2 - view->viewport.x1 + 1 ) );
+	surfaceViewport.height = -static_cast< float >( Max( 1, view->viewport.y2 - view->viewport.y1 + 1 ) );
+	surfaceViewport.minDepth = surfaceMinDepth;
+	surfaceViewport.maxDepth = Max( surfaceMinDepth, surfaceMaxDepth );
 	float mvp[ 16 ];
 	for ( int column = 0; column < 4; ++column ) {
 		for ( int row = 0; row < 4; ++row ) {
@@ -8528,7 +8667,7 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 			  mvp[ column * 4 + 3 ] );
 	}
 
-	float pushConstants[ 32 ];
+	float pushConstants[ 40 ];
 	memset( pushConstants, 0, sizeof( pushConstants ) );
 	memcpy( pushConstants, mvp, sizeof( mvp ) );
 	idVec3 lightColor( 1.0f, 1.0f, 1.0f );
@@ -8564,8 +8703,61 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	pushConstants[ 29 ] = surface->material->TestMaterialFlag( MF_LOWRANGEUVCOMPRESS ) ?
 		ST_TO_FLOAT_LOWRANGE : ST_TO_FLOAT;
 	EncodeModelRotation( surface->space->modelMatrix, pushConstants[ 23 ], pushConstants[ 27 ] );
+	if ( litInteraction ) {
+		// interaction.vert/.frag: the light in the surface's model space, with
+		// the terms of raytracing/lighting.comp (N.L, (1 - d/r)^2, a directional
+		// sun); the surface colour is the stage's diffuse only
+		pushConstants[ 16 ] = pushConstants[ 17 ] = pushConstants[ 18 ] = 1.0f;
+		if ( relativeInteraction ) {
+			pushConstants[ 16 ] = pushConstants[ 17 ] = pushConstants[ 18 ] = 1.0f / ambient;
+			pushConstants[ 19 ] = -1.0f;
+		}
+		if ( !relativeInteraction && stage != NULL && stage->hasAlphaTest && surface->materialRegisters != NULL ) {
+			pushConstants[ 30 ] = surface->materialRegisters[ stage->alphaTestRegister ];
+			pushConstants[ 31 ] = 1.0f;
+		}
+		const bool directional = light == view->atmosphereLight ||
+			( light->lightDef != NULL && light->lightDef->flags.atmosphereLight );
+		if ( directional ) {
+			idVec3 sunDirection( 0.35f, 0.45f, 0.82f );
+			if ( view->atmosphere != NULL ) {
+				sunDirection = view->atmosphere->GetSunDirection();
+			}
+			sunDirection.Normalize();
+			const float* m = surface->space->modelMatrix;	// axis rows 0-2, 4-6, 8-10
+			const idVec3 localDirection(
+				sunDirection.x * m[ 0 ] + sunDirection.y * m[ 1 ] + sunDirection.z * m[ 2 ],
+				sunDirection.x * m[ 4 ] + sunDirection.y * m[ 5 ] + sunDirection.z * m[ 6 ],
+				sunDirection.x * m[ 8 ] + sunDirection.y * m[ 9 ] + sunDirection.z * m[ 10 ] );
+			pushConstants[ 32 ] = localDirection.x;
+			pushConstants[ 33 ] = localDirection.y;
+			pushConstants[ 34 ] = localDirection.z;
+			pushConstants[ 35 ] = 0.0f;
+		} else {
+			const float radius = Max( Max( idMath::Fabs( light->lightRadius.x ),
+				idMath::Fabs( light->lightRadius.y ) ), idMath::Fabs( light->lightRadius.z ) );
+			if ( radius <= 1.0f ) {
+				return;
+			}
+			const float* m = surface->space->modelMatrix;	// origin at 12-14
+			const idVec3 delta = light->globalLightOrigin - idVec3( m[ 12 ], m[ 13 ], m[ 14 ] );
+			const idVec3 localOrigin(
+				delta.x * m[ 0 ] + delta.y * m[ 1 ] + delta.z * m[ 2 ],
+				delta.x * m[ 4 ] + delta.y * m[ 5 ] + delta.z * m[ 6 ],
+				delta.x * m[ 8 ] + delta.y * m[ 9 ] + delta.z * m[ 10 ] );
+			pushConstants[ 32 ] = localOrigin.x;
+			pushConstants[ 33 ] = localOrigin.y;
+			pushConstants[ 34 ] = localOrigin.z;
+			pushConstants[ 35 ] = radius;
+		}
+		pushConstants[ 36 ] = lightColor.x;
+		pushConstants[ 37 ] = lightColor.y;
+		pushConstants[ 38 ] = lightColor.z;
+		pushConstants[ 39 ] = directional ? 1.0f : 0.0f;
+	}
 
 	sdVulkanFrame& frame = state.frames[ state.frameIndex ];
+	state.CmdSetViewport( frame.commandBuffer, 0, 1, &surfaceViewport );
 	state.CmdSetScissor( frame.commandBuffer, 0, 1, &vkScissor );
 	state.CmdSetDepthBias( frame.commandBuffer, 0.0f, 0.0f, 0.0f );
 	state.CmdBindPipeline( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
@@ -8575,7 +8767,7 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	state.CmdBindIndexBuffer( frame.commandBuffer, indexResource->buffer, indexOffset, VK_INDEX_TYPE_UINT16 );
 	state.CmdPushConstants( frame.commandBuffer, state.guiPipelineLayout,
 		VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-		sizeof( pushConstants ), pushConstants );
+		sizeof( float ) * ( litInteraction ? 40 : 32 ), pushConstants );
 	state.CmdDrawIndexed( frame.commandBuffer, tri->numIndexes, 1, 0, 0, 0 );
 	state.worldDrawCalls++;
 	state.worldInteractionDrawCalls++;
@@ -9720,6 +9912,40 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 
 	if ( view->viewLights != NULL && !R_RayTracingIsInitialized() ) {
 		RENDER_METRIC_SCOPE( "Vulkan light interactions" );
+		// Shadow volumes, the ambient scale and world interactions use the world's
+		// depth range; the last base-pass draw may have left a weapon's.
+		VkViewport worldViewport = viewport;
+		worldViewport.minDepth = defaultDepthStart;
+		worldViewport.maxDepth = 1.0f;
+		state->CmdSetViewport( frame.commandBuffer, 0, 1, &worldViewport );
+		submittedViewportValid = false;
+		if ( state->worldLightAmbientPipeline != VK_NULL_HANDLE &&
+			state->worldInteractionUnshadowedPipeline != VK_NULL_HANDLE ) {
+			// The opaque base holds albedo (material.frag); scale it by the ambient
+			// term so the interactions below complete albedo * (ambient + direct).
+			VkRect2D fullScissor;
+			fullScissor.offset.x = view->viewport.x1;
+			fullScissor.offset.y = static_cast< int >( state->extent.height ) - ( view->viewport.y2 + 1 );
+			fullScissor.extent.width = static_cast< uint32_t >( view->viewport.x2 - view->viewport.x1 + 1 );
+			fullScissor.extent.height = static_cast< uint32_t >( view->viewport.y2 - view->viewport.y1 + 1 );
+			if ( fullScissor.offset.y < 0 ) {
+				fullScissor.offset.y = 0;
+			}
+			float ambientConstants[ 32 ];
+			memset( ambientConstants, 0, sizeof( ambientConstants ) );
+			const float ambient = cvarSystem->GetCVarFloat( "r_rayTracingAmbient" );	// shared with lighting.comp
+			ambientConstants[ 16 ] = ambientConstants[ 17 ] = ambientConstants[ 18 ] = ambient;
+			ambientConstants[ 19 ] = 1.0f;
+			state->CmdSetScissor( frame.commandBuffer, 0, 1, &fullScissor );
+			state->CmdSetDepthBias( frame.commandBuffer, 0.0f, 0.0f, 0.0f );
+			state->CmdBindPipeline( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+				state->worldLightAmbientPipeline );
+			state->CmdPushConstants( frame.commandBuffer, state->guiPipelineLayout,
+				VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+				sizeof( ambientConstants ), ambientConstants );
+			state->CmdDraw( frame.commandBuffer, 3, 1, 0, 0 );
+			submittedPipeline = VK_NULL_HANDLE;
+		}
 		for ( const viewLight_s* light = view->viewLights; light != NULL; light = light->next ) {
 			if ( light->culled || light->material == NULL || light->material->IsFogLight() || light->material->IsBlendLight() ) {
 				continue;
@@ -9767,6 +9993,7 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 				  ( light->material != NULL && light->material->LightCastsShadows() &&
 				    ( light->lightDef == NULL || !light->lightDef->flags.noShadows ) ) );
 			if ( lightHasShadows ) {
+				state->CmdSetViewport( frame.commandBuffer, 0, 1, &worldViewport );
 				VkClearAttachment clearAttachment;
 				memset( &clearAttachment, 0, sizeof( clearAttachment ) );
 				clearAttachment.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
