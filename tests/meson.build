@@ -260,6 +260,18 @@ if build_engine
     timeout: 360,
     is_parallel: false,
   )
+  # M5 step 14b: the hull-lead measurement (g_determinismTest 4, two caps): every vehicle
+  # class spawned, entered, moved and identical across caps; prints the predictor table
+  test(
+    'lead-measure',
+    py,
+    args: [meson.project_source_root() / 'tests' / 'test_lead_measure.py'],
+    env: client_test_env,
+    workdir: meson.project_source_root(),
+    suite: 'integration',
+    timeout: 600,
+    is_parallel: false,
+  )
   # M5 step 13: the vehicle seat gate (g_determinismTest 3, four runs): an excluded
   # seat never unlocks, keys match, and the gate changes nothing drawn or simulated
   test(
