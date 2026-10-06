@@ -61,13 +61,43 @@ python3 tools/analysis/veh_pred.py <console log> --worst 6
   - Landings: the badger dropping onto the ground at spawn gives 2.3–2.9 u, and the anansi settling after it is entered gives 4.2–4.3 u.
   - Every other tick in the run is under 2.1 u.
 
-**What it does not show yet.**
-- The other classes: titan, trojan, husky, hog, platypus, bumblebee, goliath, desecrator and the strogg aircraft.
-- The network client's decay noise (§6).
-- Rough ground and long turns at speed.
-- A real human driver.
+### 2.1 Every class (step 2, 2026-10-06)
 
-§5's measurement step covers these.
+**Method.** `g_determinismTest 4` (game repo: `src/game/Game_local.cpp`, `RunLeadMeasureSchedule`) and meson `lead-measure`:
+- Each rigid-body class gets a 200-tick segment. Every vehicle on the map is removed first, then the class is spawned on schedule 2's badger spot and entered by name.
+- Ground classes are driven: throttle, a right and a left turn at speed, brake and reverse, forward again. Aircraft are flown: lift-off, nose down, a yaw and roll ramp, level, descent.
+- In this schedule only, a `VEH_BODY` line per tick gives the real `mainCenterOfMass` and `HasGroundContacts()`, so `veh_pred.py` uses the logged centre of mass instead of a fit, and adds the hybrid.
+- The replay is identical at com_maxFPS 60 and 144.
+- Valley's construction module respawns a badger on that spot about 20 s after the map's badger is gone, which is why the map's vehicles are removed before every segment. The goliath (a walker, not a rigid body) and the platypus (it needs water) are not in it.
+
+**Position error, median / p95 / max (u), one tick ahead** (180 ticks per class; samples with §3.3's spike fallback):
+
+| Class | on the ground | samples, accel + fallback | physics, gravity added back off the ground | hybrid (H) |
+|---|---|---|---|---|
+| titan | 98% | 0.163 / 4.05 / 29.3 | 0.674 / 3.86 / 28.9 | 0.163 / 3.37 / 29.3 |
+| hog | 93% | 0.239 / 6.24 / 28.0 | 0.679 / 3.82 / 27.4 | 0.227 / 4.73 / 28.0 |
+| desecrator (hover) | 1% | **0.033 / 1.06** / 13.5 | 1.237 / 1.80 / 13.2 | 1.237 / 1.82 / 13.2 |
+| husky | 97% | 0.128 / 3.51 / 42.8 | 0.683 / 2.14 / 42.7 | 0.128 / 2.71 / 42.8 |
+| badger | 97% | 0.177 / 3.56 / 35.9 | 0.699 / 2.68 / 35.7 | 0.177 / 2.90 / 35.9 |
+| trojan | 98% | 0.071 / 1.61 / 13.4 | 0.540 / 1.65 / 8.9 | 0.071 / 1.50 / 9.0 |
+| anansi | 3% | 0.019 / 0.051 / 4.3 | 0.001 / 0.016 / 4.2 | **0.001 / 0.015** / 4.3 |
+| bumblebee | 5% | 0.006 / 0.047 / 1.4 | 0.001 / 1.161 / 1.5 | **0.001 / 0.007** / 1.5 |
+| hornet | 1% | 0.015 / 0.132 / 1.5 | 0.004 / 0.087 / 1.2 | **0.004 / 0.051** / 1.4 |
+
+Rotation: the physics step's ω·dt and the samples' constant rotation agree within a few hundredths of a degree at the median for every class. The p95 is 0.04–0.6° for the aircraft, the trojan, the titan and the desecrator, and 2–4° for the hog, husky and badger.
+
+**What it shows.**
+- **Aircraft: the hybrid**, which is the physics step in the air, is near-exact (p95 0.007–0.051 u).
+- **The desecrator is a hover tank.** Its pads hold it up without ground contacts, so `HasGroundContacts()` is false 99% of the time, and the hybrid wrongly adds gravity back (median 1.24 u). For this class S is the only good predictor. The hybrid's rule should therefore be per class, not per contact state alone.
+- **Wheeled and tracked vehicles.**
+  - The samples, the same as H on the ground, have the best median, 0.07–0.24 u.
+  - The physics step has the best p95 for the hog, husky and badger. Their worst ticks are bumps and collisions, which the samples' acceleration term extrapolates.
+  - Collisions that launch the vehicle, at speed jumps of up to 500→900 u/s, give 28–43 u maxima that no predictor foresees. The cap and L of §3.3 are what bound them.
+
+**What it does not show yet.**
+- The network client's decay noise (§6). That needs a client-side drive, because the server overriding a remote client's commands would make the client mispredict.
+- Rough ground and long turns at speed. The drive stays on valley's open ground near one spot.
+- A real human driver.
 
 ## 3. Design
 
@@ -178,8 +208,8 @@ The PR flags these for the Linux session to raise with the owner:
 2. **Measure every class (engine and game, test only).**
    - A scripted `g_determinismTest 4` (2 is the vehicle replay, 3 the seat-gate schedule) that spawns and drives each valley vehicle class in turn on open ground: straight, turning at speed, braking, one deliberate wall hit, and, for aircraft, lift-off, a turn and a descent.
    - Reuse the anansi's `SpawnEntityDef` pattern from mode 2, and keep it out of mode 2 so that mode 2's golden stays valid.
-   - The output is a `veh_pred.py` table per class.
-   - Then repeat on a join client with `g_logVehiclePred`, to see the decay noise, and on a listen host.
+   - The output is a `veh_pred.py` table per class. **Done 2026-10-06 (§2.1; meson `lead-measure`).**
+   - Then repeat on a join client with `g_logVehiclePred`, to see the decay noise, and on a listen host. That needs a client-side drive (`clientMove`), as `seat-poses` does.
 3. **Implement (game).**
    - The three-sample predictor, the α draw, the fade and the impact guard in `sdPresentation`, plus `g_unlock_vehicleLead` and `VEH_PRED`.
    - It touches `Presentation.{h,cpp}`, which the Linux session is changing for the stage 5 chase-view look (branch `m5/14-stage5-chase-look`). The merge order is agreed with it before this step starts, and this step is rebased on its result.

@@ -124,7 +124,11 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
     - the presentation's own last three samples are better on the ground (badger 0.095 u against 0.67 u);
     - impacts overshoot by up to 33 u.
   - Both predictors and a hybrid are candidates, picked per class.
-  - Next: measure every class (`g_determinismTest 4`), then implement after the Linux session's stage 5 chase-view work in `Presentation.cpp`.
+  - Every class measured (2026-10-06, meson `lead-measure`; `docs/hull-lead.md` §2.1):
+    - aircraft: the hybrid is near-exact;
+    - the desecrator (a hover tank): the samples only;
+    - wheeled and tracked vehicles: the samples have the best median (0.07–0.24 u), and launching collisions give 28–43 u maxima.
+  - Next: the client-side measurement, then the implementation after the Linux session's stage 5 chase-view work in `Presentation.cpp`.
   - Owner questions: three are below, and the fourth is the existing decay question (`vehicle-responsiveness.md` §5.1 item 7).
 - **M5 step 6, no presentation values in tick, snapshot or AoR state** (2026-09-30).
   - First half, merged: game #22 (cd18aee) and engine #43 (7368e68): the vehicle view probe (`g_logVehicleViews`: `AOR_VIEW`, `VIEW_STATE`), `cycleVehicleCamera`, and meson `vehicle-view-net` with the old behaviour as its known gaps (numbers in `docs/m5-plan.md` step 6). The test runs two Vulkan clients, each with its own window (the listen host and the remote client; a headless remote client crashes in a vehicle, Known broken). At engine 7368e68 / game cd18aee it passed on Linux (`antec`, `SDL_VIDEO_DRIVER=offscreen`), macOS arm64 (MoltenVK, both windows overlapping on one display; 52.2 s) and Windows x64 (a real desktop; debugoptimized 42.8 s, debug 58.9 s), each with the known gaps in their shapes.
