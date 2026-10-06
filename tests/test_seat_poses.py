@@ -32,8 +32,8 @@ in_yawSpeed key turn stands in for the mouse):
   L2 held     a held turn changes the drawn yaw between consecutive draws (>= 99%)
   L3 smooth   under the held turn the yaw never turns back, and its rate across a tick is
               at most 2.5 x the median rate within one (per microsecond between draws)
-  L4 orbit    (the chase view) the camera origin's speed across a tick is at most 2.5 x
-              the median speed within one
+  L4 orbit    (the chase view) the camera origin's speed across a tick is at most 1.5 x
+              the median speed within one (a wrong pivot would jump at each tick)
   L1c control with g_unlock_vehicleLook 0 the turn shows at least a draw later on average
 
 Remote entities while seated (stage 4; join and listen, which have a headless peer): at
@@ -196,10 +196,13 @@ def look_consistency(held, k=2.5):
                 f" the median in-tick rate (at most {k}x)")
 
 
-def orbit_consistency(held, k=2.5):
+def orbit_consistency(held, k=1.5):
     """L4 (a chase view): under a held turn the camera orbits its focus, so its origin moves
-    too; its speed across a tick is at most k times the median speed within one (a wrong
-    orbit would jump back at each tick)."""
+    too; its speed across a tick is at most k times the median speed within one. A draw
+    turned about the wrong point (or not moved at all) ends each tick off the camera the
+    next tick computes, and the draw across the tick jumps by that error: with the parked
+    badger's ~2 deg of turn a tick, a pivot about 40 u off shows as 1.5x. It does not check
+    pitch, which the tick's camera follows only approximately as an orbit."""
     speeds = [(math.dist(a["view"][:3], b["view"][:3]) / max(1, b["us"] - a["us"]) * 1e6, a["gt"] != b["gt"])
               for a, b in zip(held, held[1:])]
     inside = sorted(v for v, cross in speeds if not cross)
