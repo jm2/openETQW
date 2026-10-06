@@ -61,6 +61,7 @@ import math
 import os
 import statistics
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -555,9 +556,12 @@ def main(argv):
                         failures.append(f"{name} log line {i + 1}: {text}")
                 if failures:
                     # keep the client's poses and phase marks for a failure that does not recur
-                    keep = Path(os.environ.get("TMPDIR") or "/var/tmp") / f"seat-poses-{args.mode}-{os.getpid()}.log"
-                    keep.write_text("\n".join(t for t in lines if any(m in t for m in ("FRAME_POSE", "FP_", "SEAT", "LOOKTAP"))) + "\n")
-                    print(f"[seat] the client's FRAME_POSE lines are kept in {keep}")
+                    keep = Path(tempfile.gettempdir()) / f"seat-poses-{args.mode}-{os.getpid()}.log"
+                    try:
+                        keep.write_text("\n".join(t for t in lines if any(m in t for m in ("FRAME_POSE", "FP_", "SEAT", "LOOKTAP"))) + "\n")
+                        print(f"[seat] the client's FRAME_POSE lines are kept in {keep}")
+                    except OSError as e:
+                        print(f"[seat] could not keep the client's FRAME_POSE lines in {keep}: {e}")
             if code not in (0, None):
                 failures.append(f"the {name} exited with {code}")
             proc.cleanup()
