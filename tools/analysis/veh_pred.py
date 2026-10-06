@@ -68,6 +68,13 @@ def qangle(a, b) -> float:
     return math.degrees(2.0 * math.acos(min(1.0, d)))
 
 
+def percentile(values: list[float], p: float) -> float:
+    s = sorted(values)
+    k = (len(s) - 1) * p / 100.0
+    lo, hi = math.floor(k), math.ceil(k)
+    return s[lo] + (s[hi] - s[lo]) * (k - lo)
+
+
 def qexp(w, seconds):
     theta = norm(w) * seconds
     if theta < 1e-12:
@@ -76,39 +83,102 @@ def qexp(w, seconds):
     return (*scale(axis, math.sin(theta / 2.0)), math.cos(theta / 2.0))
 
 
-def percentile(values: list[float], p: float) -> float:
-    s = sorted(values)
-    k = (len(s) - 1) * p / 100.0
-    lo, hi = math.floor(k), math.ceil(k)
-    return s[lo] + (s[hi] - s[lo]) * (k - lo)
+def qmat(q):
+    """The rotation matrix of the logged quaternion, used as id's axis: a body-frame point
+    c is at c . A in the world (a row vector times the matrix)."""
+    x, y, z, w = q
+    return ((1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)),
+            (2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)),
+            (2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)))
 
 
-# position predictors: the pose at n+1 guessed from ticks n-2, n-1 and n
-POSITION = {
-    "hold (no lead)": lambda a, b, c: c["p"],
-    "physics v*dt": lambda a, b, c: add(c["p"], scale(c["v"], TICK_SECONDS)),
-    "physics v*dt + g*dt^2": lambda a, b, c: add(c["p"], scale(add(c["v"], scale(GRAVITY, TICK_SECONDS)), TICK_SECONDS)),
-    "samples, constant velocity": lambda a, b, c: add(c["p"], sub(c["p"], b["p"])),
-    "samples, constant acceleration": lambda a, b, c: add(c["p"], sub(c["p"], b["p"]), sub(add(c["p"], a["p"]), scale(b["p"], 2.0))),
-}
+def rowmul(c, m):
+    return tuple(sum(c[i] * m[i][j] for i in range(3)) for j in range(3))
 
-# orientation predictors
-ROTATION = {
-    "hold (no lead)": lambda b, c: c["q"],
-    "physics w*dt": lambda b, c: qmul(qexp(c["w"], TICK_SECONDS), c["q"]),
-    "samples, constant rotation": lambda b, c: qmul(qmul(c["q"], qinv(b["q"])), c["q"]),
-}
+
+def physics_rotation(c):
+    """The physics' own step: the logged quaternion is the conjugate of the body-to-world
+    one, so the world angular velocity composes on the right, negated."""
+    return qmul(c["q"], qexp(scale(c["w"], -1.0), TICK_SECONDS))
+
+
+def physics_position(c, com, gravity: bool):
+    """sdPhysics_RigidBodyMultiple::Integrate with no external force: the centre of mass
+    moves by v.dt (plus a tick of gravity momentum added back), and the origin is
+    re-derived from it with the new orientation."""
+    v = add(c["v"], scale(GRAVITY, TICK_SECONDS)) if gravity else c["v"]
+    lever = sub(rowmul(com, qmat(c["q"])), rowmul(com, qmat(physics_rotation(c))))
+    return add(c["p"], scale(v, TICK_SECONDS), lever)
+
+
+def solve3(a, b):
+    """Solve the 3x3 system a.x = b (Cramer's rule); None when singular."""
+    def det(m):
+        return (m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+                - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+                + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]))
+    d = det(a)
+    if abs(d) < 1e-9:
+        return None
+    out = []
+    for k in range(3):
+        m = [list(row) for row in a]
+        for i in range(3):
+            m[i][k] = b[i]
+        out.append(det(m) / d)
+    return tuple(out)
+
+
+def fit_centre_of_mass(triples, gravity: bool):
+    """The body-frame centre of mass that best explains the logged steps (least squares):
+    VEH_TRACE does not print mainCenterOfMass. Uses the logged next orientation, so the
+    fit does not depend on the rotation predictor."""
+    ata = [[0.0] * 3 for _ in range(3)]
+    atb = [0.0] * 3
+    for c, nxt in triples:
+        v = add(c["v"], scale(GRAVITY, TICK_SECONDS)) if gravity else c["v"]
+        residual = sub(nxt["p"], add(c["p"], scale(v, TICK_SECONDS)))
+        a, a2 = qmat(c["q"]), qmat(nxt["q"])
+        d = [[a[i][j] - a2[i][j] for j in range(3)] for i in range(3)]   # residual = com . d
+        for j in range(3):
+            for k in range(3):
+                ata[j][k] += sum(d[j][i] * d[k][i] for i in range(3))
+            atb[j] += sum(d[j][i] * residual[i] for i in range(3))
+    return solve3(ata, atb) or (0.0, 0.0, 0.0)
+
+
+SPIKE = 6.0     # u per tick^2: hull-lead.md 3.3's impact guard
+SPIKE_HOLD = 3  # ticks of constant velocity after a spike
+
+
+def samples_accel(a, b, c):
+    return add(c["p"], sub(c["p"], b["p"]), sub(add(c["p"], a["p"]), scale(b["p"], 2.0)))
+
+
+def samples_velocity(a, b, c):
+    return add(c["p"], sub(c["p"], b["p"]))
+
+
+def samples_rotation(b, c):
+    return qmul(qmul(c["q"], qinv(b["q"])), c["q"])
 
 
 def read(paths: list[str]) -> dict:
+    """Tracks keyed by (log, segment, entity); a tick number that does not increase (a map
+    restart) starts a new segment, so a restart never overwrites earlier samples."""
     tracks: dict = {}
     for path in paths:
+        segment, last = 0, -1
         with open(path, encoding="utf-8", errors="replace") as f:
             for line in f:
                 m = VEH_TRACE_RE.search(line)
                 if not m:
                     continue
-                tracks.setdefault((path, int(m[2])), {})[int(m[1])] = {
+                tick = int(m[1])
+                if tick < last:
+                    segment += 1
+                last = tick
+                tracks.setdefault((path, segment, int(m[2])), {})[tick] = {
                     "cls": m[3].replace("vehicle_", ""), "p": vec(m[4]), "q": vec(m[5]),
                     "v": vec(m[6]), "w": vec(m[7]), "coll": int(m[9])}
     return tracks
@@ -120,37 +190,56 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--worst", type=int, default=0, help="list the N worst ticks of the constant-acceleration predictor")
     args = ap.parse_args(argv)
 
-    results: dict = {}
-    worst = []
-    for (_, _), track in read(args.logs).items():
+    # tick triples (n-2, n-1, n) with n+1 present, per class
+    by_class: dict = {}
+    for track in read(args.logs).values():
+        spike_left = 0
         for t in sorted(track):
             if not all(k in track for k in (t - 2, t - 1, t + 1)):
+                spike_left = 0
                 continue
             a, b, c, nxt = track[t - 2], track[t - 1], track[t], track[t + 1]
-            r = results.setdefault(c["cls"], {"motion": [], "pos": {}, "rot": {}})
-            r["motion"].append(norm(sub(nxt["p"], c["p"])))
-            for name, guess in POSITION.items():
-                r["pos"].setdefault(name, []).append(norm(sub(nxt["p"], guess(a, b, c))))
-            for name, guess in ROTATION.items():
-                r["rot"].setdefault(name, []).append(qangle(nxt["q"], guess(b, c)))
-            worst.append((r["pos"]["samples, constant acceleration"][-1], c["cls"], t, c["coll"]))
-
-    if not results:
+            spike = norm(sub(add(c["p"], a["p"]), scale(b["p"], 2.0))) > SPIKE
+            spike_left = SPIKE_HOLD + 1 if spike else max(0, spike_left - 1)
+            by_class.setdefault(c["cls"], []).append((a, b, c, nxt, spike_left > 0))
+    if not by_class:
         print("no VEH_TRACE tick triples found (run with g_simHash 1 and an occupied vehicle)")
         return 1
-    for cls, r in results.items():
-        print(f"{cls}: {len(r['motion'])} ticks; motion per tick median {percentile(r['motion'], 50):.2f} u,"
-              f" p95 {percentile(r['motion'], 95):.2f} u")
-        for name, errors in r["pos"].items():
+
+    worst = []
+    for cls, rows in by_class.items():
+        com = {g: fit_centre_of_mass([(c, nxt) for _, _, c, nxt, _ in rows], g) for g in (False, True)}
+        position = {
+            "hold (no lead)": lambda a, b, c, guard: c["p"],
+            "physics v*dt": lambda a, b, c, guard: physics_position(c, com[False], False),
+            "physics v*dt + g*dt^2": lambda a, b, c, guard: physics_position(c, com[True], True),
+            "samples, constant velocity": lambda a, b, c, guard: samples_velocity(a, b, c),
+            "samples, constant acceleration": lambda a, b, c, guard: samples_accel(a, b, c),
+            "samples, accel + impact guard": lambda a, b, c, guard: samples_velocity(a, b, c) if guard else samples_accel(a, b, c),
+        }
+        rotation = {
+            "hold (no lead)": lambda b, c: c["q"],
+            "physics w*dt": lambda b, c: physics_rotation(c),
+            "samples, constant rotation": samples_rotation,
+        }
+        motion = [norm(sub(nxt["p"], c["p"])) for _, _, c, nxt, _ in rows]
+        print(f"{cls}: {len(rows)} ticks; motion per tick median {percentile(motion, 50):.2f} u,"
+              f" p95 {percentile(motion, 95):.2f} u; fitted centre of mass {tuple(round(x, 1) for x in com[True])}"
+              f" (with gravity), {tuple(round(x, 1) for x in com[False])} (without)")
+        for name, guess in position.items():
+            errors = [norm(sub(nxt["p"], guess(a, b, c, guard))) for a, b, c, nxt, guard in rows]
             print(f"  position  {name:32s} median {percentile(errors, 50):7.3f}  p95 {percentile(errors, 95):7.3f}"
                   f"  max {max(errors):7.3f} u")
-        for name, errors in r["rot"].items():
+        for name, guess in rotation.items():
+            errors = [qangle(nxt["q"], guess(b, c)) for _, b, c, nxt, _ in rows]
             print(f"  rotation  {name:32s} median {percentile(errors, 50):7.3f}  p95 {percentile(errors, 95):7.3f}"
                   f"  max {max(errors):7.3f} deg")
+        for a, b, c, nxt, _ in rows:
+            worst.append((norm(sub(nxt["p"], samples_accel(a, b, c))), cls, c, nxt))
     if args.worst:
-        print(f"worst {args.worst} ticks (constant acceleration): error, class, tick, last collision time (ms)")
-        for err, cls, t, coll in sorted(worst, reverse=True)[:args.worst]:
-            print(f"  {err:7.2f} u  {cls}  tick {t}  coll {coll}")
+        print(f"worst {args.worst} ticks (samples, constant acceleration): error, class, speed before and after")
+        for err, cls, c, nxt in sorted(worst, key=lambda w: w[0], reverse=True)[:args.worst]:
+            print(f"  {err:7.2f} u  {cls}  speed {norm(c['v']):.0f} -> {norm(nxt['v']):.0f} u/s  last collision {nxt['coll']} ms")
     return 0
 
 
