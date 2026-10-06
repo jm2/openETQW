@@ -627,6 +627,9 @@ struct sdVulkanBackendState {
 	// rasterized lighting (no ray-query device): unshadowed lights, and the
 	// ambient scale applied to the opaque base before the interactions
 	VkPipeline				worldInteractionUnshadowedPipeline;
+	// GPU-skinned surfaces: skinned_interaction.vert with the weight stream
+	VkPipeline				worldInteractionSkinnedPipeline;
+	VkPipeline				worldInteractionSkinnedUnshadowedPipeline;
 	// set while the light block's snapshot of the opaque base is in _currentRender
 	bool					sceneAlbedoCopied;
 	VkPipeline				worldLightAmbientPipeline;
@@ -855,6 +858,8 @@ struct sdVulkanBackendState {
 		worldShadowFailPipeline = VK_NULL_HANDLE;
 		worldInteractionPipeline = VK_NULL_HANDLE;
 		worldInteractionUnshadowedPipeline = VK_NULL_HANDLE;
+		worldInteractionSkinnedPipeline = VK_NULL_HANDLE;
+		worldInteractionSkinnedUnshadowedPipeline = VK_NULL_HANDLE;
 		sceneAlbedoCopied = false;
 		worldLightAmbientPipeline = VK_NULL_HANDLE;
 		pushConstantFloats = 32;
@@ -3363,6 +3368,14 @@ void DestroyGuiResources( sdVulkanBackendState& state ) {
 		state.DestroyPipeline( state.device, state.worldInteractionUnshadowedPipeline, NULL );
 		state.worldInteractionUnshadowedPipeline = VK_NULL_HANDLE;
 	}
+	if ( state.worldInteractionSkinnedPipeline != VK_NULL_HANDLE ) {
+		state.DestroyPipeline( state.device, state.worldInteractionSkinnedPipeline, NULL );
+		state.worldInteractionSkinnedPipeline = VK_NULL_HANDLE;
+	}
+	if ( state.worldInteractionSkinnedUnshadowedPipeline != VK_NULL_HANDLE ) {
+		state.DestroyPipeline( state.device, state.worldInteractionSkinnedUnshadowedPipeline, NULL );
+		state.worldInteractionSkinnedUnshadowedPipeline = VK_NULL_HANDLE;
+	}
 	if ( state.worldLightAmbientPipeline != VK_NULL_HANDLE ) {
 		state.DestroyPipeline( state.device, state.worldLightAmbientPipeline, NULL );
 		state.worldLightAmbientPipeline = VK_NULL_HANDLE;
@@ -4121,6 +4134,42 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 			state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
 			&state.worldInteractionUnshadowedPipeline ),
 			"vkCreateGraphicsPipelines(worldInteractionUnshadowed)" );
+		// GPU-skinned variants: skinned vertex shader, plus the vertWeight_t stream
+		VkShaderModule skinnedModule = VK_NULL_HANDLE;
+		if ( created && CompileVulkanShaderModule( state, "vkprogs/world/skinned_interaction.vert",
+			SPIRV_SHADER_STAGE_VERTEX, skinnedModule ) ) {
+			shaderStages[ 0 ].module = skinnedModule;
+			VkVertexInputBindingDescription skinnedBindings[ 2 ];
+			memset( skinnedBindings, 0, sizeof( skinnedBindings ) );
+			skinnedBindings[ 0 ] = vertexBinding;
+			skinnedBindings[ 1 ].binding = 1;
+			skinnedBindings[ 1 ].stride = sizeof( vertWeight_t );
+			skinnedBindings[ 1 ].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+			VkVertexInputAttributeDescription skinnedAttributes[ 10 ];
+			memcpy( skinnedAttributes, attributes, sizeof( attributes ) );
+			skinnedAttributes[ 8 ].location = 8;
+			skinnedAttributes[ 8 ].binding = 1;
+			skinnedAttributes[ 8 ].format = VK_FORMAT_R8G8B8A8_UINT;
+			skinnedAttributes[ 8 ].offset = 0;
+			skinnedAttributes[ 9 ].location = 9;
+			skinnedAttributes[ 9 ].binding = 1;
+			skinnedAttributes[ 9 ].format = VK_FORMAT_R8G8B8A8_UNORM;
+			skinnedAttributes[ 9 ].offset = MAX_WEIGHTS_PER_VERT;
+			vertexInput.vertexBindingDescriptionCount = 2;
+			vertexInput.pVertexBindingDescriptions = skinnedBindings;
+			vertexInput.vertexAttributeDescriptionCount = 10;
+			vertexInput.pVertexAttributeDescriptions = skinnedAttributes;
+			created = CheckVulkanResult( state.CreateGraphicsPipelines(
+				state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
+				&state.worldInteractionSkinnedUnshadowedPipeline ),
+				"vkCreateGraphicsPipelines(worldInteractionSkinnedUnshadowed)" );
+			depthStencil.stencilTestEnable = VK_TRUE;
+			created = created && CheckVulkanResult( state.CreateGraphicsPipelines(
+				state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
+				&state.worldInteractionSkinnedPipeline ),
+				"vkCreateGraphicsPipelines(worldInteractionSkinned)" );
+			state.DestroyShaderModule( state.device, skinnedModule, NULL );
+		}
 	}
 
 	state.DestroyShaderModule( state.device, vertexModule, NULL );
@@ -8690,6 +8739,22 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	VkPipeline pipeline = unshadowed ?
 		( litInteraction ? state.worldInteractionUnshadowedPipeline : state.worldMaterialAddPipeline ) :
 		state.worldInteractionPipeline;
+	// A GPU-skinned surface is drawn skinned, with the same joint palette as the
+	// base pass; its bind pose would miss the base pass's depth.
+	const bool hardwareSkinned = litInteraction && tri->hardwareSkinnedSurface &&
+		tri->joints != NULL && tri->numJoints > 0 && tri->numJoints <= MAX_JOINTS_PER_MESH &&
+		tri->weightCache != NULL && state.worldInteractionSkinnedPipeline != VK_NULL_HANDLE;
+	const sdVulkanBufferResource* weightResource = NULL;
+	if ( hardwareSkinned ) {
+		const vertCache_t* weightCacheBlock = tri->weightCache;
+		weightResource = FindVulkanBufferResource( state, weightCacheBlock->backendBuffer != NULL ?
+			weightCacheBlock->backendBuffer : weightCacheBlock );
+		if ( weightResource == NULL ) {
+			return;
+		}
+		pipeline = unshadowed ? state.worldInteractionSkinnedUnshadowedPipeline :
+			state.worldInteractionSkinnedPipeline;
+	}
 	if ( pipeline == VK_NULL_HANDLE ) {
 		pipeline = state.worldMaterialAddPipeline != VK_NULL_HANDLE ?
 			state.worldMaterialAddPipeline : state.worldAddPipeline;
@@ -8850,7 +8915,37 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	state.CmdBindDescriptorSets( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
 		state.guiPipelineLayout, 0, 1, sceneAlbedoInteraction ? &sceneAlbedoSet : &descriptorSet,
 		0, NULL );
-	state.CmdBindVertexBuffers( frame.commandBuffer, 0, 1, &vertexResource->buffer, &vertexOffset );
+	if ( hardwareSkinned ) {
+		// the palette goes into this frame's joint arena, bound at set 1 as the
+		// base pass binds it
+		if ( frame.jointMapped == NULL || frame.jointDescriptorSet == VK_NULL_HANDLE ) {
+			return;
+		}
+		const VkDeviceSize alignment = state.jointUniformAlignment > 1 ?
+			state.jointUniformAlignment : 1;
+		const VkDeviceSize stride = ( VULKAN_JOINT_PALETTE_BYTES + alignment - 1 ) /
+			alignment * alignment;
+		const VkDeviceSize jointOffset = frame.jointOffset;
+		if ( jointOffset + VULKAN_JOINT_PALETTE_BYTES > VULKAN_JOINT_BUFFER_BYTES ) {
+			if ( !frame.jointOverflowWarned ) {
+				common->Warning( "Vulkan joint palette arena overflowed; increase VULKAN_JOINT_BUFFER_BYTES" );
+				frame.jointOverflowWarned = true;
+			}
+			return;
+		}
+		memcpy( static_cast< byte* >( frame.jointMapped ) + jointOffset, tri->joints,
+			tri->numJoints * sizeof( idJointMat ) );
+		const unsigned int dynamicOffset = static_cast< unsigned int >( jointOffset );
+		state.CmdBindDescriptorSets( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+			state.guiPipelineLayout, 1, 1, &frame.jointDescriptorSet, 1, &dynamicOffset );
+		frame.jointOffset += stride;
+		const VkBuffer buffers[ 2 ] = { vertexResource->buffer, weightResource->buffer };
+		const VkDeviceSize offsets[ 2 ] = { vertexOffset,
+			static_cast< VkDeviceSize >( tri->weightCache->offset ) };
+		state.CmdBindVertexBuffers( frame.commandBuffer, 0, 2, buffers, offsets );
+	} else {
+		state.CmdBindVertexBuffers( frame.commandBuffer, 0, 1, &vertexResource->buffer, &vertexOffset );
+	}
 	state.CmdBindIndexBuffer( frame.commandBuffer, indexResource->buffer, indexOffset, VK_INDEX_TYPE_UINT16 );
 	state.CmdPushConstants( frame.commandBuffer, state.guiPipelineLayout,
 		VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,

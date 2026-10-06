@@ -62,13 +62,14 @@ void main() {
 	if ( dot( geometricNormal, lightDirection ) <= 0.0 ) {
 		discard;
 	}
-	// RXGB (normal compression 2): X in alpha, Y in green, Z in blue.  The
-	// generated _flat image is (128, 128, 255, 255); no valid RXGB normal has
-	// both X and Z near 1, so that texel is read as the unperturbed normal.
-	vec4 packedNormal = relative ? vec4( 1.0 ) : texture( bumpTexture, fragmentTexCoord );
+	// Normal maps reach Vulkan with X and Y in red and green: retail's ATI2/BC5
+	// decodes to (X, Y, 0, 255) (DecodeDDSLevelRGBA), RXGB to (X, Y, Z, 255) with
+	// its alpha moved into red, and the generated _flat image (128, 128, 255, 255)
+	// reads as X = Y = 0.  Z is rebuilt from X and Y.
+	vec4 packedNormal = relative ? vec4( 0.5, 0.5, 1.0, 1.0 ) : texture( bumpTexture, fragmentTexCoord );
 	vec3 normal = geometricNormal;
-	if ( !( packedNormal.a > 0.99 && packedNormal.b > 0.99 ) ) {
-		vec2 tangentXY = vec2( packedNormal.a, packedNormal.g ) * 2.0 - 1.0;
+	{
+		vec2 tangentXY = packedNormal.rg * 2.0 - 1.0;
 		float tangentZ = sqrt( max( 0.0, 1.0 - dot( tangentXY, tangentXY ) ) );
 		normal = normalize( fragmentTangent * tangentXY.x +
 			fragmentBitangent * tangentXY.y + geometricNormal * tangentZ );
