@@ -123,6 +123,40 @@ def moving_poses(poses):
     return [p for p in poses if p["gt"] in moving]
 
 
+LOOK_TAPS = 10        # L1: +left taps, each LOOK_TAP_S long
+LOOK_TAP_S = 0.25
+LOOK_HOLD_S = 0.6     # L2: the held turn (the vehicle's key turn is faster than in_yawSpeed alone)
+
+
+def look_response(lines):
+    """L1: for each +left tap (marked LOOKTAP in the log, echoed in the frame that runs the
+    +left), how many draws come before the first one whose yaw differs from the draw before
+    the tap. A late look shows the turn on the next draw; without it the turn first shows
+    after the next tick."""
+    counts = []
+    i = 0
+    while i < len(lines):
+        if lines[i].strip() != "LOOKTAP":
+            i += 1
+            continue
+        before = next((p for ln in reversed(lines[:i]) if (p := parse_pose(ln))), None)
+        n = 0
+        for ln in lines[i + 1:]:
+            p = parse_pose(ln)
+            if p is None:
+                continue
+            n += 1
+            # 0.2 deg: the parked badger's suspension sways the eye by hundredths of a degree;
+            # the key turn at 60 deg/s is 0.5 deg a draw at 120 fps
+            if before is not None and abs((p["view"][4] - before["view"][4] + 180.0) % 360.0 - 180.0) > 0.2:
+                counts.append(n)
+                break
+            if n > 40:
+                break
+        i += 1
+    return counts
+
+
 def per_tick(res):
     """The stepped shape: the pose changes on the pairs that cross a tick and no others."""
     return not res["ok"] and res["n"] >= MIN_PAIRS and res["misaligned"] <= max(1, int(SHAPE_TOL * res["n"]))
@@ -264,6 +298,57 @@ def main(argv):
             connect(srv, peer, args.mode)
             spawn(srv, peer, "gdf")
         obs.send("set g_logFramePoses 1")
+
+        # stage 5, the late look, first of all: +left/+right taps from the parked driver's
+        # seat (standard view), before any drive can move the badger
+        cap = 120
+        obs.send(f"set com_maxFPS {cap}")
+        obs.send(f"set g_unlock_vehicleSeats {LISTED}")
+        seat_up()
+        results_look = {}
+        for setting in ("1", "0"):
+            obs.send(f"set g_unlock_vehicleLook {setting}")
+            time.sleep(0.5)
+            # the driver's yaw is clamped (badger: +-105 deg): taps alternate left and right,
+            # and the held turn (LOOK_HOLD_S) stays inside the clamp from where they leave it
+            obs.send("set in_yawSpeed 60")
+            begin = obs.mark()
+            for k in range(LOOK_TAPS):
+                key = "left" if k % 2 == 0 else "right"
+                obs.send(f"+{key}")
+                obs.send("echo LOOKTAP")
+                time.sleep(LOOK_TAP_S)
+                obs.send(f"-{key}")
+                time.sleep(0.4)
+            obs.send("+left")
+            mark = obs.mark()
+            time.sleep(LOOK_HOLD_S)
+            end = obs.mark()
+            obs.send("-left")
+            obs.send("+right")
+            time.sleep(LOOK_HOLD_S)
+            obs.send("-right")
+            time.sleep(0.5)
+            lines = [ln.text for ln in obs.snapshot(begin)]
+            held = [p for ln in obs.snapshot(mark, end) if (p := parse_pose(ln.text))]
+            results_look[setting] = (look_response(lines), fraction_check(
+                held[len(held) // 8:], lambda a, b: abs((a["view"][4] - b["view"][4] + 180.0) % 360.0 - 180.0) > 0.01,
+                "view yaw"))
+        obs.send("set g_unlock_vehicleLook 1")
+        on, on_turn = results_look["1"]
+        off, off_turn = results_look["0"]
+        mean = lambda xs: sum(xs) / len(xs) if xs else float("inf")
+        print(f"[seat] late look at cap {cap}: draws to the first changed yaw after +left, on {on} (mean {mean(on):.2f}),"
+              f" off {off} (mean {mean(off):.2f}); held, on: {on_turn['detail']}")
+        l1 = len(on) >= LOOK_TAPS - 1 and sorted(on)[int(0.9 * (len(on) - 1))] <= 1
+        l1c = len(off) >= LOOK_TAPS - 1 and mean(off) >= mean(on) + 1.0
+        for check, ok, detail in (("L1", l1, f"90% of taps show the turn on the next draw (counts {on})"),
+                                  ("L2", on_turn["ok"], on_turn["detail"]),
+                                  ("L1c", l1c, f"with g_unlock_vehicleLook 0 the turn shows at least a draw later on average"
+                                               f" (mean {mean(off):.2f} against {mean(on):.2f})")):
+            print(f"  {cap:3} {check}  {'pass' if ok else 'FAIL'}  {detail}")
+            if not ok:
+                failures.append(f"late look {check}: {detail}")
 
         # stage 4 first, while the badger is parked where it spawned (after the drives it
         # can end up across the peer's walk)
