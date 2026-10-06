@@ -334,7 +334,7 @@ This stage must ship in the same release as stage 3. Otherwise targets stepping 
 
 ### Stage 5: late mouse look in angle-driven seats (m5-plan step 14, second part)
 
-**Status (2026-10-05).** First tier built for the `standard` class (ledger 064, `g_unlock_vehicleLook`): the drawn angles, r_n, the pure clamp and the zero-Δ cases below except `freshEntry` (a pending fresh entry draws the tick view, row 062's guard). Measured by the first changed draw after `+left` (meson `seat-poses`: 1.00 draws on, 2.89 off at cap 120). Not built yet: the other classes, the scripted Δ for replay and the per-tick angle-error check.
+**Status (2026-10-05).** First tier built for the `standard` class (ledger 064, `g_unlock_vehicleLook`), in seats whose clamp is the base class's with extents only and that do not need the tophat: the drawn angles, r_n (with no input counted on a tick that ignored its command's turn), the pure clamp and the zero-Δ cases below, plus `InhibitTurning`; a pending fresh entry draws the tick view (row 062's guard). Measured by the first changed draw after `+left` (meson `seat-poses`: 1.00 draws on, 2.89 off at cap 120) and a held turn that never turns back (L3). Not built yet: the other classes, the scripted Δ for replay and the per-tick angle-error check.
 
 **What changes (game)**
 - **The late turn.** Use the render-only usercmd the engine already passes: Δ = `SHORT2ANGLE((short)(cmd.angles − p->usercmd.angles))`, normalized to the shortest arc. This is the same form as the on-foot path (game `Game_local.cpp:6087`).

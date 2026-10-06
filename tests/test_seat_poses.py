@@ -23,6 +23,16 @@ FRAME_POSE line per draw: the drawn view, the seat and the vehicle's render-worl
               (the presentation draws a fixed age; a stepped hull would cross a tick in
               one step of a whole tick's motion: 4x at cap 120)
 
+Late mouse look (stage 5), first of all, at cap 120 from the parked driver's seat (the
+in_yawSpeed key turn stands in for the mouse):
+
+  L0 seat     every draw of the phase is from the driver's seat in its standard view
+  L1 tap      90% of LOOK_TAPS +left/+right taps show the turn on the next draw
+  L2 held     a held turn changes the drawn yaw between consecutive draws (>= 99%)
+  L3 smooth   under the held turn the yaw never turns back, and a step across a tick is
+              at most 2.5 x the median step within one
+  L1c control with g_unlock_vehicleLook 0 the turn shows at least a draw later on average
+
 Remote entities while seated (stage 4; join and listen, which have a headless peer): at
 cap 120, with the driver parked in the listed seat, the peer walks forward, then back:
 
@@ -48,6 +58,7 @@ Exit 77 when ETQW_DATA_PATH is unset/invalid or the client binary is missing.
 
 import argparse
 import math
+import os
 import statistics
 import sys
 import time
@@ -155,6 +166,26 @@ def look_response(lines):
                 break
         i += 1
     return counts
+
+
+def look_consistency(held, k=2.5):
+    """L3: under a held turn the drawn yaw moves one way on every draw that moves it (no
+    snap back at a tick, no sawtooth), and a step across a tick is at most k times the
+    median step within one (no double count or lag that a tick catches up)."""
+    yaw = lambda p: p["view"][4]
+    steps = [((yaw(b) - yaw(a) + 180.0) % 360.0 - 180.0, a["gt"] != b["gt"]) for a, b in zip(held, held[1:])]
+    moving = [(d, cross) for d, cross in steps if abs(d) > 0.01]
+    if len(moving) < MIN_PAIRS // 2:
+        return False, f"too few moving draw pairs under the held turn ({len(moving)})"
+    sign = 1.0 if sum(d for d, _ in moving) > 0 else -1.0
+    back = sum(1 for d, _ in moving if d * sign < 0)
+    inside = sorted(abs(d) for d, cross in moving if not cross)
+    across = [abs(d) for d, cross in moving if cross]
+    median = inside[len(inside) // 2] if inside else 0.0
+    worst = max(across) / median if across and median > 0 else float("inf")
+    ok = back == 0 and worst <= k
+    return ok, (f"held yaw: {back} of {len(moving)} moving pairs turn back; worst cross-tick step {worst:.2f}x"
+                f" the median in-tick step (at most {k}x)")
 
 
 def per_tick(res):
@@ -315,8 +346,8 @@ def main(argv):
             begin = obs.mark()
             for k in range(LOOK_TAPS):
                 key = "left" if k % 2 == 0 else "right"
-                obs.send(f"+{key}")
-                obs.send("echo LOOKTAP")
+                # one line: the marker lands in the frame that runs the key
+                obs.send(f"+{key}; echo LOOKTAP")
                 time.sleep(LOOK_TAP_S)
                 obs.send(f"-{key}")
                 time.sleep(0.4)
@@ -331,18 +362,26 @@ def main(argv):
             time.sleep(0.5)
             lines = [ln.text for ln in obs.snapshot(begin)]
             held = [p for ln in obs.snapshot(mark, end) if (p := parse_pose(ln.text))]
-            results_look[setting] = (look_response(lines), fraction_check(
+            seats = {p["seat"] for p in (parse_pose(ln) for ln in lines) if p is not None}
+            results_look[setting] = (seats, held, look_response(lines), fraction_check(
                 held[len(held) // 8:], lambda a, b: abs((a["view"][4] - b["view"][4] + 180.0) % 360.0 - 180.0) > 0.01,
                 "view yaw"))
         obs.send("set g_unlock_vehicleLook 1")
-        on, on_turn = results_look["1"]
-        off, off_turn = results_look["0"]
+        look_seats, on_held, on, on_turn = results_look["1"]
+        off_seats, _, off, off_turn = results_look["0"]
+        # L0: every draw of the phase is from the driver's seat in its standard view, so an
+        # on-foot late look cannot pass L1 and L2
+        look_seats |= off_seats
+        l0 = len(look_seats) == 1 and None not in look_seats and seat_fields(next(iter(look_seats)))[1:] == (0, 0)
+        l3, l3_detail = look_consistency(on_held[len(on_held) // 8:])
         mean = lambda xs: sum(xs) / len(xs) if xs else float("inf")
         print(f"[seat] late look at cap {cap}: draws to the first changed yaw after +left, on {on} (mean {mean(on):.2f}),"
               f" off {off} (mean {mean(off):.2f}); held, on: {on_turn['detail']}")
         l1 = len(on) >= LOOK_TAPS - 1 and sorted(on)[int(0.9 * (len(on) - 1))] <= 1
         l1c = len(off) >= LOOK_TAPS - 1 and mean(off) >= mean(on) + 1.0
-        for check, ok, detail in (("L1", l1, f"90% of taps show the turn on the next draw (counts {on})"),
+        for check, ok, detail in (("L0", l0, f"seats {sorted(x or '-' for x in look_seats)}"),
+                                  ("L3", l3, l3_detail),
+                                  ("L1", l1, f"90% of taps show the turn on the next draw (counts {on})"),
                                   ("L2", on_turn["ok"], on_turn["detail"]),
                                   ("L1c", l1c, f"with g_unlock_vehicleLook 0 the turn shows at least a draw later on average"
                                                f" (mean {mean(off):.2f} against {mean(on):.2f})")):
@@ -514,6 +553,11 @@ def main(argv):
                 for i, text in enumerate(lines):
                     if any(m in text for m in BAD_MARKERS):
                         failures.append(f"{name} log line {i + 1}: {text}")
+                if failures:
+                    # keep the client's poses and phase marks for a failure that does not recur
+                    keep = Path(os.environ.get("TMPDIR") or "/var/tmp") / f"seat-poses-{args.mode}-{os.getpid()}.log"
+                    keep.write_text("\n".join(t for t in lines if any(m in t for m in ("FRAME_POSE", "FP_", "SEAT", "LOOKTAP"))) + "\n")
+                    print(f"[seat] the client's FRAME_POSE lines are kept in {keep}")
             if code not in (0, None):
                 failures.append(f"the {name} exited with {code}")
             proc.cleanup()
