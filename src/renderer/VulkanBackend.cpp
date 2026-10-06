@@ -5799,6 +5799,20 @@ bool CopyCurrentRender( sdVulkanBackendState& state ) {
 	fromTransfer[ 1 ].subresourceRange.levelCount = 1;
 	fromTransfer[ 1 ].subresourceRange.layerCount = 1;
 	dependencyInfo.pImageMemoryBarriers = fromTransfer;
+	// the depth/stencil attachment is stored by the ended rendering and loaded
+	// by the restarted one
+	VkMemoryBarrier2 depthBarrier;
+	memset( &depthBarrier, 0, sizeof( depthBarrier ) );
+	depthBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+	depthBarrier.srcStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+		VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+	depthBarrier.srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	depthBarrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+		VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+	depthBarrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	dependencyInfo.memoryBarrierCount = 1;
+	dependencyInfo.pMemoryBarriers = &depthBarrier;
 	state.CmdPipelineBarrier2( frame.commandBuffer, &dependencyInfo );
 
 	VkRenderingAttachmentInfo colorAttachment;
@@ -8791,7 +8805,10 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		const vertCache_t* weightCacheBlock = tri->weightCache;
 		weightResource = FindVulkanBufferResource( state, weightCacheBlock->backendBuffer != NULL ?
 			weightCacheBlock->backendBuffer : weightCacheBlock );
-		if ( weightResource == NULL ) {
+		if ( weightResource == NULL || weightCacheBlock->offset < 0 ||
+			static_cast< VkDeviceSize >( weightCacheBlock->offset ) +
+				static_cast< VkDeviceSize >( tri->numVerts ) * sizeof( vertWeight_t ) >
+				weightResource->bytes ) {
 			return;
 		}
 		pipeline = unshadowed ? state.worldInteractionSkinnedUnshadowedPipeline :
@@ -9428,27 +9445,33 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 					DrawVulkanLightInteraction( *state, surf, light, view, true );
 				}
 			}
+			// _currentRender now holds the unlit snapshot: a later refraction
+			// surface must copy the lit scene again.  Without a snapshot the
+			// weapon-boundary copy, if any, is still the right one.
+			if ( state->sceneAlbedoCopied ) {
+				currentRenderCopied = false;
+			}
 			state->sceneAlbedoCopied = false;
+			// Shadow volumes leave their slope bias set; every world pipeline
+			// enables depth bias, so clear it for the surfaces that follow.
+			state->CmdSetDepthBias( frame.commandBuffer, 0.0f, 0.0f, 0.0f );
+			submittedPolygonOffset = 0.0f;
+			// the block binds pipelines, descriptors, buffers and dynamic state
+			// directly; the surface loop's cached submission state is stale after it
+			submittedPipeline = VK_NULL_HANDLE;
+			submittedDescriptorSet = VK_NULL_HANDLE;
+			submittedViewportValid = false;
+			submittedScissorValid = false;
+			submittedVertexBuffer = VK_NULL_HANDLE;
+			submittedWeightBuffer = VK_NULL_HANDLE;
+			submittedIndexBuffer = VK_NULL_HANDLE;
+			submittedJointOffset = UINT_MAX;
 		}
-		// the block binds pipelines, descriptors, buffers and dynamic state
-		// directly; the surface loop's cached submission state is stale after it
-		submittedPipeline = VK_NULL_HANDLE;
-		submittedDescriptorSet = VK_NULL_HANDLE;
-		submittedViewportValid = false;
-		submittedScissorValid = false;
-		submittedVertexBuffer = VK_NULL_HANDLE;
-		submittedWeightBuffer = VK_NULL_HANDLE;
-		submittedIndexBuffer = VK_NULL_HANDLE;
-		submittedJointOffset = UINT_MAX;
-		submittedPolygonOffset = 0.0f;
-		// _currentRender now holds the unlit snapshot: a later refraction
-		// surface must copy the lit scene again
-		currentRenderCopied = false;
 	};
 	for ( int surfaceIndex = 0; surfaceIndex < view->numDrawSurfs; ++surfaceIndex ) {
 		const drawSurf_s* surface = view->drawSurfs[ surfaceIndex ];
 		if ( !rasterLightingDone && surface != NULL && surface->material != NULL &&
-			surface->material->GetSort() > SS_DECAL ) {
+			surface->material->GetSort() > static_cast< float >( SS_DECAL ) ) {
 			RunRasterLighting();
 			rasterLightingDone = true;
 		}
@@ -9970,7 +9993,9 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			// Refraction is sorted after ordinary opaque surfaces, including the
 			// first-person model.  Snapshot at the boundary before weapon-depth-hack
 			// geometry so the gun draws normally in front of the finished water but
-			// is not baked into the distorted scene texture.
+			// is not baked into the distorted scene texture.  The raster light
+			// block runs after the gun and snapshots the unlit scene, so on a
+			// device without ray queries refraction re-copies with the gun in.
 			currentRenderCopied = true;
 		}
 		// Each material vertex program is compiled independently. Requiring the
