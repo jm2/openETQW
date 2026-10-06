@@ -41,7 +41,7 @@ python3 tools/analysis/veh_pred.py <console log> --worst 6
 | Samples, constant acceleration with §3.3's spike fallback | 0.100 / **1.749** / 33.45 | 0.011 / 0.087 / 4.29 | | |
 | Samples, constant rotation: the last tick's rotation applied again | | | **0.058** / 0.380 / 4.56 | 0.000 / 0.126 / 0.26 |
 
-`VEH_TRACE` does not print the body's centre of mass (`mainCenterOfMass`), so the tool fits it per class by least squares. Two fits: the badger's, (7, −12, −163) u, absorbs ground contact effects and is not physical; the anansi's, (−32, 0, 45) u with gravity, is plausible. The game implementation would read the real value.
+`VEH_TRACE` does not print the body's centre of mass (`mainCenterOfMass`), so the tool fits it per class by least squares. Two fits: the badger's, (7, −12, −163) u, absorbs ground contact effects and is not physical; the anansi's, (−32, 0, 45) u with gravity, is plausible. Both fits are in-sample, made on the same data the errors are reported from, with the impact included, so the anansi's 0.005 u is slightly optimistic. The game implementation reads the real value, and step 2 logs it to confirm the fit.
 
 **What it shows.**
 - **What the physics' own step on a copy contains.**
@@ -82,12 +82,20 @@ Three candidates are built behind one switch, and step 2 (§5) picks per class:
   - It needs no physics reads and no new tick-side code, so `vehicle-responsiveness.md` §3.1 rules 1–2 hold as they are: samples only on new ticks, from the post-decay render entity.
 - **P, the physics step (stage 7's `PredictNextPose`, corrected).**
   - It is computed once per tick in `SampleTick`, from the transport's physics state after `Evaluate` and `Present`:
-    - the centre of mass moves by (v + g·dt)·dt, with the gravity add-back only when the body has no ground contacts;
+    - the centre of mass moves by (v + g·dt)·dt, with the gravity add-back only when `HasGroundContacts()` is false;
     - the orientation rotates by ω·dt;
     - the origin is re-derived through `mainCenterOfMass`.
   - The result is stored as a delta (predicted − physics(n)), which the draw applies to the post-decay render pose. So the decay is never extrapolated.
-  - This reads physics fields at tick time. It is stage 7's own design, and needs the read-only accessors noted in §3.5.
-- **H, the hybrid.** P while the body has no contacts (airborne), and S while it has any.
+  - It is a closed form in `SampleTick`, not stage 7's `idODE_Euler` step on a copy called from `PostThink`. Without external force the two are the same step (§2).
+  - **P is an exception to `vehicle-responsiveness.md` §3.1 rule 2** ("never the physics pose"):
+    - it reads the physics pose, velocities and contact state at tick time;
+    - it never draws them: only the delta (predicted − physics(n)) reaches the draw, on top of the post-decay render pose, so the decay is still what the player sees;
+    - rule 1 holds, since it writes nothing.
+
+    The ledger row for step 3 records the exception.
+- **H, the hybrid.** P while `HasGroundContacts()` is false (airborne), and S while it is true.
+  - The contacts come from the tick's `EvaluateContacts`, before `Integrate` (game repo: `Physics_RigidBodyMultiple.cpp:2129`). They include the wheel, track and hover-pad contacts that `sdTransport::EvaluateContacts` adds (`TransportComponents.cpp:1870, 2305, 3274`).
+  - So a driving badger counts as grounded, and a hovering pad vehicle may never count as airborne. Step 2 records the contact state per tick to check this per class.
 
 Common to all three:
 - **Continuity.** The samples must pass the existing continuity guards (`SamplesContinue`: one seat, one proxy, no jump) pairwise. When they don't, the lead is 0 for that draw, which is today's blend.
@@ -104,7 +112,9 @@ Common to all three:
   - L = 0.5 keeps the tick-rate view's mean age and halves the worst overshoot.
 - **The correction at a new tick.** At the new tick's first draw, `hull(n+1)` and the last drawn lead pose differ by the prediction error: a median of 0.1 u (badger) and 0.01 u (anansi), and up to 33 u at an impact.
   - That difference is faded out over `g_vehicleLeadFadeMsec` (default 25 ms, under one tick), as an offset that decays linearly.
-  - A fade still running when the next tick arrives is not restarted: the new correction is added to what is left of the old offset, and the sum decays over a fresh fade time. The offset is therefore always bounded by the sum of the last two corrections.
+  - A correction is measured against the predicted pose without the fade offset, so a residual is never counted twice.
+  - A fade still running when the next tick arrives is not restarted: the new correction is added to what is left of the old offset, and the sum decays over a fresh fade time.
+  - While the fade (25 ms) is shorter than the tick spacing (33 ms), the offset is bounded by the sum of the last two corrections. A longer fade, or ticks bunched after a hitch, lets residuals pile up, so `g_vehicleLeadFadeMsec` is clamped to 30 ms.
   - An error over a jump bound, the same 64 u as the hull guard, is not faded: the draw snaps, as a respawn does today.
 - **The camera.**
   - **First person:** the camera rides the drawn hull, through its offset in the hull's frame.
@@ -146,7 +156,7 @@ A hull trace in `SampleTick` against the world is **not** proposed. It would bou
 
 ### 3.5 What does not change
 
-- **Tick state.** Every tick value, `SIM_HASH`, `SIM_VIEW` and `VEH_TRACE` are unchanged. S reads only the presentation's samples. P reads physics fields at tick time through const accessors: `GetMainCenterOfMass`, which is new and const, and the current contacts count. It writes nothing.
+- **Tick state.** Every tick value, `SIM_HASH`, `SIM_VIEW` and `VEH_TRACE` are unchanged. S reads only the presentation's samples. P reads physics fields at tick time through existing const accessors: `GetMainCenterOfMass` (game repo: `Physics_RigidBodyMultiple.h:229`; `sdTransport::GetCenterOfMass`, `Transport.h:683`) and `HasGroundContacts` (`Physics_Base.h:153`). It writes nothing.
 - **Other players' views.** The lead is local presentation of the local view player's own transport.
 - **Seats the seat gate doesn't present.** They keep today's tick-rate view.
 
