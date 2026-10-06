@@ -102,8 +102,11 @@ SEATED_TICKS = range(21, 125)
 # empty in step 13; keep it in step as seats join it
 DEFAULT_LIST: tuple[str, ...] = ()
 # the view classes the game's built-in recipes cover for transports (game SeatGate.cpp,
-# seatRecipes; M5 step 14: the first-person standard view sdPresentation draws)
-BUILTIN_RECIPES = frozenset({"standard"})
+# seatRecipes; M5 step 14: the first-person standard view and the chase views sdPresentation draws)
+BUILTIN_RECIPES = frozenset({"standard", "smooth", "smooth_free", "smooth_locked"})
+# the classes whose recipe draws a third-person camera blended in the world; a view whose
+# thirdPerson flag does not match its class's recipe is not presented (game seatRecipes)
+WORLD_CAMERA_RECIPES = frozenset({"smooth", "smooth_free", "smooth_locked"})
 
 SIM_HASH_RE = re.compile(r"^SIM_HASH: tick=(\d+) ")
 SIM_VIEW_RE = re.compile(r"^SIM_VIEW: tick=(\d+) (.*)$")
@@ -380,11 +383,10 @@ def check_listed(run: Run) -> list[str]:
 def check_presented(run: Run, presenting: bool) -> list[str]:
     """M5 step 14: SEAT_PRESENT counts the draws the seat presentation prepared between
     ticks n-1 and n and how many it blended. With the built-in recipes listed (run B), on
-    the ticks a first-person seat is open throughout (draw[n-1], draw[n], the same seat)
-    at most max(6, 10%) of the prepared draws are not blended (the guards: a few draws
-    after each entry or camera cycle), and there are at least 30 such draws; with nothing
-    listed (run A) no
-    draw is ever blended."""
+    the ticks a seat of a built-in class is open throughout (draw[n-1], draw[n], the same
+    seat) at most max(6, 10%) of the prepared draws are not blended (the guards: a few
+    draws after each entry or camera cycle), and there are at least 30 such draws; with
+    nothing listed (run A) no draw is ever blended."""
     problems = []
     missing = [g["tick"] for g in run.gate if g["tick"] not in run.blended]
     if missing:
@@ -406,13 +408,13 @@ def check_presented(run: Run, presenting: bool) -> list[str]:
     for prev, g in zip(run.gate, run.gate[1:]):
         same = (g["ent"], g["pos"], g["mode"]) == (prev["ent"], prev["pos"], prev["mode"])
         view = run.view_for(g["ent"], g["pos"], g["mode"])
-        # sdPresentation draws first-person views only (a third-person view of a built-in
-        # class opens the gate but draws the tick's view)
-        first_person = view is not None and not view["third"]
-        if prev["draw"] and g["draw"] and same and first_person and g["type"].lower() in BUILTIN_RECIPES:
+        cls = g["type"].lower()
+        # presented only where the view's thirdPerson flag matches its class's recipe
+        matches = view is not None and bool(view["third"]) == (cls in WORLD_CAMERA_RECIPES)
+        if prev["draw"] and g["draw"] and same and cls in BUILTIN_RECIPES and matches:
             prepared += run.prepared[g["tick"]]
             blended += run.blended[g["tick"]]
-    print(f"  run {run.name}: {blended} of {prepared} draws prepared in open first-person seats were blended")
+    print(f"  run {run.name}: {blended} of {prepared} draws prepared in open seats were blended")
     if prepared < 30 or prepared - blended > max(6, int(0.1 * prepared)):
         problems.append(f"run {run.name}: the presentation blended {blended} of {prepared} prepared draws in open seats")
     return problems

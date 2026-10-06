@@ -16,6 +16,8 @@ FRAME_POSE line per draw: the drawn view, the seat and the vehicle's render-worl
               phase has >= MIN_PAIRS draw pairs
   S1 view     the drawn view origin changes between consecutive draws (>= 99%)
   S2 hull     the vehicle's drawn pose changes between consecutive draws (>= 99%)
+              (S1 and S2 over the ticks in which the hull moved at least 0.5 u: at a
+              leg's turnaround the badger stops for a moment)
   S3 path     the drawn hull lies on one interpolation path (frame-poses A7b's knot fit)
   S4 steps    the hull's step across a tick is at most 2.5 x the median step within one
               (the presentation draws a fixed age; a stepped hull would cross a tick in
@@ -31,10 +33,11 @@ and with the seat unlisted the peer's pose never changes within a tick while it 
 
 Negative control (the lowest cap): with g_unlock_vehicleSeats empty the seat is not
 listed, and the view and hull never change within a tick (at most one pair) while they
-move (a stationary tick would break an exact per-tick count). Guards, with every seat listed ('*'): the badger driver's
-chase camera (smooth_locked, cycled with cycleVehicleCamera; no presentable recipe) and
-the icarus (a jetpack: no recipe can cover it) draw the tick's view: their view (and the
-chase camera's hull) never changes within a tick (at most one pair), while it moves.
+move (a stationary tick would break an exact per-tick count). The chase camera (every seat listed; the driver's second view, smooth_locked, cycled
+with cycleVehicleCamera): C1/C2 the view and the hull change on >= 99% of draw pairs,
+C3/C4 both lie on one interpolation path (its own tick cameras are blended in the world).
+Guard: the icarus (a jetpack: no recipe can cover it), listed, never changes its view
+within a tick (at most one pair) while it moves.
 
 Safety (nothing presented reaches tick state) is shown by meson seat-gate: its run B lists
 every seat, so the presentation runs during the seat tour, and SIM_HASH, VEH_TRACE and
@@ -56,7 +59,7 @@ from test_campaign_client_maps import BAD_MARKERS, find_client  # noqa: E402
 from test_client_network import VulkanClient  # noqa: E402
 from test_frame_poses import (DevmapClient, EDGE_S, MIN_PAIRS, POS_EPS, fraction_check,  # noqa: E402
                               moved, onpath_check, parse_pose, rate)
-from test_reconnect_restart import Failed, connect, spawn  # noqa: E402
+from test_reconnect_restart import Failed, connect, player_pos, spawn  # noqa: E402
 from test_remote_client_map_change import READY, RemoteClient  # noqa: E402
 
 LISTED = "badger:*:standard"
@@ -65,6 +68,7 @@ LISTED = "badger:*:standard"
 # order, valley's 37, parked on a slope where backing up rolls it
 BADGER = "sdVehicle_RigidBody_vehicle_badger_57"
 THROTTLE = 96
+DRIVE_LEG_S = 1.2     # each drive leg: short, so the badger stays clear of obstacles
 STEP_RATIO = 2.5
 SHAPE_TOL = 0.05     # per_tick shape: at most this fraction of pairs may disagree
 
@@ -101,6 +105,22 @@ def step_check(poses):
     return {"ok": ratio <= STEP_RATIO,
             "detail": f"median step across a tick {statistics.median(cross):.3f} u, within {statistics.median(within):.3f} u"
                       f" (ratio {ratio:.2f}, need <= {STEP_RATIO})"}
+
+
+MOVING_TICK_U = 0.5   # S1/S2: a tick counts when the hull moved at least this far over it
+
+
+def moving_poses(poses):
+    """The draws of the ticks over which the hull moved at least MOVING_TICK_U (to the next
+    tick's first draw): at a leg's turnaround the badger stops for a moment, and a draw that
+    moves less than POS_EPS there is the vehicle, not the presentation."""
+    first = {}
+    for p in poses:
+        if p["veh"] is not None:
+            first.setdefault(p["gt"], p["veh"])
+    moving = {gt for gt, v in first.items() if (nxt := first.get(gt + 33)) is not None
+              and math.dist(v[:3], nxt[:3]) >= MOVING_TICK_U}
+    return [p for p in poses if p["gt"] in moving]
 
 
 def per_tick(res):
@@ -190,12 +210,16 @@ def main(argv):
         time.sleep(args.phase_seconds)
         peer.send("clientMove 0 0 0")
 
+    legs = {"order": 1}
+
     def drive():
-        # three-quarter throttle: at full throttle the badger can roll or wreck itself
-        obs.send(f"clientMove {THROTTLE} 0 0")
-        time.sleep(args.phase_seconds)
-        obs.send(f"clientMove -{THROTTLE} 0 0")
-        time.sleep(args.phase_seconds)
+        # three-quarter throttle: at full throttle the badger can roll or wreck itself. The
+        # legs alternate (forward then back, then back then forward): the badger reverses
+        # slower than it drives, so the same order every phase walks it into an obstacle
+        legs["order"] = -legs["order"]
+        for sign in (legs["order"], -legs["order"]):
+            obs.send(f"clientMove {sign * THROTTLE} 0 0")
+            time.sleep(DRIVE_LEG_S)
         obs.send("clientMove 0 0 0")
 
     def seat_up(vehicle=BADGER):
@@ -241,25 +265,8 @@ def main(argv):
             spawn(srv, peer, "gdf")
         obs.send("set g_logFramePoses 1")
 
-        for cap in caps:
-            obs.send(f"set com_maxFPS {cap}")
-            seat_up()
-            poses = phase("seatdrive", cap, drive)
-            seats = {p["seat"] for p in poses}
-            # the driver's seat (position 0) in its first view (mode 0, the standard view)
-            ok0 = len(poses) - 1 >= MIN_PAIRS and len(seats) == 1 and None not in seats \
-                and seat_fields(next(iter(seats)))[1:] == (0, 0)
-            view, hull = shapes(poses)
-            path = onpath_check(poses, lambda p: p["veh"], "vehicle's drawn pose")
-            steps = step_check(poses)
-            results = {"S0": {"ok": ok0, "detail": f"{len(poses) - 1} draw pairs, seats {sorted(s or '-' for s in seats)}"},
-                       "S1": view, "S2": hull, "S3": path, "S4": steps}
-            print(f"[seat] cap {cap}: {rate(poses):.1f} fps")
-            for check, res in results.items():
-                print(f"  {cap:3} {check}  {'pass' if res['ok'] else 'FAIL'}  {res['detail']}")
-                if not res["ok"]:
-                    failures.append(f"cap {cap} {check}: {res['detail']}")
-
+        # stage 4 first, while the badger is parked where it spawned (after the drives it
+        # can end up across the peer's walk)
         if peer is not None:
             # stage 4: the peer walks while the driver sits parked in the listed seat
             cap = 120
@@ -268,22 +275,38 @@ def main(argv):
             def peer_pose_of(p):
                 return (p["clients"].get(peer.slot) or {}).get("pose")
             def peer_phase(name):
-                """A peer phase, retried once after the peer strafes clear if it barely moved
-                (a spawn behind the parked badger blocks the walk) or jumped (it died and
-                respawned: the interpolation smears a teleport across a tick, as in the SDK)."""
-                poses = phase(name, cap, peer_walk)
-                moving = sum(1 for a, b in zip(poses, poses[1:]) if moved(peer_pose_of(a), peer_pose_of(b)))
-                jumped = any(peer_pose_of(a) and peer_pose_of(b) and math.dist(peer_pose_of(a)[:3], peer_pose_of(b)[:3]) > 200.0
-                             for a, b in zip(poses, poses[1:]))
-                if moving < MIN_PAIRS or jumped:
-                    print(f"[seat] {name}: the peer moved on {moving} draw pairs{', and jumped (a respawn)' if jumped else ''};"
-                          f" strafing clear and retrying")
-                    time.sleep(3.0 if jumped else 0.0)
-                    peer.send("clientMove 0 127 0")
-                    time.sleep(1.5)
-                    peer.send("clientMove 0 0 0")
-                    time.sleep(0.5)
+                """A peer phase. If the peer barely moved, the server says whether it really
+                did not move (playerPos): wedged against the parked badger next to its spawn
+                (Windows' GDF spawn spot), it strafes clear, and if that fails it respawns
+                elsewhere ('kill'), before one retry. A jump of more than 200 u between draws
+                is a respawn mid-phase (the interpolation smears a teleport across a tick, as in
+                the SDK), also retried."""
+                for attempt in range(3):
+                    before = player_pos(srv, peer.slot)["org"]
                     poses = phase(name, cap, peer_walk)
+                    after = player_pos(srv, peer.slot)["org"]
+                    moving = sum(1 for a, b in zip(poses, poses[1:]) if moved(peer_pose_of(a), peer_pose_of(b)))
+                    jumped = any(peer_pose_of(a) and peer_pose_of(b) and
+                                 math.dist(peer_pose_of(a)[:3], peer_pose_of(b)[:3]) > 200.0
+                                 for a, b in zip(poses, poses[1:]))
+                    if moving >= MIN_PAIRS and not jumped:
+                        return poses
+                    server_moved = math.dist(before[:3], after[:3])
+                    print(f"[seat] {name}: the peer's drawn pose moved on {moving} draw pairs"
+                          f"{', and jumped (a respawn)' if jumped else ''}; on the server it moved {server_moved:.1f} u"
+                          f" ({before[0]:.0f},{before[1]:.0f} to {after[0]:.0f},{after[1]:.0f})")
+                    if attempt == 2:
+                        break
+                    if attempt == 0 and not jumped:
+                        peer.send("clientMove 0 127 0")
+                        time.sleep(1.5)
+                        peer.send("clientMove 0 0 0")
+                        time.sleep(0.5)
+                    else:
+                        # still stuck (or just respawned): respawn somewhere else
+                        mark = srv.mark()
+                        peer.send("kill")
+                        spawn(srv, peer, "gdf", mark=mark)
                 return poses
             poses = peer_phase("seatpeer")
             r1 = fraction_check(poses, lambda a, b: moved(peer_pose_of(a), peer_pose_of(b)), "peer's drawn pose")
@@ -309,6 +332,25 @@ def main(argv):
                                 f" pairs ({moving} moved in all)")
             obs.send(f"set g_unlock_vehicleSeats {LISTED}")
 
+        for cap in caps:
+            obs.send(f"set com_maxFPS {cap}")
+            seat_up()
+            poses = phase("seatdrive", cap, drive)
+            seats = {p["seat"] for p in poses}
+            # the driver's seat (position 0) in its first view (mode 0, the standard view)
+            ok0 = len(poses) - 1 >= MIN_PAIRS and len(seats) == 1 and None not in seats \
+                and seat_fields(next(iter(seats)))[1:] == (0, 0)
+            view, hull = shapes(moving_poses(poses))
+            path = onpath_check(poses, lambda p: p["veh"], "vehicle's drawn pose")
+            steps = step_check(poses)
+            results = {"S0": {"ok": ok0, "detail": f"{len(poses) - 1} draw pairs, seats {sorted(s or '-' for s in seats)}"},
+                       "S1": view, "S2": hull, "S3": path, "S4": steps}
+            print(f"[seat] cap {cap}: {rate(poses):.1f} fps")
+            for check, res in results.items():
+                print(f"  {cap:3} {check}  {'pass' if res['ok'] else 'FAIL'}  {res['detail']}")
+                if not res["ok"]:
+                    failures.append(f"cap {cap} {check}: {res['detail']}")
+
         # negative control: the seat not listed
         cap = caps[0]
         obs.send(f"set com_maxFPS {cap}")
@@ -324,27 +366,48 @@ def main(argv):
                 failures.append(f"negative control: unlisted, the {what} changed within a tick on {changed} of {n} pairs"
                                 f" ({moving} moved in all)")
 
-        # guards, every seat listed: the chase camera (no presentable recipe), then the icarus
-        obs.send("set g_unlock_vehicleSeats *")
+        # the chase camera unlisted (only the standard views are): it must not blend
+        obs.send(f"set g_unlock_vehicleSeats {LISTED}")
         seat_up()
-        # the driver's second view (mode 1, smooth_locked): cycle until the draws show it
         for _ in range(2):
             srv.send(f"cycleVehicleCamera {obs.slot}")
             time.sleep(1.5)
             last = next((p for ln in reversed(obs.snapshot()) if (p := parse_pose(ln.text))), None)
             if last is not None and (seat_fields(last["seat"]) or (0, 0, 0))[2] == 1:
                 break
-        poses = phase("guardchase", cap, drive)
-        modes = {(seat_fields(p["seat"]) or (0, 0, -1))[2] for p in poses}
-        if modes != {1}:
-            failures.append(f"guard: the chase-camera phase drew view modes {sorted(modes)}, not only the chase view (1)")
+        poses = phase("chasecontrol", cap, drive)
         for key, what in (("view", "view"), ("veh", "hull")):
             changed, n = within_tick_changes(poses, key)
-            print(f"[seat] guard (chase camera, listed) at cap {cap}: the {what} changed within a tick on {changed} of {n} pairs")
             moving = sum(1 for a, b in zip(poses, poses[1:]) if moved(a[key], b[key]))
+            print(f"[seat] chase camera unlisted at cap {cap}: the {what} changed within a tick on {changed} of {n} pairs"
+                  f" ({moving} pairs moved in all)")
             if n < MIN_PAIRS or changed > 1 or moving < MIN_PAIRS:
-                failures.append(f"guard: the chase camera's {what} changed within a tick on {changed} of {n} pairs"
-                                f" ({moving} pairs moved in all)")
+                failures.append(f"chase control: unlisted, the {what} changed within a tick on {changed} of {n} pairs")
+        srv.send(f"cycleVehicleCamera {obs.slot}")   # back to the first view
+        time.sleep(1.5)
+
+        # the chase camera (the driver's second view, smooth_locked), every seat listed: its
+        # own tick cameras blended in the world (M5 step 14, chase views)
+        obs.send("set g_unlock_vehicleSeats *")
+        seat_up()
+        for _ in range(2):
+            srv.send(f"cycleVehicleCamera {obs.slot}")
+            time.sleep(1.5)
+            last = next((p for ln in reversed(obs.snapshot()) if (p := parse_pose(ln.text))), None)
+            if last is not None and (seat_fields(last["seat"]) or (0, 0, 0))[2] == 1:
+                break
+        poses = phase("chasedrive", cap, drive)
+        modes = {(seat_fields(p["seat"]) or (0, 0, -1))[2] for p in poses}
+        view, hull = shapes(moving_poses(poses))
+        cview = onpath_check(poses, lambda p: p["view"], "chase camera's drawn origin")
+        chull = onpath_check(poses, lambda p: p["veh"], "vehicle's drawn pose")
+        print(f"[seat] chase camera (listed) at cap {cap}, view modes {sorted(modes)}:")
+        for check, res in (("C1", view), ("C2", hull), ("C3", cview), ("C4", chull)):
+            print(f"  {cap:3} {check}  {'pass' if res['ok'] else 'FAIL'}  {res['detail']}")
+            if not res["ok"]:
+                failures.append(f"chase cap {cap} {check}: {res['detail']}")
+        if modes != {1}:
+            failures.append(f"the chase phase drew view modes {sorted(modes)}, not only the chase view (1)")
         seat_up("vehicle_icarus")
         poses = phase("guardicarus", cap, drive)
         changed, n = within_tick_changes(poses, "view")
