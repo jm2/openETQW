@@ -495,6 +495,8 @@ Done 2026-09-30: the fix, `AIR_CTL` and meson `aircraft-reprediction` are built 
 
 ### Stage 7 (optional): hull lead using the physics' own next pose
 
+> **Superseded predictor (2026-10-06): see [`hull-lead.md`](hull-lead.md), the step 14b plan.** A measurement on the scripted badger and anansi replay found that the physics' own step on a copy reduces to v·dt about the centre of mass (the external forces are already zeroed after `Evaluate`). Its gravity add-back helps only in the air and doubles the error on the ground. Extrapolating the presentation's last three samples (constant acceleration and constant rotation) is about 10× more accurate (badger median 0.095 u, anansi 0.011 u), and needs no physics code. Impacts still overshoot, by up to 33 u. The rest of this stage (the α draw, L per class, `VEH_PRED`, the measurement and the owner's bound) stands, as refined there.
+
 **What changes (game)**
 - **`PredictNextPose`.** A const `sdPhysics_RigidBodyMultiple::PredictNextPose( msec, origin, axis )` works on a copy of `current->i`. It:
   - adds back the gravity momentum exactly as `Evaluate` does (`:2085-2087`);
@@ -600,7 +602,7 @@ Stages 0–7 come to about 5–7 weeks of focused work for one engineer. That do
 
    Both expose drawn values to tick code: `LinkCombat` (game `Player.cpp:10765-10766`), `lastPushed*` (read by `VehicleView.cpp:1205-1206`) and the hull's `renderEntity` axis (read by `VehicleView.cpp:650-652, 750, 785`). This violates D4 and D6.
 10. **Restoring the tick-end sample after a draw.** It can overwrite newer defs or land on a reused handle (rule 7).
-11. **Plain velocity extrapolation of the hull** (latency-first's v·dt). It has a gravity bias of about 1.16 u per tick. Stage 7's predictor replaces it.
+11. **Plain velocity extrapolation of the hull** (latency-first's v·dt). It has a gravity bias of about 1.16 u per tick in the air. Stage 7's predictor replaces it: since 2026-10-06, extrapolation of the presentation's own samples ([`hull-lead.md`](hull-lead.md) §2).
 12. **Making L = 1, or any extrapolation, the default.** At impacts it carries the camera up to L·v·33 ms into walls, 26 u at 800 u/s. openQ4 also refused to extrapolate (plan `:256`).
 13. **Late look for pilots and `_Player` views.** A pilot's mouse is control input, so a camera turned early would show a turn the aircraft has not made.
 14. **Blending the FOV.** It would feed a value that depends on the cap into `ClampFinalAxis` (`VehicleView.cpp:300`).
