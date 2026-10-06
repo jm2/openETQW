@@ -6048,6 +6048,8 @@ static void WriteVulkanScreenshot( sdVulkanBackendState& state, VkFence fence ) 
 			dest[ i + 3 ] = 255;
 		}
 		state.UnmapMemory( state.device, state.screenshotMemory );
+		// a raw path, outside the filesystem's search paths: this is a NOCHEAT
+		// developer and test tool, not something a server or map can set
 		FILE* out = fopen( state.screenshotPath.c_str(), "wb" );
 		if ( out != NULL ) {
 			fwrite( file, 1, pixelBytes + 18, out );
@@ -6063,6 +6065,19 @@ static void WriteVulkanScreenshot( sdVulkanBackendState& state, VkFence fence ) 
 	state.FreeMemory( state.device, state.screenshotMemory, NULL );
 	state.screenshotBuffer = VK_NULL_HANDLE;
 	state.screenshotMemory = VK_NULL_HANDLE;
+}
+
+// A recorded screenshot whose frame was never submitted: free its buffer, or it
+// would block every later r_vkScreenshot.
+static void DiscardVulkanScreenshot( sdVulkanBackendState& state ) {
+	if ( state.screenshotBuffer != VK_NULL_HANDLE ) {
+		state.DestroyBuffer( state.device, state.screenshotBuffer, NULL );
+		state.screenshotBuffer = VK_NULL_HANDLE;
+	}
+	if ( state.screenshotMemory != VK_NULL_HANDLE ) {
+		state.FreeMemory( state.device, state.screenshotMemory, NULL );
+		state.screenshotMemory = VK_NULL_HANDLE;
+	}
 }
 
 void sdVulkanBackend::EndFrame( bool ) {
@@ -6081,8 +6096,16 @@ void sdVulkanBackend::EndFrame( bool ) {
 		r_vkScreenshot.SetString( "" );
 		const VkDeviceSize bytes = static_cast< VkDeviceSize >( state->extent.width ) *
 			state->extent.height * 4;
+		// the buffer is sized for 4 bytes a pixel and written as 8-bit BGRA
+		const bool eightBitSwapchain = state->swapchainFormat == VK_FORMAT_B8G8R8A8_UNORM ||
+			state->swapchainFormat == VK_FORMAT_B8G8R8A8_SRGB ||
+			state->swapchainFormat == VK_FORMAT_R8G8B8A8_UNORM ||
+			state->swapchainFormat == VK_FORMAT_R8G8B8A8_SRGB;
 		if ( !state->swapchainTransferSource || state->CmdCopyImageToBuffer == NULL ) {
 			common->Warning( "r_vkScreenshot: the swapchain cannot be read back on this surface" );
+		} else if ( !eightBitSwapchain ) {
+			common->Warning( "r_vkScreenshot: swapchain format %d is not 8-bit RGBA/BGRA; not captured",
+				static_cast< int >( state->swapchainFormat ) );
 		} else if ( CreateBufferAllocation( *state, bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			state->screenshotBuffer, state->screenshotMemory ) ) {
@@ -6169,6 +6192,7 @@ void sdVulkanBackend::EndFrame( bool ) {
 		if ( !CheckVulkanResult( state->EndCommandBuffer( frame.commandBuffer ),
 			"vkEndCommandBuffer" ) ) {
 			RestoreSignaledFence( *state, frame );
+			DiscardVulkanScreenshot( *state );
 			state->frameActive = false;
 			return;
 		}
@@ -6176,6 +6200,7 @@ void sdVulkanBackend::EndFrame( bool ) {
 			frame.imageUploadCommandBuffer ),
 			"vkEndCommandBuffer(image uploads)" ) ) {
 			RestoreSignaledFence( *state, frame );
+			DiscardVulkanScreenshot( *state );
 			state->frameActive = false;
 			return;
 		}
@@ -6220,6 +6245,7 @@ void sdVulkanBackend::EndFrame( bool ) {
 		if ( !CheckVulkanResult( state->QueueSubmit2( state->graphicsQueue, 1,
 			&submitInfo, frame.fence ), "vkQueueSubmit2" ) ) {
 			RestoreSignaledFence( *state, frame );
+			DiscardVulkanScreenshot( *state );
 			state->frameActive = false;
 			return;
 		}
