@@ -293,7 +293,14 @@ float idAsyncClient::GetIncomingPacketLoss() const {
 }
 
 int idAsyncClient::GetGameTimeLeft() const {
+	// M5 step 10 follow-up: plus the real time since the residual was measured (the frame's
+	// start), so a frame whose ticks or prediction took long presents the moment it is
+	// prepared, not the moment it began (a 15 ms tick on a slow host drew a tick frame at
+	// 1/33 15 ms late, frame-poses A8 on macmini-m1). The tick loop still tests the
+	// residual itself; besides the presented fraction this only shortens com_unlockFPS 0's
+	// wait for the next tick by the frame's work (Com_GetGameTimeLeft, idCommonLocal::Frame)
 	int elapsedInTic = gameTimeResidual + clientPredictTime;	// the tic boundary RunFrame uses
+	elapsedInTic += Max( 0, Sys_Milliseconds() - realTime );
 	if ( elapsedInTic < 1 ) {
 		elapsedInTic = 1;
 	} else if ( elapsedInTic >= USERCMD_MSEC ) {
@@ -349,12 +356,19 @@ void idAsyncClient::RunFrame() {
 		}
 		ProcessReliableServerMessages();
 
-		// com_unlockFPS 0 draws no render-only frame (idCommonLocal::Frame), so none is prepared
-		if ( gameFrame == startFrame && game != NULL && com_unlockFPS.GetBool() ) {
-			const usercmd_t cmd = usercmdGen->GetDirectUsercmd();
-			const int timeLeft = GetGameTimeLeft();
-			game->ClientUpdateView( cmd, timeLeft );
-			++com_frameUpdateViews;
+		// com_unlockFPS 0 draws no render-only frame (idCommonLocal::Frame), so none is prepared.
+		// M5 step 10 (D7): a frame that ran a tick is prepared too, with the last tick's
+		// command (as in single player, no new sample)
+		if ( game != NULL && com_unlockFPS.GetBool() ) {
+			if ( gameFrame == startFrame ) {
+				const usercmd_t cmd = usercmdGen->GetDirectUsercmd();
+				const int timeLeft = GetGameTimeLeft();
+				game->ClientUpdateView( cmd, timeLeft );
+				++com_frameUpdateViews;
+			} else if ( com_unlock_tickFrames.GetBool() ) {
+				game->ClientUpdateView( userCmds[ ( gameFrame - 1 ) & ( MAX_USERCMD_BACKUP - 1 ) ][ clientNum ], GetGameTimeLeft() );
+				++com_frameTickUpdateViews;
+			}
 		}
 	} else if ( clientState >= CS_CONNECTED && !sessLocal.insideExecuteMapChange ) {
 		SendUsercmdsToServer();

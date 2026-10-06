@@ -12,6 +12,10 @@
 #include <execinfo.h>	// backtrace() in FatalError
 #include <unistd.h>
 #endif
+#if defined( __APPLE__ )
+#include <cerrno>
+#include <sys/event.h>	// PacerSleepUsec
+#endif
 #include <algorithm>
 #include <chrono>
 #include <mutex>
@@ -91,11 +95,18 @@ idCVar com_maxFPS( "com_maxFPS", "60", CVAR_INTEGER | CVAR_SYSTEM | CVAR_ARCHIVE
 	"maximum frames per second presented (0 = unlimited / VSync-only)" );
 idCVar com_unlock_maxFPS( "com_unlock_maxFPS", "60", CVAR_INTEGER | CVAR_SYSTEM | CVAR_NOCHEAT,
 	"retail's cap on unlocked frames; OpenETQW keeps it equal to com_maxFPS - zero = no limit" );
+// M5 step 10 (decision D7): a frame that ran a tick is prepared by ClientUpdateView too, at
+// the fraction of the tick already elapsed when it presents, instead of drawing the tick
+// boundary (fraction 0, the base draw), which judders at 30 Hz at any cap. 0 restores the
+// base draw on such frames (the negative control of the frame-pose tests)
+idCVar com_unlock_tickFrames( "com_unlock_tickFrames", "1", CVAR_BOOL | CVAR_SYSTEM | CVAR_NOCHEAT,
+	"frames that ran a game tick present at their sub-tick fraction (with com_unlockFPS)" );
 idCVar com_logFrameTiming( "com_logFrameTiming", "0", CVAR_BOOL | CVAR_SYSTEM | CVAR_NOCHEAT,
 	"print a FRAME_TIMING line every second: frames, game ticks and the distribution of frame intervals and frame work times" );
 
 int com_frameTicks = 0;
 int com_frameUpdateViews = 0;
+int com_frameTickUpdateViews = 0;
 bool com_frameInGame = false;
 
 namespace {
@@ -976,7 +987,17 @@ int Com_GetGameTimeLeft() {
 	// foreground loop can render twice within the same millisecond.  Treat that
 	// case as the first millisecond of the interval so the frame is still marked
 	// as an unlocked draw and cannot reapply the weapon-origin correction.
-	int elapsedInTic = static_cast< int >( mainThreadTicResidual );
+	// M5 step 10 follow-up: plus the real time since the residual was measured (the frame's
+	// start), so a frame whose ticks or prediction took long presents the moment it is
+	// prepared, not the moment it began (a 15 ms tick on a slow host drew a tick frame at
+	// 1/33 15 ms late, frame-poses A8 on macmini-m1). The tick loop still tests the
+	// residual itself; besides the presented fraction this only shortens com_unlockFPS 0's
+	// wait for the next tick by the frame's work (Com_GetGameTimeLeft, idCommonLocal::Frame)
+	// (in game time: the residual is scaled by com_timescale, Com_UpdateGameTime)
+	// (none with com_preciseTic 0, whose residual is always 0: the fraction stays 1/33)
+	const double elapsedGameMsec = !com_preciseTic.GetBool() ? 0.0 :
+		std::max( 0, Sys_Milliseconds() - mainThreadLastTicMsec ) * static_cast< double >( com_timescale.GetFloat() );
+	int elapsedInTic = static_cast< int >( mainThreadTicResidual + elapsedGameMsec );
 	if ( elapsedInTic < 1 ) {
 		elapsedInTic = 1;
 	} else if ( elapsedInTic >= USERCMD_MSEC ) {
@@ -997,7 +1018,8 @@ the cap it asked for, and how many frames drew (draws=). Under Vulkan it also re
 average time a frame that reached the present spent in the frame fence, the image acquire,
 the queue submit and the present (M5 step 4: which of them holds the frame rate;
 FrameSyncTiming.h). Last comes how many render-only frames the game prepared for drawing
-(cuv=: game->ClientUpdateView calls; M5 step 7).
+(cuv=: game->ClientUpdateView calls; M5 step 7), and the frames that ran a tick and
+were prepared at their fraction (cut=; M5 step 10).
 ==================
 */
 namespace {
@@ -1007,10 +1029,41 @@ uint64_t MonotonicUsec() {
 		std::chrono::steady_clock::now().time_since_epoch() ).count() );
 }
 
+/*
+The frame pacer's sleep. Since macOS 27.0.1, sleep_for and mach_wait_until wake about half
+the sleep late, up to about 10 ms (measured 2026-10-04: 2.5 ms late for 5 ms, 9.5 ms for
+25 ms), past the pacer's spin margin, so caps 30 and 45 ran at 26.8 and 43 fps. A kqueue
+timer marked critical with no leeway wakes within about 0.05 ms (2.6 ms at worst).
+*/
+void PacerSleepUsec( uint64_t usec ) {
+#if defined( __APPLE__ )
+	static const int timerQueue = kqueue();
+	if ( timerQueue >= 0 ) {
+		struct kevent64_s timer = {};
+		timer.ident = 1;
+		timer.filter = EVFILT_TIMER;
+		timer.flags = EV_ADD | EV_ONESHOT;
+		timer.fflags = NOTE_USECONDS | NOTE_CRITICAL | NOTE_LEEWAY;
+		timer.data = static_cast< int64_t >( usec );
+		timer.ext[ 1 ] = 0;	// the leeway
+		struct kevent64_s fired;
+		const int events = kevent64( timerQueue, &timer, 1, &fired, 1, 0, NULL );
+		if ( events == 1 && !( fired.flags & EV_ERROR ) ) {
+			return;
+		}
+		if ( events < 0 && errno == EINTR ) {
+			return;	// a signal: the pacer's spin covers the rest of the wait
+		}
+		// a failed EV_ADD comes back as an EV_ERROR event: sleep the ordinary way
+	}
+#endif
+	std::this_thread::sleep_for( std::chrono::microseconds( usec ) );
+}
+
 class FrameTimingLog {
 public:
-	void	AddFrame( uint64_t frameStartUsec, uint64_t workEndUsec, uint64_t frameEndUsec, int ticks, bool drawn, int updateViews, int cap );
-	void	Reset() { windowStartUsec = 0; lastFrameEndUsec = 0; intervals.clear(); works.clear(); windowTicks = 0; windowDraws = 0; windowUpdateViews = 0; }
+	void	AddFrame( uint64_t frameStartUsec, uint64_t workEndUsec, uint64_t frameEndUsec, int ticks, bool drawn, int updateViews, int tickUpdateViews, int cap );
+	void	Reset() { windowStartUsec = 0; lastFrameEndUsec = 0; intervals.clear(); works.clear(); windowTicks = 0; windowDraws = 0; windowUpdateViews = 0; windowTickUpdateViews = 0; }
 
 private:
 	static float	PercentileMs( std::vector< uint32_t >& usec, float p );
@@ -1022,6 +1075,7 @@ private:
 	int						windowTicks = 0;
 	int						windowDraws = 0;	// frames that drew (fewer than frames with com_unlockFPS 0)
 	int						windowUpdateViews = 0;	// game->ClientUpdateView calls (none with com_unlockFPS 0)
+	int						windowTickUpdateViews = 0;	// the same on frames that ran a tick (M5 step 10)
 };
 
 float FrameTimingLog::PercentileMs( std::vector< uint32_t >& usec, float p ) {
@@ -1033,7 +1087,7 @@ float FrameTimingLog::PercentileMs( std::vector< uint32_t >& usec, float p ) {
 	return static_cast< float >( usec[ index ] ) * 0.001f;
 }
 
-void FrameTimingLog::AddFrame( uint64_t frameStartUsec, uint64_t workEndUsec, uint64_t frameEndUsec, int ticks, bool drawn, int updateViews, int cap ) {
+void FrameTimingLog::AddFrame( uint64_t frameStartUsec, uint64_t workEndUsec, uint64_t frameEndUsec, int ticks, bool drawn, int updateViews, int tickUpdateViews, int cap ) {
 	if ( windowStartUsec == 0 ) {
 		// the first frame only opens the window: it has no previous frame end
 		windowStartUsec = frameEndUsec;
@@ -1047,6 +1101,7 @@ void FrameTimingLog::AddFrame( uint64_t frameStartUsec, uint64_t workEndUsec, ui
 	windowTicks += ticks;
 	windowDraws += drawn ? 1 : 0;
 	windowUpdateViews += updateViews;
+	windowTickUpdateViews += tickUpdateViews;
 	lastFrameEndUsec = frameEndUsec;
 
 	const uint64_t windowUsec = frameEndUsec - windowStartUsec;
@@ -1059,18 +1114,19 @@ void FrameTimingLog::AddFrame( uint64_t frameStartUsec, uint64_t workEndUsec, ui
 	const float perFrameMs = sync.frames > 0 ? 0.001f / static_cast< float >( sync.frames ) : 0.0f;
 	common->Printf( "FRAME_TIMING: window_ms=%.1f frames=%d ticks=%d cap=%d"
 		" dt_p50=%.2f dt_p95=%.2f dt_p99=%.2f dt_max=%.2f work_p50=%.2f work_p95=%.2f work_max=%.2f draws=%d"
-		" vk_frames=%d fence_ms=%.2f acquire_ms=%.2f submit_ms=%.2f present_ms=%.2f cuv=%d\n",
+		" vk_frames=%d fence_ms=%.2f acquire_ms=%.2f submit_ms=%.2f present_ms=%.2f cuv=%d cut=%d\n",
 		static_cast< float >( windowUsec ) * 0.001f, frames, windowTicks, cap,
 		PercentileMs( intervals, 0.5f ), PercentileMs( intervals, 0.95f ), PercentileMs( intervals, 0.99f ), PercentileMs( intervals, 1.0f ),
 		PercentileMs( works, 0.5f ), PercentileMs( works, 0.95f ), PercentileMs( works, 1.0f ), windowDraws,
 		sync.frames, static_cast< float >( sync.fenceUsec ) * perFrameMs, static_cast< float >( sync.acquireUsec ) * perFrameMs,
-		static_cast< float >( sync.submitUsec ) * perFrameMs, static_cast< float >( sync.presentUsec ) * perFrameMs, windowUpdateViews );
+		static_cast< float >( sync.submitUsec ) * perFrameMs, static_cast< float >( sync.presentUsec ) * perFrameMs, windowUpdateViews, windowTickUpdateViews );
 	windowStartUsec = frameEndUsec;
 	intervals.clear();
 	works.clear();
 	windowTicks = 0;
 	windowDraws = 0;
 	windowUpdateViews = 0;
+	windowTickUpdateViews = 0;
 }
 
 FrameTimingLog frameTimingLog;
@@ -1084,6 +1140,7 @@ void idCommonLocal::Frame() {
 	const uint64_t frameStartUsec = MonotonicUsec();
 	com_frameTicks = 0;
 	com_frameUpdateViews = 0;
+	com_frameTickUpdateViews = 0;
 	com_frameInGame = false;
 	try {
 		Sys_FPU_EnableExceptions( 0 );
@@ -1173,7 +1230,7 @@ void idCommonLocal::Frame() {
 						if ( waitUsec > spinUsec ) {
 							const uint64_t sleepUsec = waitUsec - spinUsec;
 							const uint64_t sleepStartUsec = monotonicUsec();
-							std::this_thread::sleep_for( std::chrono::microseconds( sleepUsec ) );
+							PacerSleepUsec( sleepUsec );
 							const uint64_t sleptUsec = monotonicUsec() - sleepStartUsec;
 							const uint64_t latenessUsec = sleptUsec > sleepUsec ? sleptUsec - sleepUsec : 0;
 							sleepLatenessUsec = std::max( sleepLatenessUsec, std::min( latenessUsec, maxLatenessUsec ) );
@@ -1190,7 +1247,7 @@ void idCommonLocal::Frame() {
 		}
 
 		if ( com_logFrameTiming.GetBool() ) {
-			frameTimingLog.AddFrame( frameStartUsec, workEndUsec, MonotonicUsec(), com_frameTicks, frameDrawn, com_frameUpdateViews, maxFPS );
+			frameTimingLog.AddFrame( frameStartUsec, workEndUsec, MonotonicUsec(), com_frameTicks, frameDrawn, com_frameUpdateViews, com_frameTickUpdateViews, maxFPS );
 		} else if ( com_logFrameTiming.IsModified() ) {
 			com_logFrameTiming.ClearModified();
 			frameTimingLog.Reset();

@@ -85,6 +85,8 @@ extern int			com_frameTicks;
 // drawing): idSessionLocal::Frame, idAsyncClient::RunFrame and idAsyncServer::RunFrame add
 // to it; idCommonLocal::Frame resets it and reports it (com_logFrameTiming cuv=)
 extern int			com_frameUpdateViews;
+// the same calls on frames that ran a tick (M5 step 10, com_unlock_tickFrames; cut=)
+extern int			com_frameTickUpdateViews;
 // a game ran in the current host frame, so its ticks fall due as time passes: set by
 // idSessionLocal::Frame (single player), idAsyncClient::RunFrame (in game) and a listen
 // host's idAsyncServer::RunFrame; idCommonLocal::Frame resets it. With com_unlockFPS 0
@@ -93,6 +95,7 @@ extern bool			com_frameInGame;
 extern idCVar		com_unlockFPS;
 extern idCVar		com_maxFPS;
 extern idCVar		com_unlock_maxFPS;
+extern idCVar		com_unlock_tickFrames;
 
 extern int			time_gameFrame;			// game logic time
 extern int			time_gameDraw;			// game present time

@@ -543,7 +543,7 @@ if host_system == 'windows'
 endif
 
 # Tests never touch the developer's per-user directory: an engine with no
-# fs_savepath of its own saves under $XDG_DATA_HOME (Linux) or %LOCALAPPDATA%
+# fs_savepath of its own saves under $XDG_DATA_HOME (Linux) or $env:LOCALAPPDATA
 # (Windows), which these point into the build directory; tests/etqw_harness.py
 # does the same for scripts run by hand. (macOS saves under ~/Library/Application
 # Support, as it did before the installed-engine paths.)

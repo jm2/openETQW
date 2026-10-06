@@ -262,6 +262,8 @@ Engine step 10 (tick frames drawn at their real fraction) is needed for full cov
 
 ### Stage 3: presentation core and generic seat blend (m5-plan step 14, first part)
 
+*Status (2026-10-05): built for the first-person `standard` view and the chase views (`smooth`, `smooth_free`, `smooth_locked`; `pivot` and `freepivot` follow turret joints that are not blended yet); ledger row 062, meson `seat-poses`. `SIM_VIEW` carries the proxy's def at tick entry (`vdef=`, compared across runs by `seat-gate`). Chase views are built too (their own tick cameras blended in the world). The jetpack, gunner views and the narrow audit CVar are not built yet.*
+
 **What changes (game)**
 - **A new presentation object.** `sdPresentation` (proposed as `src/game/Presentation.{h,cpp}`), owned by `idGameLocal`.
 - **Tick sample, on new ticks only.**
@@ -314,6 +316,8 @@ Engine step 10 (tick frames drawn at their real fraction) is needed for full cov
 
 ### Stage 4: remote entities while seated (m5-plan steps 8, 9)
 
+*Status (2026-10-05): built (ledger row 063): the producer and both consumers run while a seat's presentation is allowed, the local seat's vehicle and riders are left to `sdPresentation`, and riders of interpolated vehicles use the carrier rule. Meson `seat-poses-join`/`-listen` measure a remote player; remote vehicles are not measured yet.*
+
 **What changes.** Steps 8 and 9 restore the producer as render copies: origin only and one tick behind (D5), with nothing written back (D6). This stage makes two further changes:
 - It changes their gate from `canUnlockFrames` to `canUnlockFrames || seatActive`, and keeps retail's `AOR_INHIBIT_IK` exclusion (retail `idEntity::Present` 0x10839f).
 - Riders of remote vehicles use the carrier rule. Otherwise a rider would slide against the seat, because origins are lerped independently while axes snap. *[inferred]*
@@ -329,6 +333,8 @@ This stage must ship in the same release as stage 3. Otherwise targets stepping 
 **Effort:** 2–4 days on top of steps 8 and 9. *[inferred]*
 
 ### Stage 5: late mouse look in angle-driven seats (m5-plan step 14, second part)
+
+**Status (2026-10-05).** First tier built for the `standard` class (ledger 064, `g_unlock_vehicleLook`), in seats whose clamp is the base class's with extents only and that do not need the tophat: the drawn angles, r_n (with no input counted on a tick that ignored its command's turn), the pure clamp and the zero-Δ cases below, plus `InhibitTurning`; a pending fresh entry draws the tick view (row 062's guard). Measured by the first changed draw after `+left` (meson `seat-poses`: 1.00 draws on, 2.89 off at cap 120) and a held turn that never turns back (L3). Not built yet: the other classes, the scripted Δ for replay and the per-tick angle-error check.
 
 **What changes (game)**
 - **The late turn.** Use the render-only usercmd the engine already passes: Δ = `SHORT2ANGLE((short)(cmd.angles − p->usercmd.angles))`, normalized to the shortest arc. This is the same form as the on-foot path (game `Game_local.cpp:6087`).

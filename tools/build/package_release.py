@@ -172,20 +172,21 @@ def add_licenses(package: Path, licenses_root: Path, platform: str, licenses: di
 def write_readme(target: Path, platform: str, arch: str, tag: str, sources: dict[str, str]) -> None:
     saves = {
         "linux": "$XDG_DATA_HOME/openetqw (normally ~/.local/share/openetqw)",
-        "windows": "%LOCALAPPDATA%\\openETQW",
+        "windows": "$env:LOCALAPPDATA\\openETQW",
         "macos": "~/Library/Application Support/openETQW",
     }[platform]
     start = {
         "linux": f"./openETQW-client_{arch} +set fs_basepath /path/to/ETQW",
-        "windows": f"openETQW-client_{arch}.exe +set fs_basepath \"C:\\path\\to\\ETQW\"",
+        "windows": f".\\openETQW-client_{arch}.exe +set fs_basepath \"C:\\path\\to\\ETQW\"",
         "macos": "open openETQW.app --args +set fs_basepath \"/path/to/ETQW\"",
     }[platform]
     lines = [
         f"{PRODUCT} {tag} ({platform} {arch})",
         "",
         "An open-source engine for Enemy Territory: QUAKE Wars. It needs the retail game",
-        "data: a full ET:QW install patched to 1.5, whose base/ holds pak000-pak008.pk4.",
-        "The unpatched DVD data is not supported.",
+        "data: an ET:QW install patched to 1.5, whose base/ holds the base game's",
+        "pak000-pak004.pk4 and the 1.5 patch's pak005-pak008.pk4. Unpatched data is",
+        "not supported.",
         "",
         "Starting",
         f"  {start}",

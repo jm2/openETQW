@@ -150,7 +150,7 @@ def resolve_iscc_path(explicit_path: str | None) -> Path:
     if env_path:
         candidates.append(Path(env_path))
     # machine-wide installs, then a per-user one ("Install for me only", or
-    # winget --scope user), which Inno Setup puts in %LOCALAPPDATA%\Programs;
+    # winget --scope user), which Inno Setup puts in $env:LOCALAPPDATA\Programs;
     # both come before an ISCC found on PATH
     bases = [os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramFiles")]
     local_app_data = os.environ.get("LOCALAPPDATA")

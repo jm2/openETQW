@@ -2,7 +2,7 @@
 
 > **Historical.** This checkpoint records the stock-maps phase as it went; it is merged to `main` with the phase. Current state: `STATUS.md` and `docs/compat-ledger.md` (network: rows 015, 036, 045, 049; protocol 0x4F45.5).
 >
-> **Engine commit IDs in this file predate the 2026-09-24 history rewrite** (a retail bitmap was purged from both repositories; `docs/provenance.md` §7) and no longer resolve; for example engine `main` `7545679` below. Game commit IDs were remapped to the rewritten game history, and openQ4-game IDs are unaffected. Current IDs are in `STATUS.md`.
+> **Engine commit IDs in this file no longer resolve in the current history**; for example engine `main` `7545679` below. Game commit IDs and openQ4-game IDs resolve. Current IDs are in `STATUS.md`.
 >
 > **Superseded verdicts:** the 2026-09-24 charter audit rates the M2 client side and M3 partial (charter milestone numbers, `STATUS.md`). The clean network break (D7) below is final: the owner dropped retail 1.5 network compatibility on 2026-09-25 (ledger row 036). The open owner decisions below were settled on 2026-09-25, except the jmarshall remediation: the retail bot think rate is kept (B8); the ">500 entities" criterion becomes "every entity in each map file is accounted for" (B9); ledger 047 goes back to `GetBool`, as retail 1.5 reads it (B10). The owner deferred the jmarshall remediation strategy, which stays open; release gate 1 stays blocking (`STATUS.md`). All data facts here are from the unpatched DVD set; OpenETQW now targets 1.5, where volcano ships a `.nav`. The WIP branch was deleted after it merged.
 

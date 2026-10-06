@@ -9,7 +9,8 @@ zero simulation drift or physics divergence on stock map Valley (maps/valley.wor
 Validates:
 1. Fixed tick-indexed command stream replayed at caps 60, 120, 144 and 240 and uncapped
    (com_maxFPS 0, which also measures this host's frame-rate ceiling), at cap 30 (every
-   frame runs a tick: no render-only frames, with the base-draw path of com_unlockFPS 1),
+   frame runs a tick: no render-only frames; since M5 step 10 each is prepared at its
+   sub-tick fraction, so the base-draw path runs only in the com_unlockFPS 0 schedule),
    and once more at cap 240 with com_unlockFPS 0 (M5 plan step 11, D8: the renderer does
    not go faster than the ticks). The com_unlockFPS 0 schedule is compared like the
    others, and instead of the cap rules it must draw no render-only frame: it logs
@@ -55,8 +56,10 @@ Validates:
 5. Clean shutdown with exit code 0.
 6. Render-only frames are prepared only when they can be drawn (M5 step 7; with the client
    binary): FRAME_TIMING's cuv= counts the frames on which the engine called
-   ClientUpdateView. The com_unlockFPS 0 schedule must have none, since it draws no frame
-   that ran no tick, and every schedule above cap 30 some, in play.
+   ClientUpdateView on a frame that ran no tick. The com_unlockFPS 0 schedule must have
+   none, since it draws no frame that ran no tick, and every schedule above cap 30 some,
+   in play. cut= (M5 step 10) counts the calls on frames that ran a tick: none with
+   com_unlockFPS 0, some in play in every other schedule.
 7. Tick code never reads a render-only frame's view (M5 step 7, owner decision E3; with
    the client binary): at each tick's entry the game puts back the view player's renderView
    origin and axis as the last tick's pose log saved them, and prints TICK_VIEW (entry= the
@@ -167,13 +170,16 @@ _NUM = r"-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?"
 _TRIPLE = rf"\({_NUM},{_NUM},{_NUM}\)"
 SIM_VIEW_FIELDS_RE = re.compile(
     rf"view=(\d+) ang={_TRIPLE} olog={_TRIPLE} wlog=(\({_NUM}(?:,{_NUM}){{5}}\)|-)"
-    rf" vpush=({_TRIPLE}) vpang={_TRIPLE} vret=({_TRIPLE}|-)")
+    rf" vpush=({_TRIPLE}) vpang={_TRIPLE} vret=({_TRIPLE}|-)"
+    # M5 step 14: the vehicle's render-world def at the tick's entry ('-' on foot)
+    rf" vdef=(\({_NUM}(?:,{_NUM}){{5}}\)|-)")
 
 FRAME_TIMING_RE = re.compile(
     r"FRAME_TIMING: window_ms=([\d.]+) frames=(\d+) ticks=(\d+) cap=(-?\d+)"
     r" dt_p50=([\d.]+) dt_p95=([\d.]+) dt_p99=([\d.]+) dt_max=([\d.]+)"
     r"(?:.*? draws=(\d+))?"
-    r"(?:.*? cuv=(\d+))?"   # the line's last field (M5 step 7)
+    r"(?:.*? cuv=(\d+))?"   # M5 step 7
+    r"(?:.*? cut=(\d+))?"   # the line's last field (M5 step 10)
 )
 LOCKED = -240           # the schedule at cap 240 with com_unlockFPS 0 (M5 plan step 11, D8)
 CHANGED = -1            # the schedule whose cap changes during play (M5 plan step 17)
@@ -438,14 +444,15 @@ def tick_views(lines: list[str], label: str) -> dict[int, tuple[int, int]]:
     return {t: (entry, think) for t, entry, think in records}
 
 
-def update_views(lines: list[str]) -> tuple[int | None, int | None]:
+def update_views(lines: list[str], group: int = 10) -> tuple[int | None, int | None]:
     """(ClientUpdateView calls over every FRAME_TIMING window, over the windows of play),
-    from cuv= (engine builds from M5 step 7); None when a window lacks it."""
+    from cuv= (group 10, engine builds from M5 step 7) or cut= (group 11, the calls on
+    frames that ran a tick, M5 step 10); None when a window lacks it."""
     windows = [m for ln in lines if (m := FRAME_TIMING_RE.search(ln))]
-    if not windows or any(m.group(10) is None for m in windows):
+    if not windows or any(m.group(group) is None for m in windows):
         return None, None
-    return (sum(int(m.group(10)) for m in windows),
-            sum(int(m.group(10)) for m in windows if int(m.group(3)) >= PLAY_MIN_TICKS))
+    return (sum(int(m.group(group)) for m in windows),
+            sum(int(m.group(group)) for m in windows if int(m.group(3)) >= PLAY_MIN_TICKS))
 
 
 def sim_views(lines: list[str], label: str) -> dict[int, str]:
@@ -723,7 +730,9 @@ def main(argv: list[str]) -> int:
         return dict(re.findall(r"(\w+)=(\([^)]*\)|\S+)", line or ""))
 
     # every schedule's SIM_VIEW equal to cap 30's on every tick (cap 30 runs no render-only
-    # frame, with the base-draw path on; M5 step 6 removed the last known difference)
+    # frame; since M5 step 10 its tick frames are prepared at their fraction, so the
+    # schedule that draws base draws only is com_unlockFPS 0's, compared the same way; M5
+    # step 6 removed the last known difference)
     view_mismatches = []
     for fps in (r for r in rates if r != 30):
         diff = sorted(t for t in views[30] if views[fps].get(t) != views[30][t])
@@ -779,6 +788,16 @@ def main(argv: list[str]) -> int:
             exercise_failures.append(f"{cap_label(fps)}: {total} ClientUpdateView calls with com_unlockFPS 0")
         elif fps not in (30, LOCKED) and exercised and not in_play:
             exercise_failures.append(f"{cap_label(fps)}: no ClientUpdateView call in play (render-only frames not prepared)")
+        # M5 step 10: the frames that ran a tick are prepared too (cut=)
+        t_total, t_play = update_views(schedule_lines[fps], 11)
+        if t_total is None:
+            exercise_failures.append(f"{cap_label(fps)}: FRAME_TIMING carries no cut= count (an engine before M5 step 10)")
+            continue
+        print(f"  {cap_label(fps)}: {t_total} on frames that ran a tick ({t_play} in play windows)")
+        if fps == LOCKED and t_total:
+            exercise_failures.append(f"{cap_label(fps)}: {t_total} tick-frame ClientUpdateView calls with com_unlockFPS 0")
+        elif fps != LOCKED and exercised and not t_play:
+            exercise_failures.append(f"{cap_label(fps)}: no tick-frame ClientUpdateView call in play (M5 step 10)")
 
     # M5 step 7 (owner decision E3): tick code never reads a render-only frame's view. The
     # game puts back the view player's renderView at each tick's entry; TICK_VIEW shows the

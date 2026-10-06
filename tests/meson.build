@@ -586,7 +586,8 @@ endif
 #    (g_logFramePoses) while the observer turns and walks and a headless peer walks, at
 #    caps 60/120/240; known gaps are listed in the test (needs both binaries; a window)
 if build_engine and build_dedicated
-  foreach observer : ['join', 'listen']
+  frame_poses_ports = {'join': '29920', 'listen': '29924', 'devmap': '29928'}
+  foreach observer : ['join', 'listen', 'devmap']
     test(
       'frame-poses-' + observer,
       py,
@@ -595,8 +596,34 @@ if build_engine and build_dedicated
         '--observer', observer,
         '--ded-binary', all_stock_maps_ded,
         '--client-binary', campaign_client,
-        '--port', observer == 'join' ? '29920' : '29924',
+        '--port', frame_poses_ports[observer],
         '--log-dir', meson.project_build_root() / 'meson-logs' / 'frame-poses',
+      ],
+      workdir: meson.project_source_root(),
+      suite: ['client', 'integration'],
+      protocol: 'exitcode',
+      timeout: 600,
+      is_parallel: false,
+    )
+  endforeach
+endif
+
+# 9a. What the Vulkan client draws from a vehicle seat the seat gate allows (M5 step 14,
+#     stage 3): single player and a joined client, the badger's driver seat driving at caps 60/120/240, with
+#     an unlisted negative control and the chase camera and icarus as guards
+if build_engine and build_dedicated
+  seat_poses_ports = {'devmap': '29932', 'join': '29934', 'listen': '29938'}
+  foreach mode : ['devmap', 'join', 'listen']
+    test(
+      'seat-poses-' + mode,
+      py,
+      args: [
+        meson.project_source_root() / 'tests' / 'test_seat_poses.py',
+        '--mode', mode,
+        '--ded-binary', all_stock_maps_ded,
+        '--client-binary', campaign_client,
+        '--port', seat_poses_ports[mode],
+        '--log-dir', meson.project_build_root() / 'meson-logs' / 'seat-poses',
       ],
       workdir: meson.project_source_root(),
       suite: ['client', 'integration'],

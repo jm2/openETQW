@@ -422,7 +422,14 @@ int idAsyncServer::SetBotUserName( int clientNum, const char* playerName ) {
 // idAsyncClient::GetGameTimeLeft and Com_GetGameTimeLeft give it; the clamp keeps it
 // in 1 to USERCMD_MSEC - 1 (ClientUpdateView aborts on USERCMD_MSEC)
 int idAsyncServer::GetGameTimeLeft() const {
+	// M5 step 10 follow-up: plus the real time since the residual was measured (the frame's
+	// start), so a frame whose ticks or prediction took long presents the moment it is
+	// prepared, not the moment it began (a 15 ms tick on a slow host drew a tick frame at
+	// 1/33 15 ms late, frame-poses A8 on macmini-m1). The tick loop still tests the
+	// residual itself; besides the presented fraction this only shortens com_unlockFPS 0's
+	// wait for the next tick by the frame's work (Com_GetGameTimeLeft, idCommonLocal::Frame)
 	int elapsedInTic = gameTimeResidual;	// the tic boundary RunFrame uses
+	elapsedInTic += Max( 0, Sys_Milliseconds() - realTime );
 	if ( elapsedInTic < 1 ) {
 		elapsedInTic = 1;
 	} else if ( elapsedInTic >= USERCMD_MSEC ) {
@@ -495,10 +502,16 @@ void idAsyncServer::RunFrame() {
 	// it presents; the frames after it, up to the next tic, write theirs inside the
 	// unlockedDraw window it opens, as on a client (vehicle-view-net checks those AoR calls).
 	// com_unlockFPS 0 draws no render-only frame (idCommonLocal::Frame), so none is prepared
-	if ( localClientNum >= 0 && gameFrame == startFrame && game != NULL && com_unlockFPS.GetBool() ) {
-		const usercmd_t cmd = usercmdGen->GetDirectUsercmd();
-		game->ClientUpdateView( cmd, GetGameTimeLeft() );
-		++com_frameUpdateViews;
+	// M5 step 10 (D7): a frame that ran a tic is prepared too, with the host's last tic command
+	if ( localClientNum >= 0 && game != NULL && com_unlockFPS.GetBool() ) {
+		if ( gameFrame == startFrame ) {
+			const usercmd_t cmd = usercmdGen->GetDirectUsercmd();
+			game->ClientUpdateView( cmd, GetGameTimeLeft() );
+			++com_frameUpdateViews;
+		} else if ( com_unlock_tickFrames.GetBool() ) {
+			game->ClientUpdateView( userCmds[ ( gameFrame - 1 ) & ( MAX_USERCMD_BACKUP - 1 ) ][ localClientNum ], GetGameTimeLeft() );
+			++com_frameTickUpdateViews;
+		}
 	}
 	MasterHeartbeat();
 }
