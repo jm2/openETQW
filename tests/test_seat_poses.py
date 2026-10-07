@@ -59,9 +59,9 @@ with g_unlock_vehicleLead listing the badger at L = 1:
   H1 linear   with g_vehicleLeadFadeMsec 0, within each tick the drawn hull minus alpha x the
               tick's lead is one point (within 0.05 u): the hull is drawn along the lead
   H2 steps    with the fade on (the default), S4's rule: the hull's median step across a tick
-              is at most 2.5 x its median step within one
+              is at most 2.5 x its median step within one, and the drawn view's too (H2v)
   H3 off      the seat-drive phases (the built-in lead list, empty) and a phase listing only
-              the titan draw no lead= at all
+              the titan (moving in the badger's driver seat) draw no lead= at all
 
 Safety (nothing presented reaches tick state) is shown by meson seat-gate: its run B lists
 every seat and leads every class, so the presentation runs during the seat tour, and SIM_HASH, VEH_TRACE and
@@ -115,13 +115,13 @@ def seat_phase_poses(proc, begin, end):
     return [p for p in poses if t0 <= p["us"] <= t1]
 
 
-def step_check(poses):
-    """S4: the hull's median step across a tick against its median step within one."""
+def step_check(poses, key="veh", what="step"):
+    """S4: the hull's (or the view's) median step across a tick against its median step within one."""
     cross, within = [], []
     for a, b in zip(poses, poses[1:]):
-        if a["veh"] is None or b["veh"] is None:
+        if a[key] is None or b[key] is None:
             continue
-        d = math.dist(a["veh"][:3], b["veh"][:3])
+        d = math.dist(a[key][:3], b[key][:3])
         if d <= POS_EPS:
             continue
         (cross if a["gt"] != b["gt"] else within).append(d)
@@ -129,7 +129,7 @@ def step_check(poses):
         return {"ok": False, "detail": f"too few moving pairs ({len(cross)} across a tick, {len(within)} within)"}
     ratio = statistics.median(cross) / statistics.median(within)
     return {"ok": ratio <= STEP_RATIO,
-            "detail": f"median step across a tick {statistics.median(cross):.3f} u, within {statistics.median(within):.3f} u"
+            "detail": f"median {what} across a tick {statistics.median(cross):.3f} u, within {statistics.median(within):.3f} u"
                       f" (ratio {ratio:.2f}, need <= {STEP_RATIO})"}
 
 
@@ -364,6 +364,18 @@ def main(argv):
         else:
             time.sleep(1.5)
 
+    def seated_up(tries=3):
+        """seat_up, then make sure the player is in the badger's driver seat: after the drive
+        phases the player can be dead or respawning, and an entry then fails quietly."""
+        for _ in range(tries):
+            seat_up()
+            last = next((p for ln in reversed(obs.snapshot()) if (p := parse_pose(ln.text))), None)
+            if last is not None and last["seat"] is not None and seat_fields(last["seat"])[1:] == (0, 0):
+                return True
+            print("[seat] not in the driver's seat after an entry: trying again", flush=True)
+            time.sleep(2.0)
+        return False
+
     def shapes(poses):
         view = fraction_check(poses, lambda a, b: moved(a["view"], b["view"]), "view origin")
         hull = fraction_check(poses, lambda a, b: moved(a["veh"], b["veh"]), "vehicle's drawn pose")
@@ -566,7 +578,7 @@ def main(argv):
             obs.send("set g_unlock_vehicleLead badger:1")
             for fade, name in (("0", "leadlinear"), ("25", "leaddrive")):
                 obs.send(f"set g_vehicleLeadFadeMsec {fade}")
-                seat_up()
+                seated_up()
                 poses = phase(name, cap, drive)
                 moving = moving_poses(poses)
                 led = sum(1 for p in moving if p["lead"] is not None)
@@ -577,7 +589,9 @@ def main(argv):
                     results = {"H0": {"ok": len(moving) >= MIN_PAIRS and share >= LEAD_SHARE,
                                       "detail": f"{led} of {len(moving)} moving draws led ({100 * share:.0f}%, need"
                                                 f" {100 * LEAD_SHARE:.0f}%)"},
-                               "H2": step_check(poses)}
+                               "H2": step_check(poses),
+                               # the camera rides the led hull: its in-hull motion must not step
+                               "H2v": step_check(poses, "view", "view step")}
                 for check, res in results.items():
                     print(f"  {cap:3} {check}  {'pass' if res['ok'] else 'FAIL'}  {res['detail']}")
                     if not res["ok"]:
@@ -585,12 +599,15 @@ def main(argv):
             obs.send("set g_vehicleLeadFadeMsec 25")
         # H3: a lead listed for another class only
         obs.send("set g_unlock_vehicleLead titan:1")
-        seat_up()
+        seated_up()
         poses = phase("leadcontrol", caps[0], drive)
         led = sum(1 for p in poses if p["lead"] is not None)
-        print(f"  {caps[0]:3} H3  {'pass' if led == 0 else 'FAIL'}  {led} draws led with only the titan listed")
-        if led:
-            failures.append(f"H3: {led} draws led with only the titan listed")
+        seated = [p for p in moving_poses(poses) if p["seat"] is not None and seat_fields(p["seat"])[1:] == (0, 0)]
+        ok3 = led == 0 and len(seated) >= MIN_PAIRS
+        print(f"  {caps[0]:3} H3  {'pass' if ok3 else 'FAIL'}  {led} draws led with only the titan listed"
+              f" ({len(seated)} moving draws in the badger's driver seat, need {MIN_PAIRS})")
+        if not ok3:
+            failures.append(f"H3: {led} draws led with only the titan listed, {len(seated)} moving seated draws")
         obs.send("set g_unlock_vehicleLead default")
 
         # negative control: the seat not listed

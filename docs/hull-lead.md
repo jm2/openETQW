@@ -144,14 +144,13 @@ Common to all three:
   - L = 0.5 keeps the tick-rate view's mean age and halves the worst overshoot.
 - **The correction at a new tick.** At the new tick's first draw, `hull(n+1)` and the last drawn lead pose differ by the prediction error: a median of 0.1 u (badger) and 0.01 u (anansi), and up to 33 u at an impact.
   - That difference is faded out over `g_vehicleLeadFadeMsec` (default 25 ms, under one tick), as an offset that decays linearly.
-  - A correction is measured against the predicted pose without the fade offset, so a residual is never counted twice.
+  - The correction is measured from the last tick's pose as it would be drawn now, its own remaining fade offset included, so the new fade starts exactly where the hull was. Nothing is counted twice: the old offset is replaced, not added.
   - A fade still running when the next tick arrives is not restarted: the new correction is added to what is left of the old offset, and the sum decays over a fresh fade time.
   - While the fade (25 ms) is shorter than the tick spacing (33 ms), the offset is bounded by the sum of the last two corrections. A longer fade, or ticks bunched after a hitch, lets residuals pile up, so `g_vehicleLeadFadeMsec` is clamped to 30 ms.
   - An error over a jump bound, the same 64 u as the hull guard, is not faded: the draw snaps, as a respawn does today.
 - **The camera.**
   - **First person:** the camera rides the drawn hull, through its offset in the hull's frame.
-    - Below α = 0 the offset is blended as today.
-    - At α ≥ 0 it is held at tick n's offset: the damped view's own motion is not extrapolated.
+    - The offset (and its axis) is blended at the frame's own fraction f, as before the lead: the damped view's own motion in the hull is neither extrapolated nor moved to the hull's time. Blending it at t = f + L, as first built, stepped it by L × its per-tick change at every tick (review of #42); `seat-poses` H2v checks the drawn view's steps.
     - Late look (row 064) applies unchanged on top.
   - **Chase views** (world cameras, row 062): no lead in the first tier. The chase camera is already damped behind the hull, and leading it would extrapolate the damping. A second tier can move the world camera by the hull's lead translation, after the stage 5 chase-view orbit work has landed.
 - **Riders, the cockpit and carried client entities** use the drawn hull through the carrier rule, as today, so they lead with it.
