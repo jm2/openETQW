@@ -14,8 +14,8 @@ hooks stubbed here.
 #include "RetailDiscovery.h"
 
 #include <filesystem>
+#include <chrono>
 #include <fstream>
-#include <random>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -92,10 +92,10 @@ static void ResetHooks( const fs::path &engineDir ) {
 int main() {
 	idStr::InitMemory();	// as idLib::Init: an idStr past its base buffer allocates from it
 
-	// a directory of this run's own (two runs at once must not share one)
-	std::random_device random;
+	// a directory of this run's own (two runs at once must not share one); not
+	// <random>: libc++'s needs INFINITY, which idLib's Math.h undefines
 	const fs::path tmp = fs::temp_directory_path() / ( "openetqw-retail-discovery-" +
-		std::to_string( ( unsigned long long )time( NULL ) ) + "-" + std::to_string( random() ) );
+		std::to_string( ( unsigned long long )std::chrono::steady_clock::now().time_since_epoch().count() ) );
 	std::error_code error;
 	fs::remove_all( tmp, error );
 	fs::create_directories( tmp );
