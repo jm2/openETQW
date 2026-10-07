@@ -4,9 +4,10 @@
 openETQW Asset-Free Test Harness: RetailDiscoveryTest.cpp
 Retail data discovery (src/framework/RetailDiscovery.h, ledger 068) on
 synthetic trees in a temporary directory: the base/pak000.pk4 marker in any
-letter case, the path lists, the stored path file, Steam's libraryfolders.vdf
-(both formats) and steamapps/common, and the search order with the platform
-hooks stubbed here.
+letter case, the path lists, the stored path file (UTF-8), Steam's
+libraryfolders.vdf (both formats, UTF-8, a symlinked root) and app manifests,
+names outside every code page, and the search order with the platform hooks
+stubbed here.
 ===========================================================================
 */
 
@@ -74,7 +75,13 @@ static fs::path MakeInstall( const fs::path &root, const char *baseName = "base"
 }
 
 static std::string Str( const fs::path &path ) {
-	return path.string();
+	return path.string();	// the engine's form; only for names every code page holds
+}
+
+// a path as UTF-8 (what Steam's files and Notepad write)
+static std::string Utf8( const fs::path &path ) {
+	const std::u8string utf8 = path.u8string();
+	return std::string( utf8.begin(), utf8.end() );
 }
 
 static bool SameDir( const char *a, const fs::path &b ) {
@@ -173,7 +180,7 @@ int main() {
 			"\t\"0\"\n\t{\n\t\t\"path\"\t\t\"" + vdfString( library2 ) + "\"\n\t\t\"label\"\t\t\"\"\n\t}\n"
 			"\t\"1\"\t\t\"" + vdfString( library3 ) + "/\"\n"	// the pre-2021 form
 			"}\n" );
-		// app manifests: Doom 3 (base/pak000.pk4 too, and sorted first) is not the
+		// app manifests: Doom 3 (base/pak000.pk4 too, and its manifest first) is not the
 		// game; ET:QW's is; one that would leave steamapps/common is refused
 		auto manifest = []( const fs::path &library, const char *appId, const char *name, const char *installDir ) {
 			WriteFile( library / "steamapps" / ( std::string( "appmanifest_" ) + appId + ".acf" ),
@@ -183,10 +190,12 @@ int main() {
 		fs::create_directories( steam / "steamapps" / "common" / "Half-Life" );
 		manifest( steam, "70", "Half-Life", "Half-Life" );
 		MakeInstall( library2 / "steamapps" / "common" / "Doom 3" );
-		manifest( library2, "208200", "DOOM 3", "Doom 3" );
+		manifest( library2, "1", "DOOM 3", "Doom 3" );	// appmanifest_1.acf sorts before appmanifest_10000.acf
 		MakeInstall( library2 / "steamapps" / "common" / "Enemy Territory Quake Wars" );
 		manifest( library2, "10000", "Enemy Territory: QUAKE Wars", "Enemy Territory Quake Wars" );
 		manifest( library2, "99999", "Enemy Territory: QUAKE Wars (bad manifest)", "../../outside" );
+		manifest( library2, "99998", "Enemy Territory: QUAKE Wars (bad manifest)", ".." );
+		manifest( library2, "99997", "Enemy Territory: QUAKE Wars (bad manifest)", "C:" );
 		fs::create_directories( library2 / "steamapps" / fs::path( u8"ゲーム" ) );	// a non-ANSI name in steamapps
 		fs::create_directories( library3 / "steamapps" / "common" );
 
@@ -224,6 +233,52 @@ int main() {
 		RetailDiscovery::AppendSteamInstalls( Str( steam ).c_str(), installs );
 		RetailDiscovery::AppendSteamInstalls( Str( library3 ).c_str(), installs );
 		CHECK( installs.Num() == 0, "Steam installs of the game where there are none: %d", installs.Num() );
+
+		// UTF-8 in Steam's files: a library named outside the code page is skipped
+		// (Windows) or read (POSIX), never the end of the search; an accented one
+		// the engine can name is searched
+		const fs::path steamU = tmp / "SteamU";
+		const fs::path libraryJa = tmp / fs::path( u8"ライブラリ" );
+		const fs::path libraryE = tmp / fs::path( u8"Bibliothèque" );
+		fs::create_directories( steamU / "steamapps" );
+		fs::create_directories( libraryJa / "steamapps" / "common" );
+		MakeInstall( libraryE / "steamapps" / "common" / "ETQW" );
+		manifest( libraryE, "10000", "Enemy Territory: QUAKE Wars", "ETQW" );
+		auto vdfUtf8 = []( const fs::path &path ) {
+			std::string escaped;
+			for ( char c : Utf8( path ) ) {
+				escaped += c;
+				if ( c == '\\' ) {
+					escaped += '\\';
+				}
+			}
+			return escaped;
+		};
+		WriteFile( steamU / "steamapps" / "libraryfolders.vdf",
+			"\"libraryfolders\"\n{\n"
+			"\t\"0\"\n\t{\n\t\t\"path\"\t\t\"" + vdfUtf8( libraryJa ) + "\"\n\t}\n"
+			"\t\"1\"\n\t{\n\t\t\"path\"\t\t\"" + vdfUtf8( libraryE ) + "\"\n\t}\n"
+			"}\n" );
+		idStrList librariesU;
+		idStrList keysU;
+		RetailDiscovery::AppendSteamLibraries( Str( steamU ).c_str(), librariesU, keysU );
+		idStrList installsU;
+		for ( int i = 0; i < librariesU.Num(); i++ ) {
+			RetailDiscovery::AppendSteamInstalls( librariesU[ i ], installsU );
+		}
+		bool foundAccented = false;
+		for ( int i = 0; i < installsU.Num(); i++ ) {
+			foundAccented = foundAccented || SameDir( installsU[ i ], libraryE / "steamapps" / "common" / "ETQW" );
+		}
+		CHECK( foundAccented, "the accented Steam library's install not found (%d libraries, %d installs)",
+			librariesU.Num(), installsU.Num() );
+
+		// a UTF-8 stored path (Notepad's) with an accent
+		const fs::path storedAccented = MakeInstall( tmp / fs::path( u8"Données ETQW" ) );
+		WriteFile( tmp / "saveE" / "basepath.txt", "\xEF\xBB\xBF" + Utf8( storedAccented ) + "\r\n" );
+		idStr storedPath;
+		CHECK( RetailDiscovery::ReadStoredPath( Str( tmp / "saveE" / "basepath.txt" ).c_str(), storedPath ) &&
+			SameDir( storedPath, storedAccented ), "a UTF-8 stored path with an accent read as '%s'", storedPath.c_str() );
 	}
 
 	// --- the search order ---

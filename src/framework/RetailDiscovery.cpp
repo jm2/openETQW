@@ -75,6 +75,56 @@ static bool NarrowPath( const fs::path &path, idStr &narrow ) {
 #endif
 }
 
+// An engine path (the ANSI code page on Windows) as a std::filesystem path,
+// without the conversion fs::path( const char * ) does there, which throws on
+// bytes the code page does not define; false when it cannot be converted
+static bool ToPath( const char *engineName, fs::path &path ) {
+	if ( engineName == NULL ) {
+		return false;
+	}
+#ifdef _WIN32
+	const int length = MultiByteToWideChar( CP_ACP, MB_ERR_INVALID_CHARS, engineName, -1, NULL, 0 );
+	if ( length <= 0 ) {
+		return false;
+	}
+	std::wstring wide( static_cast< size_t >( length ), L'\0' );
+	if ( MultiByteToWideChar( CP_ACP, MB_ERR_INVALID_CHARS, engineName, -1, wide.data(), length ) <= 0 ) {
+		return false;
+	}
+	wide.resize( static_cast< size_t >( length - 1 ) );	// the terminator
+	path = fs::path( wide );
+#else
+	path = fs::path( engineName );
+#endif
+	return true;
+}
+
+// Text read from a file (basepath.txt and Steam's .vdf and .acf files are UTF-8)
+// as an engine path: decoded as UTF-8 when it is valid UTF-8, else taken as the
+// code page's own (an older editor's file); false when the engine cannot name it
+static bool FileTextToEnginePath( const char *text, idStr &engineName ) {
+#ifdef _WIN32
+	const int length = MultiByteToWideChar( CP_UTF8, MB_ERR_INVALID_CHARS, text, -1, NULL, 0 );
+	if ( length <= 0 ) {
+		fs::path probe;
+		if ( !ToPath( text, probe ) ) {
+			return false;
+		}
+		engineName = text;
+		return true;
+	}
+	std::wstring wide( static_cast< size_t >( length ), L'\0' );
+	if ( MultiByteToWideChar( CP_UTF8, MB_ERR_INVALID_CHARS, text, -1, wide.data(), length ) <= 0 ) {
+		return false;
+	}
+	wide.resize( static_cast< size_t >( length - 1 ) );
+	return NarrowPath( fs::path( wide ), engineName );
+#else
+	engineName = text;
+	return true;
+#endif
+}
+
 // a file name against an ASCII name, without case and without converting it
 static bool NameIs( const fs::path &name, const char *ascii ) {
 	const fs::path::string_type &native = name.native();
@@ -130,11 +180,17 @@ static bool FindEntryNoCase( const fs::path &directory, const char *name, bool w
 // The key two spellings of one directory share (a symlinked Steam root, a
 // trailing slash): its canonical form where it exists, else its normalized text
 static idStr PathKey( const char *path ) {
-	std::error_code error;
-	const fs::path canonical = fs::weakly_canonical( fs::path( path ), error );
-	idStr key;
-	if ( !error && NarrowPath( canonical, key ) ) {
-		return NormalizePath( key );
+	fs::path original;
+	if ( ToPath( path, original ) ) {
+		try {
+			std::error_code error;
+			const fs::path canonical = fs::weakly_canonical( original, error );
+			idStr key;
+			if ( !error && NarrowPath( canonical, key ) ) {
+				return NormalizePath( key );
+			}
+		} catch ( const std::exception & ) {
+		}
 	}
 	return NormalizePath( path );
 }
@@ -172,10 +228,18 @@ bool RetailDiscovery::HasRetailData( const char *root ) {
 	if ( root == NULL || root[ 0 ] == '\0' ) {
 		return false;
 	}
-	fs::path baseDir;
-	fs::path pak;
-	return FindEntryNoCase( fs::path( root ), RETAIL_MARKER_DIR, true, baseDir ) &&
-		   FindEntryNoCase( baseDir, RETAIL_MARKER_PAK, false, pak );
+	fs::path rootPath;
+	if ( !ToPath( root, rootPath ) ) {
+		return false;
+	}
+	try {	// one candidate that cannot be read is skipped, not the search
+		fs::path baseDir;
+		fs::path pak;
+		return FindEntryNoCase( rootPath, RETAIL_MARKER_DIR, true, baseDir ) &&
+			   FindEntryNoCase( baseDir, RETAIL_MARKER_PAK, false, pak );
+	} catch ( const std::exception & ) {
+		return false;
+	}
 }
 
 void RetailDiscovery::SplitPathList( const char *list, idStrList &paths ) {
@@ -254,62 +318,84 @@ void RetailDiscovery::AppendSteamLibraries( const char *steamRoot, idStrList &li
 	}
 	AddUniqueDirectory( libraries, keys, steamRoot );
 
-	fs::path steamapps;
-	fs::path vdf;
-	if ( !FindEntryNoCase( fs::path( steamRoot ), "steamapps", true, steamapps ) ||
-		 !FindEntryNoCase( steamapps, "libraryfolders.vdf", false, vdf ) ) {
+	fs::path rootPath;
+	if ( !ToPath( steamRoot, rootPath ) ) {
 		return;
 	}
-	ForEachKeyValue( vdf, [&]( const idStr &key, const idStr &value ) {
-		// "path" "<library>" (since 2021), or "<n>" "<library>" (older clients)
-		if ( idStr::Icmp( key, "path" ) == 0 ||
-			 ( idStr::IsNumeric( key ) && ( value.Find( '/' ) >= 0 || value.Find( '\\' ) >= 0 ) ) ) {
-			AddUniqueDirectory( libraries, keys, value );
+	try {	// a Steam root that cannot be read is skipped, not the search
+		fs::path steamapps;
+		fs::path vdf;
+		if ( !FindEntryNoCase( rootPath, "steamapps", true, steamapps ) ||
+			 !FindEntryNoCase( steamapps, "libraryfolders.vdf", false, vdf ) ) {
+			return;
 		}
-	} );
+		ForEachKeyValue( vdf, [&]( const idStr &key, const idStr &value ) {
+			// "path" "<library>" (since 2021), or "<n>" "<library>" (older clients);
+			// Steam writes UTF-8, and a library the engine cannot name is skipped
+			idStr library;
+			if ( ( idStr::Icmp( key, "path" ) == 0 ||
+				   ( idStr::IsNumeric( key ) && ( value.Find( '/' ) >= 0 || value.Find( '\\' ) >= 0 ) ) ) &&
+				 FileTextToEnginePath( value, library ) ) {
+				AddUniqueDirectory( libraries, keys, library );
+			}
+		} );
+	} catch ( const std::exception & ) {
+	}
 }
 
 void RetailDiscovery::AppendSteamInstalls( const char *library, idStrList &candidates ) {
 	if ( library == NULL || library[ 0 ] == '\0' ) {
 		return;
 	}
-	fs::path steamapps;
-	if ( !FindEntryNoCase( fs::path( library ), "steamapps", true, steamapps ) ) {
+	fs::path libraryPath;
+	if ( !ToPath( library, libraryPath ) ) {
 		return;
 	}
-	// steamapps/appmanifest_<appid>.acf names each installed app ("name") and its
-	// folder under steamapps/common ("installdir")
-	std::vector< fs::path > manifests;
-	ForEachEntry( steamapps, [&]( const fs::directory_entry &entry ) {
-		const fs::path::string_type name = entry.path().filename().native();	// a copy: filename() is a temporary
-		const fs::path::string_type prefix = fs::path( "appmanifest_" ).native();
+	try {	// a library that cannot be read is skipped, not the search
+		fs::path steamapps;
+		if ( !FindEntryNoCase( libraryPath, "steamapps", true, steamapps ) ) {
+			return;
+		}
+		// steamapps/appmanifest_<appid>.acf names each installed app ("name") and its
+		// folder under steamapps/common ("installdir"); Steam writes the names lower case
+		const fs::path::string_type prefix = fs::path( "appmanifest_" ).native();	// ASCII: converts on every code page
 		const fs::path::string_type suffix = fs::path( ".acf" ).native();
-		if ( name.size() > prefix.size() + suffix.size() &&
-			 name.compare( 0, prefix.size(), prefix ) == 0 &&
-			 name.compare( name.size() - suffix.size(), suffix.size(), suffix ) == 0 ) {
-			manifests.push_back( entry.path() );
-		}
-		return true;
-	} );
-	std::sort( manifests.begin(), manifests.end() );	// a stable order across runs
-	for ( const fs::path &manifest : manifests ) {
-		idStr gameName;
-		idStr installDir;
-		ForEachKeyValue( manifest, [&]( const idStr &key, const idStr &value ) {
-			if ( idStr::Icmp( key, "name" ) == 0 && gameName.Length() == 0 ) {
-				gameName = value;
-			} else if ( idStr::Icmp( key, "installdir" ) == 0 && installDir.Length() == 0 ) {
-				installDir = value;
+		std::vector< fs::path > manifests;
+		ForEachEntry( steamapps, [&]( const fs::directory_entry &entry ) {
+			const fs::path::string_type name = entry.path().filename().native();	// a copy: filename() is a temporary
+			if ( name.size() > prefix.size() + suffix.size() &&
+				 name.compare( 0, prefix.size(), prefix ) == 0 &&
+				 name.compare( name.size() - suffix.size(), suffix.size(), suffix ) == 0 ) {
+				manifests.push_back( entry.path() );
 			}
+			return true;
 		} );
-		if ( gameName.Find( STEAM_GAME_NAME, false ) < 0 || installDir.Length() == 0 ||
-			 installDir.Find( '/' ) >= 0 || installDir.Find( '\\' ) >= 0 || installDir.Find( ".." ) >= 0 ) {
-			continue;
+		std::sort( manifests.begin(), manifests.end() );	// a stable order across runs
+		for ( const fs::path &manifest : manifests ) {
+			idStr gameName;
+			idStr installDirText;
+			ForEachKeyValue( manifest, [&]( const idStr &key, const idStr &value ) {
+				if ( idStr::Icmp( key, "name" ) == 0 && gameName.Length() == 0 ) {
+					gameName = value;
+				} else if ( idStr::Icmp( key, "installdir" ) == 0 && installDirText.Length() == 0 ) {
+					installDirText = value;
+				}
+			} );
+			// one folder name under steamapps/common: no separators, drive or stream
+			// (':') or parent reference, and one the engine can name
+			idStr installDir;
+			if ( gameName.Find( STEAM_GAME_NAME, false ) < 0 || installDirText.Length() == 0 ||
+				 installDirText.Find( '/' ) >= 0 || installDirText.Find( '\\' ) >= 0 ||
+				 installDirText.Find( ':' ) >= 0 || installDirText.Find( ".." ) >= 0 ||
+				 !FileTextToEnginePath( installDirText, installDir ) ) {
+				continue;
+			}
+			idStr path = library;
+			path.AppendPath( "steamapps/common" );
+			path.AppendPath( installDir );
+			AddUnique( candidates, path );
 		}
-		idStr path = library;
-		path.AppendPath( "steamapps/common" );
-		path.AppendPath( installDir );
-		AddUnique( candidates, path );
+	} catch ( const std::exception & ) {
 	}
 }
 
@@ -334,7 +420,12 @@ bool RetailDiscovery::ReadStoredPath( const char *file, idStr &path ) {
 	}
 	idStr value = start;
 	value.StripTrailingWhiteSpace();
-	path = NormalizePath( value );
+	// Notepad writes UTF-8: a path the engine cannot name is no stored path
+	idStr engineName;
+	if ( !FileTextToEnginePath( value, engineName ) ) {
+		return false;
+	}
+	path = NormalizePath( engineName );
 	return path.Length() > 0;
 }
 
