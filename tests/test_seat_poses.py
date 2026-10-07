@@ -106,6 +106,20 @@ def seat_phase_poses(proc, begin, end):
     return [p for p in poses if t0 <= p["us"] <= t1]
 
 
+LAUNCH_DZ_U = 30.0    # vertical hull motion in one tick that only a launch or a fall gives (900 u/s)
+
+
+def launched(poses):
+    """The largest vertical hull motion between consecutive ticks of a phase when it exceeds
+    LAUNCH_DZ_U, else None: driving on valley's ground moves the hull a few units a tick."""
+    first = {}
+    for p in poses:
+        if p["veh"] is not None:
+            first.setdefault(p["gt"], p["veh"][2])
+    worst = max((abs(first[gt + 33] - z) for gt, z in first.items() if gt + 33 in first), default=0.0)
+    return worst if worst > LAUNCH_DZ_U else None
+
+
 def step_check(poses):
     """S4: the hull's median step across a tick against its median step within one."""
     cross, within = [], []
@@ -287,15 +301,28 @@ def main(argv):
         procs.insert(0, ("peer", peer))
     failures = []
 
-    def phase(name, cap, drive):
-        begin = obs.mark()
-        obs.send(f"echo FP_BEGIN {name} {cap}")
-        drive()
-        obs.send(f"echo FP_END {name} {cap}")
-        hit = obs.wait_for(lambda s: s.strip() == f"FP_END {name} {cap}", 10.0, begin)
-        if not hit:
-            raise Failed(f"no end of phase {name} at cap {cap}")
-        return seat_phase_poses(obs, begin, hit[0])
+    def phase(name, cap, drive, check_launch=True):
+        """One drive phase's draws. A phase in which the hull was launched or fell (issue
+        #84: a collision can throw the badger thousands of units up, and then the guards
+        rightly refuse some ticks) is driven again once the badger has settled; a second
+        disturbed attempt fails the test with that reason."""
+        for attempt in range(2):
+            begin = obs.mark()
+            obs.send(f"echo FP_BEGIN {name} {cap}")
+            drive()
+            obs.send(f"echo FP_END {name} {cap}")
+            hit = obs.wait_for(lambda s: s.strip() == f"FP_END {name} {cap}", 10.0, begin)
+            if not hit:
+                raise Failed(f"no end of phase {name} at cap {cap}")
+            poses = seat_phase_poses(obs, begin, hit[0])
+            jump = launched(poses) if check_launch else None
+            if jump is None:
+                return poses
+            print(f"[seat] phase {name} at cap {cap}: the hull moved {jump:.0f} u vertically in one tick"
+                  f" (launched or falling; attempt {attempt + 1})")
+            time.sleep(5.0)
+            seat_up()
+        raise Failed(f"phase {name} at cap {cap}: the hull was launched or fell in both attempts")
 
     def peer_walk():
         peer.send("clientMove 127 0 0")
@@ -439,12 +466,17 @@ def main(argv):
             time.sleep(1.5)
         late_look("chase gunner", (1, 1), orbit=True)
         # the driver's chase view (mode 1, smooth_locked): its look is free only in tophat
-        # mode, which ui_drivingCameraFreelook 1 makes the default (the tophat inverts it)
-        srv.send(f"exitVehicle {obs.slot}")
-        time.sleep(1.0)
+        # mode, which ui_drivingCameraFreelook 1 makes the default (the tophat inverts it).
+        # Back to the driver's seat by swapping, not by leaving and entering again: an exit
+        # can leave the player against the hull, and the push can throw the badger (#84)
         obs.send("set ui_drivingCameraFreelook 1")
         obs.send(f"set g_unlock_vehicleSeats {LISTED},badger:*:smooth_locked")
-        seat_up()
+        for _ in range(5):
+            last = next((p for ln in reversed(obs.snapshot()) if (p := parse_pose(ln.text))), None)
+            if last is not None and (seat_fields(last["seat"]) or (0, -1, 0))[1] == 0:
+                break
+            srv.send(f"swapVehicleSeat {obs.slot}")
+            time.sleep(1.5)
         for _ in range(2):
             last = next((p for ln in reversed(obs.snapshot()) if (p := parse_pose(ln.text))), None)
             if last is not None and (seat_fields(last["seat"]) or (0, 0, 0))[1:] == (0, 1):
@@ -618,7 +650,7 @@ def main(argv):
         if modes != {1}:
             failures.append(f"the chase phase drew view modes {sorted(modes)}, not only the chase view (1)")
         seat_up("vehicle_icarus")
-        poses = phase("guardicarus", cap, drive)
+        poses = phase("guardicarus", cap, drive, check_launch=False)   # a jetpack flies
         changed, n = within_tick_changes(poses, "view")
         moving = sum(1 for a, b in zip(poses, poses[1:]) if moved(a["view"], b["view"]))
         print(f"[seat] guard (icarus, listed) at cap {cap}: the view changed within a tick on {changed} of {n} pairs"
