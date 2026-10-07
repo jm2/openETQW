@@ -6,6 +6,17 @@
 struct sdVulkanBackendState;
 struct viewDef_s;
 
+// DDS block formats the backend can upload without decoding.
+enum vulkanBlockFormat_t {
+	VBF_BC1_RGB,	// DXT1
+	VBF_BC1_RGBA,	// DXT1 with 1-bit alpha
+	VBF_BC2,		// DXT3
+	VBF_BC3,		// DXT5
+	VBF_BC3_RXGB,	// RXGB: DXT5 with red in the alpha block
+	VBF_BC4,		// ATI1 / LATC1
+	VBF_BC5			// ATI2
+};
+
 struct sdVulkanGuiVertex {
 	float x;
 	float y;
@@ -42,6 +53,13 @@ public:
 	// object address; Vulkan handles stay private to this backend.
 	bool UploadImage2D( const void* owner, const unsigned char* rgba,
 		int width, int height, int mipLevels, bool linearFilter, bool repeat );
+	// Precompressed DDS blocks, uploaded as they are (no decode, no generated
+	// mipmaps).  SupportsBlockFormat is false without textureCompressionBC or
+	// the format's sampled-image support; the caller then decodes to RGBA.
+	bool SupportsBlockFormat( vulkanBlockFormat_t blockFormat ) const;
+	bool UploadBlockImage2D( const void* owner, vulkanBlockFormat_t blockFormat,
+		const unsigned char* blocks, size_t blockDataBytes, int width, int height,
+		int mipLevels, bool linearFilter, bool repeat );
 	bool UploadImageCube( const void* owner, const unsigned char* const rgba[ 6 ],
 		int size, bool linearFilter );
 	bool UpdateImage2D( const void* owner, int mipLevel, int x, int y,

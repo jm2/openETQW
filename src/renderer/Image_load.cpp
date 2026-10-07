@@ -1103,6 +1103,30 @@ void idImage::UploadPrecompressedImage( byte* data, int len ) {
 			uploadedMips++;
 		}
 
+		if ( !vulkanUploaded && vulkanBackend.IsInitialized() && compressed &&
+			mipWidth <= uploadWidth && mipHeight <= uploadHeight ) {
+			// The file's blocks and mip levels as they are: 4 bits (DXT1, ATI1) or
+			// 8 bits per texel instead of the decode's 32, no generated mipmaps.
+			vulkanBlockFormat_t blockFormat = VBF_BC3;
+			bool knownBlockFormat = true;
+			switch ( header->ddspf.dwFourCC ) {
+				case DDS_MAKEFOURCC( 'D', 'X', 'T', '1' ):
+					blockFormat = ( header->ddspf.dwFlags & DDSF_ALPHAPIXELS ) ? VBF_BC1_RGBA : VBF_BC1_RGB;
+					break;
+				case DDS_MAKEFOURCC( 'D', 'X', 'T', '3' ): blockFormat = VBF_BC2; break;
+				case DDS_MAKEFOURCC( 'D', 'X', 'T', '5' ): blockFormat = VBF_BC3; break;
+				case DDS_MAKEFOURCC( 'R', 'X', 'G', 'B' ): blockFormat = VBF_BC3_RXGB; break;
+				case DDS_MAKEFOURCC( 'A', 'T', 'I', '1' ): blockFormat = VBF_BC4; break;
+				case DDS_MAKEFOURCC( 'A', 'T', 'I', '2' ): blockFormat = VBF_BC5; break;
+				default: knownBlockFormat = false; break;
+			}
+			if ( knownBlockFormat && vulkanBackend.SupportsBlockFormat( blockFormat ) ) {
+				vulkanUploaded = vulkanBackend.UploadBlockImage2D( this, blockFormat,
+					imageData, static_cast< size_t >( fileEnd - imageData ),
+					mipWidth, mipHeight, fileMipCount - mip,
+					filter != TF_NEAREST, repeat == TR_REPEAT );
+			}
+		}
 		if ( !vulkanUploaded && vulkanBackend.IsInitialized() &&
 			mipWidth <= uploadWidth && mipHeight <= uploadHeight ) {
 			byte* rgba = static_cast< byte* >( Mem_Alloc( mipWidth * mipHeight * 4 ) );
