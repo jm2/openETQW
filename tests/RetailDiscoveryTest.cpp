@@ -1,0 +1,349 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+/*
+===========================================================================
+openETQW Asset-Free Test Harness: RetailDiscoveryTest.cpp
+Retail data discovery (src/framework/RetailDiscovery.h, ledger 068) on
+synthetic trees in a temporary directory: the base/pak000.pk4 marker in any
+letter case, the path lists, the stored path file (UTF-8), Steam's
+libraryfolders.vdf (both formats, UTF-8, a symlinked root) and app manifests,
+names outside every code page, and the search order with the platform hooks
+stubbed here.
+===========================================================================
+*/
+
+// Compiled as the engine compiles its sources (the force-included precompiled.h)
+#include "RetailDiscovery.h"
+
+#include <filesystem>
+#include <chrono>
+#include <fstream>
+#include <string>
+
+namespace fs = std::filesystem;
+
+// Globals idLib refers to; nothing here calls through them
+idCommon * common = NULL;
+idSys * sys = NULL;
+idDeclManager * declManager = NULL;
+idCVar * idCVar::staticVars = NULL;
+idCVarSystem * cvarSystem = NULL;
+idFileSystem * fileSystem = NULL;
+
+// The platform hooks, set by each case
+static idStr g_defaultBasePath;
+static idStrList g_platformCandidates;
+static idStrList g_steamRoots;
+
+const char *Sys_DefaultBasePath( void ) {
+	return g_defaultBasePath.c_str();
+}
+
+void Sys_AppendRetailDataCandidates( idStrList &candidates, idStrList &steamRoots ) {
+	for ( int i = 0; i < g_platformCandidates.Num(); i++ ) {
+		candidates.Append( g_platformCandidates[ i ] );
+	}
+	for ( int i = 0; i < g_steamRoots.Num(); i++ ) {
+		steamRoots.Append( g_steamRoots[ i ] );
+	}
+}
+
+static int g_failures = 0;
+#define CHECK( cond, ... ) do { if ( !( cond ) ) { printf( "FAIL: " __VA_ARGS__ ); printf( "\n" ); g_failures++; } } while ( 0 )
+
+static void SetEnv( const char *name, const char *value ) {
+#ifdef _WIN32
+	_putenv_s( name, value != NULL ? value : "" );
+#else
+	if ( value != NULL ) {
+		setenv( name, value, 1 );
+	} else {
+		unsetenv( name );
+	}
+#endif
+}
+
+static void WriteFile( const fs::path &file, const std::string &text ) {
+	fs::create_directories( file.parent_path() );
+	std::ofstream out( file, std::ios::binary );
+	out << text;
+}
+
+// an install root holding the retail marker, with the names in the given case
+static fs::path MakeInstall( const fs::path &root, const char *baseName = "base", const char *pakName = "pak000.pk4" ) {
+	WriteFile( root / baseName / pakName, "PK" );
+	return root;
+}
+
+static std::string Str( const fs::path &path ) {
+	return path.string();	// the engine's form; only for names every code page holds
+}
+
+// a path as UTF-8 (what Steam's files and Notepad write)
+static std::string Utf8( const fs::path &path ) {
+	const std::u8string utf8 = path.u8string();
+	return std::string( utf8.begin(), utf8.end() );
+}
+
+static bool SameDir( const char *a, const fs::path &b ) {
+	std::error_code error;
+	return fs::equivalent( fs::path( a ), b, error );
+}
+
+static void ResetHooks( const fs::path &engineDir ) {
+	g_defaultBasePath = Str( engineDir ).c_str();
+	g_platformCandidates.Clear();
+	g_steamRoots.Clear();
+	SetEnv( "OPENETQW_BASEPATH", NULL );
+}
+
+int main() {
+	idStr::InitMemory();	// as idLib::Init: an idStr past its base buffer allocates from it
+
+	// a directory of this run's own (two runs at once must not share one); not
+	// <random>: libc++'s needs INFINITY, which idLib's Math.h undefines
+	const fs::path tmp = fs::temp_directory_path() / ( "openetqw-retail-discovery-" +
+		std::to_string( ( unsigned long long )std::chrono::steady_clock::now().time_since_epoch().count() ) );
+	std::error_code error;
+	fs::remove_all( tmp, error );
+	fs::create_directories( tmp );
+
+	// --- the marker ---
+	const fs::path lower = MakeInstall( tmp / "lower" );
+	const fs::path upper = MakeInstall( tmp / "upper", "BASE", "PAK000.PK4" );
+	// names no code page may hold beside the marker: skipped, never a crash
+	// (std::filesystem's own conversion throws on them on Windows)
+	const fs::path unicode = MakeInstall( tmp / "unicode" );
+	WriteFile( unicode / "base" / fs::path( u8"ゲーム.pk4" ), "PK" );
+	fs::create_directories( unicode / fs::path( u8"データ" ) );
+	CHECK( RetailDiscovery::HasRetailData( Str( unicode ).c_str() ), "an install with non-ANSI names beside the marker not found" );
+	WriteFile( tmp / "nopak" / "base" / "pak001.pk4", "PK" );
+	fs::create_directories( tmp / "pakdir" / "base" / "pak000.pk4" );	// a directory, not the pak
+	CHECK( RetailDiscovery::HasRetailData( Str( lower ).c_str() ), "lower-case base/pak000.pk4 not found" );
+	CHECK( RetailDiscovery::HasRetailData( Str( upper ).c_str() ), "upper-case BASE/PAK000.PK4 not found" );
+	CHECK( !RetailDiscovery::HasRetailData( Str( tmp / "nopak" ).c_str() ), "a base/ without pak000.pk4 counted" );
+	CHECK( !RetailDiscovery::HasRetailData( Str( tmp / "pakdir" ).c_str() ), "a pak000.pk4 directory counted" );
+	CHECK( !RetailDiscovery::HasRetailData( Str( tmp / "missing" ).c_str() ), "a missing root counted" );
+	CHECK( !RetailDiscovery::HasRetailData( "" ) && !RetailDiscovery::HasRetailData( NULL ), "an empty root counted" );
+
+	// --- path lists ---
+	{
+		idStrList paths;
+#ifdef _WIN32
+		// ';' only: ':' is a drive letter's; backslashes, quotes and a trailing slash go
+		RetailDiscovery::SplitPathList( " \"C:\\Games\\ETQW\\\" ;C:/Games/ETQW;;D:/Other/ ", paths );
+		const char *first = "C:/Games/ETQW";
+		const char *second = "D:/Other";
+#else
+		// ':' and ';' both separate
+		RetailDiscovery::SplitPathList( " \"/games/etqw/\" :/games/etqw;;/other/ ", paths );
+		const char *first = "/games/etqw";
+		const char *second = "/other";
+#endif
+		CHECK( paths.Num() == 2, "path list: %d entries, want 2", paths.Num() );
+		CHECK( paths.Num() > 0 && idStr::Cmp( paths[ 0 ], first ) == 0, "path list: first '%s'", paths.Num() > 0 ? paths[ 0 ].c_str() : "" );
+		CHECK( paths.Num() > 1 && idStr::Cmp( paths[ 1 ], second ) == 0, "path list: second '%s'", paths.Num() > 1 ? paths[ 1 ].c_str() : "" );
+		paths.Clear();
+		RetailDiscovery::SplitPathList( NULL, paths );
+		CHECK( paths.Num() == 0, "a NULL path list gave %d entries", paths.Num() );
+	}
+
+	// --- the stored path: a byte order mark, CRLF and a trailing slash ---
+	{
+		const fs::path stored = tmp / "save" / "basepath.txt";
+		WriteFile( stored, std::string( "\xEF\xBB\xBF" ) + Str( lower ) + "/\r\nignored second line\r\n" );
+		idStr path;
+		CHECK( RetailDiscovery::ReadStoredPath( Str( stored ).c_str(), path ) && SameDir( path, lower ),
+			"stored path read as '%s'", path.c_str() );
+		WriteFile( tmp / "empty" / "basepath.txt", "\r\n" );
+		CHECK( !RetailDiscovery::ReadStoredPath( Str( tmp / "empty" / "basepath.txt" ).c_str(), path ), "an empty stored path read" );
+		CHECK( !RetailDiscovery::ReadStoredPath( Str( tmp / "none.txt" ).c_str(), path ), "a missing stored path read" );
+	}
+
+	// --- Steam: libraryfolders.vdf, new and old format, and steamapps/common ---
+	const fs::path steam = tmp / "Steam";
+	const fs::path library2 = tmp / "SteamLibrary2";
+	const fs::path library3 = tmp / "SteamLibrary3";
+	{
+		// vdf escapes backslashes
+		auto vdfString = []( const fs::path &path ) {
+			std::string escaped;
+			for ( char c : path.string() ) {
+				escaped += c;
+				if ( c == '\\' ) {
+					escaped += '\\';
+				}
+			}
+			return escaped;
+		};
+		WriteFile( steam / "steamapps" / "libraryfolders.vdf",
+			"\"libraryfolders\"\n{\n"
+			"\t\"0\"\n\t{\n\t\t\"path\"\t\t\"" + vdfString( library2 ) + "\"\n\t\t\"label\"\t\t\"\"\n\t}\n"
+			"\t\"1\"\t\t\"" + vdfString( library3 ) + "/\"\n"	// the pre-2021 form
+			"}\n" );
+		// app manifests: Doom 3 (base/pak000.pk4 too, and its manifest first) is not the
+		// game; ET:QW's is; one that would leave steamapps/common is refused
+		auto manifest = []( const fs::path &library, const char *appId, const char *name, const char *installDir ) {
+			WriteFile( library / "steamapps" / ( std::string( "appmanifest_" ) + appId + ".acf" ),
+				std::string( "\"AppState\"\n{\n\t\"appid\"\t\t\"" ) + appId + "\"\n\t\"name\"\t\t\"" + name +
+				"\"\n\t\"installdir\"\t\t\"" + installDir + "\"\n}\n" );
+		};
+		fs::create_directories( steam / "steamapps" / "common" / "Half-Life" );
+		manifest( steam, "70", "Half-Life", "Half-Life" );
+		MakeInstall( library2 / "steamapps" / "common" / "Doom 3" );
+		manifest( library2, "1", "DOOM 3", "Doom 3" );	// appmanifest_1.acf sorts before appmanifest_10000.acf
+		MakeInstall( library2 / "steamapps" / "common" / "Enemy Territory Quake Wars" );
+		manifest( library2, "10000", "Enemy Territory: QUAKE Wars", "Enemy Territory Quake Wars" );
+		manifest( library2, "99999", "Enemy Territory: QUAKE Wars (bad manifest)", "../../outside" );
+		manifest( library2, "99998", "Enemy Territory: QUAKE Wars (bad manifest)", ".." );
+		manifest( library2, "99997", "Enemy Territory: QUAKE Wars (bad manifest)", "C:" );
+		fs::create_directories( library2 / "steamapps" / fs::path( u8"ゲーム" ) );	// a non-ANSI name in steamapps
+		fs::create_directories( library3 / "steamapps" / "common" );
+
+		idStrList libraries;
+		idStrList keys;
+		RetailDiscovery::AppendSteamLibraries( Str( steam ).c_str(), libraries, keys );
+		RetailDiscovery::AppendSteamLibraries( Str( steam ).c_str(), libraries, keys );	// a second root listing the same ones
+		RetailDiscovery::AppendSteamLibraries( ( Str( steam ) + "/" ).c_str(), libraries, keys );	// another spelling of it
+		CHECK( libraries.Num() == 3, "Steam libraries: %d, want 3 (the root, the path entry, the old entry)", libraries.Num() );
+		if ( libraries.Num() == 3 ) {
+			CHECK( SameDir( libraries[ 0 ], steam ), "Steam library 0 '%s'", libraries[ 0 ].c_str() );
+			CHECK( SameDir( libraries[ 1 ], library2 ), "Steam library 1 '%s'", libraries[ 1 ].c_str() );
+			CHECK( SameDir( libraries[ 2 ], library3 ), "Steam library 2 '%s'", libraries[ 2 ].c_str() );
+		}
+
+		// a symlinked root (~/.steam/steam on Linux) is the same library, where links can be made
+		std::error_code linkError;
+		fs::create_directory_symlink( steam, tmp / "SteamLink", linkError );
+		if ( !linkError ) {
+			const int before = libraries.Num();
+			RetailDiscovery::AppendSteamLibraries( Str( tmp / "SteamLink" ).c_str(), libraries, keys );
+			CHECK( libraries.Num() == before, "a symlinked Steam root listed again (%d libraries, want %d)", libraries.Num(), before );
+		} else {
+			printf( "note: no symlink could be made here (%s); the symlinked-root case is skipped\n", linkError.message().c_str() );
+		}
+
+		idStrList installs;
+		RetailDiscovery::AppendSteamInstalls( Str( library2 ).c_str(), installs );
+		CHECK( installs.Num() == 1, "Steam installs of the game in library 2: %d, want 1", installs.Num() );
+		if ( installs.Num() == 1 ) {
+			CHECK( SameDir( installs[ 0 ], library2 / "steamapps" / "common" / "Enemy Territory Quake Wars" ),
+				"Steam install '%s'", installs[ 0 ].c_str() );
+		}
+		installs.Clear();
+		RetailDiscovery::AppendSteamInstalls( Str( steam ).c_str(), installs );
+		RetailDiscovery::AppendSteamInstalls( Str( library3 ).c_str(), installs );
+		CHECK( installs.Num() == 0, "Steam installs of the game where there are none: %d", installs.Num() );
+
+		// UTF-8 in Steam's files: a library named outside the code page is skipped
+		// (Windows) or read (POSIX), never the end of the search; an accented one
+		// the engine can name is searched
+		const fs::path steamU = tmp / "SteamU";
+		const fs::path libraryJa = tmp / fs::path( u8"ライブラリ" );
+		const fs::path libraryE = tmp / fs::path( u8"Bibliothèque" );
+		fs::create_directories( steamU / "steamapps" );
+		fs::create_directories( libraryJa / "steamapps" / "common" );
+		MakeInstall( libraryE / "steamapps" / "common" / "ETQW" );
+		manifest( libraryE, "10000", "Enemy Territory: QUAKE Wars", "ETQW" );
+		auto vdfUtf8 = []( const fs::path &path ) {
+			std::string escaped;
+			for ( char c : Utf8( path ) ) {
+				escaped += c;
+				if ( c == '\\' ) {
+					escaped += '\\';
+				}
+			}
+			return escaped;
+		};
+		WriteFile( steamU / "steamapps" / "libraryfolders.vdf",
+			"\"libraryfolders\"\n{\n"
+			"\t\"0\"\n\t{\n\t\t\"path\"\t\t\"" + vdfUtf8( libraryJa ) + "\"\n\t}\n"
+			"\t\"1\"\n\t{\n\t\t\"path\"\t\t\"" + vdfUtf8( libraryE ) + "\"\n\t}\n"
+			"}\n" );
+		idStrList librariesU;
+		idStrList keysU;
+		RetailDiscovery::AppendSteamLibraries( Str( steamU ).c_str(), librariesU, keysU );
+		idStrList installsU;
+		for ( int i = 0; i < librariesU.Num(); i++ ) {
+			RetailDiscovery::AppendSteamInstalls( librariesU[ i ], installsU );
+		}
+		bool foundAccented = false;
+		for ( int i = 0; i < installsU.Num(); i++ ) {
+			foundAccented = foundAccented || SameDir( installsU[ i ], libraryE / "steamapps" / "common" / "ETQW" );
+		}
+		CHECK( foundAccented, "the accented Steam library's install not found (%d libraries, %d installs)",
+			librariesU.Num(), installsU.Num() );
+
+		// a UTF-8 stored path (Notepad's) with an accent
+		const fs::path storedAccented = MakeInstall( tmp / fs::path( u8"Données ETQW" ) );
+		WriteFile( tmp / "saveE" / "basepath.txt", "\xEF\xBB\xBF" + Utf8( storedAccented ) + "\r\n" );
+		idStr storedPath;
+		CHECK( RetailDiscovery::ReadStoredPath( Str( tmp / "saveE" / "basepath.txt" ).c_str(), storedPath ) &&
+			SameDir( storedPath, storedAccented ), "a UTF-8 stored path with an accent read as '%s'", storedPath.c_str() );
+	}
+
+	// --- the search order ---
+	const fs::path engineNoData = tmp / "engine";
+	fs::create_directories( engineNoData / "base" / "vkprogs" );	// the engine's own base/: no retail data
+	const fs::path envInstall = MakeInstall( tmp / "env" );
+	const fs::path storedInstall = MakeInstall( tmp / "stored" );
+	const fs::path engineInstall = MakeInstall( tmp / "engine-with-data" );
+	const fs::path recordInstall = MakeInstall( tmp / "record" );
+	const fs::path savePath = tmp / "save2";
+	WriteFile( savePath / "basepath.txt", Str( storedInstall ) + "\n" );
+	{
+		idStr root;
+		idList<retailProbe_t> probes;
+
+		// everything present: the environment wins
+		ResetHooks( engineInstall );
+		g_platformCandidates.Append( Str( recordInstall ).c_str() );
+		g_steamRoots.Append( Str( steam ).c_str() );
+		SetEnv( "OPENETQW_BASEPATH", ( Str( tmp / "env-missing" ) + ";" + Str( envInstall ) ).c_str() );
+		CHECK( RetailDiscovery::Discover( Str( savePath ).c_str(), root, probes ) && SameDir( root, envInstall ),
+			"order 1: '%s', want the environment's", root.c_str() );
+		CHECK( probes.Num() == 2 && !probes[ 0 ].found && probes[ 1 ].found, "order 1: %d probes", probes.Num() );
+
+		// without the environment: the stored path
+		SetEnv( "OPENETQW_BASEPATH", NULL );
+		probes.Clear();
+		CHECK( RetailDiscovery::Discover( Str( savePath ).c_str(), root, probes ) && SameDir( root, storedInstall ),
+			"order 2: '%s', want the stored path", root.c_str() );
+
+		// without a stored path: the engine's directory, when it holds the data
+		probes.Clear();
+		CHECK( RetailDiscovery::Discover( Str( tmp / "no-save" ).c_str(), root, probes ) && SameDir( root, engineInstall ),
+			"order 3: '%s', want the engine directory", root.c_str() );
+
+		// an engine directory with only its own base/: the platform's records
+		g_defaultBasePath = Str( engineNoData ).c_str();
+		probes.Clear();
+		CHECK( RetailDiscovery::Discover( Str( tmp / "no-save" ).c_str(), root, probes ) && SameDir( root, recordInstall ),
+			"order 4: '%s', want the install record", root.c_str() );
+
+		// no records: the Steam library folder that holds the data, whatever its name
+		g_platformCandidates.Clear();
+		probes.Clear();
+		CHECK( RetailDiscovery::Discover( Str( tmp / "no-save" ).c_str(), root, probes ) &&
+			SameDir( root, library2 / "steamapps" / "common" / "Enemy Territory Quake Wars" ),
+			"order 5: '%s', want the Steam library's", root.c_str() );
+		CHECK( probes.Num() > 0 && idStr::Cmp( probes[ probes.Num() - 1 ].source, "Steam library" ) == 0,
+			"order 5: the last probe is '%s'", probes.Num() > 0 ? probes[ probes.Num() - 1 ].source.c_str() : "" );
+
+		// nothing anywhere: false, and every probe says so
+		g_steamRoots.Clear();
+		g_platformCandidates.Append( Str( tmp / "nopak" ).c_str() );
+		probes.Clear();
+		root = "unchanged";
+		CHECK( !RetailDiscovery::Discover( Str( tmp / "no-save" ).c_str(), root, probes ), "nothing to find, but '%s' found", root.c_str() );
+		int found = 0;
+		for ( int i = 0; i < probes.Num(); i++ ) {
+			found += probes[ i ].found ? 1 : 0;
+		}
+		CHECK( probes.Num() == 2 && found == 0, "nothing to find: %d probes, %d found (want 2, 0)", probes.Num(), found );
+	}
+
+	SetEnv( "OPENETQW_BASEPATH", NULL );
+	fs::remove_all( tmp, error );
+	printf( "retail-discovery: %d failure(s)\n", g_failures );
+	return g_failures == 0 ? 0 : 1;
+}

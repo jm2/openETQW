@@ -138,6 +138,25 @@ msgchannel_test = executable(
 )
 test('msgchannel', msgchannel_test, suite: 'unit', timeout: 30)
 
+# 5c. Retail data discovery (ledger 068): the base/pak000.pk4 marker in any case,
+#     path lists, the stored path, Steam's libraryfolders.vdf and steamapps/common,
+#     and the search order, on synthetic trees with the platform hooks stubbed
+retail_discovery_test = executable(
+  'openetqw-retail-discovery-test',
+  files(
+    'RetailDiscoveryTest.cpp',
+    meson.project_source_root() / 'src' / 'framework' / 'RetailDiscovery.cpp',
+  ),
+  # compiled as the engine compiles these sources (its defines and the engine's
+  # force-included precompiled.h)
+  include_directories: engine_include_dirs,
+  cpp_args: common_engine_defs + ['-DID_DEDICATED'] + engine_pch_args,
+  dependencies: test_deps + [zlib_dep, threads_dep],
+  link_args: test_link_args,
+  install: false,
+)
+test('retail-discovery', retail_discovery_test, suite: 'unit', timeout: 30)
+
 # Every package carries the licence texts (GPL, SDK EULA, third-party notices)
 test(
   'install-licenses',

@@ -28,6 +28,7 @@
 #include <shellapi.h>
 #include <shlobj.h>
 #include "../sys_package.h"
+#include "../../framework/RetailDiscovery.h"
 
 // Instantiation of system localization and sysLocal interfaces for Windows builds
 const char * sysLanguageNames[] = {
@@ -1183,6 +1184,125 @@ const char *Sys_DefaultBasePath() {
 	// as openQ4: the executable's directory if it has base/, else the current one
 	static idStr basepath;
 	return Win_ExeDirectoryWith( basepath, BASE_GAMEDIR );
+}
+
+static bool Win_NarrowPath( const wchar_t *wide, idStr &narrow );
+
+// a REG_SZ / REG_EXPAND_SZ value of an open key, in the ANSI code page
+static bool Win_RegistryString( HKEY key, const wchar_t *valueName, idStr &value ) {
+	wchar_t buffer[ SYSTEM_MAX_OS_PATH ];
+	DWORD type = 0;
+	DWORD size = sizeof( buffer ) - sizeof( wchar_t );
+	if ( RegQueryValueExW( key, valueName, NULL, &type, reinterpret_cast< LPBYTE >( buffer ), &size ) != ERROR_SUCCESS ||
+		 ( type != REG_SZ && type != REG_EXPAND_SZ ) ) {
+		return false;
+	}
+	buffer[ size / sizeof( wchar_t ) ] = L'\0';
+	if ( type == REG_EXPAND_SZ ) {
+		wchar_t expanded[ SYSTEM_MAX_OS_PATH ];
+		const DWORD length = ExpandEnvironmentStringsW( buffer, expanded, SYSTEM_MAX_OS_PATH );
+		if ( length == 0 || length > SYSTEM_MAX_OS_PATH ) {
+			return false;
+		}
+		return Win_NarrowPath( expanded, value ) && value.Length() > 0;
+	}
+	return Win_NarrowPath( buffer, value ) && value.Length() > 0;
+}
+
+static bool Win_RegistryPath( HKEY root, const wchar_t *subKey, const wchar_t *valueName, REGSAM view, idStr &value ) {
+	HKEY key;
+	if ( RegOpenKeyExW( root, subKey, 0, KEY_READ | view, &key ) != ERROR_SUCCESS ) {
+		return false;
+	}
+	const bool found = Win_RegistryString( key, valueName, value );
+	RegCloseKey( key );
+	return found;
+}
+
+// The installer records under ...\Uninstall whose DisplayName names the game:
+// their InstallLocation (the retail installer's, a Steam install's, a repack's)
+static void Win_AppendUninstallLocations( HKEY root, REGSAM view, idStrList &candidates ) {
+	HKEY uninstall;
+	if ( RegOpenKeyExW( root, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall", 0,
+			KEY_READ | view, &uninstall ) != ERROR_SUCCESS ) {
+		return;
+	}
+	for ( DWORD index = 0; ; index++ ) {
+		wchar_t name[ 256 ];
+		DWORD nameLength = 256;
+		if ( RegEnumKeyExW( uninstall, index, name, &nameLength, NULL, NULL, NULL, NULL ) != ERROR_SUCCESS ) {
+			break;
+		}
+		HKEY entry;
+		if ( RegOpenKeyExW( uninstall, name, 0, KEY_READ | view, &entry ) != ERROR_SUCCESS ) {
+			continue;
+		}
+		idStr displayName;
+		idStr location;
+		if ( Win_RegistryString( entry, L"DisplayName", displayName ) &&
+			 ( displayName.Find( "QUAKE Wars", false ) >= 0 || displayName.Find( "QUAKE: Wars", false ) >= 0 ) &&
+			 Win_RegistryString( entry, L"InstallLocation", location ) ) {
+			candidates.Append( location );
+		}
+		RegCloseKey( entry );
+	}
+	RegCloseKey( uninstall );
+}
+
+/*
+================
+Sys_AppendRetailDataCandidates
+
+Windows' table for RetailDiscovery (ledger 068): the installer records, then the
+usual install folders; Steam's installation from its registry keys. Every
+candidate is checked for base/pak000.pk4 before it is used.
+================
+*/
+void Sys_AppendRetailDataCandidates( idStrList &candidates, idStrList &steamRoots ) {
+	const REGSAM views[] = { KEY_WOW64_64KEY, KEY_WOW64_32KEY };
+	for ( const REGSAM view : views ) {
+		Win_AppendUninstallLocations( HKEY_LOCAL_MACHINE, view, candidates );
+		Win_AppendUninstallLocations( HKEY_CURRENT_USER, view, candidates );
+	}
+
+	static const char *const programFolders[] = { "ProgramFiles(x86)", "ProgramFiles", "ProgramW6432" };
+	static const char *const installFolders[] = {
+		"id Software/Enemy Territory - QUAKE Wars",
+		"Activision/Enemy Territory - QUAKE Wars",
+		"Enemy Territory - QUAKE Wars",
+		"Enemy Territory QUAKE Wars",
+		"ETQW",
+	};
+	for ( const char *variable : programFolders ) {
+		const char *programFiles = getenv( variable );
+		if ( programFiles == NULL || programFiles[ 0 ] == '\0' ) {
+			continue;
+		}
+		for ( const char *folder : installFolders ) {
+			idStr path = programFiles;
+			path.AppendPath( folder );
+			candidates.Append( path );
+		}
+	}
+
+	RetailDiscovery::SplitPathList( getenv( "OPENETQW_STEAM_ROOT" ), steamRoots );
+	idStr steam;
+	if ( Win_RegistryPath( HKEY_CURRENT_USER, L"Software\\Valve\\Steam", L"SteamPath", 0, steam ) ) {
+		steamRoots.Append( steam );
+	}
+	for ( const REGSAM view : views ) {
+		if ( Win_RegistryPath( HKEY_LOCAL_MACHINE, L"SOFTWARE\\Valve\\Steam", L"InstallPath", view, steam ) ) {
+			steamRoots.Append( steam );
+		}
+	}
+	for ( const char *variable : programFolders ) {
+		const char *programFiles = getenv( variable );
+		if ( programFiles != NULL && programFiles[ 0 ] != '\0' ) {
+			idStr path = programFiles;
+			path.AppendPath( "Steam" );
+			steamRoots.Append( path );
+		}
+	}
 }
 
 // A wide path in the ANSI code page, which the file system opens paths with.
