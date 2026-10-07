@@ -3,7 +3,7 @@
 """com_unlock_maxFPS is an alias of com_maxFPS: the last write wins.
 
 M5 plan step 11, decision D8 (docs/m5-plan.md): retail's com_unlock_maxFPS (the cap
-on unlocked frames, default 60) and OpenETQW's com_maxFPS (the cap on every frame)
+on unlocked frames, retail's default 60, OpenETQW's 240) and OpenETQW's com_maxFPS (the cap on every frame)
 are one setting. A change to either sets the other through CVar change callbacks
 registered before any config runs, so the last write wins: in the order the
 configs set them, then the command line's +set, then in play. Before step 11 the

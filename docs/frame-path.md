@@ -196,7 +196,7 @@ Provenance: jmarshall's `AsyncServer::RunFrame` is already non-blocking, has `Lo
 - In the dedicated binary `net_serverDedicated` is ROM 1 (`src/framework/async/AsyncNetwork.cpp:39-41`), so `localClientNum` is -1 and no usercmds are built.
 - Ticks run as in §4.3 steps 1-8. Then `SyncRenderSystem` runs (`src/framework/Common.cpp:1065-1067`), and `UpdateScreen` returns without drawing (`src/framework/Session.cpp:219`; `src/sys/posix/posix_main.cpp:425-432`).
 - **Pacing.**
-  - The pacer sleeps the whole remainder of the frame at `com_maxFPS` (default 60) (`src/framework/Common.cpp:1098-1102`), and the host loop adds `Sys_Sleep( 1 )` (`src/sys/posix/posix_main.cpp:660-664`).
+  - The pacer sleeps the whole remainder of the frame at `com_maxFPS` (default 60 then; 240 since M5 step 18) (`src/framework/Common.cpp:1098-1102`), and the host loop adds `Sys_Sleep( 1 )` (`src/sys/posix/posix_main.cpp:660-664`).
   - Ticks therefore run on a wall-clock grid of about 16.7 ms. Game time stays exact, but tick and snapshot send times jitter by up to one frame *(derived)*.
 - `DoClientSideStuff()` is false in the dedicated binary (`game repo: src/game/Game_local.cpp:4829-4831`). With no local player, `canUnlockFrames` is false (`game repo: src/game/Game_local.cpp:5251-5256`).
 - A headless client (dedicated binary with `+connect`) runs the §4.2 path, including `ClientUpdateView`, and draws nothing.
@@ -524,8 +524,8 @@ These paths let a render frame change what the next tick, a snapshot or AoR code
 | `com_unlock_avgFrames` | removed 2026-09-30 (M5 step 12, D9); was 4, range 1-10, NOCHEAT | **none** | none | Help text: "average out render times over n frames for extra renders management" |
 | `com_unlock_safetyMargin` | removed 2026-09-30 (M5 step 12, D9); was 0.1, NOCHEAT | **none** | none | Help text: "percentage safety margin under which not to trigger an extra render" |
 | `com_unlock_timingMethod` | removed 2026-09-30 (M5 step 12, D9); was 2, NOCHEAT | **none** | none | Help text: 0 = whenever they fit; 1 = on boundaries of framerate multiples of 30; 2 = like 1, estimating from total previous time. `pak000: berzerkr.cfg:10-19`: 0 max FPS, 1 smoother, 2 smoothest and lowest FPS. `pak000: visuals.cfg:28` sets 1 |
-| `com_maxFPS` | 60; INTEGER, ARCHIVE (`src/framework/Common.cpp:86-87`) | `src/framework/Common.cpp:1074-1089` | none | Not retail (OE 8191cae) |
-| `com_unlock_maxFPS` | 60, NOCHEAT | none directly: an alias of `com_maxFPS`, the last write wins (`idFrameCapAlias`, M5 step 11); mirrored once a frame before | none | Retail help text: "only works in timing methods 1 & 2". `pak000: visuals.cfg:27` sets 120; `pak000: gizm.cfg:81` sets 0 |
+| `com_maxFPS` | 240 since M5 step 18 (2026-10-07; 60 before); INTEGER, ARCHIVE (`src/framework/Common.cpp`; compat ledger 069) | `src/framework/Common.cpp:1074-1089` | none | Not retail (OE 8191cae) |
+| `com_unlock_maxFPS` | 240, the same as `com_maxFPS` (60 before step 18, retail's default), NOCHEAT | none directly: an alias of `com_maxFPS`, the last write wins (`idFrameCapAlias`, M5 step 11); mirrored once a frame before | none | Retail help text: "only works in timing methods 1 & 2". `pak000: visuals.cfg:27` sets 120; `pak000: gizm.cfg:81` sets 0 |
 
 - **Provenance.** All five `com_unlock*` CVars and their help texts are in jmarshall's `src/framework/Common.cpp` (`/Users/jmulesa/etqw`).
 - **Retail semantics** are known from these help strings, from the community and developer cfgs at the root of pak000, and (since 2026-09-25) from the retail 1.5 engine's defaults (`docs/specs/retail-1.5-reference.md` §4); how its timing methods scheduled frames was not traced. Whether the retail GUIs reference any of these CVars is unverified: the GUIs ship compiled as `.guib` files (under `generated/declb/guis/`), and a string search of them finds no CVar names at all, not even common ones such as `r_mode`. Among text files, only root-level `.cfg` files mention `com_unlock`.
