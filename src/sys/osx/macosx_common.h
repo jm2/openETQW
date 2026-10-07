@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copied unchanged from openQ4 src/sys/osx/macosx_common.h (jm2/openQ4 b37b1456; openQ4's own code is GPL-3.0 only).
+
 const char *macosx_scanForLibraryDirectory(void);
 
 #if defined(USE_SDL3)

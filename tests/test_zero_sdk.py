@@ -155,8 +155,9 @@ def main() -> int:
         if raw_hash in sdk_hashes or canon_hash in sdk_hashes:
             violations.append(f"Tracked file matches SDK hash: {rel_path} (hash: {canon_hash})")
 
-        # Gate 3: License text check (exclude docs, test harness self-marker, and license classifier tool)
-        if rel_path.startswith("docs/") or rel_path in ("tests/test_zero_sdk.py", "tools/build/classify_provenance.py"):
+        # Gate 3: License text check (exclude docs, test harness self-marker, and the license classifier tools)
+        if rel_path.startswith("docs/") or rel_path in ("tests/test_zero_sdk.py", "tools/build/classify_provenance.py",
+                                                         "tools/build/provenance_post_split.py"):
             continue
 
         try:
