@@ -1979,7 +1979,11 @@ bool CreateSwapchain( sdVulkanBackendState& state, int requestedWidth,
 		imageCount = capabilities.maxImageCount;
 	}
 	VkImageUsageFlags imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-	if ( R_RayTracingIsInitialized() || R_RayTracingRequested() ) {
+	// Only a device created for ray tracing needs storage swapchain images; when Init
+	// fell back to rasterization (no extensions, or a surface without storage usage,
+	// as on Adreno), r_rayTracing alone must not fail the swapchain.
+	if ( state.rayTracingDeviceEnabled &&
+		( R_RayTracingIsInitialized() || R_RayTracingRequested() ) ) {
 		if ( ( capabilities.supportedUsageFlags & VK_IMAGE_USAGE_STORAGE_BIT ) == 0 ) {
 			common->Warning( "The Vulkan surface cannot expose swapchain storage images required by ray tracing" );
 			return false;
@@ -5664,6 +5668,10 @@ bool sdVulkanBackend::Init( void* nativeWindow, int width, int height ) {
 		common->Printf( "Vulkan surface does not support ray tracing images (falling back to rasterization)\n" );
 		rayTracingAvailable = false;
 	}
+	// Buffers may request the ray-tracing usage bits, and the swapchain storage
+	// images, only when the device was created with bufferDeviceAddress and the
+	// acceleration-structure extension.
+	state->rayTracingDeviceEnabled = rayTracingAvailable;
 	if ( !CreateLogicalDevice( *state, rayTracingConfiguration, rayTracingAvailable ) ||
 		!CreateSwapchain( *state, width, height ) ||
 		!CreateGuiResources( *state ) ||
@@ -5671,9 +5679,6 @@ bool sdVulkanBackend::Init( void* nativeWindow, int width, int height ) {
 		Shutdown();
 		return false;
 	}
-	// Buffers may request the ray-tracing usage bits only when the device was
-	// created with bufferDeviceAddress and the acceleration-structure extension.
-	state->rayTracingDeviceEnabled = rayTracingAvailable;
 	if ( rayTracingAvailable ) {
 		sdRayTracingVulkanContext rayTracingContext;
 		memset( &rayTracingContext, 0, sizeof( rayTracingContext ) );

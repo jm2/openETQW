@@ -78,6 +78,11 @@ bool idStackTracer::Trace( void* processHandle, void* threadHandle, CONTEXT& con
 	frame.AddrPC.Offset = context.Rip;
 	frame.AddrStack.Offset = context.Rsp;
 	frame.AddrFrame.Offset = context.Rbp;
+#elif defined( _M_ARM64 )
+	const DWORD machineType = IMAGE_FILE_MACHINE_ARM64;
+	frame.AddrPC.Offset = context.Pc;
+	frame.AddrStack.Offset = context.Sp;
+	frame.AddrFrame.Offset = context.Fp;
 #else
 	const DWORD machineType = IMAGE_FILE_MACHINE_I386;
 	frame.AddrPC.Offset = context.Eip;
