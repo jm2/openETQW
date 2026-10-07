@@ -33,6 +33,7 @@ If you have questions concerning this license or the applicable additional terms
 #include "minizip/unzip_internal.h"
 #include "../renderer/Image.h"
 #include "../sys/sys_package.h"
+#include "RetailDiscovery.h"
 
 extern idCVar com_developer;
 
@@ -643,6 +644,7 @@ private:
 	bool					ValidateRequiredOfficialPaks( idStr &errors ) const;
 	bool					HasBaseLanguageMediaPack( void ) const;
 	void					PrintContentSearchDiagnostics( void );
+	idList<retailProbe_t>	retailProbes;		// where Init looked for the retail data (RetailDiscovery.h)
 	void					SetRestrictions( void );
 							// some files can be obtained from directories without compromising si_pure
 	bool					FileAllowedFromDir( const char *path );
@@ -2742,6 +2744,14 @@ void idFileSystemLocal::PrintContentSearchDiagnostics( void ) {
 	roots[ 3 ] = fs_devpath.GetString();	rootNames[ 3 ] = "fs_devpath";
 
 	common->Printf( "----- content search diagnostics -----\n" );
+	if ( retailProbes.Num() > 0 ) {
+		// fs_basepath was not given: where the retail data was looked for
+		common->Printf( "retail data search (base/pak000.pk4):\n" );
+		for ( i = 0; i < retailProbes.Num(); i++ ) {
+			common->Printf( "   %s %s (%s)\n", retailProbes[ i ].found ? "found" : "no   ",
+				retailProbes[ i ].path.c_str(), retailProbes[ i ].source.c_str() );
+		}
+	}
 	common->Printf( "fs_game      = '%s'\n", fs_game.GetString() );
 	common->Printf( "fs_game_base = '%s'\n", fs_game_base.GetString() );
 
@@ -2824,8 +2834,9 @@ void idFileSystemLocal::Startup( void ) {
 			common->FatalError(
 				"Required official Enemy Territory: QUAKE WARS media pk4 files are missing from '%s' or modified.\n\n%s\n"
 				"OpenETQW reads the retail game data, patched to 1.5, from '<ET:QW install root>/%s'. Put pak000.pk4 through pak008.pk4 in that folder, "
-				"or launch with +set fs_basepath pointing at the install root that contains it. The 1.5 patch paks (pak005.pk4 to pak008.pk4) come from the official 1.5 patch.",
-				BASE_GAMEDIR, validationErrors.c_str(), BASE_GAMEDIR );
+				"and point OpenETQW at the install root: write its path on the first line of '%s/basepath.txt', set OPENETQW_BASEPATH to it, "
+				"or launch with +set fs_basepath <install root>. The 1.5 patch paks (pak005.pk4 to pak008.pk4) come from the official 1.5 patch.",
+				BASE_GAMEDIR, validationErrors.c_str(), BASE_GAMEDIR, fs_savepath.GetString() );
 		}
 
 #ifndef ID_DEDICATED
@@ -3487,11 +3498,24 @@ void idFileSystemLocal::Init( bool quiet ) {
 	common->StartupVariable( "fs_searchAddons" );
 	common->StartupVariable( "fs_validateOfficialPaks" );
 
-	if ( fs_basepath.GetString()[0] == '\0' ) {
-		fs_basepath.SetString( Sys_DefaultBasePath() );
-	}
+	// the save path first: it holds the stored retail path (basepath.txt)
 	if ( fs_savepath.GetString()[0] == '\0' ) {
 		fs_savepath.SetString( Sys_DefaultSavePath() );
+	}
+	// an explicit fs_basepath is used as given; else the retail data is looked
+	// for (RetailDiscovery.h, ledger 068), and without it the base path stays the
+	// engine's own and the retail-install check names what was searched
+	retailProbes.Clear();
+	if ( fs_basepath.GetString()[0] == '\0' ) {
+		idStr retailRoot;
+		if ( RetailDiscovery::Discover( fs_savepath.GetString(), retailRoot, retailProbes ) ) {
+			fs_basepath.SetString( retailRoot );
+			// the retail-install check below still validates what is there
+			common->Printf( "Using '%s' as fs_basepath (from %s)\n", retailRoot.c_str(),
+				retailProbes[ retailProbes.Num() - 1 ].source.c_str() );
+		} else {
+			fs_basepath.SetString( Sys_DefaultBasePath() );
+		}
 	}
 	if ( fs_userpath.GetString()[0] == '\0' ) {
 		fs_userpath.SetString( fs_savepath.GetString() );

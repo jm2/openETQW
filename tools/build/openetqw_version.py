@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: GPL-3.0-only
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Generate shared openETQW version metadata for builds and packaging.
 
 Adapted from openQ4 tools/build/openq4_version.py (jm2/openQ4 b37b1456,

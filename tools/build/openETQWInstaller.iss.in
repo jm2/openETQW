@@ -1,4 +1,4 @@
-; SPDX-License-Identifier: GPL-3.0-only
+; SPDX-License-Identifier: GPL-3.0-or-later
 ; Inno Setup script template for the openETQW Windows installer. Rendered by
 ; tools/build/build_windows_installer.py, which fills the placeholder tokens.
 ; Adapted from openQ4's tools/build/openQ4Installer.iss.in at jm2/openQ4

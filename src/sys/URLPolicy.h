@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copied unchanged from openQ4 src/sys/URLPolicy.h (jm2/openQ4 b37b1456); its notice below grants version 3 or later.
+
 /*
 ===========================================================================
 

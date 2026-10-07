@@ -95,6 +95,11 @@ public:
 	bool IsInitialized() const;
 	bool IsFrameActive() const;
 	const char* GetDeviceName() const;
+	// The selected device's vendor (from its PCI vendor ID) and
+	// "Vulkan <api> / <driver name> <driver info>", for GL_VENDOR/GL_VERSION.
+	const char* GetVendorString() const;
+	const char* GetVersionString() const;
+	unsigned int GetVendorID() const;
 
 private:
 	sdVulkanBackendState*	state;

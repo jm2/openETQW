@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: GPL-3.0-only
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Build an openETQW Windows installer from a packaged release directory.
 
 Adapted from openQ4's tools/build/build_windows_installer.py at jm2/openQ4
