@@ -8173,7 +8173,7 @@ bool sdVulkanBackend::UploadBlockImage2D( const void* owner, vulkanBlockFormat_t
 	RENDER_METRIC_SCOPE( "Vulkan create/upload image" );
 	vulkanBlockFormatInfo_t info;
 	if ( owner == NULL || blocks == NULL || width <= 0 || height <= 0 ||
-		mipLevels < 1 || mipLevels > 16 || !SupportsBlockFormat( blockFormat ) ||
+		mipLevels < 1 || !SupportsBlockFormat( blockFormat ) ||
 		!GetVulkanBlockFormat( blockFormat, info ) ) {
 		return false;
 	}
@@ -8181,7 +8181,10 @@ bool sdVulkanBackend::UploadBlockImage2D( const void* owner, vulkanBlockFormat_t
 	for ( int size = Max( width, height ); size > 1; size >>= 1 ) {
 		maximumMipLevels++;
 	}
-	mipLevels = Min( mipLevels, maximumMipLevels );
+	mipLevels = Min( mipLevels, maximumMipLevels );	// a header may claim more levels than the size has
+	if ( mipLevels > 16 ) {
+		return false;	// 65536 texels or more: past RecordBlockImageUploadCommands' 16 regions
+	}
 	VkDeviceSize uploadBytes = 0;
 	for ( int level = 0, w = width, h = height; level < mipLevels; ++level ) {
 		uploadBytes += VulkanBlockLevelBytes( w, h, info.blockBytes );
@@ -8213,6 +8216,12 @@ bool sdVulkanBackend::UploadBlockImage2D( const void* owner, vulkanBlockFormat_t
 				blocks, static_cast< size_t >( uploadBytes ) );
 			frame.imageUploadOffset = stagingOffset + uploadBytes;
 		} else {
+			if ( !frame.imageUploadOverflowWarned ) {
+				common->Warning( "Vulkan image upload arena exhausted (%u MiB); using fence-retired spill buffers",
+					static_cast< unsigned int >(
+						VULKAN_IMAGE_UPLOAD_BYTES / ( 1024 * 1024 ) ) );
+				frame.imageUploadOverflowWarned = true;
+			}
 			sdVulkanBufferResource spill;
 			memset( &spill, 0, sizeof( spill ) );
 			spill.bytes = uploadBytes;
