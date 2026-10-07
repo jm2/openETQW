@@ -475,9 +475,9 @@ void R_InitOpenGL() {
 	}
 
 	if ( R_UseVulkanBackend() ) {
-		glConfig.vendor_string = "Apple / MoltenVK";
+		glConfig.vendor_string = vulkanBackend.GetVendorString();
 		glConfig.renderer_string = vulkanBackend.GetDeviceName();
-		glConfig.version_string = "Vulkan 1.3 / MoltenVK";
+		glConfig.version_string = vulkanBackend.GetVersionString();
 		glConfig.extensions_string = "";
 		glConfig.wgl_extensions_string = "";
 		glConfig.glVersion = 4.5f;
@@ -500,7 +500,14 @@ void R_InitOpenGL() {
 		glConfig.multiSampleAvailable = false;
 		glConfig.samples = 0;
 		glConfig.isInitialized = true;
-		r_glDriverVendor.SetString( "Apple" );
+		// the OpenGL path's names, from the device's PCI vendor ID
+		switch ( vulkanBackend.GetVendorID() ) {
+			case 0x10DE: r_glDriverVendor.SetString( "NVIDIA" ); break;
+			case 0x1002: r_glDriverVendor.SetString( "ATI" ); break;
+			case 0x8086: r_glDriverVendor.SetString( "Intel" ); break;
+			case 0x106B: r_glDriverVendor.SetString( "Apple" ); break;
+			default: r_glDriverVendor.SetString( "unknown" ); break;
+		}
 
 		common->Printf( "GL_VENDOR: %s\n", glConfig.vendor_string );
 		common->Printf( "GL_RENDERER: %s\n", glConfig.renderer_string );
@@ -525,8 +532,9 @@ void R_InitOpenGL() {
 
 	if ( idStr::FindText( glConfig.vendor_string, "nvidia", false ) >= 0 ) {
 		r_glDriverVendor.SetString( "NVIDIA" );
-	} else if ( idStr::FindText( glConfig.vendor_string, "ati", false ) >= 0 ||
-				idStr::FindText( glConfig.vendor_string, "amd", false ) >= 0 ) {
+	} else if ( idStr::Icmpn( glConfig.vendor_string, "ati", 3 ) == 0 ||	// "ATI Technologies Inc."; not "Corporation"
+				idStr::FindText( glConfig.vendor_string, "amd", false ) >= 0 ||
+				idStr::FindText( glConfig.vendor_string, "advanced micro devices", false ) >= 0 ) {
 		r_glDriverVendor.SetString( "ATI" );
 	} else if ( idStr::FindText( glConfig.vendor_string, "intel", false ) >= 0 ) {
 		r_glDriverVendor.SetString( "Intel" );

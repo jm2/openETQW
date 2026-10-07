@@ -198,6 +198,12 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
   - campaign-client-maps passes 4/4 with the validation layer active and no errors on win-arm64 and Linux arm64.
 
   **OpenGL changes too:** the same lookup key is used there, so the GL renderer now also loads retail's DDS files instead of building those images from their source programs (inspected, not measured). A follow-up will cap DDS dimensions at 16384 so the mip-size arithmetic cannot overflow on a hostile header; today it is reached only for skipped mips, behind the file-end check.
+- **The Vulkan renderer named "Apple / MoltenVK" on every device (fixed; the win-arm64 session, 2026-10-07).** `R_InitOpenGL` hard-coded that vendor and `Vulkan 1.3 / MoltenVK` as the version, so Linux and Windows logs and `gfxInfo` named MoltenVK. Both strings now come from the selected device:
+  - `GL_VENDOR` is the vendor of its PCI vendor ID;
+  - `GL_VERSION` is `Vulkan <api> / <driver name> <driver info>` from `VkPhysicalDeviceDriverProperties`;
+  - `r_glDriverVendor` uses the OpenGL path's names for the same vendors.
+
+  On win-arm64 (launched): `GL_VENDOR: Qualcomm`, `GL_VERSION: Vulkan 1.3.295 / Qualcomm Technologies Inc. Adreno Vulkan Driver …`. The same change fixes the OpenGL path's vendor test, which found "ati" inside "Microsoft Corporation" (Microsoft's GL-on-D3D12 layer) and set `r_glDriverVendor` to `ATI`.
 - **Kept outside the repositories** (gitignored `~/openETQW/.agents/`): the research notes and scripts (`research-2026-09-25/`), the docs audit, the branch-review findings.
 
 ### Demonstrated
@@ -346,7 +352,6 @@ Notes on the per-map results:
   - Client logs: renderprog parse and "cannot upload ARB" warnings.
 - **Navigation data checks.** The AAS map CRC is never compared. The .nav loader does not bounds-check node links (`BotAI_Navigation.cpp` `LoadNodes`). The AAS loader reads packed disk structs raw, with no layout assertions (`AASFile_local.cpp`).
 - **Vulkan.** Validation layers are not installed on the host. The backend has no screenshot or image capture.
-- **The Vulkan renderer reports "Apple / MoltenVK" on every platform.** `R_InitOpenGL` sets the vendor string to `Apple / MoltenVK` and the version string to `Vulkan 1.3 / MoltenVK` whenever the Vulkan backend runs, so Linux (RADV) and Windows logs and `gfxInfo` name MoltenVK (seen in the packaged Linux run, 2026-09-29). Cosmetic; the device name is right.
 - **macOS dedicated binary** links AppKit, OpenGL, CoreFoundation, CoreGraphics, Foundation and libobjc (`otool -L`, 2026-09-30; of the frameworks `ded_deps` in `meson.build` names, Cocoa, IOKit, CoreVideo, Metal, QuartzCore and ApplicationServices are dead-stripped and only OpenGL stays). It has never run on a host without a GPU or display.
 - **Retail-install check.** Only the English edition's checksums are known; other editions' `pak000`–`pak004` are refused until their checksums are added (Inputs needed). The check runs in the unit suite on Linux and Windows too (`retail-install-check`, synthetic paks).
 - **Leftover CMake.** Engine `src/CMakeLists.txt` and game `src/compiledscript/CMakeLists.txt` are still tracked.

@@ -446,6 +446,9 @@ struct sdVulkanBackendState {
 	VkQueue					graphicsQueue;
 	unsigned int				queueFamilyIndex;
 	char					deviceName[ VK_MAX_PHYSICAL_DEVICE_NAME_SIZE ];
+	unsigned int			vendorID;
+	char					vendorString[ 64 ];
+	char					versionString[ 32 + VK_MAX_DRIVER_NAME_SIZE + VK_MAX_DRIVER_INFO_SIZE ];
 	bool					fillModeNonSolid;
 	bool					rayTracingDeviceEnabled;
 	VkDeviceSize			jointUniformAlignment;
@@ -671,6 +674,7 @@ struct sdVulkanBackendState {
 	PFN_vkGetPhysicalDeviceFormatProperties	GetPhysicalDeviceFormatProperties;
 	PFN_vkGetPhysicalDeviceMemoryProperties GetPhysicalDeviceMemoryProperties;
 	PFN_vkGetPhysicalDeviceFeatures2		GetPhysicalDeviceFeatures2;
+	PFN_vkGetPhysicalDeviceProperties2		GetPhysicalDeviceProperties2;
 	PFN_vkGetPhysicalDeviceQueueFamilyProperties GetPhysicalDeviceQueueFamilyProperties;
 	PFN_vkEnumerateDeviceExtensionProperties	EnumerateDeviceExtensionProperties;
 	PFN_vkGetPhysicalDeviceSurfaceSupportKHR	GetPhysicalDeviceSurfaceSupportKHR;
@@ -765,6 +769,9 @@ struct sdVulkanBackendState {
 		graphicsQueue = VK_NULL_HANDLE;
 		queueFamilyIndex = UINT_MAX;
 		deviceName[ 0 ] = '\0';
+		vendorID = 0;
+		vendorString[ 0 ] = '\0';
+		versionString[ 0 ] = '\0';
 		fillModeNonSolid = false;
 		rayTracingDeviceEnabled = false;
 		jointUniformAlignment = 1;
@@ -905,6 +912,7 @@ struct sdVulkanBackendState {
 		CLEAR_VK_FUNCTION( GetPhysicalDeviceFormatProperties );
 		CLEAR_VK_FUNCTION( GetPhysicalDeviceMemoryProperties );
 		CLEAR_VK_FUNCTION( GetPhysicalDeviceFeatures2 );
+		CLEAR_VK_FUNCTION( GetPhysicalDeviceProperties2 );
 		CLEAR_VK_FUNCTION( GetPhysicalDeviceQueueFamilyProperties );
 		CLEAR_VK_FUNCTION( EnumerateDeviceExtensionProperties );
 		CLEAR_VK_FUNCTION( GetPhysicalDeviceSurfaceSupportKHR );
@@ -1162,6 +1170,7 @@ bool LoadInstanceFunctions( sdVulkanBackendState& state ) {
 	LOAD_INSTANCE_FUNCTION( GetPhysicalDeviceFormatProperties );
 	LOAD_INSTANCE_FUNCTION( GetPhysicalDeviceMemoryProperties );
 	LOAD_INSTANCE_FUNCTION( GetPhysicalDeviceFeatures2 );
+	LOAD_INSTANCE_FUNCTION( GetPhysicalDeviceProperties2 );
 	LOAD_INSTANCE_FUNCTION( GetPhysicalDeviceQueueFamilyProperties );
 	LOAD_INSTANCE_FUNCTION( EnumerateDeviceExtensionProperties );
 	LOAD_INSTANCE_FUNCTION( GetPhysicalDeviceSurfaceSupportKHR );
@@ -1469,6 +1478,50 @@ VkFormat SelectDepthStencilFormat( sdVulkanBackendState& state ) {
 	return VK_FORMAT_D32_SFLOAT_S8_UINT;
 }
 
+// GL_VENDOR and GL_VERSION for the selected device: the vendor from its PCI
+// vendor ID (the ID in hex when it is not a known GPU vendor), and
+// "Vulkan <api> / <driver name> <driver info>" from VkPhysicalDeviceDriverProperties
+// (core in Vulkan 1.2; every accepted device is 1.3).
+static void DescribeVulkanDevice( sdVulkanBackendState& state ) {
+	VkPhysicalDeviceDriverProperties driverProperties;
+	memset( &driverProperties, 0, sizeof( driverProperties ) );
+	driverProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
+	VkPhysicalDeviceProperties2 properties2;
+	memset( &properties2, 0, sizeof( properties2 ) );
+	properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+	properties2.pNext = &driverProperties;
+	state.GetPhysicalDeviceProperties2( state.physicalDevice, &properties2 );
+	driverProperties.driverName[ VK_MAX_DRIVER_NAME_SIZE - 1 ] = '\0';
+	driverProperties.driverInfo[ VK_MAX_DRIVER_INFO_SIZE - 1 ] = '\0';
+
+	const char* vendor = NULL;
+	switch ( properties2.properties.vendorID ) {
+		case 0x1002: vendor = "AMD"; break;
+		case 0x10DE: vendor = "NVIDIA"; break;
+		case 0x8086: vendor = "Intel"; break;
+		case 0x106B: vendor = "Apple"; break;
+		case 0x5143: vendor = "Qualcomm"; break;
+		case 0x13B5: vendor = "ARM"; break;
+		case 0x1010: vendor = "Imagination Technologies"; break;
+		case 0x14E4: vendor = "Broadcom"; break;
+		case 0x1AE0: vendor = "Google"; break;
+		case 0x10005: vendor = "Mesa"; break;
+		default: break;
+	}
+	if ( vendor != NULL ) {
+		idStr::Copynz( state.vendorString, vendor, sizeof( state.vendorString ) );
+	} else {
+		idStr::snPrintf( state.vendorString, sizeof( state.vendorString ), "0x%04X",
+			properties2.properties.vendorID );
+	}
+
+	const uint32_t api = properties2.properties.apiVersion;
+	idStr::snPrintf( state.versionString, sizeof( state.versionString ), "Vulkan %u.%u.%u / %s%s%s",
+		VK_API_VERSION_MAJOR( api ), VK_API_VERSION_MINOR( api ), VK_API_VERSION_PATCH( api ),
+		driverProperties.driverName[ 0 ] != '\0' ? driverProperties.driverName : "unknown driver",
+		driverProperties.driverInfo[ 0 ] != '\0' ? " " : "", driverProperties.driverInfo );
+}
+
 bool SelectPhysicalDevice( sdVulkanBackendState& state ) {
 	unsigned int count = 0;
 	if ( !CheckVulkanResult( state.EnumeratePhysicalDevices( state.instance,
@@ -1524,6 +1577,7 @@ bool SelectPhysicalDevice( sdVulkanBackendState& state ) {
 			state.queueFamilyIndex = queueFamilyIndex;
 			idStr::Copynz( state.deviceName, properties.deviceName,
 				sizeof( state.deviceName ) );
+			state.vendorID = properties.vendorID;
 			state.fillModeNonSolid = features2.features.fillModeNonSolid == VK_TRUE;
 			state.maxPushConstantsSize = properties.limits.maxPushConstantsSize;
 			state.jointUniformAlignment =
@@ -1540,6 +1594,7 @@ bool SelectPhysicalDevice( sdVulkanBackendState& state ) {
 	state.GetPhysicalDeviceMemoryProperties( state.physicalDevice,
 		&state.memoryProperties );
 	state.depthStencilFormat = SelectDepthStencilFormat( state );
+	DescribeVulkanDevice( state );
 	return true;
 }
 
@@ -10680,6 +10735,18 @@ bool sdVulkanBackend::IsFrameActive() const {
 
 const char* sdVulkanBackend::GetDeviceName() const {
 	return state != NULL ? state->deviceName : "";
+}
+
+const char* sdVulkanBackend::GetVendorString() const {
+	return state != NULL ? state->vendorString : "";
+}
+
+const char* sdVulkanBackend::GetVersionString() const {
+	return state != NULL ? state->versionString : "";
+}
+
+unsigned int sdVulkanBackend::GetVendorID() const {
+	return state != NULL ? state->vendorID : 0;
 }
 
 namespace {
