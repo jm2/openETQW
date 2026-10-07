@@ -164,7 +164,7 @@ Nothing in the samples or the physics state foresees a collision, so a lead over
 1. **The acceleration falls back after a spike** (S and H). When |Δ(n) − Δ(n−1)| exceeds a per-class bound, the predictor drops k to 0, constant velocity, from that tick for 3 more ticks.
    - The starting bound is 6 u per tick², about 5500 u/s². The largest non-impact value in §2's run is 4.68 (the anansi being entered), so the margin is narrow, and step 2 sets the bound per class.
    - This targets the error that follows an impact: tick 83's 27.6 u becomes about 9 u.
-2. **The lead's length is capped per class** (start: 0.5 × the class's top speed × 33 ms). This bounds how far the drawn hull can lead. It does not bound the correction at the next tick, which can still be as large as the impact's error.
+2. **The lead's length is capped** (`g_vehicleLeadMaxLength`, 48 u: a 16 u start clipped the hornet's and anansi's normal 16–30 u per tick, so the cap now sits above every class's normal move; built 2026-10-07). This bounds how far the drawn hull can lead. It does not bound the correction at the next tick, which can still be as large as the impact's error.
 3. **L itself.** L = 0.5 halves whatever is left.
 
 A hull trace in `SampleTick` against the world is **not** proposed. It would bound the overshoot exactly, but it goes beyond §3.1 rule 2 of `vehicle-responsiveness.md` ("sampling reads fields directly"), and `ClipView`, the nearest existing call, is on rule 4's list because it relinks clip models. A read-only `gameLocal.clip.Translation` at tick time would need its own review of what the clip system caches and counts. That review is an owner question, so it is listed in §4 rather than designed here.
@@ -212,11 +212,11 @@ The PR flags these for the Linux session to raise with the owner:
    - Reuse the anansi's `SpawnEntityDef` pattern from mode 2, and keep it out of mode 2 so that mode 2's golden stays valid.
    - The output is a `veh_pred.py` table per class. **Done 2026-10-06 (§2.1; meson `lead-measure`).**
    - Then repeat on a join client with `g_logVehiclePred`, to see the decay noise, and on a listen host. That needs a client-side drive (`clientMove`), as `seat-poses` does.
-3. **Implement (game).**
+3. **Implement (game). Done 2026-10-07 (ledger 067).**
    - The three-sample predictor, the α draw, the fade and the impact guard in `sdPresentation`, plus `g_unlock_vehicleLead` and `VEH_PRED`.
    - It touches `Presentation.{h,cpp}`, which the Linux session is changing for the stage 5 chase-view look (branch `m5/14-stage5-chase-look`). The merge order is agreed with it before this step starts, and this step is rebased on its result.
    - Ledger row (next free number): "Your own vehicle's hull drawn up to one tick ahead, per class (beyond retail; owner 2026-09-29)".
-4. **Test (engine).** `seat-poses` gains a lead phase at caps 60 and 120, with the badger listed at L = 1. Its checks:
+4. **Test (engine). Done 2026-10-07: `seat-poses` H0–H3 and `seat-gate` run B (H4).** `seat-poses` gains a lead phase at caps 60 and 120, with the badger listed at L = 1. Its checks:
    - **H0:** the lead was on: `SEAT_PRESENT` counts blended draws, and `FRAME_POSE` carries `lead=`.
    - **H1, age:** with `g_vehicleLeadFadeMsec 0`, each draw's hull equals `hull(n) + α·lead(n)` (the `lead=` that `FRAME_POSE` logs per tick) at α = f + L − 1, to 0.05 u. With L = 0 it lies on the n−1 → n segment, the existing S3.
    - **H2, continuity:** away from collisions, the hull step across a tick is at most 2.5× the median step within a tick, the late-look L3 rule.
@@ -227,6 +227,25 @@ The PR flags these for the Linux session to raise with the owner:
 5. **Human review (D3)** on a high-refresh display, per class, in driver and pilot seats: smoothness, the feel at walls, and vehicles alongside. Then the owner's §4 decisions, and the classes that pass go into `g_unlock_vehicleLead`'s default list.
 
 **Effort** *[inferred]*: step 2 is about 2 days, step 3 about 3 days, and step 4 about 2 days, plus the review.
+
+## 7. As built (2026-10-07)
+
+- **Game:** `sdPresentation` keeps three samples and computes `leadS`/`rotS`, `leadP`/`rotP` and the ground state on every presented tick (`SampleLead`). `HullAt` draws t = f + L ticks past n−1, and `ApplyLeadCorrection` fades the new tick's correction. `sdSeatGate::LeadForClass` parses `g_unlock_vehicleLead`. The CVars are `g_vehicleLeadPredictor`, `g_vehicleLeadFadeMsec`, `g_vehicleLeadSpike`, `g_vehicleLeadMaxLength` and `g_logVehiclePred`, and `FRAME_POSE` carries `lead=`.
+- **Rotation sign:** the physics step's rotation is about −ω·dt in id's row-axis convention. The first build used +ω·dt; `VEH_PRED` showed rotation errors of 1–3°, and the sign was flipped. With the flip the in-game predictors match `veh_pred.py`'s numbers.
+- **What the player sees** (single player, `g_determinismTest 4`, cap 120, every class at L = 1, the drawn hull against the true path at the draw's moment):
+
+  | Class | L = 0 (the blend), median / p95 (u) | L = 1, median / p95 (u) |
+  |---|---|---|
+  | hog | 9.31 / 19.70 | 0.26 / 6.87 |
+  | desecrator | 8.66 / 10.99 | 0.03 / 1.36 |
+  | husky | 13.46 / 24.66 | 0.17 / 3.32 |
+  | badger | 13.44 / 22.17 | 0.22 / 4.72 |
+  | trojan | 10.04 / 13.85 | 0.08 / 1.38 |
+  | anansi | 11.89 / 28.31 | 0.01 / 0.11 |
+  | bumblebee | 7.05 / 10.20 | 0.01 / 0.06 |
+  | hornet | 16.41 / 29.53 | 0.02 / 0.12 |
+
+  The titan is not drawn by the presentation: its driver's first view is `pivot`.
 
 ## 6. Network clients: the decay and sample noise
 

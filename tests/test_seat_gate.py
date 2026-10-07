@@ -186,7 +186,7 @@ class Run:
         return next((v for v in self.views if (v["ent"], v["pos"], v["mode"]) == (ent, pos, mode)), None)
 
 
-def run_tour(client: Path, data: Path, savepath: Path, name: str, seats: str, recipe: str) -> Run:
+def run_tour(client: Path, data: Path, savepath: Path, name: str, seats: str, recipe: str, lead: str = "") -> Run:
     args = [
         str(client),
         "+set", "fs_basepath", str(data),
@@ -199,12 +199,14 @@ def run_tour(client: Path, data: Path, savepath: Path, name: str, seats: str, re
         "+set", "g_simHash", "1",
         "+set", "g_unlock_vehicleSeats", seats,
         "+set", "g_seatGateTestRecipe", recipe,
+        "+set", "g_unlock_vehicleLead", lead,
         "+devmap", "valley",
         "+clientTeam", "gdf",
         "+clientClass", "soldier",
         "+closeLimbo",
     ]
-    print(f'--- run {name}: g_unlock_vehicleSeats "{seats}" g_seatGateTestRecipe "{recipe}" ---', flush=True)
+    print(f'--- run {name}: g_unlock_vehicleSeats "{seats}" g_seatGateTestRecipe "{recipe}"'
+          f' g_unlock_vehicleLead "{lead}" ---', flush=True)
     try:
         done = subprocess.run(args, cwd=str(REPO_ROOT), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                               stderr=subprocess.STDOUT, text=True, errors="replace", timeout=RUN_TIMEOUT_S)
@@ -578,7 +580,9 @@ def main() -> int:
     t = next(g for g in a.gate if g["tick"] == ENTRY_TICK)["type"]
     u = next(g for g in a.gate if g["tick"] == SWAP_TICK)["type"]
     recipe_d = f"{t},{u},icarus"
-    b = run_tour(client, data, savepath, "B", "*", "")
+    # run B also leads every class's hull (M5 step 14b), so its SIM_HASH, VEH_TRACE and
+    # SIM_VIEW equal to run A's show the lead changes nothing in tick state either
+    b = run_tour(client, data, savepath, "B", "*", "", lead="*:1")
     c = run_tour(client, data, savepath, "C", list_c, "")
     d = run_tour(client, data, savepath, "D", "*", recipe_d)
     runs = (a, b, c, d)
