@@ -36,6 +36,7 @@ in_yawSpeed key turn stands in for the mouse:
   L4 orbit    (the chase view) the camera origin's speed across a tick is at most 1.5 x
               the median speed within one (a wrong pivot would jump at each tick)
   L1c control with g_unlock_vehicleLook 0 the turn shows at least a draw later on average
+  L5 locked   (smooth_locked) outside tophat mode a tap turns no draw
 
 Remote entities while seated (stage 4; join and listen, which have a headless peer): at
 cap 120, with the driver parked in the listed seat, the peer walks forward, then back:
@@ -451,7 +452,23 @@ def main(argv):
             srv.send(f"cycleVehicleCamera {obs.slot}")
             time.sleep(1.5)
         late_look("chase driver", (0, 1), orbit=True)
+        # L5, its negative control: outside tophat mode (freelook off) the camera follows the
+        # hull, and a tap turns no draw (the late look must not show a turn the tick ignores)
         obs.send("set ui_drivingCameraFreelook 0")
+        time.sleep(1.5)
+        begin = obs.mark()
+        for k in range(LOOK_TAPS):
+            obs.send(f"+{'left' if k % 2 == 0 else 'right'}; echo LOOKTAP")
+            time.sleep(LOOK_TAP_S)
+            obs.send(f"-{'left' if k % 2 == 0 else 'right'}")
+            time.sleep(0.4)
+        turned = look_response([ln.text for ln in obs.snapshot(begin)])
+        taps = sum(1 for ln in obs.snapshot(begin) if ln.text.strip() == "LOOKTAP")
+        ok5 = taps >= LOOK_TAPS - 1 and not turned
+        print(f"  {cap:3} chase driver L5  {'pass' if ok5 else 'FAIL'}  outside tophat mode {len(turned)} of {taps} taps"
+              f" turned the drawn view")
+        if not ok5:
+            failures.append(f"late look, chase driver, L5: outside tophat mode {len(turned)} of {taps} taps turned the view")
         obs.send(f"set g_unlock_vehicleSeats {LISTED}")
         # back on foot: the next phase seats the player in the driver's seat again
         srv.send(f"exitVehicle {obs.slot}")
