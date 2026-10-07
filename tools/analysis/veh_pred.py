@@ -152,6 +152,7 @@ def fit_centre_of_mass(triples, gravity: bool):
     return solve3(ata, atb) or (0.0, 0.0, 0.0)
 
 
+MOVING_U = 0.5  # u per tick: a hull that moved less is parked (seat-poses' moving_poses)
 SPIKE = 6.0     # u per tick^2: hull-lead.md 3.3's impact guard
 SPIKE_HOLD = 3  # ticks of constant velocity after a spike
 
@@ -200,10 +201,13 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("logs", nargs="+")
     ap.add_argument("--worst", type=int, default=0, help="list the N worst ticks of the constant-acceleration predictor")
+    ap.add_argument("--all-ticks", action="store_true",
+                    help="include parked ticks (by default only ticks whose hull moves at least MOVING_U, as seat-poses does)")
     args = ap.parse_args(argv)
 
     # tick triples (n-2, n-1, n) with n+1 present, per class
     by_class: dict = {}
+    parked: dict = {}
     for track in read(args.logs).values():
         spike_left = 0
         for t in sorted(track):
@@ -213,6 +217,9 @@ def main(argv: list[str]) -> int:
             a, b, c, nxt = track[t - 2], track[t - 1], track[t], track[t + 1]
             spike = norm(sub(add(c["p"], a["p"]), scale(b["p"], 2.0))) > SPIKE
             spike_left = SPIKE_HOLD + 1 if spike else max(0, spike_left - 1)
+            if not args.all_ticks and norm(sub(nxt["p"], c["p"])) < MOVING_U:
+                parked[c["cls"]] = parked.get(c["cls"], 0) + 1
+                continue
             by_class.setdefault(c["cls"], []).append((a, b, c, nxt, spike_left > 0))
     if not by_class:
         print("no VEH_TRACE tick triples found (run with g_simHash 1 and an occupied vehicle)")
@@ -220,7 +227,9 @@ def main(argv: list[str]) -> int:
 
     worst = []
     for cls, rows in by_class.items():
-        logged = rows[0][2].get("com")     # VEH_BODY (g_determinismTest 4): the real centre of mass
+        # VEH_BODY (g_determinismTest 4): mainCenterOfMass is body-local (Physics_RigidBodyMultiple.cpp
+        # computes it once from the bodies' moments), so any row's value holds for the class
+        logged = rows[0][2].get("com")
         com = {g: logged or fit_centre_of_mass([(c, nxt) for _, _, c, nxt, _ in rows], g) for g in (False, True)}
         has_ground = "ground" in rows[0][2]
         position = {
@@ -242,7 +251,7 @@ def main(argv: list[str]) -> int:
             "samples, constant rotation": samples_rotation,
         }
         motion = [norm(sub(nxt["p"], c["p"])) for _, _, c, nxt, _ in rows]
-        print(f"{cls}: {len(rows)} ticks; motion per tick median {percentile(motion, 50):.2f} u,"
+        print(f"{cls}: {len(rows)} ticks ({parked.get(cls, 0)} parked left out); motion per tick median {percentile(motion, 50):.2f} u,"
               f" p95 {percentile(motion, 95):.2f} u; "
               + (f"centre of mass {tuple(round(x, 1) for x in logged)} (VEH_BODY), on the ground"
                  f" {100.0 * sum(1 for _, _, c, _, _ in rows if c.get('ground')) / len(rows):.0f}% of ticks" if logged else

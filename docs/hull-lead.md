@@ -64,25 +64,27 @@ python3 tools/analysis/veh_pred.py <console log> --worst 6
 ### 2.1 Every class (step 2, 2026-10-06)
 
 **Method.** `g_determinismTest 4` (game repo: `src/game/Game_local.cpp`, `RunLeadMeasureSchedule`) and meson `lead-measure`:
-- Each rigid-body class gets a 200-tick segment. Every vehicle on the map is removed first, then the class is spawned on schedule 2's badger spot and entered by name.
+- Each rigid-body class gets a 200-tick segment. Every other vehicle on the map is removed on every tick, then the class is spawned on schedule 2's badger spot and entered by name.
 - Ground classes are driven: throttle, a right and a left turn at speed, brake and reverse, forward again. Aircraft are flown: lift-off, nose down, a yaw and roll ramp, level, descent.
 - In this schedule only, a `VEH_BODY` line per tick gives the real `mainCenterOfMass` and `HasGroundContacts()`, so `veh_pred.py` uses the logged centre of mass instead of a fit, and adds the hybrid.
 - The replay is identical at com_maxFPS 60 and 144.
-- Valley's construction module respawns a badger on that spot about 20 s after the map's badger is gone, which is why the map's vehicles are removed before every segment. The goliath (a walker, not a rigid body) and the platypus (it needs water) are not in it.
+- Valley's construction module respawns a badger on that spot about 20 s after the map's badger is gone, and the other spawners respawn their vehicles, which is why foreign vehicles are removed on every tick. The goliath (a walker, not a rigid body) and the platypus (it needs water) are not in it.
 
-**Position error, median / p95 / max (u), one tick ahead** (180 ticks per class; samples with §3.3's spike fallback):
+**Position error, median / p95 / max (u), one tick ahead** (165–179 moving ticks per class: a tick whose hull moves under 0.5 u is parked and left out, as in `seat-poses`; samples with §3.3's spike fallback):
 
 | Class | on the ground | samples, accel + fallback | physics, gravity added back off the ground | hybrid (H) |
 |---|---|---|---|---|
-| titan | 98% | 0.163 / 4.05 / 29.3 | 0.674 / 3.86 / 28.9 | 0.163 / 3.37 / 29.3 |
-| hog | 93% | 0.239 / 6.24 / 28.0 | 0.679 / 3.82 / 27.4 | 0.227 / 4.73 / 28.0 |
-| desecrator (hover) | 1% | **0.033 / 1.06** / 13.5 | 1.237 / 1.80 / 13.2 | 1.237 / 1.82 / 13.2 |
-| husky | 97% | 0.128 / 3.51 / 42.8 | 0.683 / 2.14 / 42.7 | 0.128 / 2.71 / 42.8 |
-| badger | 97% | 0.177 / 3.56 / 35.9 | 0.699 / 2.68 / 35.7 | 0.177 / 2.90 / 35.9 |
-| trojan | 98% | 0.071 / 1.61 / 13.4 | 0.540 / 1.65 / 8.9 | 0.071 / 1.50 / 9.0 |
-| anansi | 3% | 0.019 / 0.051 / 4.3 | 0.001 / 0.016 / 4.2 | **0.001 / 0.015** / 4.3 |
-| bumblebee | 5% | 0.006 / 0.047 / 1.4 | 0.001 / 1.161 / 1.5 | **0.001 / 0.007** / 1.5 |
-| hornet | 1% | 0.015 / 0.132 / 1.5 | 0.004 / 0.087 / 1.2 | **0.004 / 0.051** / 1.4 |
+| titan | 98% | 0.174 / 4.17 / 29.3 | 0.808 / 3.91 / 28.9 | 0.174 / 3.32 / 29.3 |
+| hog | 93% | 0.268 / 6.40 / 28.0 | 0.690 / 3.92 / 27.4 | 0.251 / 4.73 / 28.0 |
+| desecrator (hover) | 1% | **0.035 / 1.27** / 13.5 | 1.245 / 1.81 / 13.2 | 1.245 / 1.88 / 13.2 |
+| husky | 97% | 0.131 / 3.68 / 42.8 | 0.707 / 2.18 / 42.7 | 0.131 / 3.00 / 42.8 |
+| badger | 97% | 0.208 / 3.57 / 35.9 | 0.723 / 2.75 / 35.7 | 0.208 / 3.03 / 35.9 |
+| trojan | 98% | 0.072 / 1.61 / 13.4 | 0.540 / 1.66 / 8.9 | 0.072 / 1.52 / 9.0 |
+| anansi | 3% | 0.019 / 0.050 / 1.5 | 0.001 / 0.015 / 1.2 | **0.001 / 0.014** / 0.09 |
+| bumblebee | 5% | 0.006 / 0.047 / 1.4 | 0.001 / 0.180 / 1.5 | **0.001 / 0.003** / 1.5 |
+| hornet | 1% | 0.015 / 0.109 / 1.5 | 0.004 / 0.056 / 1.2 | **0.004 / 0.050** / 1.0 |
+
+Valley's vehicle spawners respawn the map's vehicles while the drive runs, so the schedule removes every vehicle but its own on every tick, and logs each one as `LEAD_FOREIGN`: 75 in a run. The numbers above are with that removal. They match a run that removed foreign vehicles only between segments to within a few hundredths at the median.
 
 Rotation: the physics step's ω·dt and the samples' constant rotation agree within a few hundredths of a degree at the median for every class. The p95 is 0.04–0.6° for the aircraft, the trojan, the titan and the desecrator, and 2–4° for the hog, husky and badger.
 
@@ -90,7 +92,7 @@ Rotation: the physics step's ω·dt and the samples' constant rotation agree wit
 - **Aircraft: the hybrid**, which is the physics step in the air, is near-exact (p95 0.007–0.051 u).
 - **The desecrator is a hover tank.** Its pads hold it up without ground contacts, so `HasGroundContacts()` is false 99% of the time, and the hybrid wrongly adds gravity back (median 1.24 u). For this class S is the only good predictor. The hybrid's rule should therefore be per class, not per contact state alone.
 - **Wheeled and tracked vehicles.**
-  - The samples, the same as H on the ground, have the best median, 0.07–0.24 u.
+  - The samples, the same as H on the ground, have the best median, 0.07–0.27 u.
   - The physics step has the best p95 for the hog, husky and badger. Their worst ticks are bumps and collisions, which the samples' acceleration term extrapolates.
   - Collisions that launch the vehicle, at speed jumps of up to 500→900 u/s, give 28–43 u maxima that no predictor foresees. The cap and L of §3.3 are what bound them.
 

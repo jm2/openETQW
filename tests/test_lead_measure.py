@@ -7,7 +7,8 @@ valley) spawns each rigid-body vehicle class in turn on one open spot, enters it
 drives it (ground: throttle, a right and a left turn at speed, brake and reverse, forward
 again) or flies it (aircraft: lift-off, nose down, a yaw and roll ramp, level, descent).
 With g_simHash 1 every tick prints VEH_TRACE, and in this schedule only VEH_BODY (the
-body's centre of mass and ground contacts).
+body's centre of mass and ground contacts). Any other vehicle that appears during the
+run (valley respawns its badger) is removed on the tick it appears and logged as LEAD_FOREIGN.
 
 The test runs it in single player at com_maxFPS 60 and 144 and fails when:
   M1  a class is missing: not spawned, not entered, or fewer than 150 traced ticks;
@@ -131,6 +132,10 @@ def main(argv: list[str]) -> int:
         first = next((i for i, (x, y) in enumerate(zip(a, b)) if x != y), min(len(a), len(b)))
         failures.append(f"M4 VEH_TRACE/VEH_BODY differ between com_maxFPS {CAPS[0]} and {CAPS[-1]} at record {first}"
                         f" ({len(a)} and {len(b)} records)")
+
+    foreign = [ln.strip() for ln in runs[CAPS[0]] if ln.startswith("LEAD_FOREIGN:")]
+    print(f"foreign vehicles removed during the drive (valley's respawns): {len(foreign)}"
+          + (f", first: {foreign[0]}" if foreign else ""))
 
     log = Path(args.log) if args.log else savepath / "lead-measure.log"
     log.write_text("\n".join(runs[CAPS[0]]) + "\n", encoding="utf-8")

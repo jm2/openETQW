@@ -127,7 +127,7 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
   - Every class measured (2026-10-06, meson `lead-measure`; `docs/hull-lead.md` §2.1):
     - aircraft: the hybrid is near-exact;
     - the desecrator (a hover tank): the samples only;
-    - wheeled and tracked vehicles: the samples have the best median (0.07–0.24 u), and launching collisions give 28–43 u maxima.
+    - wheeled and tracked vehicles: the samples have the best median (0.07–0.27 u), and launching collisions give 28–43 u maxima.
   - Next: the client-side measurement, then the implementation after the Linux session's stage 5 chase-view work in `Presentation.cpp`.
   - Owner questions: three are below, and the fourth is the existing decay question (`vehicle-responsiveness.md` §5.1 item 7).
 - **M5 step 6, no presentation values in tick, snapshot or AoR state** (2026-09-30).
