@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Adapted from openQ4 src/sys/osx/macosx_misc.mm (jm2/openQ4 b37b1456): id's Doom 3 GPL code (notice below) with openQ4's changes; GPL-3.0-or-later, owner decision 2026-10-07.
+
 /*
 ===========================================================================
 

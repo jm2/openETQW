@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: GPL-3.0-only
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Build and check the openETQW Linux AppImage from a packaged Linux tree.
 
 Adapted from openQ4's tools/build/package_linux_appimage.py (jm2/openQ4

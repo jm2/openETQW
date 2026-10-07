@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copied unchanged from openQ4 src/sys/osx/macosx_sys.h (jm2/openQ4 b37b1456; GPL-3.0-or-later, owner decision 2026-10-07).
+
 #import "../posix/posix_public.h"
 
 #import <Foundation/NSGeometry.h>
