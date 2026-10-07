@@ -100,6 +100,13 @@ idCVar r_vkValidation(
 	"enable the Khronos Vulkan validation layer when it is installed (slow; for development)"
 );
 
+idCVar r_vkScreenshot(
+	"r_vkScreenshot",
+	"",
+	CVAR_RENDERER | CVAR_NOCHEAT,
+	"write the next presented Vulkan frame to this path as a 32-bit TGA, then clear itself"
+);
+
 idCVar r_vkSkipGui(
 	"r_vkSkipGui",
 	"0",
@@ -458,6 +465,13 @@ struct sdVulkanBackendState {
 	idList< byte >			depthInitialized;
 	bool					swapchainDirty;
 	bool					swapchainTransferSource;
+	// r_vkScreenshot readback: a host buffer filled by the frame's command buffer
+	VkBuffer				screenshotBuffer;
+	VkDeviceMemory			screenshotMemory;
+	idStr					screenshotPath;
+	uint32_t				screenshotWidth;
+	uint32_t				screenshotHeight;
+	VkFormat				screenshotFormat;
 	int					swapInterval;
 	sdVulkanImageResource	currentRenderResource;
 	bool					currentRenderInitialized;
@@ -708,6 +722,7 @@ struct sdVulkanBackendState {
 	PFN_vkCmdCopyBufferToImage			CmdCopyBufferToImage;
 	PFN_vkCmdCopyBuffer				CmdCopyBuffer;
 	PFN_vkCmdCopyImage				CmdCopyImage;
+	PFN_vkCmdCopyImageToBuffer		CmdCopyImageToBuffer;
 	PFN_vkCmdBlitImage				CmdBlitImage;
 	PFN_vkCmdBeginRendering			CmdBeginRendering;
 	PFN_vkCmdEndRendering				CmdEndRendering;
@@ -747,6 +762,11 @@ struct sdVulkanBackendState {
 		extent.height = 0;
 		swapchainDirty = false;
 		swapchainTransferSource = false;
+		screenshotBuffer = VK_NULL_HANDLE;
+		screenshotMemory = VK_NULL_HANDLE;
+		screenshotWidth = 0;
+		screenshotHeight = 0;
+		screenshotFormat = VK_FORMAT_UNDEFINED;
 		swapInterval = 0;
 		memset( &currentRenderResource, 0, sizeof( currentRenderResource ) );
 		currentRenderInitialized = false;
@@ -928,6 +948,7 @@ struct sdVulkanBackendState {
 		CLEAR_VK_FUNCTION( CmdCopyBufferToImage );
 		CLEAR_VK_FUNCTION( CmdCopyBuffer );
 		CLEAR_VK_FUNCTION( CmdCopyImage );
+		CLEAR_VK_FUNCTION( CmdCopyImageToBuffer );
 		CLEAR_VK_FUNCTION( CmdBlitImage );
 		CLEAR_VK_FUNCTION( CmdBeginRendering );
 		CLEAR_VK_FUNCTION( CmdEndRendering );
@@ -1199,6 +1220,7 @@ bool LoadDeviceFunctions( sdVulkanBackendState& state ) {
 	LOAD_DEVICE_FUNCTION( CmdCopyBufferToImage );
 	LOAD_DEVICE_FUNCTION( CmdCopyBuffer );
 	LOAD_DEVICE_FUNCTION( CmdCopyImage );
+	LOAD_DEVICE_FUNCTION( CmdCopyImageToBuffer );
 	LOAD_DEVICE_FUNCTION( CmdBlitImage );
 	LOAD_DEVICE_FUNCTION( CmdBeginRendering );
 	LOAD_DEVICE_FUNCTION( CmdEndRendering );
@@ -6000,23 +6022,165 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 	return true;
 }
 
+// Waits for the frame that copied the swapchain image, then writes it as a
+// top-left-origin 32-bit TGA (BGRA, alpha forced opaque) and frees the buffer.
+static void WriteVulkanScreenshot( sdVulkanBackendState& state, VkFence fence ) {
+	const uint32_t width = state.screenshotWidth;
+	const uint32_t height = state.screenshotHeight;
+	void* mapped = NULL;
+	if ( CheckVulkanResult( state.WaitForFences( state.device, 1, &fence, VK_TRUE, UINT64_MAX ),
+			"vkWaitForFences(screenshot)" ) &&
+		CheckVulkanResult( state.MapMemory( state.device, state.screenshotMemory, 0, VK_WHOLE_SIZE,
+			0, &mapped ), "vkMapMemory(screenshot)" ) ) {
+		const bool rgbOrder = state.screenshotFormat == VK_FORMAT_R8G8B8A8_UNORM ||
+			state.screenshotFormat == VK_FORMAT_R8G8B8A8_SRGB;
+		const size_t pixelBytes = static_cast< size_t >( width ) * height * 4;
+		byte* file = static_cast< byte* >( Mem_Alloc( pixelBytes + 18 ) );
+		memset( file, 0, 18 );
+		file[ 2 ] = 2;		// uncompressed true-colour
+		file[ 12 ] = width & 255;
+		file[ 13 ] = ( width >> 8 ) & 255;
+		file[ 14 ] = height & 255;
+		file[ 15 ] = ( height >> 8 ) & 255;
+		file[ 16 ] = 32;
+		file[ 17 ] = 0x28;	// 8 alpha bits, top-left origin
+		const byte* source = static_cast< const byte* >( mapped );
+		byte* dest = file + 18;
+		for ( size_t i = 0; i < pixelBytes; i += 4 ) {
+			dest[ i + 0 ] = source[ i + ( rgbOrder ? 2 : 0 ) ];
+			dest[ i + 1 ] = source[ i + 1 ];
+			dest[ i + 2 ] = source[ i + ( rgbOrder ? 0 : 2 ) ];
+			dest[ i + 3 ] = 255;
+		}
+		state.UnmapMemory( state.device, state.screenshotMemory );
+		// a raw path, outside the filesystem's search paths: this is a NOCHEAT
+		// developer and test tool, not something a server or map can set
+		FILE* out = fopen( state.screenshotPath.c_str(), "wb" );
+		if ( out != NULL ) {
+			fwrite( file, 1, pixelBytes + 18, out );
+			fclose( out );
+			common->Printf( "r_vkScreenshot: wrote %ux%u to %s\n", width, height,
+				state.screenshotPath.c_str() );
+		} else {
+			common->Warning( "r_vkScreenshot: could not open '%s'", state.screenshotPath.c_str() );
+		}
+		Mem_Free( file );
+	}
+	state.DestroyBuffer( state.device, state.screenshotBuffer, NULL );
+	state.FreeMemory( state.device, state.screenshotMemory, NULL );
+	state.screenshotBuffer = VK_NULL_HANDLE;
+	state.screenshotMemory = VK_NULL_HANDLE;
+}
+
+// A recorded screenshot whose frame was never submitted: free its buffer, or it
+// would block every later r_vkScreenshot.
+static void DiscardVulkanScreenshot( sdVulkanBackendState& state ) {
+	if ( state.screenshotBuffer != VK_NULL_HANDLE ) {
+		state.DestroyBuffer( state.device, state.screenshotBuffer, NULL );
+		state.screenshotBuffer = VK_NULL_HANDLE;
+	}
+	if ( state.screenshotMemory != VK_NULL_HANDLE ) {
+		state.FreeMemory( state.device, state.screenshotMemory, NULL );
+		state.screenshotMemory = VK_NULL_HANDLE;
+	}
+}
+
 void sdVulkanBackend::EndFrame( bool ) {
 	if ( state == NULL || !state->frameActive ) {
 		return;
 	}
 	sdVulkanFrame& frame = state->frames[ state->frameIndex ];
+	bool screenshotRecorded = false;
 	{
 		RENDER_METRIC_SCOPE( "Vulkan finish command buffer" );
 		state->CmdEndRendering( frame.commandBuffer );
 
+	// r_vkScreenshot: copy the finished frame to a host buffer before presenting it.
+	if ( r_vkScreenshot.GetString()[ 0 ] != '\0' && state->screenshotBuffer == VK_NULL_HANDLE ) {
+		state->screenshotPath = r_vkScreenshot.GetString();
+		r_vkScreenshot.SetString( "" );
+		const VkDeviceSize bytes = static_cast< VkDeviceSize >( state->extent.width ) *
+			state->extent.height * 4;
+		// the buffer is sized for 4 bytes a pixel and written as 8-bit BGRA
+		const bool eightBitSwapchain = state->swapchainFormat == VK_FORMAT_B8G8R8A8_UNORM ||
+			state->swapchainFormat == VK_FORMAT_B8G8R8A8_SRGB ||
+			state->swapchainFormat == VK_FORMAT_R8G8B8A8_UNORM ||
+			state->swapchainFormat == VK_FORMAT_R8G8B8A8_SRGB;
+		if ( !state->swapchainTransferSource || state->CmdCopyImageToBuffer == NULL ) {
+			common->Warning( "r_vkScreenshot: the swapchain cannot be read back on this surface" );
+		} else if ( !eightBitSwapchain ) {
+			common->Warning( "r_vkScreenshot: swapchain format %d is not 8-bit RGBA/BGRA; not captured",
+				static_cast< int >( state->swapchainFormat ) );
+		} else if ( CreateBufferAllocation( *state, bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+			state->screenshotBuffer, state->screenshotMemory ) ) {
+			VkImageMemoryBarrier2 toTransfer;
+			memset( &toTransfer, 0, sizeof( toTransfer ) );
+			toTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+			toTransfer.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+			toTransfer.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+			toTransfer.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+			toTransfer.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+			toTransfer.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			toTransfer.image = state->swapchainImages[ state->imageIndex ];
+			toTransfer.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			toTransfer.subresourceRange.levelCount = 1;
+			toTransfer.subresourceRange.layerCount = 1;
+			VkDependencyInfo transferDependency;
+			memset( &transferDependency, 0, sizeof( transferDependency ) );
+			transferDependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+			transferDependency.imageMemoryBarrierCount = 1;
+			transferDependency.pImageMemoryBarriers = &toTransfer;
+			state->CmdPipelineBarrier2( frame.commandBuffer, &transferDependency );
+			VkBufferImageCopy region;
+			memset( &region, 0, sizeof( region ) );
+			region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			region.imageSubresource.layerCount = 1;
+			region.imageExtent.width = state->extent.width;
+			region.imageExtent.height = state->extent.height;
+			region.imageExtent.depth = 1;
+			state->CmdCopyImageToBuffer( frame.commandBuffer,
+				state->swapchainImages[ state->imageIndex ], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+				state->screenshotBuffer, 1, &region );
+			// the fence alone does not make transfer writes visible to the host
+			VkBufferMemoryBarrier2 toHost;
+			memset( &toHost, 0, sizeof( toHost ) );
+			toHost.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+			toHost.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+			toHost.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+			toHost.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+			toHost.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
+			toHost.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			toHost.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			toHost.buffer = state->screenshotBuffer;
+			toHost.size = VK_WHOLE_SIZE;
+			VkDependencyInfo hostDependency;
+			memset( &hostDependency, 0, sizeof( hostDependency ) );
+			hostDependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+			hostDependency.bufferMemoryBarrierCount = 1;
+			hostDependency.pBufferMemoryBarriers = &toHost;
+			state->CmdPipelineBarrier2( frame.commandBuffer, &hostDependency );
+			state->screenshotWidth = state->extent.width;
+			state->screenshotHeight = state->extent.height;
+			state->screenshotFormat = state->swapchainFormat;
+		}
+	}
+	screenshotRecorded = state->screenshotBuffer != VK_NULL_HANDLE;
+
 	VkImageMemoryBarrier2 toPresent;
 	memset( &toPresent, 0, sizeof( toPresent ) );
 	toPresent.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-	toPresent.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-	toPresent.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+	toPresent.srcStageMask = screenshotRecorded ? VK_PIPELINE_STAGE_2_TRANSFER_BIT :
+		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+	toPresent.srcAccessMask = screenshotRecorded ? VK_ACCESS_2_TRANSFER_READ_BIT :
+		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
 	toPresent.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
 	toPresent.dstAccessMask = VK_ACCESS_2_NONE;
-	toPresent.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	toPresent.oldLayout = screenshotRecorded ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL :
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	toPresent.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 	toPresent.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	toPresent.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -6033,6 +6197,7 @@ void sdVulkanBackend::EndFrame( bool ) {
 		if ( !CheckVulkanResult( state->EndCommandBuffer( frame.commandBuffer ),
 			"vkEndCommandBuffer" ) ) {
 			RestoreSignaledFence( *state, frame );
+			DiscardVulkanScreenshot( *state );
 			state->frameActive = false;
 			return;
 		}
@@ -6040,6 +6205,7 @@ void sdVulkanBackend::EndFrame( bool ) {
 			frame.imageUploadCommandBuffer ),
 			"vkEndCommandBuffer(image uploads)" ) ) {
 			RestoreSignaledFence( *state, frame );
+			DiscardVulkanScreenshot( *state );
 			state->frameActive = false;
 			return;
 		}
@@ -6084,6 +6250,7 @@ void sdVulkanBackend::EndFrame( bool ) {
 		if ( !CheckVulkanResult( state->QueueSubmit2( state->graphicsQueue, 1,
 			&submitInfo, frame.fence ), "vkQueueSubmit2" ) ) {
 			RestoreSignaledFence( *state, frame );
+			DiscardVulkanScreenshot( *state );
 			state->frameActive = false;
 			return;
 		}
@@ -6091,6 +6258,9 @@ void sdVulkanBackend::EndFrame( bool ) {
 	}
 	state->imageInitialized[ state->imageIndex ] = 1;
 	state->depthInitialized[ state->imageIndex ] = 1;
+	if ( screenshotRecorded ) {
+		WriteVulkanScreenshot( *state, frame.fence );
+	}
 
 	VkPresentInfoKHR presentInfo;
 	memset( &presentInfo, 0, sizeof( presentInfo ) );
