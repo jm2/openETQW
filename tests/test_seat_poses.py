@@ -24,8 +24,9 @@ FRAME_POSE line per draw: the drawn view, the seat and the vehicle's render-worl
               one step of a whole tick's motion: 4x at cap 120)
 
 Late mouse look (stage 5), first of all, at cap 120 from the parked badger, in the driver's
-standard view and then the gunner's chase view (smooth_free, which orbits its focus; the
-in_yawSpeed key turn stands in for the mouse):
+standard view, the gunner's chase view (smooth_free, which orbits its focus) and the
+driver's chase view (smooth_locked, in tophat mode through ui_drivingCameraFreelook 1); the
+in_yawSpeed key turn stands in for the mouse:
 
   L0 seat     every draw of the phase is from that seat and view
   L1 tap      90% of LOOK_TAPS +left/+right taps show the turn on the next draw
@@ -418,7 +419,7 @@ def main(argv):
                                       ("L2", on_turn["ok"], on_turn["detail"]),
                                       ("L1c", l1c, f"with g_unlock_vehicleLook 0 the turn shows at least a draw later on average"
                                                    f" (mean {mean(off):.2f} against {mean(on):.2f})")) + tuple(checks):
-                print(f"  {cap:3} {label[:5]} {check}  {'pass' if ok else 'FAIL'}  {detail}")
+                print(f"  {cap:3} {label} {check}  {'pass' if ok else 'FAIL'}  {detail}")
                 if not ok:
                     failures.append(f"late look, {label}, {check}: {detail}")
 
@@ -436,6 +437,21 @@ def main(argv):
             srv.send(f"cycleVehicleCamera {obs.slot}")
             time.sleep(1.5)
         late_look("chase gunner", (1, 1), orbit=True)
+        # the driver's chase view (mode 1, smooth_locked): its look is free only in tophat
+        # mode, which ui_drivingCameraFreelook 1 makes the default (the tophat inverts it)
+        srv.send(f"exitVehicle {obs.slot}")
+        time.sleep(1.0)
+        obs.send("set ui_drivingCameraFreelook 1")
+        obs.send(f"set g_unlock_vehicleSeats {LISTED},badger:*:smooth_locked")
+        seat_up()
+        for _ in range(2):
+            last = next((p for ln in reversed(obs.snapshot()) if (p := parse_pose(ln.text))), None)
+            if last is not None and (seat_fields(last["seat"]) or (0, 0, 0))[1:] == (0, 1):
+                break
+            srv.send(f"cycleVehicleCamera {obs.slot}")
+            time.sleep(1.5)
+        late_look("chase driver", (0, 1), orbit=True)
+        obs.send("set ui_drivingCameraFreelook 0")
         obs.send(f"set g_unlock_vehicleSeats {LISTED}")
         # back on foot: the next phase seats the player in the driver's seat again
         srv.send(f"exitVehicle {obs.slot}")

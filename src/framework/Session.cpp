@@ -428,6 +428,7 @@ void idSessionLocal::StartNewGame( const char* mapName ) {
 
 	mapSpawnData.serverInfo = *cvarSystem->MoveCVarsToDict( CVAR_SERVERINFO );
 	mapSpawnData.userInfo[ 0 ] = *cvarSystem->MoveCVarsToDict( CVAR_USERINFO );
+	cvarSystem->ClearModifiedFlags( CVAR_USERINFO );	// RunGameTic picks up later changes
 	mapSpawnData.syncedCVars = *cvarSystem->MoveCVarsToDict( CVAR_NETWORKSYNC );
 	game->SetClientNum( 0, true );
 	ExecuteMapChange( resolvedMapName.c_str(), 0, true, true, true );
@@ -567,6 +568,17 @@ void idSessionLocal::RunGameTic() {
 	usercmd_t cmd = usercmdGen->GetDirectUsercmd();
 	mapSpawnData.mapSpawnUsercmd[ 0 ] = cmd;
 	++lastGameTic;
+
+	// single player: the player changed a user info cvar (ui_name, ui_drivingCameraFreelook,
+	// ...); as the listen host does each frame (idAsyncServer::RunFrame) and Doom 3's
+	// RunGameTic did, at a tick, so the change lands in tick state the same way at any cap
+	if ( !idAsyncNetwork::server.IsActive() && !idAsyncNetwork::client.IsActive() &&
+		 ( cvarSystem->GetModifiedFlags() & CVAR_USERINFO ) != 0 ) {
+		cvarSystem->ClearModifiedFlags( CVAR_USERINFO );
+		mapSpawnData.userInfo[ 0 ] = *cvarSystem->MoveCVarsToDict( CVAR_USERINFO );
+		mapSpawnData.userInfo[ 0 ].Set( "ui_realname", mapSpawnData.userInfo[ 0 ].GetString( "ui_name", "Player" ) );
+		game->UserInfoChanged( 0 );
+	}
 
 	const int start = Sys_Milliseconds();
 	game->RunFrame( mapSpawnData.mapSpawnUsercmd, USERCMD_MSEC );
