@@ -23,14 +23,17 @@ FRAME_POSE line per draw: the drawn view, the seat and the vehicle's render-worl
               (the presentation draws a fixed age; a stepped hull would cross a tick in
               one step of a whole tick's motion: 4x at cap 120)
 
-Late mouse look (stage 5), first of all, at cap 120 from the parked driver's seat (the
+Late mouse look (stage 5), first of all, at cap 120 from the parked badger, in the driver's
+standard view and then the gunner's chase view (smooth_free, which orbits its focus; the
 in_yawSpeed key turn stands in for the mouse):
 
-  L0 seat     every draw of the phase is from the driver's seat in its standard view
+  L0 seat     every draw of the phase is from that seat and view
   L1 tap      90% of LOOK_TAPS +left/+right taps show the turn on the next draw
   L2 held     a held turn changes the drawn yaw between consecutive draws (>= 99%)
-  L3 smooth   under the held turn the yaw never turns back, and a step across a tick is
-              at most 2.5 x the median step within one
+  L3 smooth   under the held turn the yaw never turns back, and its rate across a tick is
+              at most 2.5 x the median rate within one (per microsecond between draws)
+  L4 orbit    (the chase view) the camera origin's speed across a tick is at most 1.5 x
+              the median speed within one (a wrong pivot would jump at each tick)
   L1c control with g_unlock_vehicleLook 0 the turn shows at least a draw later on average
 
 Remote entities while seated (stage 4; join and listen, which have a headless peer): at
@@ -171,11 +174,15 @@ def look_response(lines):
 
 def look_consistency(held, k=2.5):
     """L3: under a held turn the drawn yaw moves one way on every draw that moves it (no
-    snap back at a tick, no sawtooth), and a step across a tick is at most k times the
-    median step within one (no double count or lag that a tick catches up)."""
+    snap back at a tick, no sawtooth), and its rate (degrees per microsecond of wall time
+    between the draws, so a long frame is not a big step) across a tick is at most k times
+    the median rate within one (no double count or lag that a tick catches up)."""
     yaw = lambda p: p["view"][4]
-    steps = [((yaw(b) - yaw(a) + 180.0) % 360.0 - 180.0, a["gt"] != b["gt"]) for a, b in zip(held, held[1:])]
-    moving = [(d, cross) for d, cross in steps if abs(d) > 0.01]
+    steps = [((yaw(b) - yaw(a) + 180.0) % 360.0 - 180.0) / max(1, b["us"] - a["us"]) * 1e4
+             for a, b in zip(held, held[1:])]
+    steps = list(zip(steps, (a["gt"] != b["gt"] for a, b in zip(held, held[1:]))))
+    moving = [(d, cross) for (d, cross), (a, b) in zip(steps, zip(held, held[1:]))
+              if abs((yaw(b) - yaw(a) + 180.0) % 360.0 - 180.0) > 0.01]
     if len(moving) < MIN_PAIRS // 2:
         return False, f"too few moving draw pairs under the held turn ({len(moving)})"
     sign = 1.0 if sum(d for d, _ in moving) > 0 else -1.0
@@ -185,8 +192,27 @@ def look_consistency(held, k=2.5):
     median = inside[len(inside) // 2] if inside else 0.0
     worst = max(across) / median if across and median > 0 else float("inf")
     ok = back == 0 and worst <= k
-    return ok, (f"held yaw: {back} of {len(moving)} moving pairs turn back; worst cross-tick step {worst:.2f}x"
-                f" the median in-tick step (at most {k}x)")
+    return ok, (f"held yaw: {back} of {len(moving)} moving pairs turn back; worst cross-tick rate {worst:.2f}x"
+                f" the median in-tick rate (at most {k}x)")
+
+
+def orbit_consistency(held, k=1.5):
+    """L4 (a chase view): under a held turn the camera orbits its focus, so its origin moves
+    too; its speed across a tick is at most k times the median speed within one. A draw
+    turned about the wrong point (or not moved at all) ends each tick off the camera the
+    next tick computes, and the draw across the tick jumps by that error: with the parked
+    badger's ~2 deg of turn a tick, a pivot about 40 u off shows as 1.5x. It does not check
+    pitch, which the tick's camera follows only approximately as an orbit."""
+    speeds = [(math.dist(a["view"][:3], b["view"][:3]) / max(1, b["us"] - a["us"]) * 1e6, a["gt"] != b["gt"])
+              for a, b in zip(held, held[1:])]
+    inside = sorted(v for v, cross in speeds if not cross)
+    across = [v for v, cross in speeds if cross]
+    if len(inside) < MIN_PAIRS // 2 or not across:
+        return False, f"too few draw pairs under the held turn ({len(inside)} within a tick, {len(across)} across)"
+    median = inside[len(inside) // 2]
+    worst = max(across) / median if median > 0 else float("inf")
+    return worst <= k, (f"camera origin: median speed {median:.0f} u/s within a tick, worst across a tick {worst:.2f}x"
+                        f" (at most {k}x)")
 
 
 def per_tick(res):
@@ -331,64 +357,89 @@ def main(argv):
             spawn(srv, peer, "gdf")
         obs.send("set g_logFramePoses 1")
 
-        # stage 5, the late look, first of all: +left/+right taps from the parked driver's
-        # seat (standard view), before any drive can move the badger
+        # stage 5, the late look, first of all: +left/+right taps from the parked badger,
+        # before any drive can move it: the driver's standard view, then the gunner's chase
+        # view (smooth_free, an orbit about its focus)
         cap = 120
         obs.send(f"set com_maxFPS {cap}")
+
+        def late_look(label, want_seat, orbit=False):
+            results_look = {}
+            for setting in ("1", "0"):
+                obs.send(f"set g_unlock_vehicleLook {setting}")
+                time.sleep(0.5)
+                # the driver's yaw is clamped (badger: -65..80 deg): taps alternate left and
+                # right, and the held turn (LOOK_HOLD_S) stays inside the clamp from where they
+                # leave it
+                obs.send("set in_yawSpeed 60")
+                begin = obs.mark()
+                for k in range(LOOK_TAPS):
+                    key = "left" if k % 2 == 0 else "right"
+                    # one line: the marker lands in the frame that runs the key
+                    obs.send(f"+{key}; echo LOOKTAP")
+                    time.sleep(LOOK_TAP_S)
+                    obs.send(f"-{key}")
+                    time.sleep(0.4)
+                obs.send("+left")
+                mark = obs.mark()
+                time.sleep(LOOK_HOLD_S)
+                end = obs.mark()
+                obs.send("-left")
+                obs.send("+right")
+                time.sleep(LOOK_HOLD_S)
+                obs.send("-right")
+                time.sleep(0.5)
+                lines = [ln.text for ln in obs.snapshot(begin)]
+                held = [p for ln in obs.snapshot(mark, end) if (p := parse_pose(ln.text))]
+                seats = {p["seat"] for p in (parse_pose(ln) for ln in lines) if p is not None}
+                results_look[setting] = (seats, held, look_response(lines), fraction_check(
+                    held[len(held) // 8:], lambda a, b: abs((a["view"][4] - b["view"][4] + 180.0) % 360.0 - 180.0) > 0.01,
+                    "view yaw"))
+            obs.send("set g_unlock_vehicleLook 1")
+            look_seats, on_held, on, on_turn = results_look["1"]
+            off_seats, _, off, off_turn = results_look["0"]
+            # L0: every draw of the phase is from the expected seat and view, so an on-foot
+            # (or other seat's) late look cannot pass L1 and L2
+            look_seats |= off_seats
+            l0 = len(look_seats) == 1 and None not in look_seats and seat_fields(next(iter(look_seats)))[1:] == want_seat
+            l3, l3_detail = look_consistency(on_held[len(on_held) // 8:])
+            checks = []
+            if orbit:
+                l4, l4_detail = orbit_consistency(on_held[len(on_held) // 8:])
+                checks.append(("L4", l4, l4_detail))
+            mean = lambda xs: sum(xs) / len(xs) if xs else float("inf")
+            print(f"[seat] late look, {label}, at cap {cap}: draws to the first changed yaw after +left, on {on}"
+                  f" (mean {mean(on):.2f}), off {off} (mean {mean(off):.2f}); held, on: {on_turn['detail']}")
+            l1 = len(on) >= LOOK_TAPS - 1 and sorted(on)[int(0.9 * (len(on) - 1))] <= 1
+            l1c = len(off) >= LOOK_TAPS - 1 and mean(off) >= mean(on) + 1.0
+            for check, ok, detail in (("L0", l0, f"seats {sorted(x or '-' for x in look_seats)}, want position:mode {want_seat}"),
+                                      ("L3", l3, l3_detail),
+                                      ("L1", l1, f"90% of taps show the turn on the next draw (counts {on})"),
+                                      ("L2", on_turn["ok"], on_turn["detail"]),
+                                      ("L1c", l1c, f"with g_unlock_vehicleLook 0 the turn shows at least a draw later on average"
+                                                   f" (mean {mean(off):.2f} against {mean(on):.2f})")) + tuple(checks):
+                print(f"  {cap:3} {label[:5]} {check}  {'pass' if ok else 'FAIL'}  {detail}")
+                if not ok:
+                    failures.append(f"late look, {label}, {check}: {detail}")
+
         obs.send(f"set g_unlock_vehicleSeats {LISTED}")
         seat_up()
-        results_look = {}
-        for setting in ("1", "0"):
-            obs.send(f"set g_unlock_vehicleLook {setting}")
-            time.sleep(0.5)
-            # the driver's yaw is clamped (badger: +-105 deg): taps alternate left and right,
-            # and the held turn (LOOK_HOLD_S) stays inside the clamp from where they leave it
-            obs.send("set in_yawSpeed 60")
-            begin = obs.mark()
-            for k in range(LOOK_TAPS):
-                key = "left" if k % 2 == 0 else "right"
-                # one line: the marker lands in the frame that runs the key
-                obs.send(f"+{key}; echo LOOKTAP")
-                time.sleep(LOOK_TAP_S)
-                obs.send(f"-{key}")
-                time.sleep(0.4)
-            obs.send("+left")
-            mark = obs.mark()
-            time.sleep(LOOK_HOLD_S)
-            end = obs.mark()
-            obs.send("-left")
-            obs.send("+right")
-            time.sleep(LOOK_HOLD_S)
-            obs.send("-right")
-            time.sleep(0.5)
-            lines = [ln.text for ln in obs.snapshot(begin)]
-            held = [p for ln in obs.snapshot(mark, end) if (p := parse_pose(ln.text))]
-            seats = {p["seat"] for p in (parse_pose(ln) for ln in lines) if p is not None}
-            results_look[setting] = (seats, held, look_response(lines), fraction_check(
-                held[len(held) // 8:], lambda a, b: abs((a["view"][4] - b["view"][4] + 180.0) % 360.0 - 180.0) > 0.01,
-                "view yaw"))
-        obs.send("set g_unlock_vehicleLook 1")
-        look_seats, on_held, on, on_turn = results_look["1"]
-        off_seats, _, off, off_turn = results_look["0"]
-        # L0: every draw of the phase is from the driver's seat in its standard view, so an
-        # on-foot late look cannot pass L1 and L2
-        look_seats |= off_seats
-        l0 = len(look_seats) == 1 and None not in look_seats and seat_fields(next(iter(look_seats)))[1:] == (0, 0)
-        l3, l3_detail = look_consistency(on_held[len(on_held) // 8:])
-        mean = lambda xs: sum(xs) / len(xs) if xs else float("inf")
-        print(f"[seat] late look at cap {cap}: draws to the first changed yaw after +left, on {on} (mean {mean(on):.2f}),"
-              f" off {off} (mean {mean(off):.2f}); held, on: {on_turn['detail']}")
-        l1 = len(on) >= LOOK_TAPS - 1 and sorted(on)[int(0.9 * (len(on) - 1))] <= 1
-        l1c = len(off) >= LOOK_TAPS - 1 and mean(off) >= mean(on) + 1.0
-        for check, ok, detail in (("L0", l0, f"seats {sorted(x or '-' for x in look_seats)}"),
-                                  ("L3", l3, l3_detail),
-                                  ("L1", l1, f"90% of taps show the turn on the next draw (counts {on})"),
-                                  ("L2", on_turn["ok"], on_turn["detail"]),
-                                  ("L1c", l1c, f"with g_unlock_vehicleLook 0 the turn shows at least a draw later on average"
-                                               f" (mean {mean(off):.2f} against {mean(on):.2f})")):
-            print(f"  {cap:3} {check}  {'pass' if ok else 'FAIL'}  {detail}")
-            if not ok:
-                failures.append(f"late look {check}: {detail}")
+        late_look("driver", (0, 0))
+        # the gunner's seat (position 1), cycled to its chase view (mode 1, smooth_free)
+        obs.send(f"set g_unlock_vehicleSeats {LISTED},badger:*:smooth_free")
+        srv.send(f"swapVehicleSeat {obs.slot}")
+        time.sleep(1.5)
+        for _ in range(2):
+            last = next((p for ln in reversed(obs.snapshot()) if (p := parse_pose(ln.text))), None)
+            if last is not None and (seat_fields(last["seat"]) or (0, 0, 0))[1:] == (1, 1):
+                break
+            srv.send(f"cycleVehicleCamera {obs.slot}")
+            time.sleep(1.5)
+        late_look("chase gunner", (1, 1), orbit=True)
+        obs.send(f"set g_unlock_vehicleSeats {LISTED}")
+        # back on foot: the next phase seats the player in the driver's seat again
+        srv.send(f"exitVehicle {obs.slot}")
+        time.sleep(1.0)
 
         # stage 4 first, while the badger is parked where it spawned (after the drives it
         # can end up across the peer's walk)
