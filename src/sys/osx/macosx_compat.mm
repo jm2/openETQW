@@ -37,6 +37,8 @@ If you have questions concerning this license or the applicable additional terms
 #include "../../framework/RetailDiscovery.h"
 
 #import <AppKit/AppKit.h>
+#include <dirent.h>
+#include <sys/stat.h>
 #import <OpenGL/OpenGL.h>
 #import <mach-o/dyld.h>
 #import <mach/mach_time.h>
@@ -809,21 +811,169 @@ const char *Sys_DefaultBasePath( void ) {
 	return basepath.c_str();
 }
 
+// the Windows game's usual install folders, as the Windows table lists them, for the
+// drive_c of a CrossOver bottle or a Wine prefix
+static const char *const macRetailWindowsFolders[] = {
+	"id Software/Enemy Territory - QUAKE Wars",
+	"Activision/Enemy Territory - QUAKE Wars",
+	"Enemy Territory - QUAKE Wars",
+	"Enemy Territory QUAKE Wars",
+	"ETQW",
+};
+
+// true when directory holds an entry whose name contains "QUAKE Wars" and ends in .app
+// (Aspyr's retail "Enemy Territory QUAKE Wars.app"), letter case ignored
+static bool Mac_HoldsRetailApp( const char *directory ) {
+	DIR *dir = opendir( directory );
+	if ( dir == NULL ) {
+		return false;
+	}
+	bool found = false;
+	while ( !found ) {
+		struct dirent *entry = readdir( dir );
+		if ( entry == NULL ) {
+			break;
+		}
+		const idStr name = entry->d_name;
+		found = name.Length() > 4 && idStr::FindText( name.c_str(), "quake wars", false ) >= 0 &&
+			!idStr::Icmp( name.c_str() + name.Length() - 4, ".app" );
+	}
+	closedir( dir );
+	return found;
+}
+
+// every folder directly in applications that holds the retail app: Aspyr's installer
+// asks for the game folder, which holds the .app with base/ beside it
+static void Mac_AppendRetailAppFolders( const char *applications, idStrList &candidates ) {
+	DIR *dir = opendir( applications );
+	if ( dir == NULL ) {
+		return;
+	}
+	while ( struct dirent *entry = readdir( dir ) ) {
+		if ( entry->d_name[0] == '.' ) {
+			continue;
+		}
+		// an application bundle is a folder too: skip them, so the scan opens only the
+		// few plain folders in Applications
+		const idStr name = entry->d_name;
+		if ( name.Length() > 4 && !idStr::Icmp( name.c_str() + name.Length() - 4, ".app" ) ) {
+			continue;
+		}
+		idStr path = applications;
+		path.AppendPath( entry->d_name );
+		struct stat info;
+		if ( stat( path.c_str(), &info ) == 0 && S_ISDIR( info.st_mode ) && Mac_HoldsRetailApp( path.c_str() ) ) {
+			candidates.Append( path );
+		}
+	}
+	closedir( dir );
+}
+
+// a Windows install inside one drive_c: the usual folders and Steam
+static void Mac_AppendDriveC( const idStr &driveC, idStrList &candidates, idStrList &steamRoots ) {
+	static const char *const programFolders[] = { "Program Files (x86)", "Program Files" };
+	for ( const char *program : programFolders ) {
+		for ( const char *folder : macRetailWindowsFolders ) {
+			idStr path = driveC;
+			path.AppendPath( program );
+			path.AppendPath( folder );
+			candidates.Append( path );
+		}
+		idStr steam = driveC;
+		steam.AppendPath( program );
+		steam.AppendPath( "Steam" );
+		steamRoots.Append( steam );
+	}
+}
+
 /*
 ==============
 Sys_AppendRetailDataCandidates
 
-macOS's table for RetailDiscovery (ledger 068): the Steam installation only, so
-far. A retail macOS install and a Wine or CrossOver bottle are not searched yet:
-entries for them belong here. Every candidate is checked for base/pak000.pk4
-before it is used.
+macOS's table for RetailDiscovery (ledger 068), in the order probed:
+  - the folder holding this .app: the app dropped into a retail game folder, beside its
+    base/ (Sys_DefaultBasePath finds the app's own Contents/Resources first, which holds
+    the shaders, not the retail data);
+  - Aspyr's retail Mac install: any folder in /Applications or ~/Applications that holds
+    a .app whose name holds "QUAKE Wars" (Aspyr's "Enemy Territory QUAKE Wars.app"; the
+    1.5 update installs base/ beside it in the folder the player picked), then the usual
+    folder names there;
+  - the Windows game in a CrossOver bottle or a Wine prefix (WINEPREFIX, ~/.wine): the
+    Windows table's install folders under drive_c;
+  - the Steam roots, in this order: OPENETQW_STEAM_ROOT, Steam inside each bottle or
+    prefix (only its own steamapps: a second library it lists is a Windows path, which is
+    not mapped through drive_c), native Steam (~/Library/Application Support/Steam).
+Every candidate is checked for base/pak000.pk4 before it is used.
 ==============
 */
 void Sys_AppendRetailDataCandidates( idStrList &candidates, idStrList &steamRoots ) {
-	(void)candidates;
-	RetailDiscovery::SplitPathList( getenv( "OPENETQW_STEAM_ROOT" ), steamRoots );
 	const char *home = getenv( "HOME" );
-	if ( home != NULL && home[0] == '/' ) {
+	const bool haveHome = home != NULL && home[0] == '/';
+
+	NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
+	if ( bundlePath != nil && [bundlePath hasSuffix:@".app"] ) {
+		const char *parent = [[bundlePath stringByDeletingLastPathComponent] fileSystemRepresentation];
+		if ( parent != NULL && parent[0] == '/' ) {
+			candidates.Append( parent );
+		}
+	}
+
+	idStrList applications;
+	applications.Append( "/Applications" );
+	if ( haveHome ) {
+		idStr path = home;
+		path.AppendPath( "Applications" );
+		applications.Append( path );
+	}
+	static const char *const macFolders[] = {
+		"Enemy Territory QUAKE Wars",
+		"Enemy Territory - QUAKE Wars",
+		"ETQW",
+	};
+	for ( int i = 0; i < applications.Num(); i++ ) {
+		Mac_AppendRetailAppFolders( applications[i].c_str(), candidates );
+		for ( const char *folder : macFolders ) {
+			idStr path = applications[i];
+			path.AppendPath( folder );
+			candidates.Append( path );
+		}
+	}
+
+	RetailDiscovery::SplitPathList( getenv( "OPENETQW_STEAM_ROOT" ), steamRoots );
+
+	idStrList prefixes;
+	const char *winePrefix = getenv( "WINEPREFIX" );
+	if ( winePrefix != NULL && winePrefix[0] == '/' ) {
+		prefixes.Append( winePrefix );
+	}
+	if ( haveHome ) {
+		idStr bottles = home;
+		bottles.AppendPath( "Library/Application Support/CrossOver/Bottles" );
+		DIR *dir = opendir( bottles.c_str() );
+		if ( dir != NULL ) {
+			while ( struct dirent *entry = readdir( dir ) ) {
+				if ( entry->d_name[0] != '.' ) {
+					idStr bottle = bottles;
+					bottle.AppendPath( entry->d_name );
+					prefixes.Append( bottle );
+				}
+			}
+			closedir( dir );
+		}
+		idStr wine = home;
+		wine.AppendPath( ".wine" );
+		prefixes.Append( wine );
+	}
+	for ( int i = 0; i < prefixes.Num(); i++ ) {
+		idStr driveC = prefixes[i];
+		driveC.AppendPath( "drive_c" );
+		struct stat info;
+		if ( stat( driveC.c_str(), &info ) == 0 && S_ISDIR( info.st_mode ) ) {
+			Mac_AppendDriveC( driveC, candidates, steamRoots );
+		}
+	}
+
+	if ( haveHome ) {
 		idStr path = home;
 		path.AppendPath( "Library/Application Support/Steam" );
 		steamRoots.Append( path );
