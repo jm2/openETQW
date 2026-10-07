@@ -3510,7 +3510,8 @@ void idFileSystemLocal::Init( bool quiet ) {
 		idStr retailRoot;
 		if ( RetailDiscovery::Discover( fs_savepath.GetString(), retailRoot, retailProbes ) ) {
 			fs_basepath.SetString( retailRoot );
-			common->Printf( "Retail data found at '%s' (%s)\n", retailRoot.c_str(),
+			// the retail-install check below still validates what is there
+			common->Printf( "Using '%s' as fs_basepath (from %s)\n", retailRoot.c_str(),
 				retailProbes[ retailProbes.Num() - 1 ].source.c_str() );
 		} else {
 			fs_basepath.SetString( Sys_DefaultBasePath() );

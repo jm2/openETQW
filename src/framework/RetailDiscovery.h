@@ -9,18 +9,21 @@
 	not given (ledger 068). A candidate counts when <root>/base holds pak000.pk4,
 	whatever the letter case of the two names. The order, first match wins:
 
-		1. OPENETQW_BASEPATH, one or more install roots (';' or ':' separated
-		   on POSIX, ';' on Windows)
+		1. OPENETQW_BASEPATH, one or more install roots (';' separated; ':' too
+		   on POSIX)
 		2. the stored path: the first line of <fs_savepath>/basepath.txt
 		3. Sys_DefaultBasePath(): the executable's directory, else the current one
-		4. the platform's table (Sys_AppendRetailDataCandidates): installer
+		4. the platform's list (Sys_AppendRetailDataCandidates): installer
 		   records and common install folders
-		5. every Steam library of the platform's Steam roots: each folder under
-		   steamapps/common that holds the retail data
+		5. the Steam installs of the game: in each library of the platform's
+		   Steam roots, the folder an app manifest whose name holds "QUAKE Wars"
+		   installs to
 
 	An explicit +set fs_basepath is never second-guessed. When nothing matches,
-	fs_basepath stays Sys_DefaultBasePath() and the retail-install check fails,
-	listing what was probed.
+	fs_basepath stays Sys_DefaultBasePath() and the retail-install check fails;
+	the content search diagnostics list what was probed. The search never
+	throws: a directory entry that cannot be named in the file system's code
+	page is skipped.
 
 ===============================================================================
 */
@@ -40,11 +43,13 @@ namespace RetailDiscovery {
 	void	SplitPathList( const char *list, idStrList &paths );
 
 	// the library roots a Steam root lists in steamapps/libraryfolders.vdf, plus
-	// the root itself
-	void	AppendSteamLibraries( const char *steamRoot, idStrList &libraries );
+	// the root itself; keys (the canonical forms) drop a library already listed
+	// under another spelling, such as a symlinked root
+	void	AppendSteamLibraries( const char *steamRoot, idStrList &libraries, idStrList &keys );
 
-	// every folder under <library>/steamapps/common, sorted by name
-	void	AppendSteamCommonFolders( const char *library, idStrList &candidates );
+	// the game's install folders in one library: steamapps/common/<installdir>
+	// of each steamapps/appmanifest_*.acf whose "name" holds "QUAKE Wars"
+	void	AppendSteamInstalls( const char *library, idStrList &candidates );
 
 	// the first line of a stored-path file, trimmed; false when there is none
 	bool	ReadStoredPath( const char *file, idStr &path );
@@ -56,7 +61,7 @@ namespace RetailDiscovery {
 	bool	Discover( const char *savePath, idStr &root, idList<retailProbe_t> &probes );
 }
 
-// Platform tables (src/sys/<platform>), in the order to probe:
+// Platform lists (src/sys/<platform>), in the order to probe:
 //	candidates	install roots: installer records, common install folders
 //	steamRoots	Steam installations, whose libraries are searched after them
 void	Sys_AppendRetailDataCandidates( idStrList &candidates, idStrList &steamRoots );

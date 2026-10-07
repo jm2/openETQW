@@ -15,6 +15,7 @@ hooks stubbed here.
 
 #include <filesystem>
 #include <fstream>
+#include <random>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -91,7 +92,10 @@ static void ResetHooks( const fs::path &engineDir ) {
 int main() {
 	idStr::InitMemory();	// as idLib::Init: an idStr past its base buffer allocates from it
 
-	const fs::path tmp = fs::temp_directory_path() / ( "openetqw-retail-discovery-" + std::to_string( ( unsigned long long )time( NULL ) ) );
+	// a directory of this run's own (two runs at once must not share one)
+	std::random_device random;
+	const fs::path tmp = fs::temp_directory_path() / ( "openetqw-retail-discovery-" +
+		std::to_string( ( unsigned long long )time( NULL ) ) + "-" + std::to_string( random() ) );
 	std::error_code error;
 	fs::remove_all( tmp, error );
 	fs::create_directories( tmp );
@@ -99,6 +103,12 @@ int main() {
 	// --- the marker ---
 	const fs::path lower = MakeInstall( tmp / "lower" );
 	const fs::path upper = MakeInstall( tmp / "upper", "BASE", "PAK000.PK4" );
+	// names no code page may hold beside the marker: skipped, never a crash
+	// (std::filesystem's own conversion throws on them on Windows)
+	const fs::path unicode = MakeInstall( tmp / "unicode" );
+	WriteFile( unicode / "base" / fs::path( u8"ゲーム.pk4" ), "PK" );
+	fs::create_directories( unicode / fs::path( u8"データ" ) );
+	CHECK( RetailDiscovery::HasRetailData( Str( unicode ).c_str() ), "an install with non-ANSI names beside the marker not found" );
 	WriteFile( tmp / "nopak" / "base" / "pak001.pk4", "PK" );
 	fs::create_directories( tmp / "pakdir" / "base" / "pak000.pk4" );	// a directory, not the pak
 	CHECK( RetailDiscovery::HasRetailData( Str( lower ).c_str() ), "lower-case base/pak000.pk4 not found" );
@@ -163,14 +173,28 @@ int main() {
 			"\t\"0\"\n\t{\n\t\t\"path\"\t\t\"" + vdfString( library2 ) + "\"\n\t\t\"label\"\t\t\"\"\n\t}\n"
 			"\t\"1\"\t\t\"" + vdfString( library3 ) + "/\"\n"	// the pre-2021 form
 			"}\n" );
+		// app manifests: Doom 3 (base/pak000.pk4 too, and sorted first) is not the
+		// game; ET:QW's is; one that would leave steamapps/common is refused
+		auto manifest = []( const fs::path &library, const char *appId, const char *name, const char *installDir ) {
+			WriteFile( library / "steamapps" / ( std::string( "appmanifest_" ) + appId + ".acf" ),
+				std::string( "\"AppState\"\n{\n\t\"appid\"\t\t\"" ) + appId + "\"\n\t\"name\"\t\t\"" + name +
+				"\"\n\t\"installdir\"\t\t\"" + installDir + "\"\n}\n" );
+		};
 		fs::create_directories( steam / "steamapps" / "common" / "Half-Life" );
-		fs::create_directories( library2 / "steamapps" / "common" / "Another Game" );
+		manifest( steam, "70", "Half-Life", "Half-Life" );
+		MakeInstall( library2 / "steamapps" / "common" / "Doom 3" );
+		manifest( library2, "208200", "DOOM 3", "Doom 3" );
 		MakeInstall( library2 / "steamapps" / "common" / "Enemy Territory Quake Wars" );
+		manifest( library2, "10000", "Enemy Territory: QUAKE Wars", "Enemy Territory Quake Wars" );
+		manifest( library2, "99999", "Enemy Territory: QUAKE Wars (bad manifest)", "../../outside" );
+		fs::create_directories( library2 / "steamapps" / fs::path( u8"ゲーム" ) );	// a non-ANSI name in steamapps
 		fs::create_directories( library3 / "steamapps" / "common" );
 
 		idStrList libraries;
-		RetailDiscovery::AppendSteamLibraries( Str( steam ).c_str(), libraries );
-		RetailDiscovery::AppendSteamLibraries( Str( steam ).c_str(), libraries );	// a second root listing the same ones
+		idStrList keys;
+		RetailDiscovery::AppendSteamLibraries( Str( steam ).c_str(), libraries, keys );
+		RetailDiscovery::AppendSteamLibraries( Str( steam ).c_str(), libraries, keys );	// a second root listing the same ones
+		RetailDiscovery::AppendSteamLibraries( ( Str( steam ) + "/" ).c_str(), libraries, keys );	// another spelling of it
 		CHECK( libraries.Num() == 3, "Steam libraries: %d, want 3 (the root, the path entry, the old entry)", libraries.Num() );
 		if ( libraries.Num() == 3 ) {
 			CHECK( SameDir( libraries[ 0 ], steam ), "Steam library 0 '%s'", libraries[ 0 ].c_str() );
@@ -178,13 +202,28 @@ int main() {
 			CHECK( SameDir( libraries[ 2 ], library3 ), "Steam library 2 '%s'", libraries[ 2 ].c_str() );
 		}
 
-		idStrList folders;
-		RetailDiscovery::AppendSteamCommonFolders( Str( library2 ).c_str(), folders );
-		CHECK( folders.Num() == 2, "steamapps/common folders: %d, want 2", folders.Num() );
-		if ( folders.Num() == 2 ) {
-			CHECK( folders[ 0 ].Find( "Another Game" ) >= 0 && folders[ 1 ].Find( "Enemy Territory" ) >= 0,
-				"steamapps/common not in name order: '%s', '%s'", folders[ 0 ].c_str(), folders[ 1 ].c_str() );
+		// a symlinked root (~/.steam/steam on Linux) is the same library, where links can be made
+		std::error_code linkError;
+		fs::create_directory_symlink( steam, tmp / "SteamLink", linkError );
+		if ( !linkError ) {
+			const int before = libraries.Num();
+			RetailDiscovery::AppendSteamLibraries( Str( tmp / "SteamLink" ).c_str(), libraries, keys );
+			CHECK( libraries.Num() == before, "a symlinked Steam root listed again (%d libraries, want %d)", libraries.Num(), before );
+		} else {
+			printf( "note: no symlink could be made here (%s); the symlinked-root case is skipped\n", linkError.message().c_str() );
 		}
+
+		idStrList installs;
+		RetailDiscovery::AppendSteamInstalls( Str( library2 ).c_str(), installs );
+		CHECK( installs.Num() == 1, "Steam installs of the game in library 2: %d, want 1", installs.Num() );
+		if ( installs.Num() == 1 ) {
+			CHECK( SameDir( installs[ 0 ], library2 / "steamapps" / "common" / "Enemy Territory Quake Wars" ),
+				"Steam install '%s'", installs[ 0 ].c_str() );
+		}
+		installs.Clear();
+		RetailDiscovery::AppendSteamInstalls( Str( steam ).c_str(), installs );
+		RetailDiscovery::AppendSteamInstalls( Str( library3 ).c_str(), installs );
+		CHECK( installs.Num() == 0, "Steam installs of the game where there are none: %d", installs.Num() );
 	}
 
 	// --- the search order ---

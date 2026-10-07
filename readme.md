@@ -108,9 +108,9 @@ The engine links the idLib in the game repository's `build` directory, so for an
 2. the path on the first line of `basepath.txt` in that per-user directory;
 3. the engine's own directory;
 4. the platform's installer records and usual install folders;
-5. every Steam library's `steamapps/common`.
+5. the game's Steam installs, read from each Steam library's app manifests.
 
-If it finds none, the startup error lists where it looked (ledger 068).
+If it finds none, the log lists where it looked and the startup error says how to point the engine at an install (ledger 068).
 
 `python3 tools/validation/openetqw_validate.py pr` builds both repositories, runs the unit suite, stages the tree and checks it, as CI does. [`docs/releasing.md`](docs/releasing.md) describes the CI workflows, the packages and how a release is made.
 
