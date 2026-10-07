@@ -273,5 +273,9 @@ On a network client the render entity is the predicted pose after prediction-err
   - The errors over 5 u (54 of 1146 ticks) are almost all at collisions in the drive phases, in every mode.
   - Loopback has little network jitter, so a real network adds more decay. A badger's driver on a network client is the case question 1's bound must cover: S at k = 1 is the best median, and P the best p95.
 - Whether to keep the decay on your own vehicle at all: kept, by the owner's 2026-10-07 decision (§4).
+- **An option for question 1 (suggested by the Linux session):** choose the predictor by role.
+  - On a network client (`gameLocal.isClient`), use P, or H with P on the ground too, for every class, since the decay inflates S there.
+  - In authoritative games (single player, the listen host), keep each class's own choice (S on the ground).
+  - It is a small change in `sdSeatGate::LeadForClass`, and the class's L is unchanged. It needs the same review on a high-refresh display.
 
 
