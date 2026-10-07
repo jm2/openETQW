@@ -8497,6 +8497,8 @@ static void BuildVulkanSurfaceTransform( const sdVulkanBackendState& state, cons
 		surfaceProjection[ 14 ] *= cvarSystem->GetCVarFloat( "r_depthRangeWeaponHackScale" );
 	}
 	if ( space->modelDepthHack != 0.0f ) {
+		// as the base pass: a model depth hack replaces the weapon's projection
+		memcpy( surfaceProjection, view->projectionMatrix, sizeof( surfaceProjection ) );
 		surfaceProjection[ 14 ] -= space->modelDepthHack;
 		surfaceMinDepth = idMath::ClampFloat( 0.0f, 1.0f,
 			cvarSystem->GetCVarFloat( "r_depthRangeStartDefault" ) );
@@ -8626,8 +8628,10 @@ void DrawVulkanShadowSurface( sdVulkanBackendState& state, const drawSurf_s* sur
 	state.CmdSetViewport( frame.commandBuffer, 0, 1, &surfaceViewport );
 	state.CmdBindPipeline( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
 	state.CmdSetScissor( frame.commandBuffer, 0, 1, &vkScissor );
+	// glPolygonOffset( factor, -offset ) as RB_ARB2_StencilShadowPass: the factor
+	// is the slope bias, the negated offset the constant one
 	state.CmdSetDepthBias( frame.commandBuffer,
-		r_shadowPolygonFactor.GetFloat(), 0.0f, -r_shadowPolygonOffset.GetFloat() );
+		-r_shadowPolygonOffset.GetFloat(), 0.0f, r_shadowPolygonFactor.GetFloat() );
 	state.CmdBindVertexBuffers( frame.commandBuffer, 0, 1, &vertexResource->buffer, &vertexOffset );
 	state.CmdBindIndexBuffer( frame.commandBuffer, indexResource->buffer, indexOffset, VK_INDEX_TYPE_UINT16 );
 	float shadowConstants[ 20 ];
@@ -9403,6 +9407,9 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 							DrawVulkanShadowSurface( *state, surf, light, view );
 						}
 					} else if ( light->localShadows == NULL ) {
+						// The front end builds no shadow lists for this path's lights: every
+						// shadow-casting surface in view is extruded here (vulkan-shadows
+						// counts them; without this loop it sees none).
 						for ( int i = 0; i < view->numDrawSurfs; ++i ) {
 							const drawSurf_s* surf = view->drawSurfs[ i ];
 							if ( surf != NULL && surf->material != NULL && surf->material->SurfaceCastsShadow() &&
