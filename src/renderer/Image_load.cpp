@@ -903,8 +903,15 @@ void idImage::WritePrecompressedImage() {
 }
 
 bool idImage::CheckPrecompressedImage( bool ) {
-	if ( !glConfig.isInitialized || !glConfig.textureCompressionAvailable ||
-		 qglCompressedTexImage2DARB == NULL || fileSystem == NULL ) {
+	if ( !glConfig.isInitialized || fileSystem == NULL ) {
+		return false;
+	}
+	// The Vulkan backend decodes DDS levels itself (UploadPrecompressedImage), so
+	// only the OpenGL path needs the compressed-texture entry points.  Under
+	// Vulkan on Windows and Linux no GL context exists and they stay NULL; the
+	// old test rejected every precompressed image there.
+	if ( !vulkanBackend.IsInitialized() &&
+		 ( !glConfig.textureCompressionAvailable || qglCompressedTexImage2DARB == NULL ) ) {
 		return false;
 	}
 	if ( fileSystem->PerformingCopyFiles() ) {
@@ -926,7 +933,9 @@ bool idImage::CheckPrecompressedImage( bool ) {
 	}
 
 	const byte* bytes = static_cast< const byte* >( fileBuffer );
-	const unsigned long magic = LittleLong( *reinterpret_cast< const unsigned long* >( bytes ) );
+	uint32_t rawMagic;	// 4 bytes on every ABI; unsigned long is 8 on LP64
+	memcpy( &rawMagic, bytes, sizeof( rawMagic ) );
+	const unsigned long magic = LittleLong( static_cast< unsigned long >( rawMagic ) );
 	const ddsFileHeader_t* header = reinterpret_cast< const ddsFileHeader_t* >( bytes + 4 );
 	const unsigned long pixelFlags = LittleLong( header->ddspf.dwFlags );
 	if ( magic != DDS_MAKEFOURCC( 'D', 'D', 'S', ' ' ) ) {
@@ -1250,11 +1259,15 @@ void idImage::ImageProgramStringToCompressedFileName( const char* imageProgram, 
 	if ( fileName == NULL ) {
 		return;
 	}
-	const char* program = imageProgram != NULL ? imageProgram : "";
-	if ( idStr::CheckExtension( program, "dds" ) ) {
-		idStr::Copynz( fileName, program, MAX_IMAGE_NAME );
+	if ( imageProgram != NULL && idStr::CheckExtension( imageProgram, "dds" ) ) {
+		idStr::Copynz( fileName, imageProgram, MAX_IMAGE_NAME );
 		return;
 	}
+	// Retail names the file after the lowercased program: "makeAlpha( x)" ships
+	// as generated/dds/makealpha/.../<checksum of "makealpha( x)">b<length>.dds.
+	idStr lowered = imageProgram != NULL ? imageProgram : "";
+	lowered.ToLower();
+	const char* program = lowered.c_str();
 
 	idStr::Copynz( fileName, "generated/dds/", MAX_IMAGE_NAME );
 	char* output = fileName + strlen( fileName );

@@ -101,8 +101,11 @@ ID_INLINE bool R_ParseImageReference( idParser& src, imageParams_t& parms, bool 
 		}
 	}
 
-	// The image name or image program; a program's parenthesised arguments are
-	// concatenated so it can be used as a hash key.
+	// The image name or image program.  A program's tokens are joined in retail's
+	// spelling, "addnormals( a, heightmap( b, 4))": a space before every token
+	// but "(", "," and ")".  The string is the image's hash key and names its
+	// precompressed file (generated/dds/<path>/<MD5 checksum>b<length>.dds), so
+	// any other spelling misses the DDS that retail ships instead of a source.
 	if ( !src.ReadToken( &token ) ) {
 		return false;
 	}
@@ -113,6 +116,9 @@ ID_INLINE bool R_ParseImageReference( idParser& src, imageParams_t& parms, bool 
 
 	int depth = 0;
 	while ( src.ReadToken( &token ) ) {
+		if ( token != "(" && token != ")" && token != "," ) {
+			imageProgram += " ";
+		}
 		imageProgram += token;
 		if ( token == "(" ) {
 			++depth;

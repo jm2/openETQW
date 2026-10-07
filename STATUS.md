@@ -186,6 +186,18 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 - **The Windows pass on `main` (2026-09-30) found four Windows-only problems in #25's tooling, fixed on `fix/windows-main-pass`.** `release-tools` expected the POSIX spelling of a Windows path; the dedicated smoke ran a copy of the server without the DLLs beside it, so it passed only with vcpkg's `bin` on PATH, as CI has it (the copies are now removed after the run too, since CI uploads `.tmp/ci`); ISCC discovery missed Inno Setup installed per user; the uninstaller never deleted its `HKCU\Software\openETQW` values (`uninsdeletekeyifempty` alone), so the next setup reported an install that was gone (openQ4's template, b37b1456, has the same bug). Also seen, not changed: the zip stores `SOURCE_DATE_EPOCH` in UTC where zip times are local, so at UTC-4 its files extract 4 hours in the future; and pre-#24 Windows builds left a SPIR-V cache in the retail data's `base/vkprogs/cache`, which the search path still reaches (the key hashes the compiler, so only entries from the same glslangValidator match).
 - **Retail 1.5 behaviour is now readable.** The same installer holds the retail 1.5 game modules; the macOS one keeps its symbols. `docs/specs/retail-1.5-reference.md` records what was read, with addresses: `validClasses` is a bool (B10), no vehicle seat gets per-frame views and remote entities interpolate by origin only (M5 plan D2), render frames reach tick state only through side channels (D4), the `Entity::Present` producer is active (D5), the retail CVar defaults, and the 1.5 script-event signatures.
 - **M5 measurements** (Demonstrated): caps 60 and 120 held exactly after the pacer fix; the ~120 fps ceiling is the display; the network client's viewmodel repeated on a fifth of draws (fixed); no GUI updated in network sessions (fixed); the replay's view state matched at every cap except one bounded weapon-log divergence after entering a vehicle (PR #14), which plan step 6 removed (2026-09-30).
+- **Retail's precompressed DDS images load under Vulkan (#65, game #31; the win-arm64 session, 2026-10-05).** Under Vulkan every texture with a retail `.dds` fell back to the default image, which shows as magenta: 937 images on win-arm64 and 1,046 on Windows x64. There were three causes:
+  - the DDS path was gated on `qglCompressedTexImage2DARB`, which is NULL under Vulkan;
+  - the lookup key spelled image programs differently from retail (`addnormals( a, heightmap( b, 4))`);
+  - the key was hashed before lowercasing.
+
+  Game #31 reads the DDS header's 32-bit fields as `uint32` on LP64 (Linux and macOS read 8 bytes). With both (map-loaded, valley):
+  - win-arm64 (Adreno X1-85) and macOS (MoltenVK) show no magenta;
+  - Windows x64 is down from 1,046 defaulted images to 14;
+  - on Linux arm64 the magenta share of the frame is down from 14% to 0;
+  - campaign-client-maps passes 4/4 with the validation layer active and no errors on win-arm64 and Linux arm64.
+
+  **OpenGL changes too:** the same lookup key is used there, so the GL renderer now also loads retail's DDS files instead of building those images from their source programs (inspected, not measured). A follow-up will cap DDS dimensions at 16384 so the mip-size arithmetic cannot overflow on a hostile header; today it is reached only for skipped mips, behind the file-end check.
 - **Kept outside the repositories** (gitignored `~/openETQW/.agents/`): the research notes and scripts (`research-2026-09-25/`), the docs audit, the branch-review findings.
 
 ### Demonstrated
