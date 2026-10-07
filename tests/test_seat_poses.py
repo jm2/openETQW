@@ -369,6 +369,13 @@ def main(argv):
         were not from that seat and mode (the player thrown out, or respawned on foot). A
         second disturbed attempt fails the test with that reason."""
         for attempt in range(2):
+            if mode is not None:
+                # the badger back where the test marked it, at rest: the drive legs leave it further
+                # out every phase (it reverses slower than it drives), onto ground that can
+                # throw it (#84); resetVehicle is a cheat the test servers allow
+                # (a badger that replaced a destroyed one has no mark and stays where it is)
+                srv.send(f"resetVehicle {BADGER}")
+                time.sleep(1.5)
             if mode is not None and not seat_in_mode(mode):
                 raise Failed(f"phase {name} at cap {cap}: could not seat the player in the driver's seat, view mode {mode}")
             begin = obs.mark()
@@ -531,6 +538,8 @@ def main(argv):
 
         obs.send(f"set g_unlock_vehicleSeats {LISTED}")
         seat_up()
+        # where the drive phases start from: the badger parked where it spawned (#84)
+        srv.send(f"resetVehicle {BADGER} mark")
         late_look("driver", (0, 0))
         # the gunner's seat (position 1), cycled to its chase view (mode 1, smooth_free)
         obs.send(f"set g_unlock_vehicleSeats {LISTED},badger:*:smooth_free")
@@ -574,9 +583,13 @@ def main(argv):
             time.sleep(0.4)
         turned = look_response([ln.text for ln in obs.snapshot(begin)])
         taps = sum(1 for ln in obs.snapshot(begin) if ln.text.strip() == "LOOKTAP")
-        ok5 = taps >= LOOK_TAPS - 1 and not turned
+        # every draw from the driver's chase view: an ejection or a camera change would turn
+        # nothing and pass vacuously (CodeRabbit, #83)
+        l5_seats = {p["seat"] for ln in obs.snapshot(begin) if (p := parse_pose(ln.text))}
+        in_view = len(l5_seats) == 1 and None not in l5_seats and seat_fields(next(iter(l5_seats)))[1:] == (0, 1)
+        ok5 = taps >= LOOK_TAPS - 1 and in_view and not turned
         print(f"  {cap:3} chase driver L5  {'pass' if ok5 else 'FAIL'}  outside tophat mode {len(turned)} of {taps} taps"
-              f" turned the drawn view")
+              f" turned the drawn view (seats {sorted(x or '-' for x in l5_seats)})")
         if not ok5:
             failures.append(f"late look, chase driver, L5: outside tophat mode {len(turned)} of {taps} taps turned the view")
         obs.send(f"set g_unlock_vehicleSeats {LISTED}")
