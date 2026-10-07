@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: GPL-3.0-only
-// Adapted from openQ4 src/sys/osx/macosx_local.h (jm2/openQ4 b37b1456; openQ4's own code is GPL-3.0 only).
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Adapted from openQ4 src/sys/osx/macosx_local.h (jm2/openQ4 b37b1456; GPL-3.0-or-later, owner decision 2026-10-07).
 
 #include <sys/wait.h>
 

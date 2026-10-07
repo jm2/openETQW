@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: GPL-3.0-only
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Verify and record the exact file set approved for GitHub release upload.
 
 Adapted from openQ4's tools/build/verify_release_asset_set.py at jm2/openQ4
