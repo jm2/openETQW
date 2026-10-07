@@ -853,6 +853,12 @@ static void Mac_AppendRetailAppFolders( const char *applications, idStrList &can
 		if ( entry->d_name[0] == '.' ) {
 			continue;
 		}
+		// an application bundle is a folder too: skip them, so the scan opens only the
+		// few plain folders in Applications
+		const idStr name = entry->d_name;
+		if ( name.Length() > 4 && !idStr::Icmp( name.c_str() + name.Length() - 4, ".app" ) ) {
+			continue;
+		}
 		idStr path = applications;
 		path.AppendPath( entry->d_name );
 		struct stat info;
@@ -889,11 +895,14 @@ macOS's table for RetailDiscovery (ledger 068), in the order probed:
     base/ (Sys_DefaultBasePath finds the app's own Contents/Resources first, which holds
     the shaders, not the retail data);
   - Aspyr's retail Mac install: any folder in /Applications or ~/Applications that holds
-    "Enemy Territory QUAKE Wars.app" (the 1.5 update installs base/ beside the .app in
-    the folder the player picked), then the usual folder names there;
+    a .app whose name holds "QUAKE Wars" (Aspyr's "Enemy Territory QUAKE Wars.app"; the
+    1.5 update installs base/ beside it in the folder the player picked), then the usual
+    folder names there;
   - the Windows game in a CrossOver bottle or a Wine prefix (WINEPREFIX, ~/.wine): the
-    Windows table's install folders under drive_c, and Steam inside each;
-  - native Steam (~/Library/Application Support/Steam) and OPENETQW_STEAM_ROOT.
+    Windows table's install folders under drive_c;
+  - the Steam roots, in this order: OPENETQW_STEAM_ROOT, Steam inside each bottle or
+    prefix (only its own steamapps: a second library it lists is a Windows path, which is
+    not mapped through drive_c), native Steam (~/Library/Application Support/Steam).
 Every candidate is checked for base/pak000.pk4 before it is used.
 ==============
 */
