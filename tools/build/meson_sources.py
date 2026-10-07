@@ -22,6 +22,7 @@ COMMON_FRAMEWORK_SOURCES = (
     "src/framework/EditField.cpp",
     "src/framework/EventLoop.cpp",
     "src/framework/FileSystem.cpp",
+    "src/framework/RetailDiscovery.cpp",
     "src/framework/GraphManager.cpp",
     "src/framework/KeyInput.cpp",
     "src/framework/NotificationSystem.cpp",

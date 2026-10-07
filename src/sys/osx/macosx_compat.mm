@@ -34,6 +34,7 @@ If you have questions concerning this license or the applicable additional terms
 
 #include "../posix/posix_public.h"
 #include "../sys_package.h"
+#include "../../framework/RetailDiscovery.h"
 
 #import <AppKit/AppKit.h>
 #import <OpenGL/OpenGL.h>
@@ -806,6 +807,27 @@ const char *Sys_DefaultBasePath( void ) {
 	common->Printf( "WARNING: using current directory as fallback base path\n" );
 	basepath = Posix_Cwd();
 	return basepath.c_str();
+}
+
+/*
+==============
+Sys_AppendRetailDataCandidates
+
+macOS's table for RetailDiscovery (ledger 068): the Steam installation only, so
+far. A retail macOS install and a Wine or CrossOver bottle are not searched yet:
+entries for them belong here. Every candidate is checked for base/pak000.pk4
+before it is used.
+==============
+*/
+void Sys_AppendRetailDataCandidates( idStrList &candidates, idStrList &steamRoots ) {
+	(void)candidates;
+	RetailDiscovery::SplitPathList( getenv( "OPENETQW_STEAM_ROOT" ), steamRoots );
+	const char *home = getenv( "HOME" );
+	if ( home != NULL && home[0] == '/' ) {
+		idStr path = home;
+		path.AppendPath( "Library/Application Support/Steam" );
+		steamRoots.Append( path );
+	}
 }
 
 /*

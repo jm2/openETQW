@@ -103,7 +103,14 @@ The engine links the idLib in the game repository's `build` directory, so for an
 
 ## Install and packages
 
-`meson install -C build` stages a portable engine tree in `.install/` (or `-Dinstall_root=<dir>`): the client, the dedicated server, the game module, `base/vkprogs` and `licenses/`. That tree runs from anywhere: the engine finds its shaders and its game module next to its executable, and keeps configs, logs and the shader cache in the per-user directory (`~/.local/share/openetqw`, `$env:LOCALAPPDATA\openETQW`, `~/Library/Application Support/openETQW`). Point it at the retail data with `+set fs_basepath`, or put the tree in the ET:QW install directory.
+`meson install -C build` stages a portable engine tree in `.install/` (or `-Dinstall_root=<dir>`): the client, the dedicated server, the game module, `base/vkprogs` and `licenses/`. That tree runs from anywhere: the engine finds its shaders and its game module next to its executable, and keeps configs, logs and the shader cache in the per-user directory (`~/.local/share/openetqw`, `$env:LOCALAPPDATA\openETQW`, `~/Library/Application Support/openETQW`). Without `+set fs_basepath`, the engine looks for the retail data itself. It takes the first install root whose `base/` holds `pak000.pk4`, in this order:
+1. `OPENETQW_BASEPATH`, one or more install roots;
+2. the path on the first line of `basepath.txt` in that per-user directory;
+3. the engine's own directory;
+4. the platform's installer records and usual install folders;
+5. every Steam library's `steamapps/common`.
+
+If it finds none, the startup error lists where it looked (ledger 068).
 
 `python3 tools/validation/openetqw_validate.py pr` builds both repositories, runs the unit suite, stages the tree and checks it, as CI does. [`docs/releasing.md`](docs/releasing.md) describes the CI workflows, the packages and how a release is made.
 

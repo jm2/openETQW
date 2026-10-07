@@ -30,6 +30,7 @@
 #include "idlib/precompiled.h"
 #include "sys_local.h"
 #include "sys_render.h"
+#include "../../framework/RetailDiscovery.h"
 #include "posix_public.h"
 #include "../sys_package.h"
 
@@ -398,6 +399,51 @@ const char *Sys_DefaultBasePath( void ) {
 	// as openQ4: the executable's directory if it has base/, else the current one
 	static idStr basepath;
 	return Posix_ExeDirectoryWith( basepath, BASE_GAMEDIR );
+}
+
+/*
+================
+Sys_AppendRetailDataCandidates
+
+Linux's table for RetailDiscovery (ledger 068): the retail Linux client's usual
+install folders, then the Steam installations, whose libraries also hold a
+Proton install of the Windows game. Every candidate is checked for
+base/pak000.pk4 before it is used. Wine prefixes are not searched yet.
+================
+*/
+void Sys_AppendRetailDataCandidates( idStrList &candidates, idStrList &steamRoots ) {
+	const char *home = getenv( "HOME" );
+	const bool haveHome = home != NULL && home[0] == '/';
+
+	candidates.Append( "/usr/local/games/etqw" );
+	candidates.Append( "/usr/games/etqw" );
+	candidates.Append( "/opt/etqw" );
+	if ( haveHome ) {
+		idStr path = home;
+		path.AppendPath( "etqw" );
+		candidates.Append( path );
+	}
+
+	RetailDiscovery::SplitPathList( getenv( "OPENETQW_STEAM_ROOT" ), steamRoots );
+	const char *xdgDataHome = getenv( "XDG_DATA_HOME" );
+	if ( xdgDataHome != NULL && xdgDataHome[0] == '/' ) {
+		idStr path = xdgDataHome;
+		path.AppendPath( "Steam" );
+		steamRoots.Append( path );
+	}
+	if ( haveHome ) {
+		static const char *const roots[] = {
+			".steam/steam",
+			".steam/root",
+			".local/share/Steam",
+			".var/app/com.valvesoftware.Steam/.local/share/Steam",	// Flatpak
+		};
+		for ( const char *root : roots ) {
+			idStr path = home;
+			path.AppendPath( root );
+			steamRoots.Append( path );
+		}
+	}
 }
 
 const char *Sys_DefaultSavePath( void ) {
