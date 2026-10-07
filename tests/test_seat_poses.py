@@ -32,9 +32,11 @@ in_yawSpeed key turn stands in for the mouse:
   L1 tap      90% of LOOK_TAPS +left/+right taps show the turn on the next draw
   L2 held     a held turn changes the drawn yaw between consecutive draws (>= 99%)
   L3 smooth   under the held turn the yaw never turns back, and its rate across a tick is
-              at most 2.5 x the median rate within one (per microsecond between draws)
+              at most 2.5 x the median rate within one (per microsecond between draws), on
+              all but max(1, 10%) of the tick crossings (a frame off the wall clock)
   L4 orbit    (the chase view) the camera origin's speed across a tick is at most 1.5 x
-              the median speed within one (a wrong pivot would jump at each tick)
+              the median speed within one, on all but max(1, 10%) of the tick crossings (a
+              wrong pivot would jump at every one)
   L1c control with g_unlock_vehicleLook 0 the turn shows at least a draw later on average
   L5 locked   (smooth_locked) outside tophat mode a tap turns no draw
 
@@ -238,9 +240,14 @@ def look_consistency(held, k=2.5):
     across = [abs(d) for d, cross in moving if cross]
     median = inside[len(inside) // 2] if inside else 0.0
     worst = max(across) / median if across and median > 0 else float("inf")
-    ok = back == 0 and worst <= k
-    return ok, (f"held yaw: {back} of {len(moving)} moving pairs turn back; worst cross-tick rate {worst:.2f}x"
-                f" the median in-tick rate (at most {k}x)")
+    # a frame drawn off the wall clock (a prediction-clock correction or a late frame under
+    # load, frame-poses A8) can make one cross-tick pair fast; a snap-back or double count
+    # shows on every tick, so at most max(1, 10%) of the tick crossings may exceed k
+    over = sum(1 for v in across if median <= 0 or v / median > k)
+    allowed = max(1, len(across) // 10)
+    ok = back == 0 and bool(across) and over <= allowed
+    return ok, (f"held yaw: {back} of {len(moving)} moving pairs turn back; {over} of {len(across)} cross-tick rates"
+                f" over {k}x the median in-tick rate (allowed {allowed}; worst {worst:.2f}x)")
 
 
 def orbit_consistency(held, k=1.5):
@@ -258,8 +265,11 @@ def orbit_consistency(held, k=1.5):
         return False, f"too few draw pairs under the held turn ({len(inside)} within a tick, {len(across)} across)"
     median = inside[len(inside) // 2]
     worst = max(across) / median if median > 0 else float("inf")
-    return worst <= k, (f"camera origin: median speed {median:.0f} u/s within a tick, worst across a tick {worst:.2f}x"
-                        f" (at most {k}x)")
+    # one off-clock frame allowed, as in L3; a wrong pivot jumps at every tick
+    over = sum(1 for v in across if median <= 0 or v / median > k)
+    allowed = max(1, len(across) // 10)
+    return over <= allowed, (f"camera origin: median speed {median:.0f} u/s within a tick; {over} of {len(across)}"
+                             f" tick crossings over {k}x (allowed {allowed}; worst {worst:.2f}x)")
 
 
 def per_tick(res):
@@ -332,12 +342,35 @@ def main(argv):
         procs.insert(0, ("peer", peer))
     failures = []
 
-    def phase(name, cap, drive, check_launch=True):
-        """One drive phase's draws. A phase in which the hull was launched or fell (issue
-        #84: a collision can throw the badger thousands of units up, and then the guards
-        rightly refuse some ticks) is driven again once the badger has settled; a second
-        disturbed attempt fails the test with that reason."""
+    def seat_in_mode(mode):
+        """The player in the badger's driver seat (position 0) with view mode `mode`: entered
+        again when on foot or in another seat (a launch can throw the player out, a respawn
+        leaves them on foot), the camera cycled to the mode."""
+        for _ in range(5):
+            last = next((p for ln in reversed(obs.snapshot()) if (p := parse_pose(ln.text))), None)
+            fields = seat_fields(last["seat"]) if last is not None and last["seat"] is not None else None
+            if fields is not None and fields[1] == 0 and fields[2] == mode:
+                return True
+            if fields is None or fields[1] != 0:
+                if fields is not None:
+                    srv.send(f"exitVehicle {obs.slot}")
+                    time.sleep(1.0)
+                seat_up()
+                continue
+            srv.send(f"cycleVehicleCamera {obs.slot}")
+            time.sleep(1.5)
+        return False
+
+    def phase(name, cap, drive, check_launch=True, mode=0):
+        """One drive phase's draws, from the driver's seat in view mode `mode` (None: whatever
+        seat the caller set up, unchecked). A disturbed phase is driven again once the badger
+        has settled: the hull launched or fell (issue #84: a collision can throw the badger
+        thousands of units up, and then the guards rightly refuse some ticks), or some draws
+        were not from that seat and mode (the player thrown out, or respawned on foot). A
+        second disturbed attempt fails the test with that reason."""
         for attempt in range(2):
+            if mode is not None and not seat_in_mode(mode):
+                raise Failed(f"phase {name} at cap {cap}: could not seat the player in the driver's seat, view mode {mode}")
             begin = obs.mark()
             obs.send(f"echo FP_BEGIN {name} {cap}")
             drive()
@@ -347,13 +380,15 @@ def main(argv):
                 raise Failed(f"no end of phase {name} at cap {cap}")
             poses = seat_phase_poses(obs, begin, hit[0])
             jump = launched(poses) if check_launch else None
-            if jump is None:
+            off = 0 if mode is None else sum(1 for p in poses if p["seat"] is None
+                                              or seat_fields(p["seat"])[1:] != (0, mode))
+            if jump is None and off == 0:
                 return poses
-            print(f"[seat] phase {name} at cap {cap}: the hull moved {jump:.0f} u vertically in one tick"
-                  f" (launched or falling; attempt {attempt + 1})")
+            why = (f"the hull moved {jump:.0f} u vertically in one tick (launched or falling)" if jump is not None
+                   else f"{off} of {len(poses)} draws were not from the driver's seat in view mode {mode}")
+            print(f"[seat] phase {name} at cap {cap}: {why}; attempt {attempt + 1}", flush=True)
             time.sleep(5.0)
-            seat_up()
-        raise Failed(f"phase {name} at cap {cap}: the hull was launched or fell in both attempts")
+        raise Failed(f"phase {name} at cap {cap}: disturbed in both attempts ({why})")
 
     def peer_walk():
         peer.send("clientMove 127 0 0")
@@ -699,7 +734,7 @@ def main(argv):
             last = next((p for ln in reversed(obs.snapshot()) if (p := parse_pose(ln.text))), None)
             if last is not None and (seat_fields(last["seat"]) or (0, 0, 0))[2] == 1:
                 break
-        poses = phase("chasecontrol", cap, drive)
+        poses = phase("chasecontrol", cap, drive, mode=1)
         for key, what in (("view", "view"), ("veh", "hull")):
             changed, n = within_tick_changes(poses, key)
             moving = sum(1 for a, b in zip(poses, poses[1:]) if moved(a[key], b[key]))
@@ -720,7 +755,7 @@ def main(argv):
             last = next((p for ln in reversed(obs.snapshot()) if (p := parse_pose(ln.text))), None)
             if last is not None and (seat_fields(last["seat"]) or (0, 0, 0))[2] == 1:
                 break
-        poses = phase("chasedrive", cap, drive)
+        poses = phase("chasedrive", cap, drive, mode=1)
         modes = {(seat_fields(p["seat"]) or (0, 0, -1))[2] for p in poses}
         view, hull = shapes(moving_poses(poses))
         cview = onpath_check(poses, lambda p: p["view"], "chase camera's drawn origin")
@@ -733,7 +768,7 @@ def main(argv):
         if modes != {1}:
             failures.append(f"the chase phase drew view modes {sorted(modes)}, not only the chase view (1)")
         seat_up("vehicle_icarus")
-        poses = phase("guardicarus", cap, drive, check_launch=False)   # a jetpack flies
+        poses = phase("guardicarus", cap, drive, check_launch=False, mode=None)   # a jetpack flies
         changed, n = within_tick_changes(poses, "view")
         moving = sum(1 for a, b in zip(poses, poses[1:]) if moved(a["view"], b["view"]))
         print(f"[seat] guard (icarus, listed) at cap {cap}: the view changed within a tick on {changed} of {n} pairs"
