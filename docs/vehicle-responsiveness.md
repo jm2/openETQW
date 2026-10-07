@@ -625,7 +625,7 @@ Stages 0–7 come to about 5–7 weeks of focused work for one engineer. That do
 4. **Stage 7.** Adopt the lead per class after measurement? L = 0.5 keeps today's mean age; L = 1 removes it, with a risk of overshoot.
 5. **Remote vehicles.** They are drawn one tick behind (retail, D5), and there is no vehicle antilag. Do you want vehicles to depart from retail, using the lead or remote axes and joints? That needs a ledger row. *Answered 2026-09-29: yes, each departure with a ledger row, enabled per class under a measured bound.*
 6. **Aircraft state.** If loopback shows a residual, network the air-control state (a protocol minor bump)? *Answered 2026-09-29: yes.*
-7. **Prediction-error decay on your own vehicle.** It has no exclusion for the local player (game `src/game/ScriptEntity.cpp:2244-2255`). Keep it, or replace it with a faster fade in presentation? Not measured.
+7. **Prediction-error decay on your own vehicle.** It has no exclusion for the local player (game `src/game/ScriptEntity.cpp:2244-2255`). Keep it, or replace it with a faster fade in presentation? *Answered 2026-10-07: keep retail's decay, and revisit only if a network client's `VEH_PRED` shows it as wobble ([`hull-lead.md`](hull-lead.md) §6 has the first client numbers).*
 
 ### 5.2 Not determined
 

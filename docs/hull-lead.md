@@ -196,7 +196,14 @@ A hull trace in `SampleTick` against the world is **not** proposed. It would bou
 The choice between S, P and H is technical: step 2's numbers decide it. The owner should still see that stage 7's physics step stays a candidate, and why (§2).
 
 
-The PR flags these for the Linux session to raise with the owner:
+**Decided (owner, 2026-10-07, relayed by the Linux session):**
+- **Question 2, the impact overshoot:** accept the soft guard (the spike fallback, the length cap, L per class). No tick-side clip trace.
+- **Question 4, the decay on your own vehicle:** keep retail's prediction-error decay. Measure its effect on the lead from a network client's `VEH_PRED` first (§6), and revisit only if it shows as wobble.
+- **Related:** turret and IK joint blending for gunner views will be built in presentation, beyond D2, with its own ledger row (the Linux session). The default frame cap is 240 (m5-plan step 18, the win-arm64 session).
+
+**Still open:** questions 1 and 3, the per-class p95 bound and L, and which driver and pilot seats join the default list. They need the measurements below and the owner's review on a high-refresh display.
+
+The questions as asked:
 
 1. **The per-class bound for enabling L.** Stage 7 said "p95 stays under a bound the owner sets by eye". The measurement step (§5) will offer p95 and max per class and state, plus the human review; the owner picks the bound and each class's L.
 2. **The impact overshoot.** Accept §3.3's three measures, which still allow a small overshoot into a wall for up to a tick, or ask for a review of a tick-side clip trace that would bound it exactly?
@@ -253,5 +260,18 @@ On a network client the render entity is the predicted pose after prediction-err
 - **S amplifies it.** With independent per-sample noise of size σ, constant acceleration is p(n) + Δ(n) + (Δ(n) − Δ(n−1)) = 3p(n) − 3p(n−1) + p(n−2). Its coefficients (3, −3, 1) give √19 ≈ 4.4σ RMS in the lead. Constant velocity (2, −1) gives √5 ≈ 2.2σ, and hold gives σ. *[derived]* The decay is correlated over ticks rather than independent, so the real factor is measured, not assumed.
 - **P does not.** It predicts from the physics state and applies only the delta to the render pose, so the decay offset is carried along but never extrapolated.
 - **Step 2 measures both on a join client**, with `VEH_PRED` against the client's own next sample, and picks the predictor and k per class on the client's numbers, not single player's. If S's client error is several times its single-player error, the class takes H or P, or k = 0.
-- Whether to keep the decay on your own vehicle at all is the open owner question 4 (§4).
+- **Measured (2026-10-07, macOS, loopback).** `seat-poses` was run with `g_logVehiclePred 1` on the observer, in the badger's driver seat, over its drive phases at caps 60–240 (about 1140 moving ticks per mode). Error of the one-tick guess, median / p95 (u):
+
+  | Mode | S (samples) | P (physics step) | H (hybrid) |
+  |---|---|---|---|
+  | devmap (single player) | 0.019 / 0.95 | 0.325 / 1.01 | 0.019 / 0.95 |
+  | listen host | 0.003 / 0.83 | 0.120 / 0.93 | 0.003 / 0.82 |
+  | join (network client, with re-prediction and decay) | 0.062 / 4.66 | 0.423 / 2.77 | 0.062 / 3.91 |
+
+  - On the client, S's p95 is about 5× its single-player value; this is the decay §6 predicted, magnified.
+  - P, which applies only the physics delta and never extrapolates the decay, holds its p95 at 2.77 u. Its median is the worse of the two, as on the ground in §2.1.
+  - The errors over 5 u (54 of 1146 ticks) are almost all at collisions in the drive phases, in every mode.
+  - Loopback has little network jitter, so a real network adds more decay. A badger's driver on a network client is the case question 1's bound must cover: S at k = 1 is the best median, and P the best p95.
+- Whether to keep the decay on your own vehicle at all: kept, by the owner's 2026-10-07 decision (§4).
+
 

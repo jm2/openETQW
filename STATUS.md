@@ -29,6 +29,14 @@ From the owner, 2026-09-26: the default frame cap should be high ("240/250/uncap
 From the owner, 2026-09-28: the Windows toolchain is Visual Studio 2026 (MSVC 19.51), not the VS 2022 Build Tools the Windows handoff named. MSVC 19.51 miscompiles an inlined `strncpy` at `/O2` (the 14.44 toolset does not); the game repository works around it and meson `strbuilder` guards it (Found this session).
 From the owner, 2026-09-29: the pre-merge Linux and macOS run of engine PR #23 and game PR #13 is waived; both merged that day, and the run is a post-merge check (next step 1).
 From the owner, 2026-09-29, the vehicle questions (`docs/vehicle-responsiveness.md` §5.1): driver seats keep retail's tick-rate view until the hull lead (stage 7, m5-plan step 14b) is measured for their class; the lead and remote-vehicle axes and joints may go beyond retail 1.5's look, each with a ledger row and enabled per class under a measured bound; if the client-side aircraft fix (stage 6) leaves a residual on loopback, the air-control state is networked (a protocol minor bump).
+From the owner, 2026-10-07 (relayed by the Linux session), on the hull lead (`docs/hull-lead.md` §4):
+- the impact overshoot: the soft guard is accepted (the spike fallback, the length cap, L per class), with no tick-side clip trace;
+- prediction-error decay on your own vehicle: retail's is kept, and is revisited only if a network client's `VEH_PRED` shows it as wobble;
+- gunner views: turret and IK joint blending will be built in presentation, beyond D2, with its own ledger row;
+- the default frame cap (m5-plan step 18): 240.
+
+Still open: the per-class bound and L, and which driver and pilot seats join the default list. These need measurement and the owner's review on a high-refresh display.
+
 From the owner, 2026-09-30: macOS x64 is not supported ("we do not need to support macos on x64 for the openetqw effort"; "just drop it"). The macOS x64 CI legs, the universal2 candidate workflow, `assemble_macos_universal2.py` and the x64/universal2 options of the macOS build tools are removed; macOS packages are arm64 only. The macOS CI runners are the newest GA image, `macos-26` (also 2026-09-30).
 From the owner, 2026-09-30, on M5 step 6's seven choices: "go with your recommendations; see how openQ4 does it when in doubt (with escalation to me if I've differed on it before)". All seven are approved as recommended:
 
@@ -560,10 +568,9 @@ None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline
 ## Questions for the owner
 The three vehicle questions were answered on 2026-09-29; M5 step 6's seven choices and the `game->Init()` proposal were approved on 2026-09-30 (Owner decisions).
 
-From `docs/hull-lead.md` §4 (M5 step 14b), for when the per-class measurement is in, not urgent yet:
-- the p95 bound for enabling a class's lead and each class's L;
-- the impact overshoot: accept the plan's fallback-and-cap guard (a small overshoot into a wall for up to a tick remains), or ask for a review of a tick-side clip trace that would bound it exactly;
+From `docs/hull-lead.md` §4 (M5 step 14b), still open after the 2026-10-07 decisions:
+- the p95 bound for enabling a class's lead, and each class's L. Network-client numbers are in `docs/hull-lead.md` §6: the badger's driver at p95 4.7 u (samples) or 2.8 u (physics step) on loopback;
 - which classes' driver seats, then pilot seats, join the default seat list once their class has a lead.
 
 Still open from `docs/vehicle-responsiveness.md` §5.1, not urgent:
-- **Prediction-error decay on your own vehicle** (§5.1 item 7): keep it, or replace it with a faster fade in presentation? Not measured; it matters once the seat views land.
+- **Prediction-error decay on your own vehicle** (§5.1 item 7): answered 2026-10-07: keep retail's decay, and revisit only if a network client's `VEH_PRED` shows it as wobble (see Owner decisions).
