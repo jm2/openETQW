@@ -124,7 +124,11 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
     - the presentation's own last three samples are better on the ground (badger 0.095 u against 0.67 u);
     - impacts overshoot by up to 33 u.
   - Both predictors and a hybrid are candidates, picked per class.
-  - Next: measure every class (`g_determinismTest 4`), then implement after the Linux session's stage 5 chase-view work in `Presentation.cpp`.
+  - Every class measured (2026-10-06, meson `lead-measure`; `docs/hull-lead.md` §2.1):
+    - aircraft: the hybrid is near-exact;
+    - the desecrator (a hover tank): the samples only;
+    - wheeled and tracked vehicles: the samples have the best median (0.07–0.27 u), and launching collisions give 28–43 u maxima.
+  - Next: the client-side measurement, then the implementation after the Linux session's stage 5 chase-view work in `Presentation.cpp`.
   - Owner questions: three are below, and the fourth is the existing decay question (`vehicle-responsiveness.md` §5.1 item 7).
 - **M5 step 6, no presentation values in tick, snapshot or AoR state** (2026-09-30).
   - First half, merged: game #22 (cd18aee) and engine #43 (7368e68): the vehicle view probe (`g_logVehicleViews`: `AOR_VIEW`, `VIEW_STATE`), `cycleVehicleCamera`, and meson `vehicle-view-net` with the old behaviour as its known gaps (numbers in `docs/m5-plan.md` step 6). The test runs two Vulkan clients, each with its own window (the listen host and the remote client; a headless remote client crashes in a vehicle, Known broken). At engine 7368e68 / game cd18aee it passed on Linux (`antec`, `SDL_VIDEO_DRIVER=offscreen`), macOS arm64 (MoltenVK, both windows overlapping on one display; 52.2 s) and Windows x64 (a real desktop; debugoptimized 42.8 s, debug 58.9 s), each with the known gaps in their shapes.
@@ -140,6 +144,12 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 - Owner decision (2026-09-26), done: `frame-poses` A8 counts the ticks with an off-clock draw (max(1, 5%)) and bounds each miss (8 ms beyond the 4 ms slack) instead of counting draws; smoothing the prediction clock itself is a candidate for M5 step 10.
 
 ### Found this session
+- **Windows ARM64 builds and runs Vulkan (#59; the win-arm64 session, 2026-10-04).** First native build on `yoga-slim7x`: Windows 11 26H2 ARM64, Snapdragon with Adreno X1-85, VS 2026 MSVC 19.51.36256 for ARM64, vcpkg `arm64-windows`, glslangValidator 16.6.0 from `build_glslang.py`, no Vulkan SDK. Two problems found:
+  - `stacktracer.cpp` had no `_M_ARM64` branch (C2039 on `Eip`). This was the only build error.
+  - `CreateSwapchain` demanded storage swapchain images whenever `r_rayTracing` was set (the `_WIN64` default), even after `Init` had fallen back to rasterization. Adreno's driver exposes the ray-tracing extensions, but its surface has no storage usage, so the client went silently to OpenGL on Microsoft's GL-on-D3D12 layer. Storage is now required only on a device created for ray tracing.
+
+  With #59, the unit suite passes 13/13 (debugoptimized). Engine 00c5fc9 plus #59 with game 5815431 (M5 step 8): `frame-poses-join` OK (uncapped 111.7 fps, A7 passes at 60/120/240), and `mixed-caps` passes A7/A7o for both clients at every cap.
+- **`mixed-caps` fails A2/A8 on a host that cannot reach its caps** (win-arm64, 2026-10-04; open, for the macOS session, whose test it is). Two Vulkan clients and a server on one integrated GPU give each client an uncapped ceiling of about 56 fps (39.5 and 75.6 fps on the 641c454 run). A2 then fails at cap 60, 120 and 144: game time runs 0.976–1.020 x wall time, with 1–5 steps beyond one tick. A8 fails at 120 and 144 (9.1–12.5 ms beyond the slack). The same checks failed on 641c454 + #59 before step 8, so this is not a step 8 regression. A1 already reports a cap above 0.9 x the ceiling instead of failing it (D1). Should A2 and A8 be gated or reported the same way when a client's measured ceiling is below the cap? `frame-poses-join` on the same host passes A2/A8, with its caps above the ceiling reported.
 - **`mixed-caps` on Linux: fixed by #54** (`antec`, 2026-10-01). Before #54 it stopped at its spawn-layout check on Linux (A, B and the peer spawned at (10376, -10824), (10376, -10888) and (10536, -10888) in all 3 runs, 1253, 233 and 1599 u from the positions recorded on macOS). #54 lays the walking lanes out from wherever the players spawn; on `antec` it then passed 2/2 (lanes A -300 u, B stays, peer +140 u; every W1 walk travelled 500–522 u, closest 275–405 u) with the M5 step 7 build (engine #56, game #26).
 - **The dedicated server died on a fragmented message whose encoded length is an exact multiple of 1300 bytes** (the Windows session, 2026-10-01; affects all platforms).
   - `idMsgChannel` fragments a message of 1300 bytes or more (uncompressed), and sends it, size and compressed data, in 1300-byte pieces. When the encoded length is an exact multiple of 1300, the last piece is empty, which tells the receiver no more follow. `SendNextFragment` wrote that fragment's data with `WriteData( ..., 0 )`. ETQW's idLib makes a zero length fatal (Doom 3's allowed it), so the server died with `FATAL ERROR: idBitMsg::GetByteSpace: length must be greater than zero ( was 0 )`. `WriteMessageData` did the same for an empty message.
@@ -176,6 +186,18 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 - **The Windows pass on `main` (2026-09-30) found four Windows-only problems in #25's tooling, fixed on `fix/windows-main-pass`.** `release-tools` expected the POSIX spelling of a Windows path; the dedicated smoke ran a copy of the server without the DLLs beside it, so it passed only with vcpkg's `bin` on PATH, as CI has it (the copies are now removed after the run too, since CI uploads `.tmp/ci`); ISCC discovery missed Inno Setup installed per user; the uninstaller never deleted its `HKCU\Software\openETQW` values (`uninsdeletekeyifempty` alone), so the next setup reported an install that was gone (openQ4's template, b37b1456, has the same bug). Also seen, not changed: the zip stores `SOURCE_DATE_EPOCH` in UTC where zip times are local, so at UTC-4 its files extract 4 hours in the future; and pre-#24 Windows builds left a SPIR-V cache in the retail data's `base/vkprogs/cache`, which the search path still reaches (the key hashes the compiler, so only entries from the same glslangValidator match).
 - **Retail 1.5 behaviour is now readable.** The same installer holds the retail 1.5 game modules; the macOS one keeps its symbols. `docs/specs/retail-1.5-reference.md` records what was read, with addresses: `validClasses` is a bool (B10), no vehicle seat gets per-frame views and remote entities interpolate by origin only (M5 plan D2), render frames reach tick state only through side channels (D4), the `Entity::Present` producer is active (D5), the retail CVar defaults, and the 1.5 script-event signatures.
 - **M5 measurements** (Demonstrated): caps 60 and 120 held exactly after the pacer fix; the ~120 fps ceiling is the display; the network client's viewmodel repeated on a fifth of draws (fixed); no GUI updated in network sessions (fixed); the replay's view state matched at every cap except one bounded weapon-log divergence after entering a vehicle (PR #14), which plan step 6 removed (2026-09-30).
+- **Retail's precompressed DDS images load under Vulkan (#65, game #31; the win-arm64 session, 2026-10-05).** Under Vulkan every texture with a retail `.dds` fell back to the default image, which shows as magenta: 937 images on win-arm64 and 1,046 on Windows x64. There were three causes:
+  - the DDS path was gated on `qglCompressedTexImage2DARB`, which is NULL under Vulkan;
+  - the lookup key spelled image programs differently from retail (`addnormals( a, heightmap( b, 4))`);
+  - the key was hashed before lowercasing.
+
+  Game #31 reads the DDS header's 32-bit fields as `uint32` on LP64 (Linux and macOS read 8 bytes). With both (map-loaded, valley):
+  - win-arm64 (Adreno X1-85) and macOS (MoltenVK) show no magenta;
+  - Windows x64 is down from 1,046 defaulted images to 14;
+  - on Linux arm64 the magenta share of the frame is down from 14% to 0;
+  - campaign-client-maps passes 4/4 with the validation layer active and no errors on win-arm64 and Linux arm64.
+
+  **OpenGL changes too:** the same lookup key is used there, so the GL renderer now also loads retail's DDS files instead of building those images from their source programs (inspected, not measured). A follow-up will cap DDS dimensions at 16384 so the mip-size arithmetic cannot overflow on a hostile header; today it is reached only for skipped mips, behind the file-end check.
 - **Kept outside the repositories** (gitignored `~/openETQW/.agents/`): the research notes and scripts (`research-2026-09-25/`), the docs audit, the branch-review findings.
 
 ### Demonstrated

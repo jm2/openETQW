@@ -25,6 +25,9 @@ VEH_TRACE_RE = re.compile(
     r"VEH_TRACE: tick=(\d+) ent=(\d+) class=(\S+) org=\(([^)]*)\) quat=\(([^)]*)\)"
     r" lin=\(([^)]*)\) ang=\(([^)]*)\) rest=(\d) coll=(-?\d+)")
 
+VEH_BODY_RE = re.compile(
+    r"VEH_BODY: tick=(\d+) ent=(\d+) com=\(([^)]*)\) ground=(\d) contacts=(\d+)")
+
 TICK_SECONDS = 0.033            # USERCMD_MSEC: the game steps 33 ms a tick
 GRAVITY = (0.0, 0.0, -1066.0)   # g_gravity's default, along -z
 
@@ -102,10 +105,12 @@ def physics_rotation(c):
     return qmul(c["q"], qexp(scale(c["w"], -1.0), TICK_SECONDS))
 
 
-def physics_position(c, com, gravity: bool):
+def physics_position(c, com, gravity):
     """sdPhysics_RigidBodyMultiple::Integrate with no external force: the centre of mass
     moves by v.dt (plus a tick of gravity momentum added back), and the origin is
     re-derived from it with the new orientation."""
+    if gravity is None:     # the hybrid's rule: add gravity back only off the ground
+        gravity = not c.get("ground", False)
     v = add(c["v"], scale(GRAVITY, TICK_SECONDS)) if gravity else c["v"]
     lever = sub(rowmul(com, qmat(c["q"])), rowmul(com, qmat(physics_rotation(c))))
     return add(c["p"], scale(v, TICK_SECONDS), lever)
@@ -147,6 +152,7 @@ def fit_centre_of_mass(triples, gravity: bool):
     return solve3(ata, atb) or (0.0, 0.0, 0.0)
 
 
+MOVING_U = 0.5  # u per tick: a hull that moved less is parked (seat-poses' moving_poses)
 SPIKE = 6.0     # u per tick^2: hull-lead.md 3.3's impact guard
 SPIKE_HOLD = 3  # ticks of constant velocity after a spike
 
@@ -171,6 +177,13 @@ def read(paths: list[str]) -> dict:
         segment, last = 0, -1
         with open(path, encoding="utf-8", errors="replace") as f:
             for line in f:
+                body = VEH_BODY_RE.search(line)
+                if body:
+                    sample = tracks.get((path, segment, int(body[2])), {}).get(int(body[1]))
+                    if sample is not None:
+                        sample["com"] = vec(body[3])
+                        sample["ground"] = body[4] == "1"
+                    continue
                 m = VEH_TRACE_RE.search(line)
                 if not m:
                     continue
@@ -188,10 +201,13 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("logs", nargs="+")
     ap.add_argument("--worst", type=int, default=0, help="list the N worst ticks of the constant-acceleration predictor")
+    ap.add_argument("--all-ticks", action="store_true",
+                    help="include parked ticks (by default only ticks whose hull moves at least MOVING_U, as seat-poses does)")
     args = ap.parse_args(argv)
 
     # tick triples (n-2, n-1, n) with n+1 present, per class
     by_class: dict = {}
+    parked: dict = {}
     for track in read(args.logs).values():
         spike_left = 0
         for t in sorted(track):
@@ -201,6 +217,9 @@ def main(argv: list[str]) -> int:
             a, b, c, nxt = track[t - 2], track[t - 1], track[t], track[t + 1]
             spike = norm(sub(add(c["p"], a["p"]), scale(b["p"], 2.0))) > SPIKE
             spike_left = SPIKE_HOLD + 1 if spike else max(0, spike_left - 1)
+            if not args.all_ticks and norm(sub(nxt["p"], c["p"])) < MOVING_U:
+                parked[c["cls"]] = parked.get(c["cls"], 0) + 1
+                continue
             by_class.setdefault(c["cls"], []).append((a, b, c, nxt, spike_left > 0))
     if not by_class:
         print("no VEH_TRACE tick triples found (run with g_simHash 1 and an occupied vehicle)")
@@ -208,7 +227,11 @@ def main(argv: list[str]) -> int:
 
     worst = []
     for cls, rows in by_class.items():
-        com = {g: fit_centre_of_mass([(c, nxt) for _, _, c, nxt, _ in rows], g) for g in (False, True)}
+        # VEH_BODY (g_determinismTest 4): mainCenterOfMass is body-local (Physics_RigidBodyMultiple.cpp
+        # computes it once from the bodies' moments), so any row's value holds for the class
+        logged = rows[0][2].get("com")
+        com = {g: logged or fit_centre_of_mass([(c, nxt) for _, _, c, nxt, _ in rows], g) for g in (False, True)}
+        has_ground = "ground" in rows[0][2]
         position = {
             "hold (no lead)": lambda a, b, c, guard: c["p"],
             "physics v*dt": lambda a, b, c, guard: physics_position(c, com[False], False),
@@ -217,15 +240,23 @@ def main(argv: list[str]) -> int:
             "samples, constant acceleration": lambda a, b, c, guard: samples_accel(a, b, c),
             "samples, accel + impact guard": lambda a, b, c, guard: samples_velocity(a, b, c) if guard else samples_accel(a, b, c),
         }
+        if has_ground:
+            position["physics, gravity off the ground"] = lambda a, b, c, guard: physics_position(c, com[True], None)
+            position["hybrid (physics in the air)"] = lambda a, b, c, guard: (
+                (samples_velocity(a, b, c) if guard else samples_accel(a, b, c)) if c.get("ground")
+                else physics_position(c, com[True], None))
         rotation = {
             "hold (no lead)": lambda b, c: c["q"],
             "physics w*dt": lambda b, c: physics_rotation(c),
             "samples, constant rotation": samples_rotation,
         }
         motion = [norm(sub(nxt["p"], c["p"])) for _, _, c, nxt, _ in rows]
-        print(f"{cls}: {len(rows)} ticks; motion per tick median {percentile(motion, 50):.2f} u,"
-              f" p95 {percentile(motion, 95):.2f} u; fitted centre of mass {tuple(round(x, 1) for x in com[True])}"
-              f" (with gravity), {tuple(round(x, 1) for x in com[False])} (without)")
+        print(f"{cls}: {len(rows)} ticks ({parked.get(cls, 0)} parked left out); motion per tick median {percentile(motion, 50):.2f} u,"
+              f" p95 {percentile(motion, 95):.2f} u; "
+              + (f"centre of mass {tuple(round(x, 1) for x in logged)} (VEH_BODY), on the ground"
+                 f" {100.0 * sum(1 for _, _, c, _, _ in rows if c.get('ground')) / len(rows):.0f}% of ticks" if logged else
+                 f"fitted centre of mass {tuple(round(x, 1) for x in com[True])} (with gravity),"
+                 f" {tuple(round(x, 1) for x in com[False])} (without)"))
         for name, guess in position.items():
             errors = [norm(sub(nxt["p"], guess(a, b, c, guard))) for a, b, c, nxt, guard in rows]
             print(f"  position  {name:32s} median {percentile(errors, 50):7.3f}  p95 {percentile(errors, 95):7.3f}"
