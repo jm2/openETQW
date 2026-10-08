@@ -639,7 +639,7 @@ if build_dedicated
     args: [
       meson.project_source_root() / 'tests' / 'test_m4_stopwatch.py',
       '--ded-binary', all_stock_maps_ded,
-      '--port', '29976',
+      '--port', '29984',
       '--log-dir', meson.project_build_root() / 'meson-logs' / 'm4-stopwatch',
     ],
     workdir: meson.project_source_root(),
@@ -650,14 +650,14 @@ if build_dedicated
   )
   # M4: a campaign plays its three maps (the frame command "map", the game's
   # CAMPAIGN lines), a connected client follows each, then an admin map change
-  # (ports 29978 and 29979: the server and the headless client)
+  # (ports 29986 and 29987: the server and the headless client)
   test(
     'm4-campaign',
     py,
     args: [
       meson.project_source_root() / 'tests' / 'test_m4_campaign.py',
       '--ded-binary', all_stock_maps_ded,
-      '--port', '29978',
+      '--port', '29986',
       '--log-dir', meson.project_build_root() / 'meson-logs' / 'm4-campaign',
     ],
     workdir: meson.project_source_root(),

@@ -140,4 +140,8 @@ assert_sizeof( idSessionLocal, 0xa80 );
 
 extern idSessionLocal sessLocal;
 
+// the game's server info writes, for every platform's idSysLocal (Session.cpp)
+void Session_SetServerInfoFromGame( const char* key, const char* value );
+void Session_FlushServerInfoFromGame();
+
 #endif /* !__SESSION_LOCAL_H__ */

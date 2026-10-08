@@ -730,18 +730,13 @@ void idSysLocal::SetClipboardData( const wchar_t *string ) {
 	Sys_SetClipboardData( string );
 }
 
-// the game's server info writes (si_campaign, si_campaignInfo, ...): the cvar (forced: these are
-// CVAR_ROM) and the session's server info; as src/sys/sys_local.cpp on the other platforms
+// the game's server info writes: the shared engine helpers (Session.cpp), as on the other platforms
 void idSysLocal::SetServerInfo( const char* key, const char* value ) {
-	if ( key == NULL || value == NULL ) {
-		return;
-	}
-	cvarSystem->SetCVarString( key, value );
-	sessLocal.SetServerInfo( key, value );
+	Session_SetServerInfoFromGame( key, value );
 }
 
 void idSysLocal::FlushServerInfo() {
-	sessLocal.FlushServerInfo();
+	Session_FlushServerInfoFromGame();
 }
 
 void idSysLocal::InitInput() {

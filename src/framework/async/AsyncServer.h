@@ -134,6 +134,8 @@ typedef struct serverClient_s {
 } serverClient_t;
 
 
+void Server_DiscardFrameCommands();	// drop the game's queued frame commands (AsyncServer.cpp)
+
 class idAsyncServer {
 public:
 						idAsyncServer();
@@ -227,6 +229,7 @@ private:
 
 	idStr				loadedMapRequest;			// normalized si_map of the running map, empty if none
 	idStr				loadedRules;				// si_rules the running map was started with
+	idStr				loadedMapName;				// normalized name of the map loaded (a campaign's request names the campaign)
 
 	void				FinishMapChange( const char* mapName, const char* mapRequest, bool isUserChange );
 

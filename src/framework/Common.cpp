@@ -1186,8 +1186,9 @@ void idCommonLocal::Frame() {
 			game->RunFrame();
 		}
 		idAsyncNetwork::RunFrame();
-		// the game's map changes, queued with cmdSystem->PushFrameCommand (a campaign's next map, an
-		// admin or vote changemap): run once a frame, after the server's ticks, never inside a tick
+		// the game's map changes, queued with cmdSystem->PushFrameCommand (a campaign's next map, the
+		// rules' ChangeMap): run once a frame between ticks, never inside one (after a server's ticks;
+		// in single player before session->Frame() runs this frame's)
 		cmdSystem->HandleFrameCommands( frameCommandCallback_t( Com_HandleFrameCommand ) );
 		bool frameDrawn = false;
 		if ( session != NULL ) {

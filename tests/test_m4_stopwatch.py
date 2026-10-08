@@ -45,10 +45,12 @@ def rounds(srv):
 
 
 def start_round(srv, n, timeout=40.0):
+    """Start round n: gameon counted from the line where the start was first asked, not over the whole log."""
+    mark = srv.mark()
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         srv.command("admin startMatch")   # the rules drop a start request made at map start: ask until gameon
-        if count(srv, "event=state state=gameon") >= n:
+        if count(srv, "event=state state=gameon", mark) >= 1:
             srv.command("bot_pause 1")
             return
         time.sleep(1.0)
@@ -68,7 +70,7 @@ def wait_round(srv, n, timeout):
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--ded-binary")
-    ap.add_argument("--port", type=int, default=29976)
+    ap.add_argument("--port", type=int, default=29984)
     ap.add_argument("--log-dir")
     args = ap.parse_args(argv)
     try:

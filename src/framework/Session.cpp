@@ -178,6 +178,8 @@ void idSessionLocal::Shutdown() {
 }
 
 void idSessionLocal::Stop() {
+	// a map change the game queued for the session being stopped is dropped with it
+	Server_DiscardFrameCommands();
 	ClearWipe();
 	StopPlayingRenderDemo();
 	if ( writeDemo != NULL ) {
@@ -610,6 +612,33 @@ void idSessionLocal::SetServerInfo( const char* key, const char* value ) {
 		game->SetServerInfo( mapSpawnData.serverInfo );
 	}
 	UpdateConsoleName();
+}
+
+/*
+==================
+Session_SetServerInfoFromGame / Session_FlushServerInfoFromGame
+
+The game's server info writes (idSys::SetServerInfo / FlushServerInfo: si_campaign,
+si_campaignInfo, the watched si_timeLimit and the like), for every platform's idSysLocal:
+the cvar (forced: these are CVAR_ROM, which only code may set) and the session's server
+info, which the game and the snapshots read. A network client's game runs them too
+(InitFromNewMap with g_execMapConfigs): its cvars are not the server's, and the server info
+it has came from the server, so on a client they do nothing.
+==================
+*/
+void Session_SetServerInfoFromGame( const char* key, const char* value ) {
+	if ( key == NULL || value == NULL || idAsyncNetwork::client.IsActive() ) {
+		return;
+	}
+	cvarSystem->SetCVarString( key, value );
+	sessLocal.SetServerInfo( key, value );
+}
+
+void Session_FlushServerInfoFromGame() {
+	if ( idAsyncNetwork::client.IsActive() ) {
+		return;
+	}
+	sessLocal.FlushServerInfo();
 }
 
 void idSessionLocal::FlushServerInfo() {

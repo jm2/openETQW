@@ -17,7 +17,8 @@ state). Checked:
   ("2", "2 2", "2 2 1"), so the game's server info writes reach the server info;
 - C3 the remote client loads every map the server loads, and the server re-sends
   it the game init each time; it spawns on GDF on each map (its team carries over);
-- C4 after area22 the campaign starts over on valley;
+- C4 after area22 the campaign starts over on valley; an argument-less spawnServer
+  then restarts it (the server knows the map it runs, not only the campaign asked for);
 - C5 an admin map change ('admin setObjectiveMap outskirts', a user change through
   spawnServer) loads outskirts with the objective rules, and the client follows;
 - C6 no failure marker, and both processes exit 0 on quit.
@@ -62,11 +63,12 @@ def count(proc, text, start=0):
     return sum(text in l.text for l in proc.snapshot(start))
 
 
-def start_map(srv, n, timeout=60.0):
+def start_map(srv, n, mark, timeout=60.0):
+    """Start map n: gameon counted from mark (where the map's load began), not over the whole log."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         srv.command("admin startMatch")   # the rules drop a start request made at map start: ask until gameon
-        if count(srv, "event=state state=gameon") >= n:
+        if count(srv, "event=state state=gameon", mark) >= 1:
             srv.command("bot_pause 1")
             return
         time.sleep(1.0)
@@ -88,7 +90,7 @@ def campaign_lines(srv):
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--ded-binary")
-    ap.add_argument("--port", type=int, default=29978)
+    ap.add_argument("--port", type=int, default=29986)
     ap.add_argument("--log-dir")
     args = ap.parse_args(argv)
     try:
@@ -146,7 +148,7 @@ def main(argv):
                 if srv.wait_for(lambda s: s.startswith("SPAWN:") and f" client={slot} " in s and " team=gdf " in s,
                                 90.0, prev_end) is None:
                     failures.append(f"C3: the remote client did not spawn on GDF on {name}")
-            start_map(srv, n)
+            start_map(srv, n, prev_end)
             if srv.wait_for(lambda s, k=n: (m := CAMPAIGN_RE.search(s)) and int(m.group(3)) == k, 90.0, map_mark) is None:
                 raise Failed(f"C1: no CAMPAIGN line for map {n} ({name})")
             line = [c for c in campaign_lines(srv) if c["map"] == n][-1]
@@ -166,6 +168,20 @@ def main(argv):
         else:
             print("C4 the campaign starts over on valley")
         srv.sync(120.0)
+
+        # C4b: a spawnServer without a map restarts the running one: si_map names the campaign's current map
+        # (valley), which the server recognises as loaded although the campaign was the request
+        mark = srv.mark()
+        srv.send("spawnServer")
+        srv.sync(120.0)
+        restart = srv.wait_for(lambda s: "event=state state=warmup" in s, 30.0, mark)
+        denied = [l.text for l in srv.snapshot(mark) if "Denied" in l.text or "Unknown Campaign" in l.text]
+        other = [l.text for l in srv.snapshot(mark) if l.text.startswith("Map: ") and "valley" not in l.text]
+        if restart is None or denied or other:
+            failures.append(f"C4b: 'spawnServer' on the campaign's valley: restart {restart is not None}, "
+                            f"denied {denied[:1]}, other map {other[:1]}")
+        else:
+            print("C4b an argument-less spawnServer restarted valley")
 
         # C5: an admin map change (a user change: setObjectiveMap runs spawnServer with the objective rules)
         mark, cl_mark = srv.mark(), cl.mark()

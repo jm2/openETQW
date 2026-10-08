@@ -44,6 +44,26 @@ static const int SERVER_PING_RESEND_MSEC = 500;
 
 /*
 ==================
+Server_IgnoreFrameCommand
+==================
+*/
+static void Server_IgnoreFrameCommand( const idCmdArgs& ) {
+}
+
+/*
+==================
+Server_DiscardFrameCommands
+
+Drop the game's queued frame commands (a map change for a server that is going away), so the
+next frame does not run them as a single-player map change.
+==================
+*/
+void Server_DiscardFrameCommands() {
+	cmdSystem->HandleFrameCommands( frameCommandCallback_t( Server_IgnoreFrameCommand ) );
+}
+
+/*
+==================
 Server_NormalizeMapRequest
 
 si_map as typed ("quarry", "maps/quarry", "maps/quarry.entities") reduced to
@@ -171,6 +191,9 @@ void idAsyncServer::Kill() {
 	localClientNum = -1;
 	loadedMapRequest.Clear();
 	loadedRules.Clear();
+	loadedMapName.Clear();
+	// a map change queued by the game before the shutdown (or an ERR_DROP) is for this server: drop it
+	Server_DiscardFrameCommands();
 }
 
 /*
@@ -188,7 +211,10 @@ bool idAsyncServer::IsMapRequestLoaded( const char* mapRequest ) const {
 	if ( !active || !sessLocal.MapSpawned() || loadedMapRequest.IsEmpty() ) {
 		return false;
 	}
-	return Server_NormalizeMapRequest( mapRequest ).Icmp( loadedMapRequest ) == 0 &&
+	// the request it was started from, or the map it runs: after 'spawnServer <campaign>' si_map names
+	// the campaign's current map, which an argument-less spawnServer then restarts
+	const idStr request = Server_NormalizeMapRequest( mapRequest );
+	return ( request.Icmp( loadedMapRequest ) == 0 || request.Icmp( loadedMapName ) == 0 ) &&
 		idStr::Icmp( cvarSystem->GetCVarString( "si_rules" ), loadedRules ) == 0;
 }
 
@@ -255,8 +281,15 @@ void idAsyncServer::HandleFrameCommand( const idCmdArgs& args ) {
 	if ( idStr::Icmp( command, "map" ) == 0 ) {
 		ChangeMapForRules( args.Argv( 1 ) );
 	} else if ( idStr::Icmp( command, "usermap" ) == 0 ) {
+		// the objective and stopwatch rules' ChangeMap queue it; nothing in the game calls ChangeMap
+		// (admin and vote map changes run spawnServer), so no test reaches this path yet
+		const idStr previousMap = cvarSystem->GetCVarString( "si_map" );
 		cvarSystem->SetCVarString( "si_map", args.Argv( 1 ) );
 		ExecuteMapChange();
+		if ( !IsMapRequestLoaded( args.Argv( 1 ) ) ) {
+			// OnUserStartMap denied it (or the load failed): si_map names the map still running
+			cvarSystem->SetCVarString( "si_map", previousMap.c_str() );
+		}
 	} else {
 		common->Warning( "unknown frame command '%s'", command );
 	}
@@ -295,11 +328,13 @@ void idAsyncServer::FinishMapChange( const char* mapName, const char* mapRequest
 
 	loadedMapRequest.Clear();
 	loadedRules.Clear();
+	loadedMapName.Clear();
 	sessLocal.ExecuteMapChange( mapName, 0, true, true, isUserChange );
 	if ( !sessLocal.MapSpawned() ) {
 		return;
 	}
 	loadedMapRequest = Server_NormalizeMapRequest( mapRequest );
+	loadedMapName = Server_NormalizeMapRequest( mapName );
 	loadedRules = cvarSystem->GetCVarString( "si_rules" );	// after OnUserStartMap, which may force the rules
 	if ( localClientNum >= 0 ) {
 		BeginLocalClient();
