@@ -111,6 +111,7 @@ def launch_dedicated_server(port, desc=""):
         "+set", "net_port", str(port),
         "+set", "si_rules", "sdGameRulesObjective",
         "+set", "si_pure", "0",
+        "+set", "net_allowCheats", "1",  # the objective and vehicle helpers are cheats
         "+set", "bot_enable", "1",
         "+set", "bot_sleepWhenServerEmpty", "0",
         "+set", "g_teamSwitchDelay", "0",

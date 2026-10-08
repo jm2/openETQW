@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """M4: a deployable is requested, carried in and landed, for each team, with the deploy checks on.
 
-A dedicated valley server (objective rules) with a paused GDF engineer and a
-paused Strogg constructor. For each, the test looks for a legal spot near the
+A dedicated valley server (objective rules, cheats on: 'deploy' is a cheat) with
+a paused GDF engineer and a paused Strogg constructor. For each, the test looks for a legal spot near the
 team's base: 'deploy' runs the player's own placement check (territory, sky,
 deploy mask; g_skipDeployChecks stays 0) at points of a grid until one passes.
 With g_debugDeployables the game prints the carrier's spawn, and 'deployStatus'
@@ -68,7 +68,8 @@ def deploy_side(srv, client, team, obj, kind, xs, ys):
             if m:
                 point, requested_at = (float(m.group(3)), float(m.group(4))), time.monotonic()
                 break
-            if any("unknown deployObject" in l.text or "invalid client" in l.text for l in out):
+            if any("unknown deployObject" in l.text or "invalid client" in l.text or "not valid in multiplayer" in l.text
+                   for l in out):
                 raise Failed(f"P1 {team}: " + " | ".join(l.text for l in out))
         if point:
             break
@@ -131,7 +132,8 @@ def main(argv):
     srv = h.DedicatedServer(binary, data, args.map, args.port, log_path=(log_dir / "server.log") if log_dir else None,
                             cvars={"si_rules": "sdGameRulesObjective", "si_pure": "0", "g_teamSwitchDelay": "0",
                                    "bot_enable": "1", "bot_sleepWhenServerEmpty": "0", "g_logGameEvents": "1",
-                                   "g_debugDeployables": "1", "g_skipDeployChecks": "0"})
+                                   "g_debugDeployables": "1", "g_skipDeployChecks": "0",
+                                   "net_allowCheats": "1"})
     failures = []
     try:
         srv.start()
