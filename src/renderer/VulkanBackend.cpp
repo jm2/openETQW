@@ -8154,7 +8154,7 @@ void RecordBlockImageUploadCommands( sdVulkanBackendState& uploadState,
 
 }
 
-bool sdVulkanBackend::SupportsBlockFormat( vulkanBlockFormat_t blockFormat ) const {
+bool sdVulkanBackend::SupportsBlockFormat( vulkanBlockFormat_t blockFormat, bool linearFilter ) const {
 	vulkanBlockFormatInfo_t info;
 	if ( state == NULL || state->device == VK_NULL_HANDLE ||
 		!state->textureCompressionBC || !GetVulkanBlockFormat( blockFormat, info ) ) {
@@ -8162,8 +8162,12 @@ bool sdVulkanBackend::SupportsBlockFormat( vulkanBlockFormat_t blockFormat ) con
 	}
 	VkFormatProperties properties;
 	state->GetPhysicalDeviceFormatProperties( state->physicalDevice, info.format, &properties );
-	const VkFormatFeatureFlags needed = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
+	VkFormatFeatureFlags needed = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
 		VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
+	if ( linearFilter ) {
+		// textureCompressionBC already guarantees it; checked for the sampler's sake
+		needed |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+	}
 	return ( properties.optimalTilingFeatures & needed ) == needed;
 }
 
@@ -8173,7 +8177,7 @@ bool sdVulkanBackend::UploadBlockImage2D( const void* owner, vulkanBlockFormat_t
 	RENDER_METRIC_SCOPE( "Vulkan create/upload image" );
 	vulkanBlockFormatInfo_t info;
 	if ( owner == NULL || blocks == NULL || width <= 0 || height <= 0 ||
-		mipLevels < 1 || !SupportsBlockFormat( blockFormat ) ||
+		mipLevels < 1 || !SupportsBlockFormat( blockFormat, linearFilter ) ||
 		!GetVulkanBlockFormat( blockFormat, info ) ) {
 		return false;
 	}

@@ -55,8 +55,9 @@ public:
 		int width, int height, int mipLevels, bool linearFilter, bool repeat );
 	// Precompressed DDS blocks, uploaded as they are (no decode, no generated
 	// mipmaps).  SupportsBlockFormat is false without textureCompressionBC or
-	// the format's sampled-image support; the caller then decodes to RGBA.
-	bool SupportsBlockFormat( vulkanBlockFormat_t blockFormat ) const;
+	// the format's sampled-image (and, for a linear sampler, linear-filter)
+	// support; the caller then decodes to RGBA.
+	bool SupportsBlockFormat( vulkanBlockFormat_t blockFormat, bool linearFilter ) const;
 	bool UploadBlockImage2D( const void* owner, vulkanBlockFormat_t blockFormat,
 		const unsigned char* blocks, size_t blockDataBytes, int width, int height,
 		int mipLevels, bool linearFilter, bool repeat );

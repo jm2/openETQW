@@ -1123,7 +1123,7 @@ void idImage::UploadPrecompressedImage( byte* data, int len ) {
 				case DDS_MAKEFOURCC( 'A', 'T', 'I', '2' ): blockFormat = VBF_BC5; break;
 				default: knownBlockFormat = false; break;
 			}
-			if ( knownBlockFormat && vulkanBackend.SupportsBlockFormat( blockFormat ) ) {
+			if ( knownBlockFormat && vulkanBackend.SupportsBlockFormat( blockFormat, filter != TF_NEAREST ) ) {
 				vulkanUploaded = vulkanBackend.UploadBlockImage2D( this, blockFormat,
 					imageData, static_cast< size_t >( fileEnd - imageData ),
 					mipWidth, mipHeight, fileMipCount - mip,
