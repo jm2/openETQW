@@ -157,8 +157,8 @@ The STATUS item "Light-interaction geometry is rebuilt on the CPU every frame": 
 
 Two changes:
 - **The per-frame index list grows 64K entries at a time** (`frontEndInteractionIndexes`; it grew 16 at a time, so appending a large surface's subset copied the list over and over). This is most of the gain.
-- **A subset cache for static geometry** (`r_interactionCache`, default 1). The triangles of one surface that touch one light's frustum are kept across frames and reused while four things are unchanged: the light's six planes, the surface's model matrix, and its vertex and index arrays. Entries unused for 120 frames are dropped, and everything is dropped when the world changes.
-  - Only the world's static models, and entities drawing their static model as it is, are cached. Instantiated dynamic models reuse their storage with new contents every frame.
+- **A subset cache for static geometry** (`r_interactionCache`, default 1). The triangles of one surface that touch one light's frustum are kept across frames and reused while four things are unchanged: the light's six planes, the surface's model matrix, and its vertex and index arrays. Entries unused for 120 views (light passes, so subviews count) are dropped, and everything is dropped when the render world is cleared or loads a map, or when models are reloaded.
+  - Only the proc's `_area` world models and entities drawing a file-loaded model as it is are cached, and never deformed or streamed geometry. Models built in memory (BSE effects, snapshots, instantiated dynamic models) report `DM_STATIC` too but are rebuilt every frame, often at the same addresses, so they are excluded. The key includes the entity, so props sharing one model keep separate entries.
   - With the cache on and off, the frames are identical (mean pixel difference 0.06).
 
 Measured on win-arm64 (Adreno X1-85, debugoptimized, game 728dd1c), uncapped, 20 one-second `FRAME_TIMING` windows. Canyon at a fixed viewpoint (`setviewpos -1271.86 4348.12 453 -135`, the Strogg spawn):
@@ -166,8 +166,8 @@ Measured on win-arm64 (Adreno X1-85, debugoptimized, game 728dd1c), uncapped, 20
 | Build | fps | Work p50 |
 |---|---|---|
 | main 290fca8 | 95.0 / 96.1 (two runs) | 8.8 ms |
-| growth step only (`r_interactionCache 0`) | 283 | 2.0 ms |
-| growth step and cache | 291.6 / 291.7 (two runs); 310 on the earlier base | 1.85 ms |
+| growth step only (`r_interactionCache 0`) | 266.9 | 2.14 ms |
+| growth step and cache (after #108's review: file-loaded and `_area` models only) | 279.4 | 2.00 ms |
 
 valley at the GDF spawn: 143.7 → 156.3 fps. The cache had no hits there: its lit surfaces are dynamic or entirely inside their light.
 

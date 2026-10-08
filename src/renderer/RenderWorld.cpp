@@ -197,6 +197,7 @@ void idRenderWorldLocal::Clear() {
 	portalAreas.Clear();
 	areaNodes.Clear();
 	portalAreas.SetNum( 1 );
+	R_InvalidateInteractionCache();	// the map's models are about to go (or be replaced)
 	atmosphere = NULL;
 	writeDemo = NULL;
 	megaTextureBounds.Zero();

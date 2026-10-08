@@ -1666,19 +1666,22 @@ namespace {
 	// frame").  An entry is the triangles of one surface that touch one light's
 	// frustum; it is reused while the light's planes, the surface's model matrix
 	// and its vertex and index arrays are unchanged, and dropped when unused for
-	// INTERACTION_CACHE_MAX_AGE frames or when the world changes.
+	// INTERACTION_CACHE_MAX_AGE views (light passes, so subviews count too) or
+	// when the world or its models change (R_InvalidateInteractionCache).
 	struct interactionCacheKey_t {
 		const srfTriangles_t*	geometry;
 		const renderLight_t*	light;
+		const renderEntity_t*	entity;		// props sharing one model each keep their own entry
 		bool operator==( const interactionCacheKey_t& other ) const {
-			return geometry == other.geometry && light == other.light;
+			return geometry == other.geometry && light == other.light && entity == other.entity;
 		}
 	};
 	struct interactionCacheKeyHash_t {
 		size_t operator()( const interactionCacheKey_t& key ) const {
 			const size_t a = reinterpret_cast< size_t >( key.geometry );
 			const size_t b = reinterpret_cast< size_t >( key.light );
-			return a ^ ( b * 0x9E3779B97F4A7C15ull + ( a << 6 ) + ( a >> 2 ) );
+			const size_t c = reinterpret_cast< size_t >( key.entity );
+			return a ^ ( b * 0x9E3779B97F4A7C15ull + ( a << 6 ) + ( a >> 2 ) ) ^ ( c * 0xC2B2AE3D27D4EB4Full );
 		}
 	};
 	struct interactionCacheEntry_t {
@@ -1900,16 +1903,21 @@ namespace {
 				normal.x * matrix[ 12 ] + normal.y * matrix[ 13 ] + normal.z * matrix[ 14 ];
 		}
 
-		// Static geometry: the world's own models, and entities drawing their
-		// static model as it is.  Instantiated dynamic models reuse their
-		// geometry storage frame to frame with new contents, so they are
-		// never cached.
+		// Geometry that cannot change behind the cache: the proc's _area world
+		// models (built once at map load), and entities drawing a model loaded
+		// from a file as it is.  Models built in memory (BSE effects, snapshots,
+		// instantiated dynamic models) are DM_STATIC too but are rebuilt every
+		// frame, often at the same addresses with the same counts, so they are
+		// never cached; nor is deformed or streamed geometry.
 		const viewEntity_s* space = surface->space;
-		const bool cacheable = r_interactionCache.GetBool() && space->model != NULL && space->model->IsDynamicModel() == DM_STATIC &&
-			( space->entityDef == NULL || space->entityDef->hModel == space->model );
+		const bool fileOrWorldModel = space->model != NULL && space->model->IsDynamicModel() == DM_STATIC &&
+			( space->entityDef == NULL ? space->model->IsStaticWorldModel() :
+				( space->entityDef->hModel == space->model && space->model->IsReloadable() ) );
+		const bool cacheable = r_interactionCache.GetBool() && fileOrWorldModel &&
+			!source->deformedSurface && !source->deformedSurfaceInstance && !source->streamVertexCache;
 		interactionCacheEntry_t* entry = NULL;
 		if ( cacheable ) {
-			interactionCacheKey_t key = { source, light->lightDef };
+			interactionCacheKey_t key = { source, light->lightDef, space->entityDef };
 			entry = &interactionCache[ key ];
 			const bool valid = entry->lastUsedFrame != 0 &&
 				entry->verts == source->verts && entry->indexes == source->indexes &&
@@ -1922,7 +1930,7 @@ namespace {
 				if ( entry->result == interactionCacheEntry_t::NONE ) return NULL;
 				if ( entry->result == interactionCacheEntry_t::WHOLE ) return source;
 				const int firstCached = frontEndInteractionIndexes.Num();
-				frontEndInteractionIndexes.SetNum( firstCached + entry->subset.Num(), false );
+				frontEndInteractionIndexes.AssureSize( firstCached + entry->subset.Num() );	// keeps the 64K growth step
 				memcpy( frontEndInteractionIndexes.Begin() + firstCached, entry->subset.Begin(),
 					entry->subset.Num() * sizeof( glIndex_t ) );
 				srfTriangles_t* cachedGeometry = frontEndInteractionGeometryAllocator.Alloc();
@@ -2547,6 +2555,11 @@ void R_AddLightSurfaces() {
 	FinalizeLightInteractionGeometry();
 }
 
+void R_InvalidateInteractionCache() {
+	interactionCache.clear();
+	interactionCacheWorld = NULL;
+}
+
 void R_PrintInteractionCacheMetrics() {
 	const unsigned long long cached = interactionCacheStats.hits + interactionCacheStats.misses;
 	common->Printf( "Vulkan interaction cache: %llu hits, %llu misses (%.1f%% hit), %llu uncached (dynamic geometry), %u entries\n",
@@ -2602,7 +2615,7 @@ void R_FreeBuiltDrawView() {
 	frontEndViewEntities.Clear();
 	frontEndInteractionGeometry.Clear();
 	frontEndDynamicModels.Clear();
-	frontEndInteractionIndexes.Clear();
+	frontEndInteractionIndexes.SetNum( 0, false );	// keep the capacity; Clear() would free it every view
 	sortedDrawSurfaces.Clear();
 	frontEndModelSpaces.SetNum( 0, false );
 	frontEndSurfaceCandidates.SetNum( 0, false );
