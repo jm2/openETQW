@@ -79,6 +79,7 @@ SERVER_ARGS = [
     "+set", "bot_useVehicles", "0",
     "+set", "bot_useAirVehicles", "0",
     "+set", "si_pure", "0",
+    "+set", "net_allowCheats", "1",  # completeObjective, deploy, enterVehicle, exitVehicle and swapVehicleSeat are cheats
     "+set", "bot_enable", "1",
     "+set", "bot_sleepWhenServerEmpty", "0",
     "+set", "g_teamSwitchDelay", "0",

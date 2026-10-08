@@ -562,6 +562,75 @@ if build_dedicated
     timeout: 600,
     is_parallel: false,
   )
+  # M4: damage and kills on a dedicated server, from the game's KILL lines
+  # (g_logGameEvents) and damageClient: a hit, a kill with both teams and the
+  # decl, a respawn, a world kill and a team kill, nothing else dying
+  test(
+    'm4-damage-kills',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_m4_damage_kills.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--port', '29958',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'm4-damage-kills',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration', 'm4'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
+  # M4: every class of both teams spawns with its own kit (the game's SPAWN
+  # lines): role items present, on no other class; team items on one team
+  test(
+    'm4-classes',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_m4_classes.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--port', '29962',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'm4-classes',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration', 'm4'],
+    protocol: 'exitcode',
+    timeout: 300,
+    is_parallel: false,
+  )
+  # M4: a deployable is requested with the deploy checks on, carried in and
+  # landed at the spot, for each team (deployStatus, g_debugDeployables)
+  test(
+    'm4-deployable',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_m4_deployable.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--port', '29966',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'm4-deployable',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration', 'm4'],
+    protocol: 'exitcode',
+    timeout: 400,
+    is_parallel: false,
+  )
+  # M4: an objective match ends both ways (the game's MATCH lines): the
+  # defenders win on the time limit, the attackers on the last objective
+  test(
+    'm4-match-end',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_m4_match_end.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--port', '29972',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'm4-match-end',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration', 'm4'],
+    protocol: 'exitcode',
+    timeout: 400,
+    is_parallel: false,
+  )
   # the charter's M3 soak: 10 minutes at 2% loss and 40 +/- 20 ms delay without
   # a disconnect (skip it in quick runs with 'meson test --no-suite soak')
   test(
