@@ -38,6 +38,9 @@ If you have questions concerning this license or the applicable additional terms
 
 #import <AppKit/AppKit.h>
 #include <dirent.h>
+#if defined( USE_SDL3 )
+#include <SDL3/SDL.h>
+#endif
 #include <sys/stat.h>
 #import <OpenGL/OpenGL.h>
 #import <mach-o/dyld.h>
@@ -980,6 +983,12 @@ void Sys_AppendRetailDataCandidates( idStrList &candidates, idStrList &steamRoot
 	}
 }
 
+// true when stdin is a pipe or a socket (a test harness drives the engine through one)
+bool Sys_StdinIsPipe( void ) {
+	struct stat info;
+	return fstat( STDIN_FILENO, &info ) == 0 && ( S_ISFIFO( info.st_mode ) || S_ISSOCK( info.st_mode ) );
+}
+
 /*
 ==============
 Sys_PromptForRetailData
@@ -989,11 +998,6 @@ search found nothing. Only UI; FileSystem checks the choice and asks again with 
 set when it holds no base/pak000.pk4. Needs a desktop session (no Aqua session: false).
 ==============
 */
-bool Sys_StdinIsPipe( void ) {
-	struct stat info;
-	return fstat( STDIN_FILENO, &info ) == 0 && ( S_ISFIFO( info.st_mode ) || S_ISSOCK( info.st_mode ) );
-}
-
 bool Sys_PromptForRetailData( idStr &root, const char *problem ) {
 	CFDictionaryRef session = CGSessionCopyCurrentDictionary();
 	if ( session == NULL ) {
@@ -1001,11 +1005,20 @@ bool Sys_PromptForRetailData( idStr &root, const char *problem ) {
 	}
 	CFRelease( session );
 	@autoreleasepool {
+#if defined( USE_SDL3 )
+		// SDL sets up the application (its NSApplication subclass, the app menu,
+		// finishLaunching) only if NSApp does not exist yet: let it create NSApp here, as the
+		// renderer's own SDL_InitSubSystem would later (that call then only adds a reference)
+		if ( !SDL_InitSubSystem( SDL_INIT_VIDEO ) ) {
+			return false;
+		}
+#else
 		[NSApplication sharedApplication];
+#endif
 		[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
 		[NSApp activateIgnoringOtherApps:YES];
 		if ( problem != NULL ) {
-			NSAlert *alert = [[NSAlert alloc] init];
+			NSAlert *alert = [[[NSAlert alloc] init] autorelease];	// these files are built without ARC
 			alert.messageText = @"That folder does not hold the game data";
 			alert.informativeText = [NSString stringWithUTF8String:problem] ?: @"";
 			[alert addButtonWithTitle:@"Choose Again"];
