@@ -2562,7 +2562,7 @@ void R_InvalidateInteractionCache() {
 
 void R_PrintInteractionCacheMetrics() {
 	const unsigned long long cached = interactionCacheStats.hits + interactionCacheStats.misses;
-	common->Printf( "Vulkan interaction cache: %llu hits, %llu misses (%.1f%% hit), %llu uncached (dynamic geometry), %u entries\n",
+	common->Printf( "Vulkan interaction cache: %llu hits, %llu misses (%.1f%% hit), %llu uncached lookups (geometry not cacheable, or r_interactionCache 0), %u entries\n",
 		interactionCacheStats.hits, interactionCacheStats.misses,
 		cached > 0 ? 100.0 * interactionCacheStats.hits / cached : 0.0,
 		interactionCacheStats.uncached, static_cast< unsigned int >( interactionCache.size() ) );
