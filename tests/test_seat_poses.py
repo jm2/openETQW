@@ -143,14 +143,14 @@ def launched(poses):
     return worst if worst > LAUNCH_DZ_U else None
 
 
-def step_check(poses, key="veh", what="step"):
+def step_check(poses, key="veh", what="step", eps=POS_EPS):
     """S4: the hull's (or the view's) median step across a tick against its median step within one."""
     cross, within = [], []
     for a, b in zip(poses, poses[1:]):
         if a[key] is None or b[key] is None:
             continue
         d = math.dist(a[key][:3], b[key][:3])
-        if d <= POS_EPS:
+        if d <= eps:
             continue
         (cross if a["gt"] != b["gt"] else within).append(d)
     if len(cross) < 5 or len(within) < 5:
@@ -638,7 +638,7 @@ def main(argv):
         g1 = fraction_check(gun, jnt_changed, "drawn joints (jnt=)")
         g2 = fraction_check(gun, lambda a, b: abs((a["view"][4] - b["view"][4] + 180.0) % 360.0 - 180.0) > 0.01,
                             "view yaw")
-        g3 = step_check(gun, "jnt", "joint checksum step")
+        g3 = step_check(gun, "jnt", "joint checksum step", eps=1e-5)   # the threshold G1 uses
         control = results_gun[False]
         within = [(a, b) for a, b in zip(control, control[1:]) if a["gt"] == b["gt"]]
         changed_within = sum(1 for a, b in within if jnt_changed(a, b))
