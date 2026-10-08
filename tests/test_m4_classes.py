@@ -4,7 +4,8 @@
 
 A dedicated valley server (objective rules) adds one bot of each of the ten
 classes; with g_logGameEvents the game prints a SPAWN line per spawn with the
-team, class, health and every inventory item. Checked:
+team, class, health and item count, then SPAWN_ITEMS lines with every
+inventory item. Each client's first spawn (not a revive) counts. Checked:
 - C1 ten spawns, one per class, each on the team asked for and alive (health > 0);
 - C2 each class carries its role items (the retail 1.5 kits: the soldier's HE
   charge and LAW, the medic's defibrillator, the engineer's pliers and mines,
@@ -20,12 +21,14 @@ Exit 77 when ETQW_DATA_PATH is unset/invalid or the binary is missing.
 import argparse
 import re
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import etqw_harness as h  # noqa: E402
 
-SPAWN_RE = re.compile(r"SPAWN: time=(\d+) client=(\d+) team=(\S+) class=(\S+) revive=(\d) health=(-?\d+) weapon=(\S+) items=(\S*)")
+SPAWN_RE = re.compile(r"SPAWN: time=(\d+) client=(\d+) team=(\S+) class=(\S+) revive=(\d) health=(-?\d+) weapon=(\S+) items=(\d+)")
+ITEMS_RE = re.compile(r"SPAWN_ITEMS: time=(\d+) client=(\d+) part=(\d+)/(\d+) items=(\S*)")
 
 ROLE_ITEMS = {
     ("gdf", "soldier"): ["items/he_charge", "weapons/law", "weapons/gpmg"],
@@ -40,6 +43,30 @@ ROLE_ITEMS = {
     ("strogg", "infiltrator"): ["tools/spike_infiltrator", "tools/deploytool/infiltrator", "items/teleporter", "weapons/railgun"],
 }
 TEAM_ITEMS = {"gdf": "tools/gdf_parachute", "strogg": "weapons/spikes"}
+
+
+def first_spawns(lines):
+    """(team, class) -> health and items of each client's first spawn that is not a revive, once all of its
+    SPAWN_ITEMS parts are in (later spawns, revives and other clients' lines do not count)."""
+    firsts, parts = {}, {}
+    for l in lines:
+        m = SPAWN_RE.search(l.text)
+        if m and m.group(5) == "0" and int(m.group(2)) not in firsts:
+            firsts[int(m.group(2))] = {"time": m.group(1), "key": (m.group(3), m.group(4)), "health": int(m.group(6)),
+                                       "count": int(m.group(8))}
+        m = ITEMS_RE.search(l.text)
+        if m:
+            parts.setdefault((int(m.group(2)), m.group(1)), {})[int(m.group(3))] = (int(m.group(4)), m.group(5))
+    spawns = {}
+    for client, f in firsts.items():
+        got = parts.get((client, f["time"]), {})
+        total = next(iter(got.values()))[0] if got else 0
+        if not got or len(got) != total:
+            continue
+        listed = [i.removeprefix("inventory/") for _, (_, s) in sorted(got.items()) for i in s.split(",") if i]
+        if len(listed) == f["count"]:
+            spawns[f["key"]] = {"health": f["health"], "items": set(listed)}
+    return spawns
 
 
 def main(argv):
@@ -72,17 +99,15 @@ def main(argv):
         start = srv.mark()
         for team, cls in ROLE_ITEMS:
             srv.send(f"addbot {team} {cls}")
-        r = srv.wait_for(lambda s: s.startswith("SPAWN:") and len([1 for l in srv.snapshot(start)
-                                                                  if l.text.startswith("SPAWN:")]) >= len(ROLE_ITEMS),
-                         60.0, start)
-        if r is None:
-            failures.append("C1: fewer than ten SPAWN lines within 60 s")
-        for l in srv.snapshot(start):
-            m = SPAWN_RE.search(l.text)
-            if m and m.group(5) == "0":
-                key = (m.group(3), m.group(4))
-                spawns.setdefault(key, {"health": int(m.group(6)),
-                                        "items": {i.removeprefix("inventory/") for i in m.group(8).split(",") if i}})
+        deadline = time.monotonic() + 60.0
+        while True:
+            spawns = first_spawns(srv.snapshot(start))
+            if len(spawns) >= len(ROLE_ITEMS) or time.monotonic() > deadline:
+                break
+            time.sleep(0.5)
+        srv.command("bot_pause 1")
+        if len(spawns) < len(ROLE_ITEMS):
+            failures.append(f"C1: {len(spawns)} complete first spawns within 60 s, want {len(ROLE_ITEMS)}")
         print("spawns:")
         for key in sorted(spawns):
             print(f"  {key[0]:6} {key[1]:11} health {spawns[key]['health']:3}  {len(spawns[key]['items'])} items")

@@ -166,7 +166,8 @@ def main(argv):
         mark4 = srv.mark()
         _, after, kills = hit(srv, 0, -1, 20)
         expected_kills += len(kills)
-        if len(kills) != 1 or kills[0]["victim"] != 0 or kills[0]["attacker"] != -1 or after > 0:
+        if len(kills) != 1 or kills[0]["victim"] != 0 or kills[0]["attacker"] != -1 or kills[0]["decl"] != DECL \
+                or after > 0:
             failures.append(f"D4: world kill gave health {after}, kills {kills}")
         print(f"D4 world kill: {kills}")
 
