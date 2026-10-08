@@ -1487,12 +1487,15 @@ void Sys_SetClipboardData( const wchar_t *string ) {
 idCVar net_forceDrop( "net_forceDrop", "0", CVAR_SYSTEM | CVAR_INTEGER, "percentage packet loss" );	// as win_net.cpp: outgoing packets
 idCVar net_forceLatency( "net_forceLatency", "0", CVAR_SYSTEM | CVAR_INTEGER, "milliseconds latency added to received packets" );
 idCVar net_forceJitter( "net_forceJitter", "0", CVAR_SYSTEM | CVAR_INTEGER, "up to this many more milliseconds of random latency per received packet (order kept)" );
+idCVar net_forceReorder( "net_forceReorder", "0", CVAR_SYSTEM | CVAR_INTEGER, "percentage of received packets held back so that later packets overtake them (network testing)" );
+idCVar net_forceReorderDelay( "net_forceReorderDelay", "30", CVAR_SYSTEM | CVAR_INTEGER, "up to this many milliseconds a net_forceReorder packet is held behind the packets after it" );
 
 // Received packets held back by net_forceLatency / net_forceJitter (network testing).
 // Keyed by socket, so idPort (shared with the game module) is unchanged.
 struct delayedPacket_t {
 	int				socket;
 	int				releaseTime;
+	int				sequence;		// arrival order on this socket, to count overtakes
 	netadr_t		from;
 	idList< byte >	data;
 };
@@ -1504,6 +1507,10 @@ static idList< delayedPacket_t* > delayedPackets;
 struct socketRelease_t {
 	int		socket;
 	int		releaseTime;
+	int		arrived;			// packets queued on this socket
+	int		lastReleasedSequence;
+	int		released;
+	int		reordered;		// released after a packet that arrived later
 };
 static idList< socketRelease_t > socketReleases;
 
@@ -1514,9 +1521,19 @@ static int Net_ReleaseTime( int netSocket, int wanted ) {
 			return socketReleases[ i ].releaseTime;
 		}
 	}
-	socketRelease_t release = { netSocket, wanted };
+	socketRelease_t release = { netSocket, wanted, 0, 0, 0, 0 };
 	socketReleases.Append( release );
 	return wanted;
+}
+
+static socketRelease_t* Net_SocketRelease( int netSocket ) {
+	for ( int i = 0; i < socketReleases.Num(); i++ ) {
+		if ( socketReleases[ i ].socket == netSocket ) {
+			return &socketReleases[ i ];
+		}
+	}
+	Net_ReleaseTime( netSocket, 0 );
+	return &socketReleases[ socketReleases.Num() - 1 ];
 }
 
 // a closed socket's descriptor is reused by the next one opened
@@ -1529,6 +1546,10 @@ static void Net_PurgeSocket( int netSocket ) {
 	}
 	for ( int i = socketReleases.Num() - 1; i >= 0; i-- ) {
 		if ( socketReleases[ i ].socket == netSocket ) {
+			if ( net_forceReorder.GetInteger() > 0 ) {
+				common->Printf( "NET_REORDER: %d of %d received packets released after a later one\n",
+					socketReleases[ i ].reordered, socketReleases[ i ].released );
+			}
 			socketReleases.RemoveIndex( i );
 		}
 	}
@@ -1603,7 +1624,9 @@ bool idPort::GetPacket( netadr_t &from, void *data, int &size, int maxSize ) {
 
 	const int latency = Max( 0, net_forceLatency.GetInteger() );
 	const int jitter = Max( 0, net_forceJitter.GetInteger() );
-	if ( latency == 0 && jitter == 0 && delayedPackets.Num() == 0 ) {
+	const int reorderPercent = idMath::ClampInt( 0, 100, net_forceReorder.GetInteger() );
+	const int reorderDelay = Max( 1, net_forceReorderDelay.GetInteger() );
+	if ( latency == 0 && jitter == 0 && reorderPercent == 0 && delayedPackets.Num() == 0 ) {
 		sockaddr_in address;
 		int addressLength = sizeof( address );
 		const int received = recvfrom( static_cast< SOCKET >( netSocket ), static_cast< char* >( data ), maxSize, 0, reinterpret_cast< sockaddr* >( &address ), &addressLength );
@@ -1626,7 +1649,16 @@ bool idPort::GetPacket( netadr_t &from, void *data, int &size, int maxSize ) {
 	while ( ( packetSize = recvfrom( static_cast< SOCKET >( netSocket ), static_cast< char* >( data ), maxSize, 0, reinterpret_cast< sockaddr* >( &address ), &addressLength ) ) > 0 ) {
 		delayedPacket_t* packet = new delayedPacket_t;
 		packet->socket = netSocket;
-		packet->releaseTime = Net_ReleaseTime( netSocket, now + latency + ( jitter > 0 ? rand() % ( jitter + 1 ) : 0 ) );
+		const int wanted = now + latency + ( jitter > 0 ? rand() % ( jitter + 1 ) : 0 );
+		if ( reorderPercent > 0 && rand() % 100 < reorderPercent ) {
+			// held behind the packets that arrive after it: later than the
+			// in-order release time, which it doesn't advance
+			const int inOrder = Max( wanted, Net_SocketRelease( netSocket )->releaseTime );
+			packet->releaseTime = inOrder + 1 + rand() % reorderDelay;
+		} else {
+			packet->releaseTime = Net_ReleaseTime( netSocket, wanted );
+		}
+		packet->sequence = ++Net_SocketRelease( netSocket )->arrived;
 		NetadrFromSockaddr( address, packet->from );
 		packet->data.SetNum( packetSize );
 		memcpy( &packet->data[ 0 ], data, packetSize );
@@ -1647,6 +1679,13 @@ bool idPort::GetPacket( netadr_t &from, void *data, int &size, int maxSize ) {
 	}
 	delayedPacket_t* packet = delayedPackets[ best ];
 	delayedPackets.RemoveIndex( best );
+	socketRelease_t* release = Net_SocketRelease( netSocket );
+	release->released++;
+	if ( packet->sequence < release->lastReleasedSequence ) {
+		release->reordered++;
+	} else {
+		release->lastReleasedSequence = packet->sequence;
+	}
 	from = packet->from;
 	size = Min( packet->data.Num(), maxSize );
 	memcpy( data, &packet->data[ 0 ], size );
