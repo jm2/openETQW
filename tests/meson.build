@@ -562,6 +562,24 @@ if build_dedicated
     timeout: 600,
     is_parallel: false,
   )
+  # M4: damage and kills on a dedicated server, from the game's KILL lines
+  # (g_logGameEvents) and damageClient: a hit, a kill with both teams and the
+  # decl, a respawn, a world kill and a team kill, nothing else dying
+  test(
+    'm4-damage-kills',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_m4_damage_kills.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--port', '29958',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'm4-damage-kills',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration', 'm4'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
   # the charter's M3 soak: 10 minutes at 2% loss and 40 +/- 20 ms delay without
   # a disconnect (skip it in quick runs with 'meson test --no-suite soak')
   test(
