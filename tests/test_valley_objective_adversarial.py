@@ -11,7 +11,6 @@ Adversarial stress-testing suite for OpenETQW dedicated server on Valley:
 """
 
 import atexit
-import os
 import queue
 import re
 import subprocess
@@ -116,6 +115,7 @@ def launch_dedicated_server(port, desc=""):
         "+set", "bot_sleepWhenServerEmpty", "0",
         "+set", "g_teamSwitchDelay", "0",
         "+set", "g_skipDeployChecks", "1",
+        "+set", "g_warmup", "0",  # with 'admin startMatch' (start_match): a match in warmup cannot end
         "+spawnServer", "valley"
     ]
 
@@ -161,6 +161,20 @@ def launch_dedicated_server(port, desc=""):
     return proc, out_q
 
 
+def start_match(proc, out_q, timeout=30.0):
+    """Leave warmup: the objective rules refuse to end a match that has not started (retail behaviour,
+    sdGameRulesObjective::EndGame), so an EndGame check run in warmup stays at state 1. The rules drop a
+    start request made at map start, so ask until the match is on (GS_GAMEON, state 3)."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        send_cmd(proc, "admin startMatch")
+        time.sleep(1.0)
+        if query_objective_status(proc, out_q)["state"] == 3:
+            print("  Match started: state 3 (GS_GAMEON)")
+            return
+    raise AssertionError("the match did not reach GS_GAMEON (state 3) after 'admin startMatch'")
+
+
 def test_suite_invalid_indices_and_sequential():
     """Sub-test 1, 2, & 3: Invalid indices, sequential progression, duplicate EndGame triggers."""
     print("\n" + "=" * 70)
@@ -176,6 +190,7 @@ def test_suite_invalid_indices_and_sequential():
         time.sleep(0.5)
         send_cmd(proc, "addbot strogg soldier")
         time.sleep(1.0)
+        start_match(proc, out_q)
 
         # -------------------------------------------------------------
         # 1. Invalid & Boundary Indices Stress
@@ -291,6 +306,7 @@ def test_suite_out_of_order_endgame():
         # Spawn a bot to establish active player context and advance game frames
         send_cmd(proc, "addbot gdf soldier")
         time.sleep(1.0)
+        start_match(proc, out_q)
 
         # Check initial state: objectives 0, 1, 2 have NOT been touched
         init_stat = query_objective_status(proc, out_q)
