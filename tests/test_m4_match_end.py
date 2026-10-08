@@ -54,21 +54,27 @@ def start_match(binary, data, port, timelimit, log_path):
                                    "g_warmup": "0", "si_timelimit": str(timelimit), "net_allowCheats": "1",
                                    "bot_enable": "1", "bot_sleepWhenServerEmpty": "0", "g_logGameEvents": "1"})
     srv.start()
-    if srv.sync(180.0) is None:
-        raise Failed("the server did not answer after loading the map")
-    start = srv.mark()
-    srv.send("addbot gdf soldier")
-    srv.send("addbot strogg aggressor")
-    if srv.wait_for(lambda s: s.startswith("SPAWN:") and " client=1 " in s, 60.0, start) is None:
-        raise Failed("the bots did not spawn")
-    srv.command("bot_pause 1")
-    deadline = time.monotonic() + 30.0
-    while time.monotonic() < deadline:
-        srv.command("admin startMatch")   # the rules drop a start request made at map start: ask until gameon
-        if any(e["event"] == "state" and e["state"] == "gameon" for e in matches(srv)):
-            return srv
-        time.sleep(1.0)
-    raise Failed("the match did not reach gameon after 'admin startMatch'")
+    try:
+        if srv.sync(180.0) is None:
+            raise Failed("the server did not answer after loading the map")
+        start = srv.mark()
+        srv.send("addbot gdf soldier")
+        srv.send("addbot strogg aggressor")
+        if srv.wait_for(lambda s: s.startswith("SPAWN:") and " client=1 " in s, 60.0, start) is None:
+            raise Failed("the bots did not spawn")
+        srv.command("bot_pause 1")
+        deadline = time.monotonic() + 30.0
+        while time.monotonic() < deadline:
+            srv.command("admin startMatch")   # the rules drop a start request made at map start: ask until gameon
+            if any(e["event"] == "state" and e["state"] == "gameon" for e in matches(srv)):
+                return srv
+            time.sleep(1.0)
+        raise Failed("the match did not reach gameon after 'admin startMatch'")
+    except Failed:
+        # quit now, not at exit: the next part reuses the port (review of #104)
+        srv.quit()
+        srv.cleanup()
+        raise
 
 
 def wait_event(srv, pred, timeout):
