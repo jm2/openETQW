@@ -279,6 +279,19 @@ if build_engine
     timeout: 360,
     is_parallel: false,
   )
+  # M3: the cross-OS client/server pair; the server runs on another host, started there
+  # by hand (OPENETQW_REMOTE_SERVER=host:port; SKIP without it)
+  test(
+    'cross-os',
+    py,
+    args: [meson.project_source_root() / 'tests' / 'test_cross_os.py',
+           '--log-dir', meson.project_build_root() / 'meson-logs' / 'cross-os'],
+    env: client_test_env,
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    timeout: 900,
+    is_parallel: false,
+  )
   # M5 step 14b: the hull-lead measurement (g_determinismTest 4, two caps): every vehicle
   # class spawned, entered, moved and identical across caps; prints the predictor table
   test(
