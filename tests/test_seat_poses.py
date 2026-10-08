@@ -40,6 +40,10 @@ in_yawSpeed key turn stands in for the mouse:
   L1c control with g_unlock_vehicleLook 0 the turn shows at least a draw later on average
   L5 locked   (smooth_locked) outside tophat mode a tap turns no draw
 
+A rate-limited pivot view (the trojan's gunner, yaw at most 135 deg/s), parked, at cap
+120: L0-L4 as above, with the held turn at 300 deg/s so the rate binds (the eye swings on
+its arm, so L4 checks the camera origin too).
+
 Gunner views (vehicle-responsiveness 3.6), parked, at cap 120: the gunner's freepivot view
 with the turret held turning (in_yawSpeed):
 
@@ -491,7 +495,7 @@ def main(argv):
         cap = 120
         obs.send(f"set com_maxFPS {cap}")
 
-        def late_look(label, want_seat, orbit=False):
+        def late_look(label, want_seat, orbit=False, hold_speed=60):
             results_look = {}
             for setting in ("1", "0"):
                 obs.send(f"set g_unlock_vehicleLook {setting}")
@@ -508,6 +512,8 @@ def main(argv):
                     time.sleep(LOOK_TAP_S)
                     obs.send(f"-{key}")
                     time.sleep(0.4)
+                # the held turn, at hold_speed: above a rate-limited class's rate, the rate binds
+                obs.send(f"set in_yawSpeed {hold_speed}")
                 obs.send("+left")
                 mark = obs.mark()
                 time.sleep(LOOK_HOLD_S)
@@ -516,6 +522,7 @@ def main(argv):
                 obs.send("+right")
                 time.sleep(LOOK_HOLD_S)
                 obs.send("-right")
+                obs.send("set in_yawSpeed 60")
                 time.sleep(0.5)
                 lines = [ln.text for ln in obs.snapshot(begin)]
                 held = [p for ln in obs.snapshot(mark, end) if (p := parse_pose(ln.text))]
@@ -656,6 +663,28 @@ def main(argv):
             print(f"  {cap:3} gunner {check}  {'pass' if ok else 'FAIL'}  {detail}")
             if not ok:
                 failures.append(f"gunner {check}: {detail}")
+
+        # a rate-limited pivot view (stage 5's rate tier): the trojan's gunner (position 1, first
+        # view, pivot; yaw at most 135 deg/s), its eye swinging on its arm; the held turn at
+        # 300 deg/s, so the rate binds: L3 and L4 show no step back or jump at the ticks where
+        # the draws end on what the next tick shows
+        srv.send(f"exitVehicle {obs.slot}")
+        time.sleep(1.0)
+        obs.send(f"set g_unlock_vehicleSeats {LISTED},trojan:*:pivot")
+        srv.send(f"enterVehicle {obs.slot} vehicle_trojan")
+        time.sleep(3.0)
+        for _ in range(6):
+            last = next((p for ln in reversed(obs.snapshot()) if (p := parse_pose(ln.text))), None)
+            fields = seat_fields(last["seat"]) if last is not None and last["seat"] is not None else None
+            if fields is not None and fields[1:] == (1, 0):
+                break
+            if fields is not None and fields[1] == 1:
+                srv.send(f"cycleVehicleCamera {obs.slot}")
+            else:
+                srv.send(f"swapVehicleSeat {obs.slot}")
+            time.sleep(1.5)
+        late_look("pivot gunner", (1, 0), orbit=True, hold_speed=300)
+        obs.send(f"set g_unlock_vehicleSeats {LISTED}")
 
         # back on foot: the next phase seats the player in the driver's seat again
         srv.send(f"exitVehicle {obs.slot}")
