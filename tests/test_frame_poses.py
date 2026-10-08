@@ -130,6 +130,7 @@ root. Exit 77 when ETQW_DATA_PATH is unset/invalid or a binary is missing.
 
 import argparse
 import math
+import os
 import re
 import sys
 import time
@@ -148,6 +149,7 @@ FRAME_POSE_RE = re.compile(
 CLIENT_RE = re.compile(r" c(\d+)=([^:\s]+):aor=(-?\d+):hid=(\d):veh=(-?\d+)")
 # M5 step 14b: the hull lead a seat draw used (alpha ticks past the last tick, the tick's lead)
 LEAD_RE = re.compile(r" lead=(-?[\d.]+),(-?[\d.]+),(-?[\d.]+),(-?[\d.]+)")
+JNT_RE = re.compile(r" jnt=(-?[\d.]+)")   # M5 step 14, gunner views: a checksum of the hull's drawn joints
 
 EDGE_S = 0.25
 CHANGED = 0.99        # A4-A7: the fraction of draw pairs that must show a change
@@ -186,7 +188,8 @@ def parse_pose(line):
             "seat": None if m.group(12) == "-" else m.group(12),
             "veh": None if m.group(13) == "-" else [float(v) for v in m.group(13).split(",")],
             "lead": (lambda g: None if g is None else (float(g.group(1)), [float(g.group(i)) for i in (2, 3, 4)]))(
-                LEAD_RE.search(m.group(14)))}
+                LEAD_RE.search(m.group(14))),
+            "jnt": (lambda g: None if g is None else [float(g.group(1))])(JNT_RE.search(m.group(14)))}
 
 
 def spectate_round(poses, host_slot, peer_slot):
@@ -797,6 +800,8 @@ def main(argv):
         time.sleep(0.5)
         mark = obs.mark()
         obs.send("set g_logFramePoses 4")
+        if os.environ.get("OPENETQW_FRAME_SYNC_LOG"):
+            obs.send("set r_vkLogFrameSync 1")
         if not obs.wait_for(lambda s: s.startswith("FRAME_POSE:"), 10.0, mark):
             raise Failed("no FRAME_POSE lines after 'set g_logFramePoses 4' (a cheat: are cheats allowed?)")
 

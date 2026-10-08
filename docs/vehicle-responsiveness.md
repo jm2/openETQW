@@ -334,7 +334,7 @@ This stage must ship in the same release as stage 3. Otherwise targets stepping 
 
 ### Stage 5: late mouse look in angle-driven seats (m5-plan step 14, second part)
 
-**Status (2026-10-05).** First tier built for the `standard` class (ledger 064, `g_unlock_vehicleLook`), in seats whose clamp is the base class's with extents only and that do not need the tophat: the drawn angles, r_n (with no input counted on a tick that ignored its command's turn), the pure clamp and the zero-Δ cases below, plus `InhibitTurning`; a pending fresh entry draws the tick view (row 062's guard). Measured by the first changed draw after `+left` (meson `seat-poses`: 1.00 draws on, 2.89 off at cap 120) and a held turn that never turns back (L3). Chase views (`smooth`, `smooth_free`) built 2026-10-06 as an orbit about the focus while the tick's camera lies on the ray back from it (ledger 065; L4 checks the orbit). `smooth_locked` in tophat mode built 2026-10-07 (ledger 065). Not built yet: the jetpack, pivot and free-pivot, the rate-limited classes, the scripted Δ for replay and the per-tick angle-error check.
+**Status (2026-10-05).** First tier built for the `standard` class (ledger 064, `g_unlock_vehicleLook`), in seats whose clamp is the base class's with extents only and that do not need the tophat: the drawn angles, r_n (with no input counted on a tick that ignored its command's turn), the pure clamp and the zero-Δ cases below, plus `InhibitTurning`; a pending fresh entry draws the tick view (row 062's guard). Measured by the first changed draw after `+left` (meson `seat-poses`: 1.00 draws on, 2.89 off at cap 120) and a held turn that never turns back (L3). Chase views (`smooth`, `smooth_free`) built 2026-10-06 as an orbit about the focus while the tick's camera lies on the ray back from it (ledger 065; L4 checks the orbit). `smooth_locked` in tophat mode built 2026-10-07 (ledger 065); the jetpack, rate-limited classes and the `pivot` view (its eye arm swung with the drawn angles) built 2026-10-08 (ledgers 062, 064). Not built yet: free-pivot, the `clampDamped*` classes and the scripted Δ for replay. The per-tick angle-error check is approximated by `seat-poses` L3/L4 under a rate-bound held turn (a draw that ended off the next tick's angles would step at the tick).
 
 **What changes (game)**
 - **The late turn.** Use the render-only usercmd the engine already passes: Δ = `SHORT2ANGLE((short)(cmd.angles − p->usercmd.angles))`, normalized to the shortest arc. This is the same form as the on-foot path (game `Game_local.cpp:6087`).
@@ -555,6 +555,8 @@ Done 2026-09-30: the fix, `AIR_CTL` and meson `aircraft-reprediction` are built 
 Stages 0–7 come to about 5–7 weeks of focused work for one engineer. That does not include m5-plan steps 7, 8, 9 and 10 themselves. Stages 0–6 alone deliver most of the gain. *[inferred]*
 
 ### 3.6 Deferred (not rejected)
+
+*Status (2026-10-07): the transport's drawn joints are built (owner-approved; ledger 070): captured in tick code with `CreateFrame` and blended into scratch with the copy's `callback = NULL`, joints over 90° per tick held; `pivot`/`freepivot` presentable. Riders' IK arms, the exact wheel-angle lerp and the rest of this list stay deferred.*
 
 - **Drawn joints: turret and IK arms, wheels, suspension, rotors.**
   - Capture them in tick code, not in a draw. A draw-time `CreateFrame` would add animator writes to entities the renderer culls (engine `src/renderer/tr_light.cpp:2505-2519`).

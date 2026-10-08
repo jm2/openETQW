@@ -59,6 +59,10 @@ const int NUM_VULKAN_FRAMES = 2;
 uint64_t				pendingFenceUsec = 0;
 uint64_t				pendingAcquireUsec = 0;
 uint64_t				pendingSubmitUsec = 0;
+uint64_t				pendingPoolUsec = 0;		// vkResetCommandPool, in BeginFrame or ahead (r_vkPrepareAhead)
+uint64_t				pendingAheadFenceUsec = 0;	// r_vkPrepareAhead: the fence wait EndFrame did for this frame
+uint64_t				pendingAheadPoolUsec = 0;	// r_vkPrepareAhead: the pool reset EndFrame did for this frame
+long long				pendingFenceBeginUsec = 0;	// r_vkLogFrameSync: BeginFrame's fence wait began (the FRAME_POSE clock)
 std::atomic< int >		syncFrames( 0 );
 std::atomic< uint64_t >	syncFenceUsec( 0 );
 std::atomic< uint64_t >	syncAcquireUsec( 0 );
@@ -114,6 +118,25 @@ idCVar r_vkSkipGui(
 	"skip Vulkan GUI draws for renderer diagnostics"
 );
 
+idCVar r_vkPrepareAhead(
+	"r_vkPrepareAhead",
+	"1",
+	CVAR_RENDERER | CVAR_BOOL | CVAR_NOCHEAT,
+	"at the end of a frame, wait for the next frame's fence and reset its command pool, so the GPU wait and "
+	"the driver's pool reset (up to 13 ms on Honeykrisp) fall before the next frame samples input and computes "
+	"its fraction, not between ClientUpdateView and the draw (0 = do both in BeginFrame, as before)"
+);
+
+idCVar r_vkLogFrameSync(
+	"r_vkLogFrameSync",
+	"0",
+	CVAR_RENDERER | CVAR_BOOL | CVAR_NOCHEAT,
+	"print a FRAME_SYNC line for every presented Vulkan frame: when BeginFrame's fence wait began (us, the clock "
+	"of FRAME_POSE) and the frame's fence, acquire, command-pool reset, submit and present times in microseconds; "
+	"with r_vkPrepareAhead the fence and pool times include the part done at the end of the previous frame "
+	"(test diagnostic)"
+);
+
 idCVar r_vkDebugMaterials(
 	"r_vkDebugMaterials",
 	"0",
@@ -128,6 +151,7 @@ struct sdVulkanFrame {
 	VkSemaphore		imageAvailable;
 	VkSemaphore		renderComplete;
 	VkFence			fence;
+	bool				commandPoolReset;	// r_vkPrepareAhead: EndFrame already waited for the fence and reset the pool
 	VkBuffer			guiVertexBuffer;
 	VkDeviceMemory	guiVertexMemory;
 	void*				guiVertexMapped;
@@ -6127,12 +6151,16 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 	sdVulkanFrame& frame = state->frames[ state->frameIndex ];
 	{
 		RENDER_METRIC_SCOPE( "Vulkan wait for frame fence" );
+		if ( r_vkLogFrameSync.GetBool() ) {
+			pendingFenceBeginUsec = static_cast< long long >( Sys_GetClockTicks() * 1000000.0 / Sys_ClockTicksPerSecond() );
+		}
 		const uint64_t fenceStart = SyncNowUsec();
 		if ( !CheckVulkanResult( state->WaitForFences( state->device, 1,
 			&frame.fence, VK_TRUE, UINT64_MAX ), "vkWaitForFences" ) ) {
 			return false;
 		}
-		pendingFenceUsec = SyncNowUsec() - fenceStart;
+		pendingFenceUsec = SyncNowUsec() - fenceStart + pendingAheadFenceUsec;
+		pendingAheadFenceUsec = 0;
 	}
 	{
 		RENDER_METRIC_SCOPE( "Vulkan retire frame resources" );
@@ -6182,10 +6210,14 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 
 	{
 		RENDER_METRIC_SCOPE( "Vulkan reset command frame" );
-		if ( !CheckVulkanResult( state->ResetFences( state->device, 1, &frame.fence ),
-			"vkResetFences" ) ||
-			!CheckVulkanResult( state->ResetCommandPool( state->device,
-				frame.commandPool, 0 ), "vkResetCommandPool" ) ) {
+		const bool fenceReset = CheckVulkanResult( state->ResetFences( state->device, 1, &frame.fence ), "vkResetFences" );
+		const uint64_t poolStart = SyncNowUsec();
+		const bool poolReset = fenceReset && ( frame.commandPoolReset || CheckVulkanResult( state->ResetCommandPool(
+				state->device, frame.commandPool, 0 ), "vkResetCommandPool" ) );
+		pendingPoolUsec = SyncNowUsec() - poolStart + ( frame.commandPoolReset ? pendingAheadPoolUsec : 0 );
+		frame.commandPoolReset = false;
+		pendingAheadPoolUsec = 0;
+		if ( !fenceReset || !poolReset ) {
 			RestoreSignaledFence( *state, frame );
 			return false;
 		}
@@ -6566,7 +6598,16 @@ void sdVulkanBackend::EndFrame( bool ) {
 		RENDER_METRIC_SCOPE( "Vulkan present" );
 		const uint64_t presentStart = SyncNowUsec();
 		presentResult = state->QueuePresentKHR( state->graphicsQueue, &presentInfo );
-		syncPresentUsec += SyncNowUsec() - presentStart;
+		const uint64_t presentUsec = SyncNowUsec() - presentStart;
+		syncPresentUsec += presentUsec;
+		if ( r_vkLogFrameSync.GetBool() ) {
+			common->Printf( "FRAME_SYNC: us=%lld fence_us=%llu acquire_us=%llu pool_us=%llu submit_us=%llu present_us=%llu\n",
+				pendingFenceBeginUsec, static_cast< unsigned long long >( pendingFenceUsec ),
+				static_cast< unsigned long long >( pendingAcquireUsec ),
+				static_cast< unsigned long long >( pendingPoolUsec ),
+				static_cast< unsigned long long >( pendingSubmitUsec ),
+				static_cast< unsigned long long >( presentUsec ) );
+		}
 		syncFenceUsec += pendingFenceUsec;
 		syncAcquireUsec += pendingAcquireUsec;
 		syncSubmitUsec += pendingSubmitUsec;
@@ -6581,6 +6622,24 @@ void sdVulkanBackend::EndFrame( bool ) {
 	}
 	state->frameActive = false;
 	state->frameIndex = ( state->frameIndex + 1 ) % NUM_VULKAN_FRAMES;
+
+	// r_vkPrepareAhead: the next frame's fence wait and command-pool reset happen now, before
+	// the next frame samples input and ClientUpdateView computes its fraction, not in BeginFrame
+	// between that fraction and the draw. The fence is left signaled (BeginFrame resets it), so a
+	// frame that never begins leaves nothing to restore.
+	if ( r_vkPrepareAhead.GetBool() ) {
+		sdVulkanFrame& next = state->frames[ state->frameIndex ];
+		RENDER_METRIC_SCOPE( "Vulkan prepare next frame" );
+		const uint64_t aheadStart = SyncNowUsec();
+		if ( CheckVulkanResult( state->WaitForFences( state->device, 1, &next.fence, VK_TRUE, UINT64_MAX ),
+				"vkWaitForFences(ahead)" ) ) {
+			const uint64_t poolStart = SyncNowUsec();
+			pendingAheadFenceUsec = poolStart - aheadStart;
+			next.commandPoolReset = CheckVulkanResult( state->ResetCommandPool( state->device,
+				next.commandPool, 0 ), "vkResetCommandPool(ahead)" );
+			pendingAheadPoolUsec = SyncNowUsec() - poolStart;
+		}
+	}
 }
 
 bool sdVulkanBackend::BeginToolWindow( void* nativeWindow, int width, int height,
@@ -6693,6 +6752,7 @@ bool sdVulkanBackend::BeginToolWindow( void* nativeWindow, int width, int height
 		RestoreSignaledFence( *state, frame );
 		return false;
 	}
+	frame.commandPoolReset = false;
 	VkCommandBufferBeginInfo beginInfo;
 	memset( &beginInfo, 0, sizeof( beginInfo ) );
 	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
