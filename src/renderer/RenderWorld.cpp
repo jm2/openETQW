@@ -196,6 +196,8 @@ void idRenderWorldLocal::Clear() {
 	ambientCubeMap = NULL;
 	portalAreas.Clear();
 	areaNodes.Clear();
+	portals.Clear();
+	localModelAreas.Clear();
 	portalAreas.SetNum( 1 );
 	atmosphere = NULL;
 	writeDemo = NULL;
@@ -714,6 +716,49 @@ int idRenderWorldLocal::BoundsInAreas( const idBounds& bounds, int *areas, int m
 	}
 	int numAreas = 0;
 	BoundsInAreas_r( areaNodes, 0, limited, areas, numAreas, maxAreas );
+	return numAreas;
+}
+
+namespace {
+	// Node 0 is the root; a child of 0 is solid; a negative child is area -1-child.
+	void BackendBoundsInAreas_r( const idList< areaNode_t >& nodes, int nodeNum, const idBounds& bounds,
+			int* areas, int& numAreas, int maxAreas ) {
+		for ( ;; ) {
+			if ( numAreas >= maxAreas ) return;
+			if ( nodeNum < 0 ) {
+				const int areaNum = -1 - nodeNum;
+				for ( int index = 0; index < numAreas; ++index ) if ( areas[ index ] == areaNum ) return;
+				areas[ numAreas++ ] = areaNum;
+				return;
+			}
+			if ( nodeNum >= nodes.Num() ) return;
+			const areaNode_t& node = nodes[ nodeNum ];
+			const int side = bounds.PlaneSide( node.plane, 0.1f );
+			int next;
+			if ( side == PLANESIDE_FRONT ) {
+				next = node.children[ 0 ];
+			} else if ( side == PLANESIDE_BACK ) {
+				next = node.children[ 1 ];
+			} else {
+				if ( node.children[ 1 ] != 0 ) {
+					BackendBoundsInAreas_r( nodes, node.children[ 1 ], bounds, areas, numAreas, maxAreas );
+				}
+				next = node.children[ 0 ];
+			}
+			if ( next == 0 ) return;	// solid
+			nodeNum = next;
+		}
+	}
+}
+
+// The renderer's own bounds-to-areas query (area culling, docs/render-portals.md).
+// BoundsInAreas above, which the game's PVS calls, starts its walk at node 0
+// and stops at once, so it always returns no area; it stays that way until
+// stage 2 decides what the game should see.
+int idRenderWorldLocal::BackendBoundsInAreas( const idBounds& bounds, int* areas, int maxAreas ) const {
+	if ( areas == NULL || maxAreas <= 0 || areaNodes.Num() == 0 || bounds.IsCleared() ) return 0;
+	int numAreas = 0;
+	BackendBoundsInAreas_r( areaNodes, 0, bounds, areas, numAreas, maxAreas );
 	return numAreas;
 }
 

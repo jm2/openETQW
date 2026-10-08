@@ -1640,6 +1640,7 @@ void R_RemoveUnecessaryViewLights( void ) {
 extern idCVar r_megaDrawMethod;
 extern idCVar r_skipWaterFogLights;
 extern idCVar r_useMaxVisDist;
+extern idCVar r_usePortals;
 extern idCVar com_gpuSpec;
 
 namespace {
@@ -2248,6 +2249,92 @@ void R_AddAmbientDrawsurfs( viewEntity_s* space ) {
 	}
 }
 
+// Area culling for one view (docs/render-portals.md, stage 1): the areas the
+// view sees through the map's portals, filled by R_BuildDrawView.  When
+// frontEndAreaCulling is false every area counts as visible.
+namespace {
+	idList< bool > frontEndVisibleAreas;
+	bool frontEndAreaCulling = false;
+	struct portalCullingStats_t {
+		unsigned long long views;
+		unsigned long long visibleAreas;
+		unsigned long long totalAreas;
+		unsigned long long models;
+		unsigned long long entities;
+		unsigned long long lights;
+		unsigned long long entitiesTested;
+		unsigned long long entitiesNoArea;
+		unsigned long long lightsTested;
+		unsigned long long lightsNoArea;
+	} portalCullingStats = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+
+	bool LocalModelInVisibleArea( const idRenderWorldLocal* world, int modelIndex ) {
+		const idList< int >* areas = world != NULL ? world->BackendLocalModelAreas( modelIndex ) : NULL;
+		if ( !frontEndAreaCulling || areas == NULL ) {
+			return true;
+		}
+		if ( idRenderWorldLocal::AnyAreaVisible( areas->Begin(), areas->Num(), frontEndVisibleAreas ) ) {
+			return true;
+		}
+		portalCullingStats.models++;
+		return false;
+	}
+
+	// The entity's drawn bounds this frame (a presented pose included), in world space.
+	bool EntityInVisibleArea( const idRenderWorldLocal* world, const renderEntity_t* entity, const idBounds& localBounds ) {
+		if ( !frontEndAreaCulling || world == NULL || entity == NULL || localBounds.IsCleared() ) {
+			return true;
+		}
+		idBounds worldBounds;
+		worldBounds.FromTransformedBounds( localBounds, entity->origin, entity->axis );
+		int areas[ 64 ];
+		const int numAreas = world->BackendBoundsInAreas( worldBounds, areas, 64 );
+		portalCullingStats.entitiesTested++;
+		if ( numAreas == 0 ) portalCullingStats.entitiesNoArea++;
+		if ( numAreas >= 64 || idRenderWorldLocal::AnyAreaVisible( areas, numAreas, frontEndVisibleAreas ) ) {
+			return true;
+		}
+		portalCullingStats.entities++;
+		return false;
+	}
+
+	// A light with an area list lights only those areas; otherwise its volume decides.
+	bool LightInVisibleArea( const idRenderWorldLocal* world, const renderLight_t* light, const viewLight_s* vLight ) {
+		if ( !frontEndAreaCulling || world == NULL || light == NULL || vLight == NULL ||
+			light->flags.atmosphereLight || light->flags.parallel ) {
+			return true;
+		}
+		bool visible = true;
+		portalCullingStats.lightsTested++;
+		if ( light->numAreas > 0 ) {
+			visible = idRenderWorldLocal::AnyAreaVisible( light->areas, light->numAreas, frontEndVisibleAreas );
+		} else if ( vLight->frustumTris != NULL && !vLight->frustumTris->bounds.IsCleared() ) {
+			int areas[ 64 ];
+			const int numAreas = world->BackendBoundsInAreas( vLight->frustumTris->bounds, areas, 64 );
+			if ( numAreas == 0 ) portalCullingStats.lightsNoArea++;
+			visible = numAreas >= 64 || idRenderWorldLocal::AnyAreaVisible( areas, numAreas, frontEndVisibleAreas );
+		}
+		if ( !visible ) {
+			portalCullingStats.lights++;
+		}
+		return visible;
+	}
+}
+
+void R_PrintPortalCullingMetrics() {
+	if ( portalCullingStats.views == 0 ) {
+		common->Printf( "Vulkan portal culling: no view used it (r_usePortals %d)\n", r_usePortals.GetInteger() );
+		return;
+	}
+	const double views = static_cast< double >( portalCullingStats.views );
+	common->Printf( "Vulkan portal culling: %llu views, %.1f of %.1f areas visible per view; culled per view: %.1f static models, %.1f entities, %.1f lights\n",
+		portalCullingStats.views, portalCullingStats.visibleAreas / views, portalCullingStats.totalAreas / views,
+		portalCullingStats.models / views, portalCullingStats.entities / views, portalCullingStats.lights / views );
+	common->Printf( "Vulkan portal culling: tested per view: %.1f entities (%.1f in no area), %.1f lights (%.1f in no area)\n",
+		portalCullingStats.entitiesTested / views, portalCullingStats.entitiesNoArea / views,
+		portalCullingStats.lightsTested / views, portalCullingStats.lightsNoArea / views );
+}
+
 void R_AddModelSurfaces() {
 	viewDef_s* view = RB_GetViewDef();
 	idRenderWorldLocal* world = RB_GetDrawWorld();
@@ -2256,6 +2343,7 @@ void R_AddModelSurfaces() {
 		for ( int modelIndex = 0; modelIndex < world->BackendNumLocalModels(); ++modelIndex ) {
 			idRenderModel* model = world->BackendLocalModel( modelIndex );
 			if ( model == NULL || !model->IsStaticWorldModel() ) continue;
+			if ( !LocalModelInVisibleArea( world, modelIndex ) ) continue;
 			viewEntity_s* modelSpace = R_SetEntityDefViewEntity( NULL, model, -1 );
 			if ( modelSpace != NULL ) R_AddAmbientDrawsurfs( modelSpace );
 		}
@@ -2275,6 +2363,7 @@ void R_AddModelSurfaces() {
 		for ( int modelIndex = 0; modelIndex < world->BackendNumLocalModels(); ++modelIndex ) {
 			idRenderModel* model = world->BackendLocalModel( modelIndex );
 			if ( model == NULL || !model->IsStaticWorldModel() ) continue;
+			if ( !LocalModelInVisibleArea( world, modelIndex ) ) continue;
 			viewEntity_s* modelSpace = R_SetEntityDefViewEntity( NULL, model, -1 );
 			if ( modelSpace != NULL ) frontEndModelSpaces.Append( modelSpace );
 		}
@@ -2491,6 +2580,18 @@ void R_BuildDrawView( idRenderWorldLocal* renderWorld, const renderView_t* rende
 	SetFullScreenRect( view->scissor );
 	view->worldSpace.scissorRect = view->scissor;
 	{
+		RENDER_METRIC_SCOPE( "Portal flood" );
+		frontEndAreaCulling = renderWorld->FindVisibleAreas( view->renderView.vieworg,
+			view->frustum, view->numPlanes, frontEndVisibleAreas );
+		if ( frontEndAreaCulling ) {
+			portalCullingStats.views++;
+			portalCullingStats.totalAreas += frontEndVisibleAreas.Num();
+			for ( int area = 0; area < frontEndVisibleAreas.Num(); ++area ) {
+				if ( frontEndVisibleAreas[ area ] ) portalCullingStats.visibleAreas++;
+			}
+		}
+	}
+	{
 		RENDER_METRIC_SCOPE( "Prepare effects" );
 		renderWorld->BackendPrepareEffects( renderView );
 	}
@@ -2522,6 +2623,9 @@ void R_BuildDrawView( idRenderWorldLocal* renderWorld, const renderView_t* rende
 		idBounds visibilityBounds;
 		if ( !EntityVisibleBeforeSnapshot( entity, entity->hModel, view,
 			visibilityBounds ) ) {
+			continue;
+		}
+		if ( !EntityInVisibleArea( renderWorld, entity, visibilityBounds ) ) {
 			continue;
 		}
 		idRenderModel* drawModel = entity->hModel;
@@ -2561,7 +2665,10 @@ void R_BuildDrawView( idRenderWorldLocal* renderWorld, const renderView_t* rende
 		if ( light == NULL ) continue;
 		if ( light->suppressLightInViewID != 0 && light->suppressLightInViewID == renderView->viewID ) continue;
 		if ( light->allowLightInViewID != 0 && light->allowLightInViewID != renderView->viewID ) continue;
-		R_SetLightDefViewLight( light, lightIndex );
+		viewLight_s* vLight = R_SetLightDefViewLight( light, lightIndex );
+		if ( vLight != NULL && !vLight->culled && !LightInVisibleArea( renderWorld, light, vLight ) ) {
+			vLight->culled = true;
+		}
 	}
 	}
 	{

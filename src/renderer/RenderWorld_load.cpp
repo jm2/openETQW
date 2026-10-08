@@ -355,6 +355,8 @@ bool idRenderWorldLocal::InitFromMap( const char *name ) {
 		return false;
 	}
 	if ( portalAreas.Num() == 0 ) portalAreas.SetNum( 1 );
+	BuildLocalModelAreas();
+	common->Printf( "%s: %d areas, %d portals\n", procName.c_str(), portalAreas.Num(), portals.Num() );
 	return true;
 }
 
@@ -391,7 +393,88 @@ bool idRenderWorldLocal::ParseInterAreaPortals_Binary( idFile* file ) {
 	if ( !ReadProcInt( file, numAreas ) || numAreas < 0 || numAreas > ( 1 << 20 ) ||
 		!ReadProcInt( file, numPortals ) || numPortals < 0 || numPortals > ( 1 << 24 ) ) return false;
 	portalAreas.SetNum( numAreas );
+	for ( int area = 0; area < numAreas; ++area ) {
+		portalAreas[ area ].portals.Clear();
+	}
+
+	// Per portal (docs/render-portals.md section 3): point count, the two
+	// areas, the portalFlags_t bits, an int and a vec3 that only
+	// PORTAL_BLOCKAMBIENT portals use, then the points.  A portal the reader
+	// cannot use is dropped; the areas stay, so culling only gets weaker.
+	portals.Clear();
+	portals.Resize( numPortals );
+	for ( int index = 0; index < numPortals; ++index ) {
+		renderPortal_t portal;
+		int numPoints = 0;
+		if ( !ReadProcInt( file, numPoints ) || numPoints < 0 || numPoints > 1024 ||
+			!ReadProcInt( file, portal.areas[ 0 ] ) || !ReadProcInt( file, portal.areas[ 1 ] ) ||
+			!ReadProcInt( file, portal.flags ) || !ReadProcInt( file, portal.unknownInt ) ||
+			!ReadProcFloatArray( file, portal.unknownVec.ToFloatPtr(), 3 ) ) {
+			portals.Clear();
+			break;
+		}
+		bool pointsRead = true;
+		portal.winding.SetNumPoints( 0 );
+		for ( int point = 0; point < numPoints; ++point ) {
+			idVec3 xyz;
+			if ( !ReadProcFloatArray( file, xyz.ToFloatPtr(), 3 ) ) {
+				pointsRead = false;
+				break;
+			}
+			portal.winding.AddPoint( xyz );
+		}
+		if ( !pointsRead || file->Tell() > chunkEnd ) {
+			portals.Clear();
+			break;
+		}
+		if ( numPoints < 3 || portal.areas[ 0 ] < 0 || portal.areas[ 0 ] >= numAreas ||
+			portal.areas[ 1 ] < 0 || portal.areas[ 1 ] >= numAreas || portal.areas[ 0 ] == portal.areas[ 1 ] ) {
+			continue;
+		}
+		portal.winding.GetPlane( portal.plane );
+		portal.bounds.Clear();
+		for ( int point = 0; point < portal.winding.GetNumPoints(); ++point ) {
+			portal.bounds.AddPoint( portal.winding[ point ].ToVec3() );
+		}
+		const int portalIndex = portals.Append( portal );
+		portalAreas[ portal.areas[ 0 ] ].portals.Append( portalIndex );
+		portalAreas[ portal.areas[ 1 ] ].portals.Append( portalIndex );
+	}
+	if ( portals.Num() == 0 ) {
+		for ( int area = 0; area < numAreas; ++area ) {
+			portalAreas[ area ].portals.Clear();
+		}
+	}
 	return file->Seek( chunkEnd, FS_SEEK_SET ) >= 0;
+}
+
+void idRenderWorldLocal::BuildLocalModelAreas() {
+	localModelAreas.SetNum( localModels.Num() );
+	for ( int index = 0; index < localModels.Num(); ++index ) {
+		idList< int >& areas = localModelAreas[ index ];
+		areas.Clear();
+		idRenderModel* model = localModels[ index ];
+		if ( model == NULL ) {
+			continue;
+		}
+		int areaNum = -1;
+		if ( sscanf( model->Name(), "_area%d", &areaNum ) == 1 && areaNum >= 0 && areaNum < portalAreas.Num() ) {
+			areas.Append( areaNum );
+			continue;
+		}
+		const idList< int >* fixedAreas = model->GetFixedAreas();
+		if ( fixedAreas == NULL ) {
+			continue;
+		}
+		for ( int area = 0; area < fixedAreas->Num(); ++area ) {
+			const int fixedArea = ( *fixedAreas )[ area ];
+			if ( fixedArea < 0 || fixedArea >= portalAreas.Num() ) {
+				areas.Clear();		// an area the map doesn't have: don't cull this model
+				break;
+			}
+			areas.Append( fixedArea );
+		}
+	}
 }
 
 bool idRenderWorldLocal::ParseMegatextureInfo_Binary( idFile* file ) {

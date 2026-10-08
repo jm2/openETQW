@@ -21,6 +21,21 @@ struct portalAreaState_t {
 	portalAreaState_t() : portalFlags( 0 ), ambientCubeMap( NULL ) {}
 	int portalFlags;
 	const sdDeclAmbientCubeMap* ambientCubeMap;
+	idList< int > portals;			// indexes into idRenderWorldLocal::portals
+};
+
+// One inter-area portal from the binary proc's interAreaPortals section
+// (docs/render-portals.md section 3).  The two fields after the flags appear
+// only on PORTAL_BLOCKAMBIENT portals and are kept, not interpreted.
+struct renderPortal_t {
+	renderPortal_t() : flags( 0 ), unknownInt( 0 ), unknownVec( vec3_zero ) { areas[ 0 ] = areas[ 1 ] = -1; }
+	int areas[ 2 ];
+	int flags;						// bits of portalFlags_t
+	int unknownInt;
+	idVec3 unknownVec;
+	idWinding winding;
+	idPlane plane;
+	idBounds bounds;
 };
 
 struct bseEffectState_t;
@@ -153,6 +168,24 @@ public:
 	int BackendNumPreparedEffects() const;
 	renderEntity_t* BackendPreparedEffect( int index ) const;
 
+	// Area/portal data for the renderer's area culling (docs/render-portals.md).
+	int BackendBoundsInAreas( const idBounds& bounds, int* areas, int maxAreas ) const;
+	int BackendNumPortals() const { return portals.Num(); }
+	const renderPortal_t& BackendPortal( int index ) const { return portals[ index ]; }
+	const idList< int >& BackendAreaPortals( int areaNum ) const { return portalAreas[ areaNum ].portals; }
+	const idList< int >* BackendLocalModelAreas( int modelIndex ) const {
+		return modelIndex >= 0 && modelIndex < localModelAreas.Num() ? &localModelAreas[ modelIndex ] : NULL;
+	}
+	// Area visibility for one view (RenderWorld_portals.cpp).  Fills
+	// visibleAreas[ area ] and returns false when area culling cannot be used
+	// (no portals, r_usePortals 0, or the view origin outside every area):
+	// everything is then treated as visible, as before portals were loaded.
+	bool FindVisibleAreas( const idVec3& viewOrigin, const idPlane* frustum, int numFrustumPlanes,
+		idList< bool >& visibleAreas ) const;
+	// True when any of the areas is visible, or when the list is empty.
+	static bool AnyAreaVisible( const int* areas, int numAreas, const idList< bool >& visibleAreas );
+	void BuildLocalModelAreas();
+
 private:
 	friend class idMegaTexture;
 
@@ -175,6 +208,11 @@ private:
 	const sdDeclAmbientCubeMap* ambientCubeMap;
 	idList< portalAreaState_t > portalAreas;
 	idList< areaNode_t > areaNodes;
+	idList< renderPortal_t > portals;
+	// The areas each local model is in: _areaN models are in area N, the rest
+	// carry the proc's fixed-area list.  Empty: not known, never culled by area.
+	idList< idList< int > > localModelAreas;
+
 	const sdDeclAtmosphere* atmosphere;
 	idDemoFile* writeDemo;
 	idBounds megaTextureBounds;
