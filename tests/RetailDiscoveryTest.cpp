@@ -188,7 +188,10 @@ int main() {
 		if ( Narrow( accented, accentedName ) ) {
 			const fs::path accentedSave = tmp / "save-accented";
 			CHECK( RetailDiscovery::WriteStoredPath( Str( accentedSave ).c_str(), accentedName.c_str() ), "a non-ASCII stored path was not written" );
-			CHECK( RetailDiscovery::ReadStoredPath( Str( accentedSave / "basepath.txt" ).c_str(), path ) && idStr::Cmp( path, accentedName ) == 0,
+			// the read path is normalised (forward slashes on Windows): compare as directories
+			std::error_code error;
+			fs::create_directories( accented, error );
+			CHECK( RetailDiscovery::ReadStoredPath( Str( accentedSave / "basepath.txt" ).c_str(), path ) && SameDir( path, accented ),
 				"a non-ASCII stored path read back as '%s', want '%s'", path.c_str(), accentedName.c_str() );
 		}
 	}
