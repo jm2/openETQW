@@ -48652,7 +48652,7 @@
       "canonicalSha256": "2487f56437de92f4a28c7e0e7e621a6ccf1978f71998234bbcd59c037bc42e81",
       "bytes": 10262,
       "addedAfterSplit": true,
-      "addedIn": null,
+      "addedIn": "1711a2e67309deef37fc20b03cc3052684dc025b",
       "spdx": "GPL-3.0-or-later"
     },
     {
@@ -48784,7 +48784,7 @@
       "canonicalSha256": "7a47dab7d2ec57283d73926e00be04b774490316d3544f5deb62dda1de5dab55",
       "bytes": 7755,
       "addedAfterSplit": true,
-      "addedIn": null,
+      "addedIn": "f7e130598f4016625381cc77a2dc6e7f9e7ad7fe",
       "spdx": "GPL-3.0-or-later"
     },
     {
@@ -48796,7 +48796,7 @@
       "canonicalSha256": "f6086e5c71a909c027fee7dc178b620b9c58c462af36c2f1a3f31baea7339aad",
       "bytes": 9131,
       "addedAfterSplit": true,
-      "addedIn": null,
+      "addedIn": "34245e88b52ce7df7f2317e080fcbab376a8a663",
       "spdx": "GPL-3.0-or-later"
     },
     {
@@ -48808,7 +48808,7 @@
       "canonicalSha256": "1b217a3e1ab48c79930e9558ddfdee6ffeb18a69cc8e326de10ab661230c63cb",
       "bytes": 7921,
       "addedAfterSplit": true,
-      "addedIn": null,
+      "addedIn": "7ab737c688cf3c0df17f1e01675d6746a9a00385",
       "spdx": "GPL-3.0-or-later"
     },
     {
@@ -48820,7 +48820,7 @@
       "canonicalSha256": "f03ca28c08b7acc3bf93564b6f4f048db7dfcafb03ef04f7b8adcaf166be8ac3",
       "bytes": 8350,
       "addedAfterSplit": true,
-      "addedIn": null,
+      "addedIn": "b92c817ee7267d1f907abcfbb0dea1d735087ad7",
       "spdx": "GPL-3.0-or-later"
     },
     {
