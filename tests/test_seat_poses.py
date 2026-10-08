@@ -24,17 +24,21 @@ FRAME_POSE line per draw: the drawn view, the seat and the vehicle's render-worl
               one step of a whole tick's motion: 4x at cap 120)
 
 Late mouse look (stage 5), first of all, at cap 120 from the parked badger, in the driver's
-standard view and then the gunner's chase view (smooth_free, which orbits its focus; the
-in_yawSpeed key turn stands in for the mouse):
+standard view, the gunner's chase view (smooth_free, which orbits its focus) and the
+driver's chase view (smooth_locked, in tophat mode through ui_drivingCameraFreelook 1); the
+in_yawSpeed key turn stands in for the mouse:
 
   L0 seat     every draw of the phase is from that seat and view
   L1 tap      90% of LOOK_TAPS +left/+right taps show the turn on the next draw
   L2 held     a held turn changes the drawn yaw between consecutive draws (>= 99%)
   L3 smooth   under the held turn the yaw never turns back, and its rate across a tick is
-              at most 2.5 x the median rate within one (per microsecond between draws)
+              at most 2.5 x the median rate within one (per microsecond between draws), on
+              all but max(1, 10%) of the tick crossings (a frame off the wall clock)
   L4 orbit    (the chase view) the camera origin's speed across a tick is at most 1.5 x
-              the median speed within one (a wrong pivot would jump at each tick)
+              the median speed within one, on all but max(1, 10%) of the tick crossings (a
+              wrong pivot would jump at every one)
   L1c control with g_unlock_vehicleLook 0 the turn shows at least a draw later on average
+  L5 locked   (smooth_locked) outside tophat mode a tap turns no draw
 
 Remote entities while seated (stage 4; join and listen, which have a headless peer): at
 cap 120, with the driver parked in the listed seat, the peer walks forward, then back:
@@ -113,6 +117,20 @@ def seat_phase_poses(proc, begin, end):
         return poses
     t0, t1 = poses[0]["us"] + EDGE_S * 1e6, poses[-1]["us"] - EDGE_S * 1e6
     return [p for p in poses if t0 <= p["us"] <= t1]
+
+
+LAUNCH_DZ_U = 30.0    # vertical hull motion in one tick that only a launch or a fall gives (900 u/s)
+
+
+def launched(poses):
+    """The largest vertical hull motion between consecutive ticks of a phase when it exceeds
+    LAUNCH_DZ_U, else None: driving on valley's ground moves the hull a few units a tick."""
+    first = {}
+    for p in poses:
+        if p["veh"] is not None:
+            first.setdefault(p["gt"], p["veh"][2])
+    worst = max((abs(first[gt + 33] - z) for gt, z in first.items() if gt + 33 in first), default=0.0)
+    return worst if worst > LAUNCH_DZ_U else None
 
 
 def step_check(poses, key="veh", what="step"):
@@ -222,9 +240,14 @@ def look_consistency(held, k=2.5):
     across = [abs(d) for d, cross in moving if cross]
     median = inside[len(inside) // 2] if inside else 0.0
     worst = max(across) / median if across and median > 0 else float("inf")
-    ok = back == 0 and worst <= k
-    return ok, (f"held yaw: {back} of {len(moving)} moving pairs turn back; worst cross-tick rate {worst:.2f}x"
-                f" the median in-tick rate (at most {k}x)")
+    # a frame drawn off the wall clock (a prediction-clock correction or a late frame under
+    # load, frame-poses A8) can make one cross-tick pair fast; a snap-back or double count
+    # shows on every tick, so at most max(1, 10%) of the tick crossings may exceed k
+    over = sum(1 for v in across if median <= 0 or v / median > k)
+    allowed = max(1, len(across) // 10)
+    ok = back == 0 and bool(across) and over <= allowed
+    return ok, (f"held yaw: {back} of {len(moving)} moving pairs turn back; {over} of {len(across)} cross-tick rates"
+                f" over {k}x the median in-tick rate (allowed {allowed}; worst {worst:.2f}x)")
 
 
 def orbit_consistency(held, k=1.5):
@@ -242,8 +265,11 @@ def orbit_consistency(held, k=1.5):
         return False, f"too few draw pairs under the held turn ({len(inside)} within a tick, {len(across)} across)"
     median = inside[len(inside) // 2]
     worst = max(across) / median if median > 0 else float("inf")
-    return worst <= k, (f"camera origin: median speed {median:.0f} u/s within a tick, worst across a tick {worst:.2f}x"
-                        f" (at most {k}x)")
+    # one off-clock frame allowed, as in L3; a wrong pivot jumps at every tick
+    over = sum(1 for v in across if median <= 0 or v / median > k)
+    allowed = max(1, len(across) // 10)
+    return over <= allowed, (f"camera origin: median speed {median:.0f} u/s within a tick; {over} of {len(across)}"
+                             f" tick crossings over {k}x (allowed {allowed}; worst {worst:.2f}x)")
 
 
 def per_tick(res):
@@ -316,15 +342,60 @@ def main(argv):
         procs.insert(0, ("peer", peer))
     failures = []
 
-    def phase(name, cap, drive):
-        begin = obs.mark()
-        obs.send(f"echo FP_BEGIN {name} {cap}")
-        drive()
-        obs.send(f"echo FP_END {name} {cap}")
-        hit = obs.wait_for(lambda s: s.strip() == f"FP_END {name} {cap}", 10.0, begin)
-        if not hit:
-            raise Failed(f"no end of phase {name} at cap {cap}")
-        return seat_phase_poses(obs, begin, hit[0])
+    def seat_in_mode(mode):
+        """The player in the badger's driver seat (position 0) with view mode `mode`: entered
+        again when on foot or in another seat (a launch can throw the player out, a respawn
+        leaves them on foot), the camera cycled to the mode."""
+        for _ in range(5):
+            last = next((p for ln in reversed(obs.snapshot()) if (p := parse_pose(ln.text))), None)
+            fields = seat_fields(last["seat"]) if last is not None and last["seat"] is not None else None
+            if fields is not None and fields[1] == 0 and fields[2] == mode:
+                return True
+            if fields is None or fields[1] != 0:
+                if fields is not None:
+                    srv.send(f"exitVehicle {obs.slot}")
+                    time.sleep(1.0)
+                seat_up()
+                continue
+            srv.send(f"cycleVehicleCamera {obs.slot}")
+            time.sleep(1.5)
+        return False
+
+    def phase(name, cap, drive, check_launch=True, mode=0):
+        """One drive phase's draws, from the driver's seat in view mode `mode` (None: whatever
+        seat the caller set up, unchecked). A disturbed phase is driven again once the badger
+        has settled: the hull launched or fell (issue #84: a collision can throw the badger
+        thousands of units up, and then the guards rightly refuse some ticks), or some draws
+        were not from that seat and mode (the player thrown out, or respawned on foot). A
+        second disturbed attempt fails the test with that reason."""
+        for attempt in range(2):
+            if mode is not None:
+                # the badger back where the test marked it, at rest: the drive legs leave it further
+                # out every phase (it reverses slower than it drives), onto ground that can
+                # throw it (#84); resetVehicle is a cheat the test servers allow
+                # (a badger that replaced a destroyed one has no mark and stays where it is)
+                srv.send(f"resetVehicle {BADGER}")
+                time.sleep(1.5)
+            if mode is not None and not seat_in_mode(mode):
+                raise Failed(f"phase {name} at cap {cap}: could not seat the player in the driver's seat, view mode {mode}")
+            begin = obs.mark()
+            obs.send(f"echo FP_BEGIN {name} {cap}")
+            drive()
+            obs.send(f"echo FP_END {name} {cap}")
+            hit = obs.wait_for(lambda s: s.strip() == f"FP_END {name} {cap}", 10.0, begin)
+            if not hit:
+                raise Failed(f"no end of phase {name} at cap {cap}")
+            poses = seat_phase_poses(obs, begin, hit[0])
+            jump = launched(poses) if check_launch else None
+            off = 0 if mode is None else sum(1 for p in poses if p["seat"] is None
+                                              or seat_fields(p["seat"])[1:] != (0, mode))
+            if jump is None and off == 0:
+                return poses
+            why = (f"the hull moved {jump:.0f} u vertically in one tick (launched or falling)" if jump is not None
+                   else f"{off} of {len(poses)} draws were not from the driver's seat in view mode {mode}")
+            print(f"[seat] phase {name} at cap {cap}: {why}; attempt {attempt + 1}", flush=True)
+            time.sleep(5.0)
+        raise Failed(f"phase {name} at cap {cap}: disturbed in both attempts ({why})")
 
     def peer_walk():
         peer.send("clientMove 127 0 0")
@@ -461,12 +532,14 @@ def main(argv):
                                       ("L2", on_turn["ok"], on_turn["detail"]),
                                       ("L1c", l1c, f"with g_unlock_vehicleLook 0 the turn shows at least a draw later on average"
                                                    f" (mean {mean(off):.2f} against {mean(on):.2f})")) + tuple(checks):
-                print(f"  {cap:3} {label[:5]} {check}  {'pass' if ok else 'FAIL'}  {detail}")
+                print(f"  {cap:3} {label} {check}  {'pass' if ok else 'FAIL'}  {detail}")
                 if not ok:
                     failures.append(f"late look, {label}, {check}: {detail}")
 
         obs.send(f"set g_unlock_vehicleSeats {LISTED}")
         seat_up()
+        # where the drive phases start from: the badger parked where it spawned (#84)
+        srv.send(f"resetVehicle {BADGER} mark")
         late_look("driver", (0, 0))
         # the gunner's seat (position 1), cycled to its chase view (mode 1, smooth_free)
         obs.send(f"set g_unlock_vehicleSeats {LISTED},badger:*:smooth_free")
@@ -479,6 +552,46 @@ def main(argv):
             srv.send(f"cycleVehicleCamera {obs.slot}")
             time.sleep(1.5)
         late_look("chase gunner", (1, 1), orbit=True)
+        # the driver's chase view (mode 1, smooth_locked): its look is free only in tophat
+        # mode, which ui_drivingCameraFreelook 1 makes the default (the tophat inverts it).
+        # Back to the driver's seat by swapping, not by leaving and entering again: an exit
+        # can leave the player against the hull, and the push can throw the badger (#84)
+        obs.send("set ui_drivingCameraFreelook 1")
+        obs.send(f"set g_unlock_vehicleSeats {LISTED},badger:*:smooth_locked")
+        for _ in range(5):
+            last = next((p for ln in reversed(obs.snapshot()) if (p := parse_pose(ln.text))), None)
+            if last is not None and (seat_fields(last["seat"]) or (0, -1, 0))[1] == 0:
+                break
+            srv.send(f"swapVehicleSeat {obs.slot}")
+            time.sleep(1.5)
+        for _ in range(2):
+            last = next((p for ln in reversed(obs.snapshot()) if (p := parse_pose(ln.text))), None)
+            if last is not None and (seat_fields(last["seat"]) or (0, 0, 0))[1:] == (0, 1):
+                break
+            srv.send(f"cycleVehicleCamera {obs.slot}")
+            time.sleep(1.5)
+        late_look("chase driver", (0, 1), orbit=True)
+        # L5, its negative control: outside tophat mode (freelook off) the camera follows the
+        # hull, and a tap turns no draw (the late look must not show a turn the tick ignores)
+        obs.send("set ui_drivingCameraFreelook 0")
+        time.sleep(1.5)
+        begin = obs.mark()
+        for k in range(LOOK_TAPS):
+            obs.send(f"+{'left' if k % 2 == 0 else 'right'}; echo LOOKTAP")
+            time.sleep(LOOK_TAP_S)
+            obs.send(f"-{'left' if k % 2 == 0 else 'right'}")
+            time.sleep(0.4)
+        turned = look_response([ln.text for ln in obs.snapshot(begin)])
+        taps = sum(1 for ln in obs.snapshot(begin) if ln.text.strip() == "LOOKTAP")
+        # every draw from the driver's chase view: an ejection or a camera change would turn
+        # nothing and pass vacuously (CodeRabbit, #83)
+        l5_seats = {p["seat"] for ln in obs.snapshot(begin) if (p := parse_pose(ln.text))}
+        in_view = len(l5_seats) == 1 and None not in l5_seats and seat_fields(next(iter(l5_seats)))[1:] == (0, 1)
+        ok5 = taps >= LOOK_TAPS - 1 and in_view and not turned
+        print(f"  {cap:3} chase driver L5  {'pass' if ok5 else 'FAIL'}  outside tophat mode {len(turned)} of {taps} taps"
+              f" turned the drawn view (seats {sorted(x or '-' for x in l5_seats)})")
+        if not ok5:
+            failures.append(f"late look, chase driver, L5: outside tophat mode {len(turned)} of {taps} taps turned the view")
         obs.send(f"set g_unlock_vehicleSeats {LISTED}")
         # back on foot: the next phase seats the player in the driver's seat again
         srv.send(f"exitVehicle {obs.slot}")
@@ -634,7 +747,7 @@ def main(argv):
             last = next((p for ln in reversed(obs.snapshot()) if (p := parse_pose(ln.text))), None)
             if last is not None and (seat_fields(last["seat"]) or (0, 0, 0))[2] == 1:
                 break
-        poses = phase("chasecontrol", cap, drive)
+        poses = phase("chasecontrol", cap, drive, mode=1)
         for key, what in (("view", "view"), ("veh", "hull")):
             changed, n = within_tick_changes(poses, key)
             moving = sum(1 for a, b in zip(poses, poses[1:]) if moved(a[key], b[key]))
@@ -655,7 +768,7 @@ def main(argv):
             last = next((p for ln in reversed(obs.snapshot()) if (p := parse_pose(ln.text))), None)
             if last is not None and (seat_fields(last["seat"]) or (0, 0, 0))[2] == 1:
                 break
-        poses = phase("chasedrive", cap, drive)
+        poses = phase("chasedrive", cap, drive, mode=1)
         modes = {(seat_fields(p["seat"]) or (0, 0, -1))[2] for p in poses}
         view, hull = shapes(moving_poses(poses))
         cview = onpath_check(poses, lambda p: p["view"], "chase camera's drawn origin")
@@ -668,7 +781,7 @@ def main(argv):
         if modes != {1}:
             failures.append(f"the chase phase drew view modes {sorted(modes)}, not only the chase view (1)")
         seat_up("vehicle_icarus")
-        poses = phase("guardicarus", cap, drive)
+        poses = phase("guardicarus", cap, drive, check_launch=False, mode=None)   # a jetpack flies
         changed, n = within_tick_changes(poses, "view")
         moving = sum(1 for a, b in zip(poses, poses[1:]) if moved(a["view"], b["view"]))
         print(f"[seat] guard (icarus, listed) at cap {cap}: the view changed within a tick on {changed} of {n} pairs"

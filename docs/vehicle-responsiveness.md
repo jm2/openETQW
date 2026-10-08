@@ -334,7 +334,7 @@ This stage must ship in the same release as stage 3. Otherwise targets stepping 
 
 ### Stage 5: late mouse look in angle-driven seats (m5-plan step 14, second part)
 
-**Status (2026-10-05).** First tier built for the `standard` class (ledger 064, `g_unlock_vehicleLook`), in seats whose clamp is the base class's with extents only and that do not need the tophat: the drawn angles, r_n (with no input counted on a tick that ignored its command's turn), the pure clamp and the zero-Δ cases below, plus `InhibitTurning`; a pending fresh entry draws the tick view (row 062's guard). Measured by the first changed draw after `+left` (meson `seat-poses`: 1.00 draws on, 2.89 off at cap 120) and a held turn that never turns back (L3). Chase views (`smooth`, `smooth_free`) built 2026-10-06 as an orbit about the focus while the tick's camera lies on the ray back from it (ledger 065; L4 checks the orbit). Not built yet: `smooth_locked`, the jetpack, pivot and free-pivot, the rate-limited classes, the scripted Δ for replay and the per-tick angle-error check.
+**Status (2026-10-05).** First tier built for the `standard` class (ledger 064, `g_unlock_vehicleLook`), in seats whose clamp is the base class's with extents only and that do not need the tophat: the drawn angles, r_n (with no input counted on a tick that ignored its command's turn), the pure clamp and the zero-Δ cases below, plus `InhibitTurning`; a pending fresh entry draws the tick view (row 062's guard). Measured by the first changed draw after `+left` (meson `seat-poses`: 1.00 draws on, 2.89 off at cap 120) and a held turn that never turns back (L3). Chase views (`smooth`, `smooth_free`) built 2026-10-06 as an orbit about the focus while the tick's camera lies on the ray back from it (ledger 065; L4 checks the orbit). `smooth_locked` in tophat mode built 2026-10-07 (ledger 065). Not built yet: the jetpack, pivot and free-pivot, the rate-limited classes, the scripted Δ for replay and the per-tick angle-error check.
 
 **What changes (game)**
 - **The late turn.** Use the render-only usercmd the engine already passes: Δ = `SHORT2ANGLE((short)(cmd.angles − p->usercmd.angles))`, normalized to the shortest arc. This is the same form as the on-foot path (game `Game_local.cpp:6087`).
@@ -625,7 +625,7 @@ Stages 0–7 come to about 5–7 weeks of focused work for one engineer. That do
 4. **Stage 7.** Adopt the lead per class after measurement? L = 0.5 keeps today's mean age; L = 1 removes it, with a risk of overshoot.
 5. **Remote vehicles.** They are drawn one tick behind (retail, D5), and there is no vehicle antilag. Do you want vehicles to depart from retail, using the lead or remote axes and joints? That needs a ledger row. *Answered 2026-09-29: yes, each departure with a ledger row, enabled per class under a measured bound.*
 6. **Aircraft state.** If loopback shows a residual, network the air-control state (a protocol minor bump)? *Answered 2026-09-29: yes.*
-7. **Prediction-error decay on your own vehicle.** It has no exclusion for the local player (game `src/game/ScriptEntity.cpp:2244-2255`). Keep it, or replace it with a faster fade in presentation? Not measured.
+7. **Prediction-error decay on your own vehicle.** It has no exclusion for the local player (game `src/game/ScriptEntity.cpp:2244-2255`). Keep it, or replace it with a faster fade in presentation? *Answered 2026-10-07: keep retail's decay, and revisit only if a network client's `VEH_PRED` shows it as wobble ([`hull-lead.md`](hull-lead.md) §6 has the first client numbers).*
 
 ### 5.2 Not determined
 
