@@ -132,13 +132,16 @@ void Decode565( unsigned packed, byte color[ 4 ] ) {
 	color[ 3 ] = 255;
 }
 
-void DecodeDxtColorBlock( const byte* block, bool allowTransparent,
+// A DXT1 block with color0 <= color1 has three colours and black, as BC1 hardware
+// decodes it; black is transparent only in an image with 1-bit alpha.  DXT3 and DXT5
+// colour blocks always have four colours.
+void DecodeDxtColorBlock( const byte* block, bool dxt1, bool allowTransparent,
 	byte colors[ 4 ][ 4 ], unsigned& indices ) {
 	const unsigned color0 = ReadLittle16( block );
 	const unsigned color1 = ReadLittle16( block + 2 );
 	Decode565( color0, colors[ 0 ] );
 	Decode565( color1, colors[ 1 ] );
-	if ( color0 > color1 || !allowTransparent ) {
+	if ( color0 > color1 || !dxt1 ) {
 		for ( int component = 0; component < 3; ++component ) {
 			colors[ 2 ][ component ] = static_cast< byte >(
 				( 2 * colors[ 0 ][ component ] + colors[ 1 ][ component ] + 1 ) / 3 );
@@ -153,7 +156,7 @@ void DecodeDxtColorBlock( const byte* block, bool allowTransparent,
 			colors[ 3 ][ component ] = 0;
 		}
 		colors[ 2 ][ 3 ] = 255;
-		colors[ 3 ][ 3 ] = 0;
+		colors[ 3 ][ 3 ] = allowTransparent ? 0 : 255;
 	}
 	indices = ReadLittle32( block + 4 );
 }
@@ -242,7 +245,7 @@ bool DecodeDDSLevelRGBA( unsigned long fourCC, bool dxt1Alpha,
 				DecodeBcAlphaBlock( block, alpha );
 				colorBlock += 8;
 			}
-			DecodeDxtColorBlock( colorBlock, fourCC == dxt1 && dxt1Alpha,
+			DecodeDxtColorBlock( colorBlock, fourCC == dxt1, fourCC == dxt1 && dxt1Alpha,
 				colors, colorIndices );
 			for ( int pixel = 0; pixel < 16; ++pixel ) {
 				const int x = blockX * 4 + ( pixel & 3 );
@@ -1103,6 +1106,30 @@ void idImage::UploadPrecompressedImage( byte* data, int len ) {
 			uploadedMips++;
 		}
 
+		if ( !vulkanUploaded && vulkanBackend.IsInitialized() && compressed &&
+			mipWidth <= uploadWidth && mipHeight <= uploadHeight ) {
+			// The file's blocks and mip levels as they are: 4 bits (DXT1, ATI1) or
+			// 8 bits per texel instead of the decode's 32, no generated mipmaps.
+			vulkanBlockFormat_t blockFormat = VBF_BC3;
+			bool knownBlockFormat = true;
+			switch ( header->ddspf.dwFourCC ) {
+				case DDS_MAKEFOURCC( 'D', 'X', 'T', '1' ):
+					blockFormat = ( header->ddspf.dwFlags & DDSF_ALPHAPIXELS ) ? VBF_BC1_RGBA : VBF_BC1_RGB;
+					break;
+				case DDS_MAKEFOURCC( 'D', 'X', 'T', '3' ): blockFormat = VBF_BC2; break;
+				case DDS_MAKEFOURCC( 'D', 'X', 'T', '5' ): blockFormat = VBF_BC3; break;
+				case DDS_MAKEFOURCC( 'R', 'X', 'G', 'B' ): blockFormat = VBF_BC3_RXGB; break;
+				case DDS_MAKEFOURCC( 'A', 'T', 'I', '1' ): blockFormat = VBF_BC4; break;
+				case DDS_MAKEFOURCC( 'A', 'T', 'I', '2' ): blockFormat = VBF_BC5; break;
+				default: knownBlockFormat = false; break;
+			}
+			if ( knownBlockFormat && vulkanBackend.SupportsBlockFormat( blockFormat, filter != TF_NEAREST ) ) {
+				vulkanUploaded = vulkanBackend.UploadBlockImage2D( this, blockFormat,
+					imageData, static_cast< size_t >( fileEnd - imageData ),
+					mipWidth, mipHeight, fileMipCount - mip,
+					filter != TF_NEAREST, repeat == TR_REPEAT );
+			}
+		}
 		if ( !vulkanUploaded && vulkanBackend.IsInitialized() &&
 			mipWidth <= uploadWidth && mipHeight <= uploadHeight ) {
 			byte* rgba = static_cast< byte* >( Mem_Alloc( mipWidth * mipHeight * 4 ) );
