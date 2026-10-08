@@ -51,6 +51,15 @@ namespace RetailDiscovery {
 	// of each steamapps/appmanifest_*.acf whose "name" holds "QUAKE Wars"
 	void	AppendSteamInstalls( const char *library, idStrList &candidates );
 
+	// a Wine prefix (or CrossOver bottle) holding the Windows game: when <prefix>/drive_c
+	// exists, the Windows install folders under its Program Files (x86) and Program Files
+	// go to candidates and the Steam folders there to steamRoots
+	void	AppendWineInstalls( const char *prefix, idStrList &candidates, idStrList &steamRoots );
+
+	// the subfolders of parent that are Wine prefixes (they hold drive_c), in name order:
+	// the prefix folders of Lutris, Bottles and PlayOnLinux
+	void	AppendWinePrefixesIn( const char *parent, idStrList &prefixes );
+
 	// the first line of a stored-path file, trimmed; false when there is none
 	bool	ReadStoredPath( const char *file, idStr &path );
 

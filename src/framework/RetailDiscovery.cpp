@@ -399,6 +399,79 @@ void RetailDiscovery::AppendSteamInstalls( const char *library, idStrList &candi
 	}
 }
 
+// the Windows game's install folders under Program Files, as the Windows table lists them
+static const char *const WINDOWS_INSTALL_FOLDERS[] = {
+	"id Software/Enemy Territory - QUAKE Wars",
+	"Activision/Enemy Territory - QUAKE Wars",
+	"Enemy Territory - QUAKE Wars",
+	"Enemy Territory QUAKE Wars",
+	"ETQW",
+};
+
+void RetailDiscovery::AppendWineInstalls( const char *prefix, idStrList &candidates, idStrList &steamRoots ) {
+	if ( prefix == NULL || prefix[ 0 ] == '\0' ) {
+		return;
+	}
+	fs::path prefixPath;
+	if ( !ToPath( prefix, prefixPath ) ) {
+		return;
+	}
+	try {	// a prefix that cannot be read is skipped, not the search
+		fs::path driveC;
+		if ( !FindEntryNoCase( prefixPath, "drive_c", true, driveC ) ) {
+			return;
+		}
+	} catch ( const std::exception & ) {
+		return;
+	}
+	static const char *const programFolders[] = { "Program Files (x86)", "Program Files" };
+	for ( const char *program : programFolders ) {
+		for ( const char *folder : WINDOWS_INSTALL_FOLDERS ) {
+			idStr path = prefix;
+			path.AppendPath( "drive_c" );
+			path.AppendPath( program );
+			path.AppendPath( folder );
+			AddUnique( candidates, path );
+		}
+		// Steam for Windows in the prefix: only its own steamapps is searched (a second
+		// library it lists is a Windows path, not mapped through drive_c here)
+		idStr steam = prefix;
+		steam.AppendPath( "drive_c" );
+		steam.AppendPath( program );
+		steam.AppendPath( "Steam" );
+		AddUnique( steamRoots, steam );
+	}
+}
+
+void RetailDiscovery::AppendWinePrefixesIn( const char *parent, idStrList &prefixes ) {
+	if ( parent == NULL || parent[ 0 ] == '\0' ) {
+		return;
+	}
+	fs::path parentPath;
+	if ( !ToPath( parent, parentPath ) ) {
+		return;
+	}
+	try {	// a folder that cannot be read is skipped, not the search
+		std::vector< fs::path > found;
+		ForEachEntry( parentPath, [&]( const fs::directory_entry &entry ) {
+			std::error_code typeError;
+			fs::path driveC;
+			if ( entry.is_directory( typeError ) && FindEntryNoCase( entry.path(), "drive_c", true, driveC ) ) {
+				found.push_back( entry.path() );
+			}
+			return true;
+		} );
+		std::sort( found.begin(), found.end() );	// a stable order across runs
+		for ( const fs::path &prefix : found ) {
+			idStr name;
+			if ( NarrowPath( prefix, name ) ) {
+				AddUnique( prefixes, name );
+			}
+		}
+	} catch ( const std::exception & ) {
+	}
+}
+
 bool RetailDiscovery::ReadStoredPath( const char *file, idStr &path ) {
 	if ( file == NULL || file[ 0 ] == '\0' ) {
 		return false;

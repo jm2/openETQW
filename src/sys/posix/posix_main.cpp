@@ -405,10 +405,16 @@ const char *Sys_DefaultBasePath( void ) {
 ================
 Sys_AppendRetailDataCandidates
 
-Linux's table for RetailDiscovery (ledger 068): the retail Linux client's usual
-install folders, then the Steam installations, whose libraries also hold a
-Proton install of the Windows game. Every candidate is checked for
-base/pak000.pk4 before it is used. Wine prefixes are not searched yet.
+Linux's table for RetailDiscovery (ledger 068), in the order probed:
+  - the retail Linux client's usual install folders;
+  - the Windows game in a Wine prefix: WINEPREFIX, ~/.wine, then the prefix folders of
+    Lutris (~/Games/<game>), Bottles (native and Flatpak) and PlayOnLinux, each with the
+    Windows install folders under drive_c's Program Files (x86) and Program Files;
+  - the Steam roots, in this order: OPENETQW_STEAM_ROOT, the native and Flatpak Steam
+    (whose libraries also hold a Proton install of the Windows game), then Steam inside
+    each Wine prefix (only its own steamapps: a second library it lists is a Windows path,
+    not mapped through drive_c).
+Every candidate is checked for base/pak000.pk4 before it is used.
 ================
 */
 void Sys_AppendRetailDataCandidates( idStrList &candidates, idStrList &steamRoots ) {
@@ -422,6 +428,32 @@ void Sys_AppendRetailDataCandidates( idStrList &candidates, idStrList &steamRoot
 		idStr path = home;
 		path.AppendPath( "etqw" );
 		candidates.Append( path );
+	}
+
+	idStrList prefixes;
+	const char *winePrefix = getenv( "WINEPREFIX" );
+	if ( winePrefix != NULL && winePrefix[0] == '/' ) {
+		prefixes.Append( winePrefix );
+	}
+	if ( haveHome ) {
+		idStr wine = home;
+		wine.AppendPath( ".wine" );
+		prefixes.Append( wine );
+		static const char *const prefixFolders[] = {
+			"Games",												// Lutris's default game folder
+			".local/share/bottles/bottles",							// Bottles
+			".var/app/com.usebottles.bottles/data/bottles/bottles",	// Bottles (Flatpak)
+			".PlayOnLinux/wineprefix",								// PlayOnLinux
+		};
+		for ( const char *folder : prefixFolders ) {
+			idStr path = home;
+			path.AppendPath( folder );
+			RetailDiscovery::AppendWinePrefixesIn( path, prefixes );
+		}
+	}
+	idStrList prefixSteamRoots;
+	for ( int i = 0; i < prefixes.Num(); i++ ) {
+		RetailDiscovery::AppendWineInstalls( prefixes[i], candidates, prefixSteamRoots );
 	}
 
 	RetailDiscovery::SplitPathList( getenv( "OPENETQW_STEAM_ROOT" ), steamRoots );
@@ -444,6 +476,7 @@ void Sys_AppendRetailDataCandidates( idStrList &candidates, idStrList &steamRoot
 			steamRoots.Append( path );
 		}
 	}
+	steamRoots.Append( prefixSteamRoots );
 }
 
 const char *Sys_DefaultSavePath( void ) {

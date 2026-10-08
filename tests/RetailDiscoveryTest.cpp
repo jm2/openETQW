@@ -6,8 +6,9 @@ Retail data discovery (src/framework/RetailDiscovery.h, ledger 068) on
 synthetic trees in a temporary directory: the base/pak000.pk4 marker in any
 letter case, the path lists, the stored path file (UTF-8), Steam's
 libraryfolders.vdf (both formats, UTF-8, a symlinked root) and app manifests,
-names outside every code page, and the search order with the platform hooks
-stubbed here.
+names outside every code page, Wine prefixes (the prefix folders and the
+Windows install folders and Steam under drive_c), and the search order with
+the platform hooks stubbed here.
 ===========================================================================
 */
 
@@ -340,6 +341,57 @@ int main() {
 			found += probes[ i ].found ? 1 : 0;
 		}
 		CHECK( probes.Num() == 2 && found == 0, "nothing to find: %d probes, %d found (want 2, 0)", probes.Num(), found );
+	}
+
+	// Wine prefixes (the Linux and macOS tables): the prefix folders of a Lutris-, Bottles- or
+	// PlayOnLinux-style parent, and the Windows install folders and Steam under drive_c
+	{
+		const fs::path wine = tmp / "wine";
+		const fs::path pfx1 = wine / "pfx1";
+		const fs::path pfx2 = wine / "pfx2";
+		const fs::path game = MakeInstall( pfx1 / "drive_c" / "Program Files (x86)" / "id Software" / "Enemy Territory - QUAKE Wars" );
+		fs::create_directories( pfx2 / "drive_c" / "windows" );
+		fs::create_directories( wine / "notpfx" / "something" );
+		WriteFile( wine / "a-file", "not a prefix" );
+
+		idStrList prefixes;
+		RetailDiscovery::AppendWinePrefixesIn( Str( wine ).c_str(), prefixes );
+		CHECK( prefixes.Num() == 2, "wine: %d prefixes, want 2 (pfx1, pfx2)", prefixes.Num() );
+		CHECK( prefixes.Num() == 2 && SameDir( prefixes[ 0 ], pfx1 ) && SameDir( prefixes[ 1 ], pfx2 ),
+			"wine: prefixes '%s', '%s', want pfx1 then pfx2", prefixes.Num() > 0 ? prefixes[ 0 ].c_str() : "",
+			prefixes.Num() > 1 ? prefixes[ 1 ].c_str() : "" );
+		idStrList none;
+		RetailDiscovery::AppendWinePrefixesIn( Str( tmp / "missing" ).c_str(), none );
+		RetailDiscovery::AppendWinePrefixesIn( NULL, none );
+		CHECK( none.Num() == 0, "wine: %d prefixes in a missing folder", none.Num() );
+
+		idStrList candidates, steamRoots;
+		RetailDiscovery::AppendWineInstalls( Str( pfx1 ).c_str(), candidates, steamRoots );
+		CHECK( candidates.Num() == 10, "wine: %d install folders from a prefix, want 10 (2 Program Files x 5)", candidates.Num() );
+		CHECK( steamRoots.Num() == 2, "wine: %d Steam roots from a prefix, want 2", steamRoots.Num() );
+		CHECK( steamRoots.Num() == 2 && idStr::Cmp( steamRoots[ 0 ], ( Str( pfx1 ) + "/drive_c/Program Files (x86)/Steam" ).c_str() ) == 0,
+			"wine: first Steam root '%s'", steamRoots.Num() > 0 ? steamRoots[ 0 ].c_str() : "" );
+		idStr root;
+		idList<retailProbe_t> probes;
+		CHECK( RetailDiscovery::FindFirst( candidates, "platform list", root, probes ) && SameDir( root, game ),
+			"wine: the game under drive_c not found ('%s')", root.c_str() );
+
+		idStrList noCandidates, noSteam;
+		RetailDiscovery::AppendWineInstalls( Str( wine / "notpfx" ).c_str(), noCandidates, noSteam );
+		RetailDiscovery::AppendWineInstalls( NULL, noCandidates, noSteam );
+		CHECK( noCandidates.Num() == 0 && noSteam.Num() == 0, "wine: a folder without drive_c gave %d candidates, %d Steam roots",
+			noCandidates.Num(), noSteam.Num() );
+
+		// through the search: a platform table built from the prefixes finds the game
+		ResetHooks( tmp / "engine-no-data" );
+		for ( int i = 0; i < prefixes.Num(); i++ ) {
+			RetailDiscovery::AppendWineInstalls( prefixes[ i ], g_platformCandidates, g_steamRoots );
+		}
+		probes.Clear();
+		CHECK( RetailDiscovery::Discover( Str( tmp / "no-save" ).c_str(), root, probes ) && SameDir( root, game ),
+			"wine: the search found '%s', want the prefix's install", root.c_str() );
+		CHECK( probes.Num() > 0 && idStr::Cmp( probes[ probes.Num() - 1 ].source, "platform list" ) == 0,
+			"wine: the last probe is '%s', want the platform list", probes.Num() > 0 ? probes[ probes.Num() - 1 ].source.c_str() : "" );
 	}
 
 	SetEnv( "OPENETQW_BASEPATH", NULL );
