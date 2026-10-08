@@ -103,7 +103,7 @@ SEATED_TICKS = range(21, 125)
 DEFAULT_LIST: tuple[str, ...] = ()
 # the view classes the game's built-in recipes cover for transports (game SeatGate.cpp,
 # seatRecipes; M5 step 14: the first-person standard view and the chase views sdPresentation draws)
-BUILTIN_RECIPES = frozenset({"standard", "smooth", "smooth_free", "smooth_locked"})
+BUILTIN_RECIPES = frozenset({"standard", "smooth", "smooth_free", "smooth_locked", "pivot", "freepivot"})
 # the classes whose recipe draws a third-person camera blended in the world; a view whose
 # thirdPerson flag does not match its class's recipe is not presented (game seatRecipes)
 WORLD_CAMERA_RECIPES = frozenset({"smooth", "smooth_free", "smooth_locked"})

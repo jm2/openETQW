@@ -40,6 +40,16 @@ in_yawSpeed key turn stands in for the mouse:
   L1c control with g_unlock_vehicleLook 0 the turn shows at least a draw later on average
   L5 locked   (smooth_locked) outside tophat mode a tap turns no draw
 
+Gunner views (vehicle-responsiveness 3.6), parked, at cap 120: the gunner's freepivot view
+with the turret held turning (in_yawSpeed):
+
+  G0 seat     every draw is from the gunner's seat (position 1) in its first view
+  G1 joints   listed, the hull's drawn joints (FRAME_POSE jnt=, a checksum) change between
+              consecutive draws (>= 99%): the presentation blends them
+  G2 view     and the view yaw changes between consecutive draws (>= 99%)
+  G3 steps    the checksum's step across a tick is at most 2.5 x its step within one
+  G1c control unlisted, the drawn joints change only across ticks (at most one pair within)
+
 Remote entities while seated (stage 4; join and listen, which have a headless peer): at
 cap 120, with the driver parked in the listed seat, the peer walks forward, then back:
 
@@ -190,6 +200,7 @@ def lead_linear(poses):
 LOOK_TAPS = 10        # L1: +left taps, each LOOK_TAP_S long
 LOOK_TAP_S = 0.25
 LOOK_HOLD_S = 0.6     # L2: the held turn (the vehicle's key turn is faster than in_yawSpeed alone)
+GUN_HOLD_S = 1.5      # G1-G3: the held turret turn in the gunner's view
 
 
 def look_response(lines):
@@ -593,6 +604,56 @@ def main(argv):
         if not ok5:
             failures.append(f"late look, chase driver, L5: outside tophat mode {len(turned)} of {taps} taps turned the view")
         obs.send(f"set g_unlock_vehicleSeats {LISTED}")
+
+        # gunner views (vehicle-responsiveness 3.6): the gunner's first view (freepivot, mode 0)
+        # rides the turret's eye joint; with the seat listed the hull is drawn with blended
+        # joints, so a held turret turn changes the drawn joints (jnt=) on every draw
+        for _ in range(5):
+            last = next((p for ln in reversed(obs.snapshot()) if (p := parse_pose(ln.text))), None)
+            fields = seat_fields(last["seat"]) if last is not None and last["seat"] is not None else None
+            if fields is not None and fields[1:] == (1, 0):
+                break
+            if fields is not None and fields[1] == 1:
+                srv.send(f"cycleVehicleCamera {obs.slot}")
+            else:
+                srv.send(f"swapVehicleSeat {obs.slot}")
+            time.sleep(1.5)
+        results_gun = {}
+        for listed, key in ((True, "+left"), (False, "+right")):
+            obs.send(f"set g_unlock_vehicleSeats {LISTED + ',badger:*:freepivot' if listed else LISTED}")
+            time.sleep(1.0)
+            obs.send(key)
+            time.sleep(0.5)
+            mark = obs.mark()
+            time.sleep(GUN_HOLD_S)
+            end = obs.mark()
+            obs.send("-" + key[1:])
+            time.sleep(0.5)
+            results_gun[listed] = [p for ln in obs.snapshot(mark, end) if (p := parse_pose(ln.text))]
+        obs.send(f"set g_unlock_vehicleSeats {LISTED}")
+        gun = results_gun[True]
+        gun_seats = {p["seat"] for p in gun} | {p["seat"] for p in results_gun[False]}
+        g0 = len(gun_seats) == 1 and None not in gun_seats and seat_fields(next(iter(gun_seats)))[1:] == (1, 0)
+        jnt_changed = lambda a, b: a["jnt"] is not None and b["jnt"] is not None and abs(a["jnt"][0] - b["jnt"][0]) > 1e-4
+        g1 = fraction_check(gun, jnt_changed, "drawn joints (jnt=)")
+        g2 = fraction_check(gun, lambda a, b: abs((a["view"][4] - b["view"][4] + 180.0) % 360.0 - 180.0) > 0.01,
+                            "view yaw")
+        g3 = step_check(gun, "jnt", "joint checksum step")
+        control = results_gun[False]
+        within = [(a, b) for a, b in zip(control, control[1:]) if a["gt"] == b["gt"]]
+        changed_within = sum(1 for a, b in within if jnt_changed(a, b))
+        moved_any = sum(1 for a, b in zip(control, control[1:]) if jnt_changed(a, b))
+        g1c = len(within) >= MIN_PAIRS and changed_within <= 1 and moved_any >= 5
+        print(f"[seat] gunner (freepivot) at cap {cap}, turret held:")
+        for check, ok, detail in (("G0", g0, f"seats {sorted(x or '-' for x in gun_seats)}, want position:mode (1, 0)"),
+                                  ("G1", g1["ok"], g1["detail"]), ("G2", g2["ok"], g2["detail"]),
+                                  ("G3", g3["ok"], g3["detail"]),
+                                  ("G1c", g1c, f"unlisted, the drawn joints changed within a tick on {changed_within} of"
+                                               f" {len(within)} pairs ({moved_any} changed in all)")):
+            print(f"  {cap:3} gunner {check}  {'pass' if ok else 'FAIL'}  {detail}")
+            if not ok:
+                failures.append(f"gunner {check}: {detail}")
+
         # back on foot: the next phase seats the player in the driver's seat again
         srv.send(f"exitVehicle {obs.slot}")
         time.sleep(1.0)

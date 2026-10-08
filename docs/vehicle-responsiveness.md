@@ -556,6 +556,8 @@ Stages 0–7 come to about 5–7 weeks of focused work for one engineer. That do
 
 ### 3.6 Deferred (not rejected)
 
+*Status (2026-10-07): the transport's drawn joints are built (owner-approved; ledger 070): captured in tick code with `CreateFrame` and blended into scratch with the copy's `callback = NULL`, joints over 90° per tick held; `pivot`/`freepivot` presentable. Riders' IK arms, the exact wheel-angle lerp and the rest of this list stay deferred.*
+
 - **Drawn joints: turret and IK arms, wheels, suspension, rotors.**
   - Capture them in tick code, not in a draw. A draw-time `CreateFrame` would add animator writes to entities the renderer culls (engine `src/renderer/tr_light.cpp:2505-2519`).
   - Blend into scratch, with `callback = NULL`.
