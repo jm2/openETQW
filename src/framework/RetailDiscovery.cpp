@@ -399,6 +399,31 @@ void RetailDiscovery::AppendSteamInstalls( const char *library, idStrList &candi
 	}
 }
 
+bool RetailDiscovery::WriteStoredPath( const char *savePath, const char *root ) {
+	if ( savePath == NULL || savePath[ 0 ] == '\0' || root == NULL || root[ 0 ] == '\0' ) {
+		return false;
+	}
+	// the save path and its parents (a first start has none of them yet)
+	idStr partial;
+	const idStr full = savePath;
+	for ( int i = 0; i <= full.Length(); i++ ) {
+		if ( i == full.Length() || ( i > 0 && ( full[ i ] == '/' || full[ i ] == '\\' ) ) ) {
+			partial = idStr( full.c_str(), 0, i );
+			if ( partial.Length() > 0 && !( partial.Length() == 2 && partial[ 1 ] == ':' ) ) {
+				Sys_Mkdir( partial.c_str() );
+			}
+		}
+	}
+	idStr file = savePath;
+	file.AppendPath( "basepath.txt" );
+	FILE *f = fopen( file.c_str(), "wb" );
+	if ( f == NULL ) {
+		return false;
+	}
+	const bool written = fprintf( f, "%s\n", root ) > 0;
+	return fclose( f ) == 0 && written;
+}
+
 bool RetailDiscovery::ReadStoredPath( const char *file, idStr &path ) {
 	if ( file == NULL || file[ 0 ] == '\0' ) {
 		return false;

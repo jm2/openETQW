@@ -981,6 +981,60 @@ void Sys_AppendRetailDataCandidates( idStrList &candidates, idStrList &steamRoot
 }
 
 /*
+==============
+Sys_PromptForRetailData
+
+macOS's first-run prompt (ledger 068): a folder picker for the ET:QW install when the
+search found nothing. Only UI; FileSystem checks the choice and asks again with problem
+set when it holds no base/pak000.pk4. Needs a desktop session (no Aqua session: false).
+==============
+*/
+bool Sys_StdinIsPipe( void ) {
+	struct stat info;
+	return fstat( STDIN_FILENO, &info ) == 0 && ( S_ISFIFO( info.st_mode ) || S_ISSOCK( info.st_mode ) );
+}
+
+bool Sys_PromptForRetailData( idStr &root, const char *problem ) {
+	CFDictionaryRef session = CGSessionCopyCurrentDictionary();
+	if ( session == NULL ) {
+		return false;
+	}
+	CFRelease( session );
+	@autoreleasepool {
+		[NSApplication sharedApplication];
+		[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+		[NSApp activateIgnoringOtherApps:YES];
+		if ( problem != NULL ) {
+			NSAlert *alert = [[NSAlert alloc] init];
+			alert.messageText = @"That folder does not hold the game data";
+			alert.informativeText = [NSString stringWithUTF8String:problem] ?: @"";
+			[alert addButtonWithTitle:@"Choose Again"];
+			[alert addButtonWithTitle:@"Quit"];
+			if ( [alert runModal] != NSAlertFirstButtonReturn ) {
+				return false;
+			}
+		}
+		NSOpenPanel *panel = [NSOpenPanel openPanel];
+		panel.canChooseDirectories = YES;
+		panel.canChooseFiles = YES;		// Aspyr's .app, beside its base folder
+		panel.allowsMultipleSelection = NO;
+		panel.treatsFilePackagesAsDirectories = NO;
+		panel.title = @"Find Enemy Territory: QUAKE Wars";
+		panel.message = @"OpenETQW needs the retail game data, patched to 1.5. Choose your Enemy Territory: QUAKE Wars folder (the one holding the base folder), or the Enemy Territory QUAKE Wars app.";
+		panel.prompt = @"Use This Folder";
+		if ( [panel runModal] != NSModalResponseOK || panel.URL == nil ) {
+			return false;
+		}
+		const char *path = panel.URL.fileSystemRepresentation;
+		if ( path == NULL || path[0] == '\0' ) {
+			return false;
+		}
+		root = path;
+		return true;
+	}
+}
+
+/*
 ===============
 Sys_GetProcessorId
 ===============
