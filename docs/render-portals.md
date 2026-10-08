@@ -1,6 +1,6 @@
 # Render-world portals: plan
 
-Status: stage 1 built and measured, not landed (2026-10-08; see "Stage 1 result"). Stage 3 next. Engine renderer only.
+Status: stage 1 built and measured, not landed (see "Stage 1 result"); stage 3 done (2026-10-08). Stage 2 waits for an owner decision. Engine renderer only.
 
 **Goal.** Restore idTech 4 area/portal visibility so the client stops submitting geometry, entities and lights that sit behind portals the view cannot see through. This hurts most where the frame rate ceiling is lowest: about 145–165 fps uncapped on Adreno X1-85, with the default cap now 240 (M5 step 18).
 
@@ -151,11 +151,27 @@ That makes stage 2 a gameplay and network change for its own plan and ledger row
 - the dedicated server loading the area and portal data;
 - the network and bot tests (`bot-gameplay`, `all-stock-maps`, the determinism and network suites).
 
-### Stage 3 (separate): light-interaction geometry
+### Stage 3: light-interaction geometry (done 2026-10-08)
 
 The STATUS item "Light-interaction geometry is rebuilt on the CPU every frame": `CreateLightInteractionGeometry` (`tr_light.cpp`) re-tests every triangle of every surface in each light's bounds, every frame. At canyon's Strogg spawn it was 88% of the main thread on the Windows debug build.
 
-The fix is to cache the result per static surface/light pair until either changes. Stage 1's area links already narrow which pairs exist. It's its own change after stage 1, measured on canyon.
+Two changes:
+- **The per-frame index list grows 64K entries at a time** (`frontEndInteractionIndexes`; it grew 16 at a time, so appending a large surface's subset copied the list over and over). This is most of the gain.
+- **A subset cache for static geometry** (`r_interactionCache`, default 1). The triangles of one surface that touch one light's frustum are kept across frames and reused while four things are unchanged: the light's six planes, the surface's model matrix, and its vertex and index arrays. Entries unused for 120 views (light passes, so subviews count) are dropped, and everything is dropped when the render world is cleared or loads a map, or when models are reloaded.
+  - Only the proc's `_area` world models and entities drawing a file-loaded model as it is are cached, and never deformed or streamed geometry. Models built in memory (BSE effects, snapshots, instantiated dynamic models) report `DM_STATIC` too but are rebuilt every frame, often at the same addresses, so they are excluded. The key includes the entity, so props sharing one model keep separate entries.
+  - With the cache on and off, the frames are identical (mean pixel difference 0.06).
+
+Measured on win-arm64 (Adreno X1-85, debugoptimized, game 728dd1c), uncapped, 20 one-second `FRAME_TIMING` windows. Canyon at a fixed viewpoint (`setviewpos -1271.86 4348.12 453 -135`, the Strogg spawn):
+
+| Build | fps | Work p50 |
+|---|---|---|
+| main 290fca8 | 95.0 / 96.1 (two runs) | 8.8 ms |
+| growth step only (`r_interactionCache 0`) | 266.9 | 2.14 ms |
+| growth step and cache (after #108's review: file-loaded and `_area` models only) | 279.4 | 2.00 ms |
+
+valley at the GDF spawn: 143.7 → 156.3 fps. The cache had no hits there: its lit surfaces are dynamic or entirely inside their light.
+
+Images against main differ only within main's own run-to-run noise at this spot: main against main has a mean difference of 2.20, the branch against main 1.34–2.64, the branch against itself 0.08. At 95 fps the animation phases land differently from run to run.
 
 ## 6. Risks and open points
 

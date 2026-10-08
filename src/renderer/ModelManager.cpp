@@ -7,6 +7,7 @@
 
 #include "Model.h"
 #include "ModelManager.h"
+#include "tr_render.h"
 
 idRenderModel* R_AllocStaticModel();
 
@@ -77,6 +78,7 @@ public:
 	}
 
 	virtual void ReloadModels( bool forceAll ) {
+		R_InvalidateInteractionCache();	// reloaded models get new geometry
 		for ( int i = 0; i < models.Num(); i++ ) {
 			if ( forceAll || models[ i ]->IsReloadable() ) {
 				models[ i ]->LoadModel();
