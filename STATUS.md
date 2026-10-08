@@ -360,7 +360,8 @@ Notes on the per-map results:
   - `HTTPEnable` (:414);
   - `Repeater*` setters (:420 on).
 - **Render-world stubs.**
-  - Client portal API: `src/renderer/RenderWorld_portals.cpp`. `NumPortals` returns 0 and `SetPortalState` does nothing. Interarea portal data is discarded at load.
+  - Client portal API: `src/renderer/RenderWorld_portals.cpp`. `NumPortals` returns 0 and `SetPortalState` does nothing. Interarea portal data is discarded at load. (Renderer-only area culling was built and measured on `feat/render-portal-culling` and not landed: on the stock maps' outdoor spawns it gains nothing frustum culling doesn't, and it dropped shadows; `docs/render-portals.md`, "Stage 1 result".)
+  - `idRenderWorldLocal::BoundsInAreas` (`src/renderer/RenderWorld.cpp`), the query the game's PVS uses (`gamesys/Pvs.cpp`), always returns no area. Its walk starts at node 0, which is also the "solid" child marker, so it stops before visiting anything (found 2026-10-08, inspected and confirmed by counting on valley: 0 areas for every entity). Fixing it changes what the game's PVS sees, so it belongs with stage 2 of `docs/render-portals.md` (game-visible portals), which depends on it.
   - Headless render world: `src/sys/stub/headless_stubs.cpp`. One area, and traces never hit.
   - The dedicated server therefore gets no render-model combat hits (players while dead, prone or leaning use render-model combat models). `RadiusPush` ignores walls there. `RadiusDamage` uses collision traces and is not affected.
   - Game PVS falls back to "all areas visible".

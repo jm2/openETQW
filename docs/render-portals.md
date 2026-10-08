@@ -1,6 +1,6 @@
 # Render-world portals: plan
 
-Status: plan approved for stage 1 (2026-10-08; review on #97, notes folded in below). Engine renderer only.
+Status: stage 1 built and measured, not landed (2026-10-08; see "Stage 1 result"). Stage 3 next. Engine renderer only.
 
 **Goal.** Restore idTech 4 area/portal visibility so the client stops submitting geometry, entities and lights that sit behind portals the view cannot see through. This hurts most where the frame rate ceiling is lowest: about 145–165 fps uncapped on Adreno X1-85, with the default cap now 240 (M5 step 18).
 
@@ -96,6 +96,35 @@ Gate for stage 1:
 - **The measurement:** draws, interactions, shadow draws and uncapped fps before and after at the §2 spots, plus one indoor spot (ark, refinery). If the outdoor maps gain little because most areas are always visible, the report says so.
 - **Ledger:** a new row (072): the client culls by area like idTech 4, and **door portals stay open in stage 1** (`SetPortalState` is still ignored, so a closed door never hides what is behind it; retail's hides it).
 - **Measured per map**, not only valley: valley's open terrain may show little, so each campaign map gets its own before/after line.
+
+### Stage 1 result (2026-10-08): built, measured, not landed
+
+Stage 1 was implemented on `feat/render-portal-culling` (9426634):
+- the `interAreaPortals` parsing;
+- the view flood with frustum narrowing;
+- area culling of static models, entities and lights, behind `r_usePortals`;
+- counters.
+
+It is kept on that branch for stage 2's parsing, and **not merged**: on these maps frustum culling already removes what the portals would.
+
+Measured on win-arm64 (Adreno X1-85, debugoptimized, main f3a468c / game 9d9c7d9): each map's GDF spawn, uncapped, 20 one-second `FRAME_TIMING` windows, `r_usePortals 1` against `0`.
+
+| Map | fps on / off | Change | Areas visible per view | Static models culled per view | Draws per view on / off |
+|---|---|---|---|---|---|
+| valley | 155.8 / 143.9 | +8% | 19 of 54 | 35 | 861 / 862 |
+| outskirts | 164.1 / 164 (baseline) | 0% | 27 of 30 | 3 | 1,214 / 1,231 |
+| ark | 331.6 / 350.2 | −5% | 10 of 79 | 69 | 313 / 313 |
+| refinery | 326.4 / 339.6 | −4% | 1 of 69 | 68 | 356 / 356 |
+| canyon | 337.1 / 344.6 | −2% | 1 of 57 | 56 | 261 / 260 |
+
+The outskirts "off" run in this series measured 33 fps, an outlier from something else on the host; the §2 baseline (164 fps) stands for it.
+
+- **The draw count barely moves.** The spawns are outdoors: the view's area is a large open one, and the areas the flood rules out are indoors and already outside the view frustum. On ark, refinery and canyon the frames are identical with and without culling (mean pixel difference 0.03–0.10).
+- **Where it's faster** (valley), the saving is CPU: fewer surfaces analysed. Where it's slower, the flood and the per-entity area lookup cost more than they save at 330+ fps.
+- **Shadow casters.** The shadow pass takes its casters from the surfaces chosen for drawing (`R_AddLightSurfaces` walks `sortedDrawSurfaces`). An area-culled static model therefore stops casting shadows into visible areas: on valley, the shadow geometry of buildings and fences behind portals disappears from the ground in view (pixel difference 1.0, mostly shadow edges).
+  - A correct version must keep area-culled shadow casters for the light pass, which gives back most of valley's 8%.
+  - Doom 3 avoids this because its interactions are per light and area, not per view.
+- **Found: the game's `BoundsInAreas` always returns no area.** `idRenderWorldLocal::BoundsInAreas`, which the game's PVS calls, starts its walk at node 0, which is also the "solid" child marker, and stops at once. The branch gives the renderer its own `BackendBoundsInAreas` and leaves the game-facing query alone. STATUS lists it under Known broken. Stage 2 depends on fixing it.
 
 ### Stage 2: game-visible portals (needs an owner decision)
 
