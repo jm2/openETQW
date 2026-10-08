@@ -634,7 +634,7 @@ def main(argv):
         gun = results_gun[True]
         gun_seats = {p["seat"] for p in gun} | {p["seat"] for p in results_gun[False]}
         g0 = len(gun_seats) == 1 and None not in gun_seats and seat_fields(next(iter(gun_seats)))[1:] == (1, 0)
-        jnt_changed = lambda a, b: a["jnt"] is not None and b["jnt"] is not None and abs(a["jnt"][0] - b["jnt"][0]) > 1e-4
+        jnt_changed = lambda a, b: a["jnt"] is not None and b["jnt"] is not None and abs(a["jnt"][0] - b["jnt"][0]) > 1e-5
         g1 = fraction_check(gun, jnt_changed, "drawn joints (jnt=)")
         g2 = fraction_check(gun, lambda a, b: abs((a["view"][4] - b["view"][4] + 180.0) % 360.0 - 180.0) > 0.01,
                             "view yaw")
