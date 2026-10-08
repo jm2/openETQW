@@ -130,6 +130,7 @@ root. Exit 77 when ETQW_DATA_PATH is unset/invalid or a binary is missing.
 
 import argparse
 import math
+import os
 import re
 import sys
 import time
@@ -799,6 +800,8 @@ def main(argv):
         time.sleep(0.5)
         mark = obs.mark()
         obs.send("set g_logFramePoses 4")
+        if os.environ.get("OPENETQW_FRAME_SYNC_LOG"):
+            obs.send("set r_vkLogFrameSync 1")
         if not obs.wait_for(lambda s: s.startswith("FRAME_POSE:"), 10.0, mark):
             raise Failed("no FRAME_POSE lines after 'set g_logFramePoses 4' (a cheat: are cheats allowed?)")
 
