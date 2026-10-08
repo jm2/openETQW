@@ -63,8 +63,11 @@ listed, and the view and hull never change within a tick (at most one pair) whil
 move (a stationary tick would break an exact per-tick count). The chase camera (every seat listed; the driver's second view, smooth_locked, cycled
 with cycleVehicleCamera): C1/C2 the view and the hull change on >= 99% of draw pairs,
 C3/C4 both lie on one interpolation path (its own tick cameras are blended in the world).
-Guard: the icarus (a jetpack: no recipe can cover it), listed, never changes its view
-within a tick (at most one pair) while it moves.
+The jetpack (icarus, its own recipe since M5 step 14), every seat listed: I1 its
+first-person view changes between consecutive draws (>= 99%) while it flies, every draw
+from one seat (I0); I2 the view's
+step across a tick is at most 2.5 x its step within one; I1c unlisted, the view changes only
+across ticks (at most one pair within).
 
 Hull lead (M5 step 14b, docs/hull-lead.md), at caps 60 and 120 in the driver's standard view
 with g_unlock_vehicleLead listing the badger at L = 1:
@@ -841,14 +844,29 @@ def main(argv):
                 failures.append(f"chase cap {cap} {check}: {res['detail']}")
         if modes != {1}:
             failures.append(f"the chase phase drew view modes {sorted(modes)}, not only the chase view (1)")
+        # the jetpack (icarus, its own recipe since M5 step 14): listed, its first-person view is
+        # drawn on every frame while it flies; unlisted, only across ticks
         seat_up("vehicle_icarus")
-        poses = phase("guardicarus", cap, drive, check_launch=False, mode=None)   # a jetpack flies
-        changed, n = within_tick_changes(poses, "view")
-        moving = sum(1 for a, b in zip(poses, poses[1:]) if moved(a["view"], b["view"]))
-        print(f"[seat] guard (icarus, listed) at cap {cap}: the view changed within a tick on {changed} of {n} pairs"
-              f" ({moving} pairs moved in all)")
-        if n < MIN_PAIRS or changed > 1 or moving < MIN_PAIRS:
-            failures.append(f"guard: the icarus view changed within a tick on {changed} of {n} pairs ({moving} moved in all)")
+        poses = phase("icarus", cap, drive, check_launch=False, mode=None)   # a jetpack flies
+        # I0: every draw from a seat (the jetpack's; on foot, I1 would pass on the unlocked view)
+        seats_i = {p["seat"] for p in poses}
+        i0 = len(seats_i) == 1 and None not in seats_i
+        i1 = fraction_check(poses, lambda a, b: moved(a["view"], b["view"]), "jetpack view origin")
+        i2 = step_check(poses, "view", "jetpack view step")
+        obs.send(f"set g_unlock_vehicleSeats {LISTED}")
+        time.sleep(1.0)
+        control = phase("icaruscontrol", cap, drive, check_launch=False, mode=None)
+        changed, n = within_tick_changes(control, "view")
+        moving = sum(1 for a, b in zip(control, control[1:]) if moved(a["view"], b["view"]))
+        i1c = n >= MIN_PAIRS and changed <= 1 and moving >= MIN_PAIRS
+        print(f"[seat] jetpack (icarus) at cap {cap}:")
+        for check, ok, detail in (("I0", i0, f"seats {sorted(x or '-' for x in seats_i)}"),
+                                  ("I1", i1["ok"], i1["detail"]), ("I2", i2["ok"], i2["detail"]),
+                                  ("I1c", i1c, f"unlisted, the view changed within a tick on {changed} of {n} pairs"
+                                               f" ({moving} moved in all)")):
+            print(f"  {cap:3} {check}  {'pass' if ok else 'FAIL'}  {detail}")
+            if not ok:
+                failures.append(f"jetpack {check}: {detail}")
 
     except Failed as e:
         failures.append(str(e))
