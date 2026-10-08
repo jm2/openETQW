@@ -64,7 +64,8 @@ move (a stationary tick would break an exact per-tick count). The chase camera (
 with cycleVehicleCamera): C1/C2 the view and the hull change on >= 99% of draw pairs,
 C3/C4 both lie on one interpolation path (its own tick cameras are blended in the world).
 The jetpack (icarus, its own recipe since M5 step 14), every seat listed: I1 its
-first-person view changes between consecutive draws (>= 99%) while it flies; I2 the view's
+first-person view changes between consecutive draws (>= 99%) while it flies, every draw
+from one seat (I0); I2 the view's
 step across a tick is at most 2.5 x its step within one; I1c unlisted, the view changes only
 across ticks (at most one pair within).
 
@@ -847,6 +848,9 @@ def main(argv):
         # drawn on every frame while it flies; unlisted, only across ticks
         seat_up("vehicle_icarus")
         poses = phase("icarus", cap, drive, check_launch=False, mode=None)   # a jetpack flies
+        # I0: every draw from a seat (the jetpack's; on foot, I1 would pass on the unlocked view)
+        seats_i = {p["seat"] for p in poses}
+        i0 = len(seats_i) == 1 and None not in seats_i
         i1 = fraction_check(poses, lambda a, b: moved(a["view"], b["view"]), "jetpack view origin")
         i2 = step_check(poses, "view", "jetpack view step")
         obs.send(f"set g_unlock_vehicleSeats {LISTED}")
@@ -856,7 +860,8 @@ def main(argv):
         moving = sum(1 for a, b in zip(control, control[1:]) if moved(a["view"], b["view"]))
         i1c = n >= MIN_PAIRS and changed <= 1 and moving >= MIN_PAIRS
         print(f"[seat] jetpack (icarus) at cap {cap}:")
-        for check, ok, detail in (("I1", i1["ok"], i1["detail"]), ("I2", i2["ok"], i2["detail"]),
+        for check, ok, detail in (("I0", i0, f"seats {sorted(x or '-' for x in seats_i)}"),
+                                  ("I1", i1["ok"], i1["detail"]), ("I2", i2["ok"], i2["detail"]),
                                   ("I1c", i1c, f"unlisted, the view changed within a tick on {changed} of {n} pairs"
                                                f" ({moving} moved in all)")):
             print(f"  {cap:3} {check}  {'pass' if ok else 'FAIL'}  {detail}")
