@@ -30,8 +30,9 @@ enter the titan at 91, swap seat at 101, cycle at 111; listSeatViews at 121; exi
 
 T is the view class of the badger's driver seat in its first view, U that of the
 seat the tick-51 swap lands in (learned from run A). A test recipe opens the gate
-and is never presented; 'icarus' names the jetpack's view class, which no recipe can
-cover, so the jetpack must stay shut.
+and is never presented; 'icarus' names the jetpack's view class: a test recipe never
+covers the jetpack (they are transport-only), so it opens only through its built-in recipe
+(M5 step 14), in runs B and D.
 
 Checks:
 1. Format: one SEAT_GATE and one SIM_VIEW per SIM_HASH tick, on the same ticks; exit 0; no failure
@@ -42,9 +43,9 @@ Checks:
 3. The guard: pred and draw are 1 only at a tick that ends in a listed transport seat
    whose view class has a recipe (since M5 step 14 the built-in recipes cover
    BUILTIN_RECIPES; run D adds its test recipes), and the latch only after one; the
-   recipe flag is set exactly for those classes. In every run a
-   jetpack or non-transport seat has pred, draw and recipe 0, and no latch is taken
-   for one (latch[n] belongs to the seat tick n-1 ended in). canUnlockFrames
+   recipe flag is set exactly for those classes; the jetpack's recipe is its built-in
+   icarus one. In every run a non-transport, non-jetpack seat has pred, draw and recipe
+   0, and no latch is taken for one (latch[n] belongs to the seat tick n-1 ended in). canUnlockFrames
    is 0 on every tick after one that ended with a proxy (retail's rule is kept).
 4. Key matching: listed agrees on every seated tick and every listed seat view with
    a reference matcher (per ':' field, whole field, ignoring case, * and ?; '*'
@@ -103,10 +104,13 @@ SEATED_TICKS = range(21, 125)
 DEFAULT_LIST: tuple[str, ...] = ()
 # the view classes the game's built-in recipes cover for transports (game SeatGate.cpp,
 # seatRecipes; M5 step 14: the first-person standard view and the chase views sdPresentation draws)
-BUILTIN_RECIPES = frozenset({"standard", "smooth", "smooth_free", "smooth_locked"})
+BUILTIN_RECIPES = frozenset({"standard", "smooth", "smooth_free", "smooth_locked", "pivot", "freepivot"})
 # the classes whose recipe draws a third-person camera blended in the world; a view whose
 # thirdPerson flag does not match its class's recipe is not presented (game seatRecipes)
 WORLD_CAMERA_RECIPES = frozenset({"smooth", "smooth_free", "smooth_locked"})
+# the jetpack's own recipe classes (game SeatGate.cpp: SPK_JETPACK, "icarus", since M5 step 14);
+# g_seatGateTestRecipe never makes one
+JETPACK_RECIPES = frozenset({"icarus"})
 
 SIM_HASH_RE = re.compile(r"^SIM_HASH: tick=(\d+) ")
 SIM_VIEW_RE = re.compile(r"^SIM_VIEW: tick=(\d+) (.*)$")
@@ -314,10 +318,16 @@ def check_guard(run: Run, recipe_types: set[str]) -> list[str]:
     for prev, g in zip(run.gate, run.gate[1:]):
         if prev["kind"] != "none" and g["cu"]:
             problems.append(f"run {run.name}: tick {g['tick']}: canUnlockFrames set after a tick that ended with a proxy")
+    def has_recipe(g):
+        # transports by the run's recipe classes; the jetpack only by its built-in recipe (the
+        # test recipes are transport-only, game SeatGate.cpp)
+        return (g["kind"] == "transport" and g["type"].lower() in recipe_types) or \
+            (g["kind"] == "jetpack" and g["type"].lower() in JETPACK_RECIPES)
+
     def openable(g):
-        return g["kind"] == "transport" and g["listed"] and g["type"].lower() in recipe_types
+        return has_recipe(g) and g["listed"]
     for i, g in enumerate(run.gate):
-        want_recipe = g["kind"] == "transport" and g["type"].lower() in recipe_types
+        want_recipe = has_recipe(g)
         if g["recipe"] != want_recipe:
             problems.append(f"run {run.name}: tick {g['tick']}: recipe={int(g['recipe'])}, expected {int(want_recipe)}: {run.gate_raw[i]}")
         if not openable(g) and (g["pred"] or g["draw"]):
@@ -328,9 +338,9 @@ def check_guard(run: Run, recipe_types: set[str]) -> list[str]:
         # draw and recipe are for the seat this tick ends in (the kind printed): a tick that
         # moves from a transport to the jetpack may carry the transport's latch
         latched_kind = run.gate[i - 1]["kind"] if i else "none"
-        if latched_kind in ("jetpack", "other") and g["latch"]:
+        if latched_kind == "other" and g["latch"]:
             problems.append(f"run {run.name}: tick {g['tick']}: latched for a {latched_kind} seat: {run.gate_raw[i]}")
-        if g["kind"] in ("jetpack", "other") and (g["pred"] or g["draw"] or g["recipe"]):
+        if g["kind"] == "other" and (g["pred"] or g["draw"] or g["recipe"]):
             problems.append(f"run {run.name}: tick {g['tick']}: a {g['kind']} proxy opened the gate: {run.gate_raw[i]}")
     return problems[:20]
 
@@ -346,17 +356,19 @@ def check_listing(run: Run, recipe_types: set[str]) -> list[str]:
     if run.begin:
         m = run.begin[0]
         items, bad = reference_counts(run.seats)
-        # the built-in recipes (one per class in BUILTIN_RECIPES) plus the run's test recipes
-        recipes = len(BUILTIN_RECIPES) + len([t for t in re.sub(r"\s", "", run.recipe).split(",") if t])
+        # the built-in recipes (one per class in BUILTIN_RECIPES and JETPACK_RECIPES) plus the
+        # run's test recipes
+        recipes = len(BUILTIN_RECIPES) + len(JETPACK_RECIPES) + len([t for t in re.sub(r"\s", "", run.recipe).split(",") if t])
         want = (run.seats, str(items), str(bad), str(recipes))
         if (m.group(2), m.group(3), m.group(4), m.group(5)) != want:
             problems.append(f"run {run.name}: listing header {m.group(0)}; expected list, items, bad, recipes {want}")
             if m.group(5) != str(recipes):
                 problems.append(f"run {run.name}: recipes={m.group(5)}: if the built-in recipes changed,"
-                                " BUILTIN_RECIPES must change with them")
+                                " BUILTIN_RECIPES or JETPACK_RECIPES must change with them")
     for v in run.views:
         kind = run.vehicles.get(v["ent"], {}).get("kind")
-        want_recipe = kind == "transport" and v["type"].lower() in recipe_types
+        want_recipe = (kind == "transport" and v["type"].lower() in recipe_types) or \
+            (kind == "jetpack" and v["type"].lower() in JETPACK_RECIPES)
         if v["recipe"] != want_recipe:
             problems.append(f"run {run.name}: listing {v['key']}: recipe={int(v['recipe'])}, expected {int(want_recipe)}")
         if v["listed"] != reference_listed(run.seats, v["key"]):
@@ -413,7 +425,7 @@ def check_presented(run: Run, presenting: bool) -> list[str]:
         cls = g["type"].lower()
         # presented only where the view's thirdPerson flag matches its class's recipe
         matches = view is not None and bool(view["third"]) == (cls in WORLD_CAMERA_RECIPES)
-        if prev["draw"] and g["draw"] and same and cls in BUILTIN_RECIPES and matches:
+        if prev["draw"] and g["draw"] and same and (cls in BUILTIN_RECIPES or cls in JETPACK_RECIPES) and matches:
             prepared += run.prepared[g["tick"]]
             blended += run.blended[g["tick"]]
     print(f"  run {run.name}: {blended} of {prepared} draws prepared in open seats were blended")
@@ -430,7 +442,8 @@ def check_plumbing(run: Run, recipe_types: set[str]) -> list[str]:
     seat latched at its start, which is the seat printed at the end of tick n-1."""
     problems = []
     for g in run.gate:
-        want = g["kind"] == "transport" and g["type"].lower() in recipe_types
+        want = (g["kind"] == "transport" and g["type"].lower() in recipe_types) or \
+            (g["kind"] == "jetpack" and g["type"].lower() in JETPACK_RECIPES)
         if g["recipe"] != want:
             problems.append(f"run {run.name}: tick {g['tick']}: recipe={int(g['recipe'])}, expected {int(want)} ({g['key']})")
     latched = cycled = swapped = 0
@@ -610,7 +623,7 @@ def report(failures: list[str]) -> int:
         for f in failures:
             print(f"  - {f}")
         return h.EXIT_FAIL
-    print("PASS: the seat gate opened only for listed seats with a recipe, never for the jetpack, matched keys as the"
+    print("PASS: the seat gate opened only for listed seats with a recipe (the jetpack only by its own), matched keys as the"
           " reference does, latched and re-checked as specified, and changed nothing in SIM_HASH, VEH_TRACE,"
           " canUnlockFrames or SIM_VIEW")
     return h.EXIT_PASS

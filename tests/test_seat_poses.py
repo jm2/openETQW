@@ -40,6 +40,20 @@ in_yawSpeed key turn stands in for the mouse:
   L1c control with g_unlock_vehicleLook 0 the turn shows at least a draw later on average
   L5 locked   (smooth_locked) outside tophat mode a tap turns no draw
 
+A rate-limited pivot view (the trojan's gunner, yaw at most 135 deg/s), parked, at cap
+120: L0-L4 as above, with the held turn at 300 deg/s so the rate binds (the eye swings on
+its arm, so L4 checks the camera origin too).
+
+Gunner views (vehicle-responsiveness 3.6), parked, at cap 120: the gunner's freepivot view
+with the turret held turning (in_yawSpeed):
+
+  G0 seat     every draw is from the gunner's seat (position 1) in its first view
+  G1 joints   listed, the hull's drawn joints (FRAME_POSE jnt=, a checksum) change between
+              consecutive draws (>= 99%): the presentation blends them
+  G2 view     and the view yaw changes between consecutive draws (>= 99%)
+  G3 steps    the checksum's step across a tick is at most 2.5 x its step within one
+  G1c control unlisted, the drawn joints change only across ticks (at most one pair within)
+
 Remote entities while seated (stage 4; join and listen, which have a headless peer): at
 cap 120, with the driver parked in the listed seat, the peer walks forward, then back:
 
@@ -53,8 +67,11 @@ listed, and the view and hull never change within a tick (at most one pair) whil
 move (a stationary tick would break an exact per-tick count). The chase camera (every seat listed; the driver's second view, smooth_locked, cycled
 with cycleVehicleCamera): C1/C2 the view and the hull change on >= 99% of draw pairs,
 C3/C4 both lie on one interpolation path (its own tick cameras are blended in the world).
-Guard: the icarus (a jetpack: no recipe can cover it), listed, never changes its view
-within a tick (at most one pair) while it moves.
+The jetpack (icarus, its own recipe since M5 step 14), every seat listed: I1 its
+first-person view changes between consecutive draws (>= 99%) while it flies, every draw
+from one seat (I0); I2 the view's
+step across a tick is at most 2.5 x its step within one; I1c unlisted, the view changes only
+across ticks (at most one pair within).
 
 Hull lead (M5 step 14b, docs/hull-lead.md), at caps 60 and 120 in the driver's standard view
 with g_unlock_vehicleLead listing the badger at L = 1:
@@ -133,14 +150,14 @@ def launched(poses):
     return worst if worst > LAUNCH_DZ_U else None
 
 
-def step_check(poses, key="veh", what="step"):
+def step_check(poses, key="veh", what="step", eps=POS_EPS):
     """S4: the hull's (or the view's) median step across a tick against its median step within one."""
     cross, within = [], []
     for a, b in zip(poses, poses[1:]):
         if a[key] is None or b[key] is None:
             continue
         d = math.dist(a[key][:3], b[key][:3])
-        if d <= POS_EPS:
+        if d <= eps:
             continue
         (cross if a["gt"] != b["gt"] else within).append(d)
     if len(cross) < 5 or len(within) < 5:
@@ -190,6 +207,7 @@ def lead_linear(poses):
 LOOK_TAPS = 10        # L1: +left taps, each LOOK_TAP_S long
 LOOK_TAP_S = 0.25
 LOOK_HOLD_S = 0.6     # L2: the held turn (the vehicle's key turn is faster than in_yawSpeed alone)
+GUN_HOLD_S = 1.5      # G1-G3: the held turret turn in the gunner's view
 
 
 def look_response(lines):
@@ -477,7 +495,7 @@ def main(argv):
         cap = 120
         obs.send(f"set com_maxFPS {cap}")
 
-        def late_look(label, want_seat, orbit=False):
+        def late_look(label, want_seat, orbit=False, hold_speed=60):
             results_look = {}
             for setting in ("1", "0"):
                 obs.send(f"set g_unlock_vehicleLook {setting}")
@@ -494,6 +512,8 @@ def main(argv):
                     time.sleep(LOOK_TAP_S)
                     obs.send(f"-{key}")
                     time.sleep(0.4)
+                # the held turn, at hold_speed: above a rate-limited class's rate, the rate binds
+                obs.send(f"set in_yawSpeed {hold_speed}")
                 obs.send("+left")
                 mark = obs.mark()
                 time.sleep(LOOK_HOLD_S)
@@ -502,6 +522,7 @@ def main(argv):
                 obs.send("+right")
                 time.sleep(LOOK_HOLD_S)
                 obs.send("-right")
+                obs.send("set in_yawSpeed 60")
                 time.sleep(0.5)
                 lines = [ln.text for ln in obs.snapshot(begin)]
                 held = [p for ln in obs.snapshot(mark, end) if (p := parse_pose(ln.text))]
@@ -593,6 +614,78 @@ def main(argv):
         if not ok5:
             failures.append(f"late look, chase driver, L5: outside tophat mode {len(turned)} of {taps} taps turned the view")
         obs.send(f"set g_unlock_vehicleSeats {LISTED}")
+
+        # gunner views (vehicle-responsiveness 3.6): the gunner's first view (freepivot, mode 0)
+        # rides the turret's eye joint; with the seat listed the hull is drawn with blended
+        # joints, so a held turret turn changes the drawn joints (jnt=) on every draw
+        for _ in range(5):
+            last = next((p for ln in reversed(obs.snapshot()) if (p := parse_pose(ln.text))), None)
+            fields = seat_fields(last["seat"]) if last is not None and last["seat"] is not None else None
+            if fields is not None and fields[1:] == (1, 0):
+                break
+            if fields is not None and fields[1] == 1:
+                srv.send(f"cycleVehicleCamera {obs.slot}")
+            else:
+                srv.send(f"swapVehicleSeat {obs.slot}")
+            time.sleep(1.5)
+        results_gun = {}
+        for listed, key in ((True, "+left"), (False, "+right")):
+            obs.send(f"set g_unlock_vehicleSeats {LISTED + ',badger:*:freepivot' if listed else LISTED}")
+            time.sleep(1.0)
+            obs.send(key)
+            time.sleep(0.5)
+            mark = obs.mark()
+            time.sleep(GUN_HOLD_S)
+            end = obs.mark()
+            obs.send("-" + key[1:])
+            time.sleep(0.5)
+            results_gun[listed] = [p for ln in obs.snapshot(mark, end) if (p := parse_pose(ln.text))]
+        obs.send(f"set g_unlock_vehicleSeats {LISTED}")
+        gun = results_gun[True]
+        gun_seats = {p["seat"] for p in gun} | {p["seat"] for p in results_gun[False]}
+        g0 = len(gun_seats) == 1 and None not in gun_seats and seat_fields(next(iter(gun_seats)))[1:] == (1, 0)
+        jnt_changed = lambda a, b: a["jnt"] is not None and b["jnt"] is not None and abs(a["jnt"][0] - b["jnt"][0]) > 1e-5
+        g1 = fraction_check(gun, jnt_changed, "drawn joints (jnt=)")
+        g2 = fraction_check(gun, lambda a, b: abs((a["view"][4] - b["view"][4] + 180.0) % 360.0 - 180.0) > 0.01,
+                            "view yaw")
+        g3 = step_check(gun, "jnt", "joint checksum step", eps=1e-5)   # the threshold G1 uses
+        control = results_gun[False]
+        within = [(a, b) for a, b in zip(control, control[1:]) if a["gt"] == b["gt"]]
+        changed_within = sum(1 for a, b in within if jnt_changed(a, b))
+        moved_any = sum(1 for a, b in zip(control, control[1:]) if jnt_changed(a, b))
+        g1c = len(within) >= MIN_PAIRS and changed_within <= 1 and moved_any >= 5
+        print(f"[seat] gunner (freepivot) at cap {cap}, turret held:")
+        for check, ok, detail in (("G0", g0, f"seats {sorted(x or '-' for x in gun_seats)}, want position:mode (1, 0)"),
+                                  ("G1", g1["ok"], g1["detail"]), ("G2", g2["ok"], g2["detail"]),
+                                  ("G3", g3["ok"], g3["detail"]),
+                                  ("G1c", g1c, f"unlisted, the drawn joints changed within a tick on {changed_within} of"
+                                               f" {len(within)} pairs ({moved_any} changed in all)")):
+            print(f"  {cap:3} gunner {check}  {'pass' if ok else 'FAIL'}  {detail}")
+            if not ok:
+                failures.append(f"gunner {check}: {detail}")
+
+        # a rate-limited pivot view (stage 5's rate tier): the trojan's gunner (position 1, first
+        # view, pivot; yaw at most 135 deg/s), its eye swinging on its arm; the held turn at
+        # 300 deg/s, so the rate binds: L3 and L4 show no step back or jump at the ticks where
+        # the draws end on what the next tick shows
+        srv.send(f"exitVehicle {obs.slot}")
+        time.sleep(1.0)
+        obs.send(f"set g_unlock_vehicleSeats {LISTED},trojan:*:pivot")
+        srv.send(f"enterVehicle {obs.slot} vehicle_trojan")
+        time.sleep(3.0)
+        for _ in range(6):
+            last = next((p for ln in reversed(obs.snapshot()) if (p := parse_pose(ln.text))), None)
+            fields = seat_fields(last["seat"]) if last is not None and last["seat"] is not None else None
+            if fields is not None and fields[1:] == (1, 0):
+                break
+            if fields is not None and fields[1] == 1:
+                srv.send(f"cycleVehicleCamera {obs.slot}")
+            else:
+                srv.send(f"swapVehicleSeat {obs.slot}")
+            time.sleep(1.5)
+        late_look("pivot gunner", (1, 0), orbit=True, hold_speed=300)
+        obs.send(f"set g_unlock_vehicleSeats {LISTED}")
+
         # back on foot: the next phase seats the player in the driver's seat again
         srv.send(f"exitVehicle {obs.slot}")
         time.sleep(1.0)
@@ -780,14 +873,29 @@ def main(argv):
                 failures.append(f"chase cap {cap} {check}: {res['detail']}")
         if modes != {1}:
             failures.append(f"the chase phase drew view modes {sorted(modes)}, not only the chase view (1)")
+        # the jetpack (icarus, its own recipe since M5 step 14): listed, its first-person view is
+        # drawn on every frame while it flies; unlisted, only across ticks
         seat_up("vehicle_icarus")
-        poses = phase("guardicarus", cap, drive, check_launch=False, mode=None)   # a jetpack flies
-        changed, n = within_tick_changes(poses, "view")
-        moving = sum(1 for a, b in zip(poses, poses[1:]) if moved(a["view"], b["view"]))
-        print(f"[seat] guard (icarus, listed) at cap {cap}: the view changed within a tick on {changed} of {n} pairs"
-              f" ({moving} pairs moved in all)")
-        if n < MIN_PAIRS or changed > 1 or moving < MIN_PAIRS:
-            failures.append(f"guard: the icarus view changed within a tick on {changed} of {n} pairs ({moving} moved in all)")
+        poses = phase("icarus", cap, drive, check_launch=False, mode=None)   # a jetpack flies
+        # I0: every draw from a seat (the jetpack's; on foot, I1 would pass on the unlocked view)
+        seats_i = {p["seat"] for p in poses}
+        i0 = len(seats_i) == 1 and None not in seats_i
+        i1 = fraction_check(poses, lambda a, b: moved(a["view"], b["view"]), "jetpack view origin")
+        i2 = step_check(poses, "view", "jetpack view step")
+        obs.send(f"set g_unlock_vehicleSeats {LISTED}")
+        time.sleep(1.0)
+        control = phase("icaruscontrol", cap, drive, check_launch=False, mode=None)
+        changed, n = within_tick_changes(control, "view")
+        moving = sum(1 for a, b in zip(control, control[1:]) if moved(a["view"], b["view"]))
+        i1c = n >= MIN_PAIRS and changed <= 1 and moving >= MIN_PAIRS
+        print(f"[seat] jetpack (icarus) at cap {cap}:")
+        for check, ok, detail in (("I0", i0, f"seats {sorted(x or '-' for x in seats_i)}"),
+                                  ("I1", i1["ok"], i1["detail"]), ("I2", i2["ok"], i2["detail"]),
+                                  ("I1c", i1c, f"unlisted, the view changed within a tick on {changed} of {n} pairs"
+                                               f" ({moving} moved in all)")):
+            print(f"  {cap:3} {check}  {'pass' if ok else 'FAIL'}  {detail}")
+            if not ok:
+                failures.append(f"jetpack {check}: {detail}")
 
     except Failed as e:
         failures.append(str(e))
