@@ -1,6 +1,6 @@
 # Render-world portals: plan
 
-Status: plan for review (2026-10-08). Nothing here is implemented yet. Engine renderer only.
+Status: plan approved for stage 1 (2026-10-08; review on #97, notes folded in below). Engine renderer only.
 
 **Goal.** Restore idTech 4 area/portal visibility so the client stops submitting geometry, entities and lights that sit behind portals the view cannot see through. This hurts most where the frame rate ceiling is lowest: about 145–165 fps uncapped on Adreno X1-85, with the default cap now 240 (M5 step 18).
 
@@ -77,9 +77,10 @@ idTech 4's `RenderWorld_portals.cpp` does the job. The working copy to follow is
    - `_areaN` models → area N;
    - other static models → their fixed-area lists, which are already loaded;
    - entity defs and light defs → their areas, from their bounds through `nodes`, updated when they move (`UpdateEntityDef` / `UpdateLightDef`).
+   - Presentation copies and interpolated entities (M5 steps 9–14: `sdPresentation` draws an entity at an interpolated pose between ticks) must use the area of the pose actually drawn, not the tick's: the area test runs on the bounds the front end draws, at draw time.
 3. **View flood** in `R_BuildDrawView`: compute the visible areas and their screen rectangles from the view origin, through `PORTAL_VIS` portals, with the frustum narrowed per portal.
    - Skip static models and entity defs with no visible area.
-   - Skip light defs with no visible area. A light's interactions still reach surfaces outside the visible set only through shadows; Doom 3's light-scissor rules are followed.
+   - Find lights through the flood, not through the view frustum: a light def is linked into every area its volume touches, so a light whose origin is behind a portal but whose volume reaches a visible area is still found and lights it. Skip a light only when none of its areas is visible. Its shadows can still come from casters in areas the view doesn't see (a light's caster set is its own volume, as in Doom 3).
    - Optionally scissor by area rectangle later; not in the first change.
    - Subviews (mirrors, remote cameras) flood from their own origin.
 4. **Doors.** `SetPortalState` stays a no-op in this stage, so every portal is open to the renderer. That's never wrong, just less culling.
@@ -93,7 +94,8 @@ Gate for stage 1:
 - **No visible geometry may be lost.** Screenshots at fixed spots on the four campaign-client maps and valley must match `r_usePortals 0` (a pixel diff within the frame-to-frame noise). Also checked: walking through each map's portals, under and over terrain, inside buildings and from aircraft altitude.
 - **The tests pass:** campaign-client-maps with validation, vulkan-shadows, client-lifecycle and inprocess-map-change, plus the full suite (the determinism and seat tests prove nothing else moved).
 - **The measurement:** draws, interactions, shadow draws and uncapped fps before and after at the §2 spots, plus one indoor spot (ark, refinery). If the outdoor maps gain little because most areas are always visible, the report says so.
-- **Ledger:** a new row (072): the client culls by area like idTech 4, and door portals don't block the view yet.
+- **Ledger:** a new row (072): the client culls by area like idTech 4, and **door portals stay open in stage 1** (`SetPortalState` is still ignored, so a closed door never hides what is behind it; retail's hides it).
+- **Measured per map**, not only valley: valley's open terrain may show little, so each campaign map gets its own before/after line.
 
 ### Stage 2: game-visible portals (needs an owner decision)
 
@@ -113,7 +115,9 @@ Filling in the API changes, on the client and the listen host:
 
 The headless dedicated server (`idRenderWorldHeadless`) has no `.procb` today, so it would keep one area and disagree with listen hosts unless it loads the same data.
 
-That makes stage 2 a gameplay change for its own plan and ledger row (013 updated). It needs:
+The PVS also feeds what the server puts in each client's snapshot and the antilag (AoR) checks, so stage 2 is a **network** question too, not only a client one.
+
+That makes stage 2 a gameplay and network change for its own plan and ledger row (013 updated). It needs:
 - the owner's go-ahead;
 - the dedicated server loading the area and portal data;
 - the network and bot tests (`bot-gameplay`, `all-stock-maps`, the determinism and network suites).
