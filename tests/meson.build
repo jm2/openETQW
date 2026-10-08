@@ -614,6 +614,23 @@ if build_dedicated
     timeout: 400,
     is_parallel: false,
   )
+  # M4: an objective match ends both ways (the game's MATCH lines): the
+  # defenders win on the time limit, the attackers on the last objective
+  test(
+    'm4-match-end',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_m4_match_end.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--port', '29972',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'm4-match-end',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration', 'm4'],
+    protocol: 'exitcode',
+    timeout: 400,
+    is_parallel: false,
+  )
   # the charter's M3 soak: 10 minutes at 2% loss and 40 +/- 20 ms delay without
   # a disconnect (skip it in quick runs with 'meson test --no-suite soak')
   test(
