@@ -1630,6 +1630,8 @@ void R_RemoveUnecessaryViewLights( void ) {
 #include "VulkanBackend.h"
 #include "Image.h"
 #include "Material.h"
+
+#include <unordered_map>
 #include "Model.h"
 #include "Model_Stuff.h"
 #include "VertexCache.h"
@@ -1658,6 +1660,49 @@ namespace {
 	idList< drawSurf_s* > sortedDrawSurfaces;
 	idList< glIndex_t > frontEndInteractionIndexes;
 	idList< interactionGeometryRecord_t > frontEndInteractionGeometry;
+
+	// The light-interaction index subsets of static geometry, kept across
+	// frames (STATUS: "light-interaction geometry is rebuilt on the CPU every
+	// frame").  An entry is the triangles of one surface that touch one light's
+	// frustum; it is reused while the light's planes, the surface's model matrix
+	// and its vertex and index arrays are unchanged, and dropped when unused for
+	// INTERACTION_CACHE_MAX_AGE frames or when the world changes.
+	struct interactionCacheKey_t {
+		const srfTriangles_t*	geometry;
+		const renderLight_t*	light;
+		bool operator==( const interactionCacheKey_t& other ) const {
+			return geometry == other.geometry && light == other.light;
+		}
+	};
+	struct interactionCacheKeyHash_t {
+		size_t operator()( const interactionCacheKey_t& key ) const {
+			const size_t a = reinterpret_cast< size_t >( key.geometry );
+			const size_t b = reinterpret_cast< size_t >( key.light );
+			return a ^ ( b * 0x9E3779B97F4A7C15ull + ( a << 6 ) + ( a >> 2 ) );
+		}
+	};
+	struct interactionCacheEntry_t {
+		idPlane					planes[ 6 ];
+		float					modelMatrix[ 16 ];
+		const idDrawVert*		verts;
+		const glIndex_t*		indexes;
+		int						numVerts;
+		int						numIndexes;
+		enum { SUBSET, WHOLE, NONE } result;
+		idList< glIndex_t >		subset;
+		int						lastUsedFrame;
+	};
+	static const int INTERACTION_CACHE_MAX_AGE = 120;
+	idCVar r_interactionCache( "r_interactionCache", "1", CVAR_RENDERER | CVAR_BOOL,
+		"keep the light-interaction triangle subsets of static geometry across frames" );
+	std::unordered_map< interactionCacheKey_t, interactionCacheEntry_t, interactionCacheKeyHash_t > interactionCache;
+	const idRenderWorldLocal* interactionCacheWorld = NULL;
+	int interactionCacheFrame = 0;
+	struct interactionCacheStats_t {
+		unsigned long long hits;
+		unsigned long long misses;
+		unsigned long long uncached;
+	} interactionCacheStats = { 0, 0, 0 };
 	idList< idRenderModel* > frontEndDynamicModels;
 	struct ambientSurfaceCandidate_t {
 		viewEntity_s*			space;
@@ -1855,6 +1900,55 @@ namespace {
 				normal.x * matrix[ 12 ] + normal.y * matrix[ 13 ] + normal.z * matrix[ 14 ];
 		}
 
+		// Static geometry: the world's own models, and entities drawing their
+		// static model as it is.  Instantiated dynamic models reuse their
+		// geometry storage frame to frame with new contents, so they are
+		// never cached.
+		const viewEntity_s* space = surface->space;
+		const bool cacheable = r_interactionCache.GetBool() && space->model != NULL && space->model->IsDynamicModel() == DM_STATIC &&
+			( space->entityDef == NULL || space->entityDef->hModel == space->model );
+		interactionCacheEntry_t* entry = NULL;
+		if ( cacheable ) {
+			interactionCacheKey_t key = { source, light->lightDef };
+			entry = &interactionCache[ key ];
+			const bool valid = entry->lastUsedFrame != 0 &&
+				entry->verts == source->verts && entry->indexes == source->indexes &&
+				entry->numVerts == source->numVerts && entry->numIndexes == source->numIndexes &&
+				memcmp( entry->modelMatrix, matrix, sizeof( entry->modelMatrix ) ) == 0 &&
+				memcmp( entry->planes, light->frustum, sizeof( entry->planes ) ) == 0;
+			entry->lastUsedFrame = interactionCacheFrame;
+			if ( valid ) {
+				interactionCacheStats.hits++;
+				if ( entry->result == interactionCacheEntry_t::NONE ) return NULL;
+				if ( entry->result == interactionCacheEntry_t::WHOLE ) return source;
+				const int firstCached = frontEndInteractionIndexes.Num();
+				frontEndInteractionIndexes.SetNum( firstCached + entry->subset.Num(), false );
+				memcpy( frontEndInteractionIndexes.Begin() + firstCached, entry->subset.Begin(),
+					entry->subset.Num() * sizeof( glIndex_t ) );
+				srfTriangles_t* cachedGeometry = frontEndInteractionGeometryAllocator.Alloc();
+				*cachedGeometry = *source;
+				cachedGeometry->ambientSurface = const_cast< srfTriangles_t* >( source );
+				cachedGeometry->indexes = NULL;
+				cachedGeometry->indexCache = NULL;
+				cachedGeometry->numIndexes = entry->subset.Num();
+				cachedGeometry->numAllocedIndices = 0;
+				interactionGeometryRecord_t cachedRecord;
+				cachedRecord.geometry = cachedGeometry;
+				cachedRecord.firstIndex = firstCached;
+				frontEndInteractionGeometry.Append( cachedRecord );
+				return cachedGeometry;
+			}
+			interactionCacheStats.misses++;
+			memcpy( entry->planes, light->frustum, sizeof( entry->planes ) );
+			memcpy( entry->modelMatrix, matrix, sizeof( entry->modelMatrix ) );
+			entry->verts = source->verts;
+			entry->indexes = source->indexes;
+			entry->numVerts = source->numVerts;
+			entry->numIndexes = source->numIndexes;
+		} else {
+			interactionCacheStats.uncached++;
+		}
+
 		const int firstIndex = frontEndInteractionIndexes.Num();
 		const float clipEpsilon = 0.1f;
 		for ( int index = 0; index + 2 < source->numIndexes; index += 3 ) {
@@ -1879,10 +1973,26 @@ namespace {
 		}
 
 		const int numIndexes = frontEndInteractionIndexes.Num() - firstIndex;
-		if ( numIndexes == 0 ) return NULL;
+		if ( numIndexes == 0 ) {
+			if ( entry != NULL ) {
+				entry->result = interactionCacheEntry_t::NONE;
+				entry->subset.Clear();
+			}
+			return NULL;
+		}
 		if ( numIndexes == source->numIndexes ) {
 			frontEndInteractionIndexes.SetNum( firstIndex, false );
+			if ( entry != NULL ) {
+				entry->result = interactionCacheEntry_t::WHOLE;
+				entry->subset.Clear();
+			}
 			return source;
+		}
+		if ( entry != NULL ) {
+			entry->result = interactionCacheEntry_t::SUBSET;
+			entry->subset.SetNum( numIndexes, false );
+			memcpy( entry->subset.Begin(), frontEndInteractionIndexes.Begin() + firstIndex,
+				numIndexes * sizeof( glIndex_t ) );
 		}
 
 		srfTriangles_t* geometry = frontEndInteractionGeometryAllocator.Alloc();
@@ -2349,6 +2459,26 @@ void R_AddLightSurfaces() {
 	// than legacy per-light interaction chains. When Vulkan raster shadows and
 	// interactions are enabled (!R_RayTracingIsInitialized()), build the chains.
 	if ( R_UseVulkanBackend() && R_RayTracingIsInitialized() ) return;
+	{
+		const idRenderWorldLocal* world = RB_GetDrawWorld();
+		if ( world != interactionCacheWorld ) {
+			interactionCache.clear();
+			interactionCacheWorld = world;
+		}
+		if ( frontEndInteractionIndexes.GetGranularity() < 65536 ) {
+			frontEndInteractionIndexes.SetGranularity( 65536 );
+		}
+		++interactionCacheFrame;
+		if ( ( interactionCacheFrame & 63 ) == 0 ) {
+			for ( auto it = interactionCache.begin(); it != interactionCache.end(); ) {
+				if ( interactionCacheFrame - it->second.lastUsedFrame > INTERACTION_CACHE_MAX_AGE ) {
+					it = interactionCache.erase( it );
+				} else {
+					++it;
+				}
+			}
+		}
+	}
 	for ( viewLight_s* light = view->viewLights; light != NULL; light = light->next ) {
 		if ( light->culled || light->material == NULL || IsSkippedWaterFog( light->material ) ) continue;
 		const bool shadowLight = !light->lightDef->flags.noShadows && light->material->LightCastsShadows();
@@ -2415,6 +2545,14 @@ void R_AddLightSurfaces() {
 		}
 	}
 	FinalizeLightInteractionGeometry();
+}
+
+void R_PrintInteractionCacheMetrics() {
+	const unsigned long long cached = interactionCacheStats.hits + interactionCacheStats.misses;
+	common->Printf( "Vulkan interaction cache: %llu hits, %llu misses (%.1f%% hit), %llu uncached (dynamic geometry), %u entries\n",
+		interactionCacheStats.hits, interactionCacheStats.misses,
+		cached > 0 ? 100.0 * interactionCacheStats.hits / cached : 0.0,
+		interactionCacheStats.uncached, static_cast< unsigned int >( interactionCache.size() ) );
 }
 
 void R_RemoveUnecessaryViewLights() {

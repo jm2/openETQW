@@ -6014,6 +6014,7 @@ bool sdVulkanBackend::Init( void* nativeWindow, int width, int height ) {
 
 extern unsigned int r_shadowLightViews;
 extern unsigned int r_shadowLightViewsWithCasters;
+void R_PrintInteractionCacheMetrics();	// tr_light.cpp
 
 void sdVulkanBackend::Shutdown() {
 	if ( state == NULL ) {
@@ -6022,6 +6023,7 @@ void sdVulkanBackend::Shutdown() {
 	common->Printf( "Vulkan frames presented: %u, world draws: %u, GUI draws: %u, shadow draws: %u, light interactions: %u\n",
 		state->framesPresented, state->worldDrawCalls, state->guiDrawCalls,
 		state->worldShadowDrawCalls, state->worldInteractionDrawCalls );
+	R_PrintInteractionCacheMetrics();
 	common->Printf( "Vulkan shadow lights: %u shadow-casting light views, %u with shadow casters\n",
 		r_shadowLightViews, r_shadowLightViewsWithCasters );
 	common->Printf( "Vulkan memory allocations: %u live, %u peak (device limit %u); "
