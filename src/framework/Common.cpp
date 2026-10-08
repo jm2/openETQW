@@ -26,6 +26,7 @@
 #include "GraphManager.h"
 #include "GameModuleCallbacks.h"
 #include "NotificationSystem.h"
+#include "Session_local.h"
 #include "../decllib/declLocStr.h"
 #include "../renderer/DeviceContext.h"
 #include "../renderer/FrameSyncTiming.h"
@@ -980,6 +981,22 @@ void Com_UpdateGameTime() {
 	}
 }
 
+/*
+==================
+Com_HandleFrameCommand
+
+A frame command the game queued (cmdSystem->PushFrameCommand): the async server's while it runs
+(multiplayer, dedicated or listen), the session's otherwise (single player).
+==================
+*/
+static void Com_HandleFrameCommand( const idCmdArgs& args ) {
+	if ( idAsyncNetwork::server.IsActive() ) {
+		idAsyncNetwork::server.HandleFrameCommand( args );
+	} else {
+		sessLocal.HandleFrameCommand( args );
+	}
+}
+
 int Com_GetGameTimeLeft() {
 	if ( idAsyncNetwork::client.IsActive() ) {
 		return idAsyncNetwork::client.GetGameTimeLeft();
@@ -1169,6 +1186,9 @@ void idCommonLocal::Frame() {
 			game->RunFrame();
 		}
 		idAsyncNetwork::RunFrame();
+		// the game's map changes, queued with cmdSystem->PushFrameCommand (a campaign's next map, an
+		// admin or vote changemap): run once a frame, after the server's ticks, never inside a tick
+		cmdSystem->HandleFrameCommands( frameCommandCallback_t( Com_HandleFrameCommand ) );
 		bool frameDrawn = false;
 		if ( session != NULL ) {
 			if ( !idAsyncNetwork::IsActive() ) {

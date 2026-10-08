@@ -10,6 +10,7 @@
 #include <time.h>
 
 #include "sys_local.h"
+#include "../framework/Session_local.h"
 #include "posix/posix_public.h"
 
 const char * sysLanguageNames[] = {
@@ -490,10 +491,25 @@ idWStr idSysLocal::GetClipboardData( void ) {
 void idSysLocal::SetClipboardData( const wchar_t *string ) {
 }
 
+/*
+==============
+idSysLocal::SetServerInfo
+
+The game's server info writes (si_campaign, si_campaignInfo, ...): the cvar (forced: these are
+CVAR_ROM, which only code may set) and the session's server info, which the game and the
+snapshots read. These were empty, so a campaign's si_campaignInfo restarted on every map.
+==============
+*/
 void idSysLocal::SetServerInfo( const char* key, const char* value ) {
+	if ( key == NULL || value == NULL ) {
+		return;
+	}
+	cvarSystem->SetCVarString( key, value );
+	sessLocal.SetServerInfo( key, value );
 }
 
 void idSysLocal::FlushServerInfo( void ) {
+	sessLocal.FlushServerInfo();
 }
 
 void idSysLocal::InitInput() {

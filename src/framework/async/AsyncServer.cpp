@@ -216,6 +216,61 @@ void idAsyncServer::ExecuteMapChange() {
 		return;
 	}
 
+	FinishMapChange( mapName.c_str(), requestedMap.c_str(), true );
+}
+
+/*
+==================
+idAsyncServer::ChangeMapForRules
+
+The rules' own progression to their next map: a campaign's StartMap pushes the frame command
+"map <name>". OnUserStartMap is skipped, so the running rules object keeps its state (the
+campaign's map index and each team's wins; its OnUserStartMap takes a campaign name and would
+start the campaign over), and the game gets isUserChange false (InitFromNewMap, rules->NewMap).
+==================
+*/
+void idAsyncServer::ChangeMapForRules( const char* mapName ) {
+	if ( !active || game == NULL || mapName == NULL || mapName[ 0 ] == '\0' ) {
+		return;
+	}
+	FinishMapChange( mapName, mapName, false );
+}
+
+/*
+==================
+idAsyncServer::HandleFrameCommand
+
+The game queues its map changes as frame commands (cmdSystem->PushFrameCommand); Common's frame
+drains them once a frame and hands them here while a server runs. "map <name>" is the rules'
+progression (ChangeMapForRules); "usermap <name>" is a user change (an admin or vote changemap),
+which goes through OnUserStartMap as spawnServer does.
+==================
+*/
+void idAsyncServer::HandleFrameCommand( const idCmdArgs& args ) {
+	const char* command = args.Argv( 0 );
+	if ( args.Argc() < 2 ) {
+		common->Warning( "frame command '%s' without a map", command );
+		return;
+	}
+	if ( idStr::Icmp( command, "map" ) == 0 ) {
+		ChangeMapForRules( args.Argv( 1 ) );
+	} else if ( idStr::Icmp( command, "usermap" ) == 0 ) {
+		cvarSystem->SetCVarString( "si_map", args.Argv( 1 ) );
+		ExecuteMapChange();
+	} else {
+		common->Warning( "unknown frame command '%s'", command );
+	}
+}
+
+/*
+==================
+idAsyncServer::FinishMapChange
+
+The part of a map change after the rules are chosen: the session loads mapName, the remote and
+bot clients follow, and mapRequest is what IsMapRequestLoaded compares si_map with.
+==================
+*/
+void idAsyncServer::FinishMapChange( const char* mapName, const char* mapRequest, bool isUserChange ) {
 	serverTime = Sys_Milliseconds();
 	gameFrame = 0;
 	gameTime = 0;
@@ -240,11 +295,11 @@ void idAsyncServer::ExecuteMapChange() {
 
 	loadedMapRequest.Clear();
 	loadedRules.Clear();
-	sessLocal.ExecuteMapChange( mapName.c_str(), 0, true, true, true );
+	sessLocal.ExecuteMapChange( mapName, 0, true, true, isUserChange );
 	if ( !sessLocal.MapSpawned() ) {
 		return;
 	}
-	loadedMapRequest = Server_NormalizeMapRequest( requestedMap.c_str() );
+	loadedMapRequest = Server_NormalizeMapRequest( mapRequest );
 	loadedRules = cvarSystem->GetCVarString( "si_rules" );	// after OnUserStartMap, which may force the rules
 	if ( localClientNum >= 0 ) {
 		BeginLocalClient();

@@ -587,7 +587,13 @@ void idSessionLocal::RunGameTic() {
 
 void idSessionLocal::HandleFrameCommand( const idCmdArgs& cmd ) {
 	const char* command = cmd.Argv( 0 );
-	if ( idStr::Icmp( command, "map" ) == 0 || idStr::Icmp( command, "devmap" ) == 0 ) {
+	if ( idStr::Icmp( command, "map" ) == 0 ) {
+		// the rules' own next map (a campaign's StartMap): the rules and their state carry over
+		ExecuteMapChange( cmd.Argv( 1 ), 0, true, true, false );
+	} else if ( idStr::Icmp( command, "usermap" ) == 0 ) {
+		// a user change (an admin or vote changemap): OnUserStartMap picks the rules, as 'map' typed does
+		StartNewGame( cmd.Argv( 1 ) );
+	} else if ( idStr::Icmp( command, "devmap" ) == 0 ) {
 		ExecuteMapChange( cmd.Argv( 1 ), 0, true, true, true );
 	} else if ( idStr::Icmp( command, "disconnect" ) == 0 ) {
 		Stop();
