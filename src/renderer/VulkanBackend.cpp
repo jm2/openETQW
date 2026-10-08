@@ -168,6 +168,7 @@ struct sdVulkanImageResource {
 	int				height;
 	int				mipLevels;
 	bool			cubeMap;
+	bool			blockCompressed;	// BC blocks from a DDS file; UpdateImage2D cannot write it
 };
 
 struct sdVulkanToolDepthResource {
@@ -450,6 +451,7 @@ struct sdVulkanBackendState {
 	char					vendorString[ 64 ];
 	char					versionString[ 32 + VK_MAX_DRIVER_NAME_SIZE + VK_MAX_DRIVER_INFO_SIZE ];
 	bool					fillModeNonSolid;
+	bool					textureCompressionBC;
 	bool					rayTracingDeviceEnabled;
 	VkDeviceSize			jointUniformAlignment;
 
@@ -773,6 +775,7 @@ struct sdVulkanBackendState {
 		vendorString[ 0 ] = '\0';
 		versionString[ 0 ] = '\0';
 		fillModeNonSolid = false;
+		textureCompressionBC = false;
 		rayTracingDeviceEnabled = false;
 		jointUniformAlignment = 1;
 		swapchain = VK_NULL_HANDLE;
@@ -1579,6 +1582,7 @@ bool SelectPhysicalDevice( sdVulkanBackendState& state ) {
 				sizeof( state.deviceName ) );
 			state.vendorID = properties.vendorID;
 			state.fillModeNonSolid = features2.features.fillModeNonSolid == VK_TRUE;
+			state.textureCompressionBC = features2.features.textureCompressionBC == VK_TRUE;
 			state.maxPushConstantsSize = properties.limits.maxPushConstantsSize;
 			state.jointUniformAlignment =
 				properties.limits.minUniformBufferOffsetAlignment > 1 ?
@@ -1622,6 +1626,9 @@ bool CreateLogicalDevice( sdVulkanBackendState& state,
 	if ( state.fillModeNonSolid ) {
 		coreFeatures.fillModeNonSolid = VK_TRUE;
 	}
+	if ( state.textureCompressionBC ) {
+		coreFeatures.textureCompressionBC = VK_TRUE;
+	}
 
 	if ( rayTracingAvailable ) {
 		features13.pNext = &rayTracingConfiguration.bufferDeviceAddress;
@@ -1629,6 +1636,9 @@ bool CreateLogicalDevice( sdVulkanBackendState& state,
 			rayTracingConfiguration.coreFeatures.fillModeNonSolid = VK_TRUE;
 		}
 		rayTracingConfiguration.coreFeatures.robustBufferAccess = VK_TRUE;
+		if ( state.textureCompressionBC ) {
+			rayTracingConfiguration.coreFeatures.textureCompressionBC = VK_TRUE;
+		}
 		coreFeatures = rayTracingConfiguration.coreFeatures;
 	}
 
@@ -7685,22 +7695,10 @@ void RecordInitialImageUploadCommands( sdVulkanBackendState& uploadState,
 	uploadState.CmdPipelineBarrier2( commandBuffer, &dependencyInfo );
 }
 
-bool sdVulkanBackend::UploadImage2D( const void* owner,
-	const unsigned char* rgba, int width, int height, int mipLevels,
-	bool linearFilter, bool repeat ) {
-	RENDER_METRIC_SCOPE( "Vulkan create/upload image" );
-	if ( state == NULL || state->device == VK_NULL_HANDLE || owner == NULL ||
-		rgba == NULL || width <= 0 || height <= 0 ) {
-		return false;
-	}
-	int maximumMipLevels = 1;
-	for ( int size = Max( width, height ); size > 1; size >>= 1 ) {
-		maximumMipLevels++;
-	}
-	mipLevels = idMath::ClampInt( 1, maximumMipLevels, mipLevels );
-	DestroyImage( owner );
-
-	sdVulkanImageResource resource;
+// Creates a sampled 2D image with its memory, view, sampler and descriptor.
+static bool CreateSampledImageResource( sdVulkanBackendState& state, const void* owner,
+	VkFormat format, VkComponentMapping swizzle, int width, int height, int mipLevels,
+	VkImageUsageFlags usage, bool linearFilter, bool repeat, sdVulkanImageResource& resource ) {
 	memset( &resource, 0, sizeof( resource ) );
 	resource.owner = owner;
 	resource.width = width;
@@ -7711,7 +7709,7 @@ bool sdVulkanBackend::UploadImage2D( const void* owner,
 	memset( &imageInfo, 0, sizeof( imageInfo ) );
 	imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
 	imageInfo.imageType = VK_IMAGE_TYPE_2D;
-	imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+	imageInfo.format = format;
 	imageInfo.extent.width = static_cast< unsigned int >( width );
 	imageInfo.extent.height = static_cast< unsigned int >( height );
 	imageInfo.extent.depth = 1;
@@ -7719,25 +7717,21 @@ bool sdVulkanBackend::UploadImage2D( const void* owner,
 	imageInfo.arrayLayers = 1;
 	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
 	imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-	imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-		VK_IMAGE_USAGE_SAMPLED_BIT;
-	if ( mipLevels > 1 ) {
-		imageInfo.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-	}
+	imageInfo.usage = usage;
 	imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	if ( !CheckVulkanResult( state->CreateImage( state->device, &imageInfo,
+	if ( !CheckVulkanResult( state.CreateImage( state.device, &imageInfo,
 		NULL, &resource.image ), "vkCreateImage" ) ) {
 		return false;
 	}
 	VkMemoryRequirements imageRequirements;
-	state->GetImageMemoryRequirements( state->device, resource.image,
+	state.GetImageMemoryRequirements( state.device, resource.image,
 		&imageRequirements );
 	unsigned int imageMemoryType = UINT_MAX;
-	if ( !FindMemoryType( *state, imageRequirements.memoryTypeBits,
+	if ( !FindMemoryType( state, imageRequirements.memoryTypeBits,
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, imageMemoryType ) ) {
 		common->Warning( "No device-local Vulkan image memory type is available" );
-		DestroyImageResource( *state, resource );
+		DestroyImageResource( state, resource );
 		return false;
 	}
 	VkMemoryAllocateInfo imageAllocateInfo;
@@ -7745,11 +7739,11 @@ bool sdVulkanBackend::UploadImage2D( const void* owner,
 	imageAllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
 	imageAllocateInfo.allocationSize = imageRequirements.size;
 	imageAllocateInfo.memoryTypeIndex = imageMemoryType;
-	if ( !CheckVulkanResult( state->AllocateMemory( state->device,
+	if ( !CheckVulkanResult( state.AllocateMemory( state.device,
 		&imageAllocateInfo, NULL, &resource.memory ), "vkAllocateMemory(image)" ) ||
-		!CheckVulkanResult( state->BindImageMemory( state->device, resource.image,
+		!CheckVulkanResult( state.BindImageMemory( state.device, resource.image,
 			resource.memory, 0 ), "vkBindImageMemory" ) ) {
-		DestroyImageResource( *state, resource );
+		DestroyImageResource( state, resource );
 		return false;
 	}
 
@@ -7759,16 +7753,13 @@ bool sdVulkanBackend::UploadImage2D( const void* owner,
 	viewInfo.image = resource.image;
 	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
 	viewInfo.format = imageInfo.format;
-	viewInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-	viewInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-	viewInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-	viewInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+	viewInfo.components = swizzle;
 	viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	viewInfo.subresourceRange.levelCount = static_cast< unsigned int >( mipLevels );
 	viewInfo.subresourceRange.layerCount = 1;
-	if ( !CheckVulkanResult( state->CreateImageView( state->device, &viewInfo,
+	if ( !CheckVulkanResult( state.CreateImageView( state.device, &viewInfo,
 		NULL, &resource.view ), "vkCreateImageView(image)" ) ) {
-		DestroyImageResource( *state, resource );
+		DestroyImageResource( state, resource );
 		return false;
 	}
 
@@ -7786,13 +7777,43 @@ bool sdVulkanBackend::UploadImage2D( const void* owner,
 	samplerInfo.minLod = 0.0f;
 	samplerInfo.maxLod = static_cast< float >( mipLevels - 1 );
 	samplerInfo.maxAnisotropy = 1.0f;
-	if ( !CheckVulkanResult( state->CreateSampler( state->device, &samplerInfo,
+	if ( !CheckVulkanResult( state.CreateSampler( state.device, &samplerInfo,
 		NULL, &resource.sampler ), "vkCreateSampler" ) ) {
-		DestroyImageResource( *state, resource );
+		DestroyImageResource( state, resource );
 		return false;
 	}
-	if ( !AllocateImageDescriptor( *state, resource ) ) {
-		DestroyImageResource( *state, resource );
+	if ( !AllocateImageDescriptor( state, resource ) ) {
+		DestroyImageResource( state, resource );
+		return false;
+	}
+
+	return true;
+}
+
+bool sdVulkanBackend::UploadImage2D( const void* owner,
+	const unsigned char* rgba, int width, int height, int mipLevels,
+	bool linearFilter, bool repeat ) {
+	RENDER_METRIC_SCOPE( "Vulkan create/upload image" );
+	if ( state == NULL || state->device == VK_NULL_HANDLE || owner == NULL ||
+		rgba == NULL || width <= 0 || height <= 0 ) {
+		return false;
+	}
+	int maximumMipLevels = 1;
+	for ( int size = Max( width, height ); size > 1; size >>= 1 ) {
+		maximumMipLevels++;
+	}
+	mipLevels = idMath::ClampInt( 1, maximumMipLevels, mipLevels );
+	DestroyImage( owner );
+
+	sdVulkanImageResource resource;
+	VkComponentMapping identity;
+	identity.r = identity.g = identity.b = identity.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+	VkImageUsageFlags usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+	if ( mipLevels > 1 ) {
+		usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+	}
+	if ( !CreateSampledImageResource( *state, owner, VK_FORMAT_R8G8B8A8_UNORM, identity,
+		width, height, mipLevels, usage, linearFilter, repeat, resource ) ) {
 		return false;
 	}
 
@@ -8007,6 +8028,283 @@ bool sdVulkanBackend::UploadImage2D( const void* owner,
 		dependencyInfo.imageMemoryBarrierCount = shaderBarrierCount;
 		dependencyInfo.pImageMemoryBarriers = shaderBarriers;
 		state->CmdPipelineBarrier2( commandBuffer, &dependencyInfo );
+		uploadSucceeded = SubmitImmediate( *state, commandPool, commandBuffer );
+		commandPool = VK_NULL_HANDLE;
+	}
+	if ( commandPool != VK_NULL_HANDLE ) {
+		state->DestroyCommandPool( state->device, commandPool, NULL );
+	}
+	state->DestroyBuffer( state->device, stagingBuffer, NULL );
+	state->FreeMemory( state->device, stagingMemory, NULL );
+	if ( !uploadSucceeded ) {
+		DestroyImageResource( *state, resource );
+		return false;
+	}
+	const int imageIndex = state->imageResources.Append( resource );
+	state->imageResourceLookup.Set( resource.owner, imageIndex );
+	return true;
+}
+
+namespace {
+
+struct vulkanBlockFormatInfo_t {
+	VkFormat			format;
+	int					blockBytes;
+	VkComponentMapping	swizzle;
+};
+
+// The view swizzles make each format sample as DecodeDDSLevelRGBA's RGBA does.
+bool GetVulkanBlockFormat( vulkanBlockFormat_t blockFormat, vulkanBlockFormatInfo_t& info ) {
+	const VkComponentSwizzle I = VK_COMPONENT_SWIZZLE_IDENTITY;
+	info.swizzle.r = info.swizzle.g = info.swizzle.b = info.swizzle.a = I;
+	switch ( blockFormat ) {
+		case VBF_BC1_RGB: info.format = VK_FORMAT_BC1_RGB_UNORM_BLOCK; info.blockBytes = 8; return true;
+		case VBF_BC1_RGBA: info.format = VK_FORMAT_BC1_RGBA_UNORM_BLOCK; info.blockBytes = 8; return true;
+		case VBF_BC2: info.format = VK_FORMAT_BC2_UNORM_BLOCK; info.blockBytes = 16; return true;
+		case VBF_BC3: info.format = VK_FORMAT_BC3_UNORM_BLOCK; info.blockBytes = 16; return true;
+		case VBF_BC3_RXGB:
+			// RXGB keeps red in the alpha block: (A, G, B, 1)
+			info.format = VK_FORMAT_BC3_UNORM_BLOCK;
+			info.blockBytes = 16;
+			info.swizzle.r = VK_COMPONENT_SWIZZLE_A;
+			info.swizzle.a = VK_COMPONENT_SWIZZLE_ONE;
+			return true;
+		case VBF_BC4:
+			// ATI1 / LATC1 decodes to (L, L, L, 1)
+			info.format = VK_FORMAT_BC4_UNORM_BLOCK;
+			info.blockBytes = 8;
+			info.swizzle.g = VK_COMPONENT_SWIZZLE_R;
+			info.swizzle.b = VK_COMPONENT_SWIZZLE_R;
+			info.swizzle.a = VK_COMPONENT_SWIZZLE_ONE;
+			return true;
+		case VBF_BC5:
+			// ATI2 decodes to (X, Y, 0, 1), as BC5 samples
+			info.format = VK_FORMAT_BC5_UNORM_BLOCK;
+			info.blockBytes = 16;
+			return true;
+		default:
+			return false;
+	}
+}
+
+VkDeviceSize VulkanBlockLevelBytes( int width, int height, int blockBytes ) {
+	return static_cast< VkDeviceSize >( ( width + 3 ) / 4 ) *
+		static_cast< VkDeviceSize >( ( height + 3 ) / 4 ) *
+		static_cast< VkDeviceSize >( blockBytes );
+}
+
+// Copies every level of a block-compressed image from the staging buffer and
+// leaves the whole image ready for sampling.  No mipmaps are generated: the
+// levels come from the file.
+void RecordBlockImageUploadCommands( sdVulkanBackendState& uploadState,
+	VkCommandBuffer commandBuffer, VkBuffer stagingBuffer,
+	VkDeviceSize stagingOffset, const sdVulkanImageResource& resource,
+	int blockBytes ) {
+	VkImageMemoryBarrier2 barrier;
+	memset( &barrier, 0, sizeof( barrier ) );
+	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+	barrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
+	barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+	barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+	barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.image = resource.image;
+	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	barrier.subresourceRange.levelCount = static_cast< unsigned int >( resource.mipLevels );
+	barrier.subresourceRange.layerCount = 1;
+	VkDependencyInfo dependencyInfo;
+	memset( &dependencyInfo, 0, sizeof( dependencyInfo ) );
+	dependencyInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+	dependencyInfo.imageMemoryBarrierCount = 1;
+	dependencyInfo.pImageMemoryBarriers = &barrier;
+	uploadState.CmdPipelineBarrier2( commandBuffer, &dependencyInfo );
+
+	VkBufferImageCopy regions[ 16 ];
+	int mipWidth = resource.width;
+	int mipHeight = resource.height;
+	VkDeviceSize offset = stagingOffset;
+	for ( int level = 0; level < resource.mipLevels; ++level ) {
+		VkBufferImageCopy& region = regions[ level ];
+		memset( &region, 0, sizeof( region ) );
+		region.bufferOffset = offset;
+		region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		region.imageSubresource.mipLevel = static_cast< unsigned int >( level );
+		region.imageSubresource.layerCount = 1;
+		region.imageExtent.width = static_cast< unsigned int >( mipWidth );
+		region.imageExtent.height = static_cast< unsigned int >( mipHeight );
+		region.imageExtent.depth = 1;
+		offset += VulkanBlockLevelBytes( mipWidth, mipHeight, blockBytes );
+		mipWidth = Max( 1, mipWidth >> 1 );
+		mipHeight = Max( 1, mipHeight >> 1 );
+	}
+	uploadState.CmdCopyBufferToImage( commandBuffer, stagingBuffer, resource.image,
+		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		static_cast< unsigned int >( resource.mipLevels ), regions );
+
+	barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+	barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+	barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
+	barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+	barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	uploadState.CmdPipelineBarrier2( commandBuffer, &dependencyInfo );
+}
+
+}
+
+bool sdVulkanBackend::SupportsBlockFormat( vulkanBlockFormat_t blockFormat, bool linearFilter ) const {
+	vulkanBlockFormatInfo_t info;
+	if ( state == NULL || state->device == VK_NULL_HANDLE ||
+		!state->textureCompressionBC || !GetVulkanBlockFormat( blockFormat, info ) ) {
+		return false;
+	}
+	VkFormatProperties properties;
+	state->GetPhysicalDeviceFormatProperties( state->physicalDevice, info.format, &properties );
+	VkFormatFeatureFlags needed = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
+		VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
+	if ( linearFilter ) {
+		// textureCompressionBC already guarantees it; checked for the sampler's sake
+		needed |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+	}
+	return ( properties.optimalTilingFeatures & needed ) == needed;
+}
+
+bool sdVulkanBackend::UploadBlockImage2D( const void* owner, vulkanBlockFormat_t blockFormat,
+	const unsigned char* blocks, size_t blockDataBytes, int width, int height,
+	int mipLevels, bool linearFilter, bool repeat ) {
+	RENDER_METRIC_SCOPE( "Vulkan create/upload image" );
+	vulkanBlockFormatInfo_t info;
+	if ( owner == NULL || blocks == NULL || width <= 0 || height <= 0 ||
+		mipLevels < 1 || !SupportsBlockFormat( blockFormat, linearFilter ) ||
+		!GetVulkanBlockFormat( blockFormat, info ) ) {
+		return false;
+	}
+	int maximumMipLevels = 1;
+	for ( int size = Max( width, height ); size > 1; size >>= 1 ) {
+		maximumMipLevels++;
+	}
+	mipLevels = Min( mipLevels, maximumMipLevels );	// a header may claim more levels than the size has
+	if ( mipLevels > 16 ) {
+		return false;	// 65536 texels or more: past RecordBlockImageUploadCommands' 16 regions
+	}
+	VkDeviceSize uploadBytes = 0;
+	for ( int level = 0, w = width, h = height; level < mipLevels; ++level ) {
+		uploadBytes += VulkanBlockLevelBytes( w, h, info.blockBytes );
+		w = Max( 1, w >> 1 );
+		h = Max( 1, h >> 1 );
+	}
+	if ( uploadBytes > static_cast< VkDeviceSize >( blockDataBytes ) ) {
+		return false;
+	}
+	DestroyImage( owner );
+
+	sdVulkanImageResource resource;
+	if ( !CreateSampledImageResource( *state, owner, info.format, info.swizzle,
+		width, height, mipLevels, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+		linearFilter, repeat, resource ) ) {
+		return false;
+	}
+	resource.blockCompressed = true;
+
+	VkBuffer stagingBuffer = VK_NULL_HANDLE;
+	VkDeviceSize stagingOffset = 0;
+	if ( state->frameActive ) {
+		sdVulkanFrame& frame = state->frames[ state->frameIndex ];
+		stagingBuffer = frame.imageUploadBuffer;
+		stagingOffset = ( frame.imageUploadOffset + 15 ) & ~15ULL;
+		if ( frame.imageUploadMapped != NULL &&
+			stagingOffset + uploadBytes <= VULKAN_IMAGE_UPLOAD_BYTES ) {
+			memcpy( static_cast< byte* >( frame.imageUploadMapped ) + stagingOffset,
+				blocks, static_cast< size_t >( uploadBytes ) );
+			frame.imageUploadOffset = stagingOffset + uploadBytes;
+		} else {
+			if ( !frame.imageUploadOverflowWarned ) {
+				common->Warning( "Vulkan image upload arena exhausted (%u MiB); using fence-retired spill buffers",
+					static_cast< unsigned int >(
+						VULKAN_IMAGE_UPLOAD_BYTES / ( 1024 * 1024 ) ) );
+				frame.imageUploadOverflowWarned = true;
+			}
+			sdVulkanBufferResource spill;
+			memset( &spill, 0, sizeof( spill ) );
+			spill.bytes = uploadBytes;
+			if ( !CreateBufferAllocation( *state, uploadBytes,
+				VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+					VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+				spill.buffer, spill.memory ) ||
+				!CheckVulkanResult( state->MapMemory( state->device, spill.memory,
+					0, uploadBytes, 0, &spill.mapped ),
+					"vkMapMemory(block image upload spill)" ) ) {
+				DestroyBufferResource( *state, spill );
+				DestroyImageResource( *state, resource );
+				return false;
+			}
+			memcpy( spill.mapped, blocks, static_cast< size_t >( uploadBytes ) );
+			state->UnmapMemory( state->device, spill.memory );
+			spill.mapped = NULL;
+			stagingBuffer = spill.buffer;
+			stagingOffset = 0;
+			state->frameRetiredBufferResources[ state->frameIndex ].Append( spill );
+		}
+		RecordBlockImageUploadCommands( *state, frame.imageUploadCommandBuffer,
+			stagingBuffer, stagingOffset, resource, info.blockBytes );
+		frame.imageUploadRecorded = true;
+		const int imageIndex = state->imageResources.Append( resource );
+		state->imageResourceLookup.Set( resource.owner, imageIndex );
+		return true;
+	}
+
+	VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
+	void* mapped = NULL;
+	if ( !CreateBufferAllocation( *state, uploadBytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+		stagingBuffer, stagingMemory ) ) {
+		DestroyImageResource( *state, resource );
+		return false;
+	}
+	if ( !CheckVulkanResult( state->MapMemory( state->device, stagingMemory, 0,
+		uploadBytes, 0, &mapped ), "vkMapMemory(block image upload)" ) ) {
+		state->DestroyBuffer( state->device, stagingBuffer, NULL );
+		state->FreeMemory( state->device, stagingMemory, NULL );
+		DestroyImageResource( *state, resource );
+		return false;
+	}
+	memcpy( mapped, blocks, static_cast< size_t >( uploadBytes ) );
+	state->UnmapMemory( state->device, stagingMemory );
+
+	VkCommandPool commandPool = VK_NULL_HANDLE;
+	VkCommandPoolCreateInfo poolInfo;
+	memset( &poolInfo, 0, sizeof( poolInfo ) );
+	poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+	poolInfo.queueFamilyIndex = state->queueFamilyIndex;
+	VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+	bool uploadSucceeded = CheckVulkanResult( state->CreateCommandPool(
+		state->device, &poolInfo, NULL, &commandPool ), "vkCreateCommandPool(block upload)" );
+	if ( uploadSucceeded ) {
+		VkCommandBufferAllocateInfo commandAllocateInfo;
+		memset( &commandAllocateInfo, 0, sizeof( commandAllocateInfo ) );
+		commandAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		commandAllocateInfo.commandPool = commandPool;
+		commandAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		commandAllocateInfo.commandBufferCount = 1;
+		uploadSucceeded = CheckVulkanResult( state->AllocateCommandBuffers(
+			state->device, &commandAllocateInfo, &commandBuffer ),
+			"vkAllocateCommandBuffers(block upload)" );
+	}
+	if ( uploadSucceeded ) {
+		VkCommandBufferBeginInfo beginInfo;
+		memset( &beginInfo, 0, sizeof( beginInfo ) );
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		uploadSucceeded = CheckVulkanResult( state->BeginCommandBuffer(
+			commandBuffer, &beginInfo ), "vkBeginCommandBuffer(block upload)" );
+	}
+	if ( uploadSucceeded ) {
+		RecordBlockImageUploadCommands( *state, commandBuffer, stagingBuffer, 0,
+			resource, info.blockBytes );
 		uploadSucceeded = SubmitImmediate( *state, commandPool, commandBuffer );
 		commandPool = VK_NULL_HANDLE;
 	}
@@ -8343,7 +8641,7 @@ bool sdVulkanBackend::UpdateImage2D( const void* owner, int mipLevel,
 		return false;
 	}
 	sdVulkanImageResource* resource = FindVulkanImageResource( *state, owner );
-	if ( resource == NULL || mipLevel >= resource->mipLevels ) {
+	if ( resource == NULL || mipLevel >= resource->mipLevels || resource->blockCompressed ) {
 		return false;
 	}
 	const int mipWidth = Max( 1, resource->width >> mipLevel );

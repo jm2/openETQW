@@ -17,7 +17,9 @@
 In both modes the Vulkan client's GUIs (HUD, menus, world GUIs) must update about
 once per frame during play: with g_guiSpeeds 1 (a cheat; the server allows cheats) its
 GUI manager prints one line per update, and 3 s of play need >= 40 of them a second at
-the default 60 fps cap (until 2026-09-25 a network session never updated its GUIs).
+the default cap (240 since M5 step 18, 60 before; the check needs only 40 updates a
+second, so a host below either still passes) (until 2026-09-25 a network session never
+updated its GUIs).
 In both modes every process exits 0 on 'quit', no log has a failure marker
 (etqw_harness.scan_failures; for the Vulkan client also the Vulkan error
 markers campaign-client-maps uses), and the Vulkan client presented frames and
