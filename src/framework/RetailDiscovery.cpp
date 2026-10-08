@@ -414,13 +414,34 @@ bool RetailDiscovery::WriteStoredPath( const char *savePath, const char *root ) 
 			}
 		}
 	}
+	// the file is UTF-8 on every platform (ReadStoredPath decodes it so); root is the
+	// engine's name, which on Windows is in the ANSI code page
+	std::string text;
+#ifdef _WIN32
+	fs::path rootPath;
+	if ( !ToPath( root, rootPath ) ) {
+		return false;
+	}
+	const std::wstring &wide = rootPath.native();
+	const int length = WideCharToMultiByte( CP_UTF8, 0, wide.c_str(), -1, NULL, 0, NULL, NULL );
+	if ( length <= 0 ) {
+		return false;
+	}
+	std::vector< char > buffer( static_cast< size_t >( length ) );
+	if ( WideCharToMultiByte( CP_UTF8, 0, wide.c_str(), -1, buffer.data(), length, NULL, NULL ) <= 0 ) {
+		return false;
+	}
+	text = buffer.data();
+#else
+	text = root;
+#endif
 	idStr file = savePath;
 	file.AppendPath( "basepath.txt" );
 	FILE *f = fopen( file.c_str(), "wb" );
 	if ( f == NULL ) {
 		return false;
 	}
-	const bool written = fprintf( f, "%s\n", root ) > 0;
+	const bool written = fprintf( f, "%s\n", text.c_str() ) > 0;
 	return fclose( f ) == 0 && written;
 }
 

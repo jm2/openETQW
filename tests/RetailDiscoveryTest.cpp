@@ -84,6 +84,17 @@ static std::string Str( const fs::path &path ) {
 	return path.string();	// the engine's form; only for names every code page holds
 }
 
+// a path in the engine's form when the code page can name it (path.string() converts to the
+// ANSI code page on Windows and throws for a name it cannot hold)
+static bool Narrow( const fs::path &path, idStr &name ) {
+	try {
+		name = path.string().c_str();
+		return true;
+	} catch ( const std::exception & ) {
+		return false;
+	}
+}
+
 // a path as UTF-8 (what Steam's files and Notepad write)
 static std::string Utf8( const fs::path &path ) {
 	const std::u8string utf8 = path.u8string();
@@ -170,6 +181,16 @@ int main() {
 			"the written stored path read back as '%s'", path.c_str() );
 		CHECK( !RetailDiscovery::WriteStoredPath( "", Str( lower ).c_str() ) && !RetailDiscovery::WriteStoredPath( Str( savePath ).c_str(), "" ),
 			"an empty save path or root was written" );
+		// a non-ASCII root the code page can name ("Jeux vidéo") round-trips: written as
+		// UTF-8, read back as the engine's own name
+		const fs::path accented = tmp / fs::u8path( "Jeux vid\xC3\xA9o" );
+		idStr accentedName;
+		if ( Narrow( accented, accentedName ) ) {
+			const fs::path accentedSave = tmp / "save-accented";
+			CHECK( RetailDiscovery::WriteStoredPath( Str( accentedSave ).c_str(), accentedName.c_str() ), "a non-ASCII stored path was not written" );
+			CHECK( RetailDiscovery::ReadStoredPath( Str( accentedSave / "basepath.txt" ).c_str(), path ) && idStr::Cmp( path, accentedName ) == 0,
+				"a non-ASCII stored path read back as '%s', want '%s'", path.c_str(), accentedName.c_str() );
+		}
 	}
 
 	// --- Steam: libraryfolders.vdf, new and old format, and steamapps/common ---
