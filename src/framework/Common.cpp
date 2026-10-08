@@ -91,9 +91,11 @@ idCVar com_unlockFPS( "com_unlockFPS", "1", CVAR_BOOL | CVAR_SYSTEM | CVAR_ARCHI
 // them for, and M5 step 10 is to do the rest (docs/m5-plan.md step 12, decision D9;
 // compat ledger 053). A config that sets them, with seta or a bare line, creates user
 // CVars that nothing reads (idCVarSystemLocal::Command; tests/test_retired_cvars.py).
-idCVar com_maxFPS( "com_maxFPS", "60", CVAR_INTEGER | CVAR_SYSTEM | CVAR_ARCHIVE,
-	"maximum frames per second presented (0 = unlimited / VSync-only)" );
-idCVar com_unlock_maxFPS( "com_unlock_maxFPS", "60", CVAR_INTEGER | CVAR_SYSTEM | CVAR_NOCHEAT,
+// The default 240 is OpenETQW's (M5 step 18; compat ledger 069): retail drew at most 60
+// frames a second unless a config raised com_unlock_maxFPS.
+idCVar com_maxFPS( "com_maxFPS", "240", CVAR_INTEGER | CVAR_SYSTEM | CVAR_ARCHIVE,
+	"maximum frames per second presented (default 240; 0 = unlimited / VSync-only)" );
+idCVar com_unlock_maxFPS( "com_unlock_maxFPS", "240", CVAR_INTEGER | CVAR_SYSTEM | CVAR_NOCHEAT,
 	"retail's cap on unlocked frames; OpenETQW keeps it equal to com_maxFPS - zero = no limit" );
 // M5 step 10 (decision D7): a frame that ran a tick is prepared by ClientUpdateView too, at
 // the fraction of the tick already elapsed when it presents, instead of drawing the tick
