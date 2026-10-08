@@ -580,6 +580,23 @@ if build_dedicated
     timeout: 600,
     is_parallel: false,
   )
+  # M4: every class of both teams spawns with its own kit (the game's SPAWN
+  # lines): role items present, on no other class; team items on one team
+  test(
+    'm4-classes',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_m4_classes.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--port', '29962',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'm4-classes',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration', 'm4'],
+    protocol: 'exitcode',
+    timeout: 300,
+    is_parallel: false,
+  )
   # the charter's M3 soak: 10 minutes at 2% loss and 40 +/- 20 ms delay without
   # a disconnect (skip it in quick runs with 'meson test --no-suite soak')
   test(
