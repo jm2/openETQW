@@ -631,6 +631,41 @@ if build_dedicated
     timeout: 400,
     is_parallel: false,
   )
+  # M4: a stopwatch pair (the game's STOPWATCH lines): round 1 times out and sets
+  # the time to beat, the teams swap, round 2's attackers beat it on objectives
+  test(
+    'm4-stopwatch',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_m4_stopwatch.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--port', '29976',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'm4-stopwatch',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration', 'm4'],
+    protocol: 'exitcode',
+    timeout: 400,
+    is_parallel: false,
+  )
+  # M4: a campaign plays its three maps (the frame command "map", the game's
+  # CAMPAIGN lines), a connected client follows each, then an admin map change
+  # (ports 29978 and 29979: the server and the headless client)
+  test(
+    'm4-campaign',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_m4_campaign.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--port', '29978',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'm4-campaign',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration', 'm4'],
+    protocol: 'exitcode',
+    timeout: 900,
+    is_parallel: false,
+  )
   # the charter's M3 soak: 10 minutes at 2% loss and 40 +/- 20 ms delay without
   # a disconnect (skip it in quick runs with 'meson test --no-suite soak')
   test(
