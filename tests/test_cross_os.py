@@ -29,6 +29,7 @@ evidence: the server's own copy of each walk.
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import re
 import sys
@@ -101,17 +102,45 @@ def at_rest(proc, slot, timeout=6.0):
     raise Failed(f"client {slot} is still moving on {proc.name} {timeout:.0f} s after its stop")
 
 
+def away_move(mover, observer):
+    """The clientMove (forward, side) that walks the mover away from the observer's
+    player: two players can spawn a body apart in line, and walking into the other
+    stops the walk short (the first Windows -> Linux run)."""
+    me = own(mover)
+    other = own(observer)["org"]
+    away = (me["org"][0] - other[0], me["org"][1] - other[1])
+    yaw = math.radians(me["yaw"] or 0.0)
+    forward = (math.cos(yaw), math.sin(yaw))
+    right = (math.sin(yaw), -math.cos(yaw))
+    options = [((127, 0), forward), ((-127, 0), (-forward[0], -forward[1])),
+               ((0, 127), right), ((0, -127), (-right[0], -right[1]))]
+    options.sort(key=lambda o: o[1][0] * away[0] + o[1][1] * away[1], reverse=True)
+    return [o[0] for o in options]
+
+
 def walk(mover, observer, step, seconds=1.5):
-    """X2 for one direction."""
-    before = player_pos(observer, mover.slot)["org"]
-    mover.send("clientMove 127 0 0")
-    time.sleep(seconds)
-    mover.send("clientMove 0 0 0")
-    time.sleep(0.75)
-    seen = at_rest(observer, mover.slot)["org"]
-    mine = at_rest(mover, mover.slot)["org"]
-    moved = h.dist2d(before, seen)
-    err = h.dist2d(seen, mine)
+    """X2 for one direction: away from the other player; a walk stopped short by a wall
+    tries the next direction once. Afterwards the mover walks back the way it came, so a
+    later phase does not start against the wall it reached (the second Windows run)."""
+    for fwd, side in away_move(mover, observer)[:2]:
+        before = player_pos(observer, mover.slot)["org"]
+        mover.send(f"clientMove {fwd} {side} 0")
+        time.sleep(seconds)
+        mover.send("clientMove 0 0 0")
+        time.sleep(0.75)
+        seen = at_rest(observer, mover.slot)["org"]
+        mine = at_rest(mover, mover.slot)["org"]
+        moved = h.dist2d(before, seen)
+        err = h.dist2d(seen, mine)
+        # back the way it came (a backward leg is slower: 1.6 x as long, as mixed-caps found)
+        back = seconds * (1.6 if fwd > 0 else 1.0)
+        mover.send(f"clientMove {-fwd} {-side} 0")
+        time.sleep(back)
+        mover.send("clientMove 0 0 0")
+        time.sleep(0.75)
+        if moved >= MIN_DISPLACEMENT:
+            break
+        print(f"[{step}] {mover.name} moved only {moved:.1f} u (a wall?): trying another direction", flush=True)
     print(f"[{step}] {observer.name} saw {mover.name} (client {mover.slot}) walk {moved:.1f} u;"
           f" {err:.2f} u from {mover.name}'s own copy", flush=True)
     if moved < MIN_DISPLACEMENT:
