@@ -1643,8 +1643,19 @@ extern idCVar r_megaDrawMethod;
 extern idCVar r_skipWaterFogLights;
 extern idCVar r_useMaxVisDist;
 extern idCVar com_gpuSpec;
+extern idCVar r_znear;
 
 namespace {
+	const int DSF_VIEW_INSIDE_SHADOW = 1;	// drawSurf_s::dsFlags (draw_shadow.cpp's ShadowIndexCount)
+
+	// a model matrix's axis rows are 0-2, 4-6, 8-10 and its origin 12-14
+	idVec3 GlobalPointToLocal( const float m[ 16 ], const idVec3& in ) {
+		const idVec3 delta = in - idVec3( m[ 12 ], m[ 13 ], m[ 14 ] );
+		return idVec3( delta.x * m[ 0 ] + delta.y * m[ 1 ] + delta.z * m[ 2 ],
+			delta.x * m[ 4 ] + delta.y * m[ 5 ] + delta.z * m[ 6 ],
+			delta.x * m[ 8 ] + delta.y * m[ 9 ] + delta.z * m[ 10 ] );
+	}
+
 	idBlockAlloc< viewEntity_s, 256 > frontEndViewEntityAllocator;
 	idBlockAlloc< viewLight_s, 128 > frontEndViewLightAllocator;
 	idBlockAlloc< drawSurf_s, 1024 > frontEndDrawSurfaceAllocator;
@@ -2029,6 +2040,330 @@ namespace {
 				record.geometry->indexCache->indexBuffer = true;
 			}
 		}
+	}
+
+	// Stencil shadow volumes (#124).  A surface's shadow for one light is id Tech 4's
+	// vertex-program "turbo" volume (R_CreateVertexProgramTurboShadowVolume in
+	// tr_turboshadow.cpp, which this build does not compile): quads along the
+	// silhouette edges between triangles facing towards and away from the light, and
+	// the triangles facing away twice, as the front cap on the surface and the rear cap
+	// at infinity.  Its indexes address the surface's shadow cache, where vertex i is
+	// 2i on the surface (w = 1) and 2i + 1 projected away from the light to infinity
+	// (w = 0).  Until 2026-10-09 the surface's own triangles were drawn as its volume,
+	// which smeared them to infinity: the black shards of #124.
+	struct shadowVolumeCacheEntry_t {
+		idVec3					globalLightOrigin;
+		idPlane					planes[ 6 ];
+		float					modelMatrix[ 16 ];
+		const idDrawVert*		verts;
+		const glIndex_t*		indexes;
+		int						numVerts;
+		int						numIndexes;
+		bool					casts;				// false: no triangle in the light faces away from it
+		int						numIndexesNoCaps;	// the silhouette quads come first
+		idList< glIndex_t >		volume;
+		int						lastUsedFrame;
+	};
+	std::unordered_map< interactionCacheKey_t, shadowVolumeCacheEntry_t, interactionCacheKeyHash_t > shadowVolumeCache;
+	idList< byte > shadowVolumeFacing;
+	idList< byte > shadowVolumeCullBits;
+
+	// Silhouette edges, which this engine's model loading does not build (Doom 3's
+	// R_CleanupTriangles does, with R_IdentifySilEdges): vertices are welded by
+	// position, each edge runs v1 -> v2 as in the winding of its first triangle p1,
+	// and the triangle that has it reversed is p2 (numFaces when there is none: an open
+	// edge, whose quad closes the volume).  An edge of a third triangle starts a new
+	// edge.  Ints, as faces can outnumber 16-bit indexes.  Kept per index array, as the
+	// topology of an animated surface stays with its indexes while its vertexes move.
+	struct shadowSilEdge_t {
+		int p1, p2;
+		int v1, v2;
+	};
+	struct shadowSilCacheEntry_t {
+		int						numVerts;
+		int						numIndexes;
+		unsigned int			checksum;			// of the indexes: models built in memory reuse addresses
+		idList< shadowSilEdge_t >	edges;
+		int						lastUsedFrame;
+	};
+	std::unordered_map< const glIndex_t*, shadowSilCacheEntry_t > shadowSilCache;
+
+	struct weldKey_t {
+		float x, y, z;
+		bool operator==( const weldKey_t& other ) const { return x == other.x && y == other.y && z == other.z; }
+	};
+	struct weldKeyHash_t {
+		size_t operator()( const weldKey_t& key ) const {
+			unsigned int bits[ 3 ];
+			memcpy( bits, &key, sizeof( bits ) );
+			return ( bits[ 0 ] * 73856093u ) ^ ( bits[ 1 ] * 19349663u ) ^ ( bits[ 2 ] * 83492791u );
+		}
+	};
+
+	const idList< shadowSilEdge_t >* FindSilEdges( const srfTriangles_t* tri ) {
+		unsigned int checksum = 2166136261u;	// FNV-1a
+		for ( int i = 0; i < tri->numIndexes; ++i ) {
+			checksum = ( checksum ^ tri->indexes[ i ] ) * 16777619u;
+		}
+		shadowSilCacheEntry_t& entry = shadowSilCache[ tri->indexes ];
+		const bool valid = entry.lastUsedFrame != 0 && entry.numVerts == tri->numVerts &&
+			entry.numIndexes == tri->numIndexes && entry.checksum == checksum;
+		entry.lastUsedFrame = interactionCacheFrame;
+		if ( valid ) return &entry.edges;
+		entry.numVerts = tri->numVerts;
+		entry.numIndexes = tri->numIndexes;
+		entry.checksum = checksum;
+		entry.edges.SetNum( 0, false );
+
+		// weld by position
+		idList< int > weld;
+		weld.SetNum( tri->numVerts );
+		std::unordered_map< weldKey_t, int, weldKeyHash_t > first;
+		first.reserve( tri->numVerts );
+		for ( int i = 0; i < tri->numVerts; ++i ) {
+			const idVec3& xyz = tri->verts[ i ].xyz;
+			const weldKey_t key = { xyz.x, xyz.y, xyz.z };
+			weld[ i ] = first.emplace( key, i ).first->second;
+		}
+
+		// pair each directed edge with its reverse in a later triangle
+		const int numFaces = tri->numIndexes / 3;
+		std::unordered_map< unsigned long long, int > open;	// v1 -> v2 of an edge still without p2
+		open.reserve( tri->numIndexes );
+		for ( int face = 0; face < numFaces; ++face ) {
+			const glIndex_t* triangle = tri->indexes + face * 3;
+			for ( int corner = 0; corner < 3; ++corner ) {
+				const int a = weld[ triangle[ corner ] ];
+				const int b = weld[ triangle[ ( corner + 1 ) % 3 ] ];
+				if ( a == b ) continue;	// degenerate
+				const unsigned long long reverse = ( static_cast< unsigned long long >( b ) << 32 ) | static_cast< unsigned int >( a );
+				auto match = open.find( reverse );
+				if ( match != open.end() ) {
+					entry.edges[ match->second ].p2 = face;
+					open.erase( match );
+					continue;
+				}
+				shadowSilEdge_t edge = { face, numFaces, a, b };
+				const unsigned long long forward = ( static_cast< unsigned long long >( a ) << 32 ) | static_cast< unsigned int >( b );
+				open[ forward ] = entry.edges.Append( edge );
+			}
+		}
+		return &entry.edges;
+	}
+
+	// the volume's indexes, appended to frontEndInteractionIndexes; the number of
+	// silhouette indexes (before the caps) in numIndexesNoCaps; false if it casts none
+	bool BuildShadowVolume( const srfTriangles_t* tri, const float modelMatrix[ 16 ], const viewLight_s* light,
+		int& numIndexesNoCaps ) {
+		numIndexesNoCaps = 0;
+		const int numFaces = tri->numIndexes / 3;
+		const idVec3 localLightOrigin = GlobalPointToLocal( modelMatrix, light->globalLightOrigin );
+
+		// faces with the light in front of them (or on them) cast no shadow; the extra
+		// entry is for dangling silhouette edges to reference.  The plane is
+		// R_DeriveFacePlanes' (tr_trisurf.cpp): ( v2 - v0 ) x ( v1 - v0 ) through v0, for
+		// id's clockwise front faces.
+		shadowVolumeFacing.SetNum( numFaces + 1, false );
+		byte* facing = shadowVolumeFacing.Begin();
+		for ( int face = 0; face < numFaces; ++face ) {
+			const glIndex_t* triangle = tri->indexes + face * 3;
+			const idVec3& v0 = tri->verts[ triangle[ 0 ] ].xyz;
+			const idVec3 normal = ( tri->verts[ triangle[ 2 ] ].xyz - v0 ).Cross( tri->verts[ triangle[ 1 ] ].xyz - v0 );
+			facing[ face ] = normal * ( localLightOrigin - v0 ) >= 0.0f ? 1 : 0;
+		}
+		facing[ numFaces ] = 1;
+
+		// triangles entirely outside one plane of the light frustum cast no shadow
+		// into it (r_useShadowProjectedCull's cull bits; within LIGHT_CLIP_EPSILON,
+		// 0.1, of a plane counts as outside, as in R_CalcInteractionCullBits)
+		idPlane localPlanes[ 6 ];
+		for ( int plane = 0; plane < 6; ++plane ) {
+			const idVec3& normal = light->frustum[ plane ].Normal();
+			localPlanes[ plane ].Normal().Set(
+				normal.x * modelMatrix[ 0 ] + normal.y * modelMatrix[ 1 ] + normal.z * modelMatrix[ 2 ],
+				normal.x * modelMatrix[ 4 ] + normal.y * modelMatrix[ 5 ] + normal.z * modelMatrix[ 6 ],
+				normal.x * modelMatrix[ 8 ] + normal.y * modelMatrix[ 9 ] + normal.z * modelMatrix[ 10 ] );
+			localPlanes[ plane ][ 3 ] = light->frustum[ plane ][ 3 ] +
+				normal.x * modelMatrix[ 12 ] + normal.y * modelMatrix[ 13 ] + normal.z * modelMatrix[ 14 ];
+		}
+		shadowVolumeCullBits.SetNum( tri->numVerts, false );
+		byte* cullBits = shadowVolumeCullBits.Begin();
+		for ( int vert = 0; vert < tri->numVerts; ++vert ) {
+			byte bits = 0;
+			for ( int plane = 0; plane < 6; ++plane ) {
+				if ( localPlanes[ plane ].Distance( tri->verts[ vert ].xyz ) > -0.1f ) {
+					bits |= static_cast< byte >( 1 << plane );
+				}
+			}
+			cullBits[ vert ] = bits;
+		}
+		int numShadowingFaces = 0;
+		for ( int face = 0; face < numFaces; ++face ) {
+			if ( facing[ face ] ) continue;
+			const glIndex_t* triangle = tri->indexes + face * 3;
+			if ( cullBits[ triangle[ 0 ] ] & cullBits[ triangle[ 1 ] ] & cullBits[ triangle[ 2 ] ] ) {
+				facing[ face ] = 1;
+			} else {
+				++numShadowingFaces;
+			}
+		}
+		if ( numShadowingFaces == 0 ) return false;
+
+		// the silhouette quads, wound by which side faces the light
+		const idList< shadowSilEdge_t >& silEdges = *FindSilEdges( tri );
+		const int first = frontEndInteractionIndexes.Num();
+		frontEndInteractionIndexes.AssureSize( first + ( silEdges.Num() + numShadowingFaces ) * 6 );	// keeps the 64K growth step
+		glIndex_t* out = frontEndInteractionIndexes.Begin() + first;
+		const shadowSilEdge_t* sil = silEdges.Begin();
+		for ( int edge = 0; edge < silEdges.Num(); ++edge, ++sil ) {
+			const int f1 = facing[ sil->p1 ];
+			const int f2 = facing[ sil->p2 ];
+			if ( !( f1 ^ f2 ) ) continue;
+			const int v1 = sil->v1 << 1;
+			const int v2 = sil->v2 << 1;
+			out[ 0 ] = static_cast< glIndex_t >( v1 );
+			out[ 1 ] = static_cast< glIndex_t >( v2 ^ f1 );
+			out[ 2 ] = static_cast< glIndex_t >( v2 ^ f2 );
+			out[ 3 ] = static_cast< glIndex_t >( v1 ^ f2 );
+			out[ 4 ] = static_cast< glIndex_t >( v1 ^ f1 );
+			out[ 5 ] = static_cast< glIndex_t >( v2 ^ 1 );
+			out += 6;
+		}
+		numIndexesNoCaps = static_cast< int >( out - ( frontEndInteractionIndexes.Begin() + first ) );
+
+		// the front cap on the surface and the rear cap at infinity
+		for ( int face = 0; face < numFaces; ++face ) {
+			if ( facing[ face ] ) continue;
+			const glIndex_t* triangle = tri->indexes + face * 3;
+			const int i0 = triangle[ 0 ] << 1;
+			const int i1 = triangle[ 1 ] << 1;
+			const int i2 = triangle[ 2 ] << 1;
+			out[ 0 ] = static_cast< glIndex_t >( i2 );
+			out[ 1 ] = static_cast< glIndex_t >( i1 );
+			out[ 2 ] = static_cast< glIndex_t >( i0 );
+			out[ 3 ] = static_cast< glIndex_t >( i0 ^ 1 );
+			out[ 4 ] = static_cast< glIndex_t >( i1 ^ 1 );
+			out[ 5 ] = static_cast< glIndex_t >( i2 ^ 1 );
+			out += 6;
+		}
+		frontEndInteractionIndexes.SetNum( static_cast< int >( out - frontEndInteractionIndexes.Begin() ), false );
+		return true;
+	}
+
+	// The shadow geometry of one surface for one light, drawn with the source's shadow
+	// cache, or NULL when it casts none or cannot have a volume.
+	const srfTriangles_t* CreateShadowVolumeGeometry( const drawSurf_s* surface, const viewLight_s* light ) {
+		const srfTriangles_t* source = surface->geo;
+		if ( source->verts == NULL || source->indexes == NULL || source->numIndexes < 3 ||
+				source->shadowVertexes != NULL ) {
+			return NULL;
+		}
+		// 16-bit indexes address both copies of every vertex
+		if ( sizeof( glIndex_t ) == 2 && source->numVerts * 2 > 0xffff ) return NULL;
+		if ( source->shadowCache == NULL ) {
+			idList< shadowCache_t > temp;
+			temp.SetNum( source->numVerts * 2 );
+			for ( int i = 0; i < source->numVerts; ++i ) {
+				const idVec3& xyz = source->verts[ i ].xyz;
+				temp[ i * 2 + 0 ].xyz.Set( xyz.x, xyz.y, xyz.z, 1.0f );
+				temp[ i * 2 + 1 ].xyz.Set( xyz.x, xyz.y, xyz.z, 0.0f );
+			}
+			vertexCache.Alloc( temp.Begin(), source->numVerts * 2 * sizeof( shadowCache_t ),
+				&const_cast< srfTriangles_t* >( source )->shadowCache );
+			if ( source->shadowCache == NULL ) return NULL;
+		}
+
+		// cached as the interactions are (CreateLightInteractionGeometry)
+		const viewEntity_s* space = surface->space;
+		const float* matrix = space->modelMatrix;
+		const bool fileOrWorldModel = space->model != NULL && space->model->IsDynamicModel() == DM_STATIC &&
+			( space->entityDef == NULL ? space->model->IsStaticWorldModel() :
+				( space->entityDef->hModel == space->model && space->model->IsReloadable() ) );
+		const bool cacheable = r_interactionCache.GetBool() && fileOrWorldModel &&
+			!source->deformedSurface && !source->deformedSurfaceInstance && !source->streamVertexCache;
+		int firstIndex = frontEndInteractionIndexes.Num();
+		int numIndexesNoCaps = 0;
+		bool casts = false;
+		shadowVolumeCacheEntry_t* entry = NULL;
+		if ( cacheable ) {
+			interactionCacheKey_t key = { source, light->lightDef, space->entityDef };
+			entry = &shadowVolumeCache[ key ];
+			const bool valid = entry->lastUsedFrame != 0 &&
+				entry->verts == source->verts && entry->indexes == source->indexes &&
+				entry->numVerts == source->numVerts && entry->numIndexes == source->numIndexes &&
+				entry->globalLightOrigin == light->globalLightOrigin &&
+				memcmp( entry->modelMatrix, matrix, sizeof( entry->modelMatrix ) ) == 0 &&
+				memcmp( entry->planes, light->frustum, sizeof( entry->planes ) ) == 0;
+			entry->lastUsedFrame = interactionCacheFrame;
+			if ( valid ) {
+				if ( !entry->casts ) return NULL;
+				frontEndInteractionIndexes.AssureSize( firstIndex + entry->volume.Num() );	// keeps the 64K growth step
+				memcpy( frontEndInteractionIndexes.Begin() + firstIndex, entry->volume.Begin(),
+					entry->volume.Num() * sizeof( glIndex_t ) );
+				numIndexesNoCaps = entry->numIndexesNoCaps;
+				casts = true;
+			}
+		}
+		if ( !casts ) {
+			casts = BuildShadowVolume( source, matrix, light, numIndexesNoCaps );
+			if ( entry != NULL ) {
+				entry->globalLightOrigin = light->globalLightOrigin;
+				memcpy( entry->planes, light->frustum, sizeof( entry->planes ) );
+				memcpy( entry->modelMatrix, matrix, sizeof( entry->modelMatrix ) );
+				entry->verts = source->verts;
+				entry->indexes = source->indexes;
+				entry->numVerts = source->numVerts;
+				entry->numIndexes = source->numIndexes;
+				entry->casts = casts;
+				entry->numIndexesNoCaps = numIndexesNoCaps;
+				const int count = casts ? frontEndInteractionIndexes.Num() - firstIndex : 0;
+				entry->volume.SetNum( count, false );
+				if ( count > 0 ) {
+					memcpy( entry->volume.Begin(), frontEndInteractionIndexes.Begin() + firstIndex, count * sizeof( glIndex_t ) );
+				}
+			}
+			if ( !casts ) return NULL;
+		}
+
+		const int numIndexes = frontEndInteractionIndexes.Num() - firstIndex;
+		srfTriangles_t* geometry = frontEndInteractionGeometryAllocator.Alloc();
+		*geometry = *source;
+		geometry->ambientSurface = const_cast< srfTriangles_t* >( source );
+		geometry->indexes = NULL;
+		geometry->indexCache = NULL;
+		geometry->numIndexes = numIndexes;
+		geometry->numAllocedIndices = 0;
+		geometry->numShadowIndexesNoCaps = numIndexesNoCaps;
+		geometry->numShadowIndexesNoFrontCaps = numIndexes;	// the caps are not split (turbo volume)
+		geometry->shadowCapPlaneBits = SHADOW_CAP_INFINITE;
+		if ( surface->material->Coverage() != MC_OPAQUE ) {
+			// seen through: its caps are always needed (idInteraction's rule)
+			geometry->numShadowIndexesNoCaps = numIndexes;
+		}
+		interactionGeometryRecord_t record;
+		record.geometry = geometry;
+		record.firstIndex = firstIndex;
+		frontEndInteractionGeometry.Append( record );
+		return geometry;
+	}
+
+	// Whether the view may be inside the surface's shadow for this light, so the volume
+	// is drawn depth-fail with its caps (DSF_VIEW_INSIDE_SHADOW); otherwise depth-pass
+	// without caps.  As Doom 3's R_PotentiallyInsideInfiniteShadow, on the bounds grown
+	// by the near plane: the view is in the infinite shadow of the bounds if the segment
+	// from it to the light crosses them.
+	bool ViewPotentiallyInsideShadow( const drawSurf_s* surface, const viewLight_s* light, const viewDef_s* view ) {
+		float zNear = r_znear.GetFloat();
+		if ( view->renderView.flags.cramZNear ) {
+			zNear *= 0.25f;
+		}
+		const float stretch = zNear * 2.0f;
+		if ( surface->geo->bounds.IsCleared() ) return true;	// unknown extent: depth-fail is always right
+		idBounds expanded = surface->geo->bounds;
+		expanded.ExpandSelf( stretch );
+		const idVec3 localView = GlobalPointToLocal( surface->space->modelMatrix, view->renderView.vieworg );
+		const idVec3 localLight = GlobalPointToLocal( surface->space->modelMatrix, light->globalLightOrigin );
+		return expanded.ContainsPoint( localView ) || expanded.LineIntersection( localView, localLight );
 	}
 
 	bool SurfaceSharesLightArea( const drawSurf_s* surface, const viewLight_s* light ) {
@@ -2471,6 +2806,8 @@ void R_AddLightSurfaces() {
 		const idRenderWorldLocal* world = RB_GetDrawWorld();
 		if ( world != interactionCacheWorld ) {
 			interactionCache.clear();
+			shadowVolumeCache.clear();
+			shadowSilCache.clear();
 			interactionCacheWorld = world;
 		}
 		if ( frontEndInteractionIndexes.GetGranularity() < 65536 ) {
@@ -2481,6 +2818,20 @@ void R_AddLightSurfaces() {
 			for ( auto it = interactionCache.begin(); it != interactionCache.end(); ) {
 				if ( interactionCacheFrame - it->second.lastUsedFrame > INTERACTION_CACHE_MAX_AGE ) {
 					it = interactionCache.erase( it );
+				} else {
+					++it;
+				}
+			}
+			for ( auto it = shadowVolumeCache.begin(); it != shadowVolumeCache.end(); ) {
+				if ( interactionCacheFrame - it->second.lastUsedFrame > INTERACTION_CACHE_MAX_AGE ) {
+					it = shadowVolumeCache.erase( it );
+				} else {
+					++it;
+				}
+			}
+			for ( auto it = shadowSilCache.begin(); it != shadowSilCache.end(); ) {
+				if ( interactionCacheFrame - it->second.lastUsedFrame > INTERACTION_CACHE_MAX_AGE ) {
+					it = shadowSilCache.erase( it );
 				} else {
 					++it;
 				}
@@ -2499,11 +2850,22 @@ void R_AddLightSurfaces() {
 			if ( !SurfaceSharesLightArea( surface, light ) ) continue;
 			if ( !SurfaceIntersectsLight( surface, light ) ) continue;
 			const bool local = surface->space != NULL && surface->space->entityDef != NULL;
+			const renderEntity_t* casterEntity = surface->space != NULL ? surface->space->entityDef : NULL;
+			const bool suppressed = casterEntity != NULL &&
+				( ( casterEntity->suppressShadowInViewID != 0 &&
+					casterEntity->suppressShadowInViewID == view->renderView.viewID ) ||
+				  ( casterEntity->suppressShadowInLightID != 0 &&
+					casterEntity->suppressShadowInLightID == light->lightDef->lightId ) );
+			const srfTriangles_t* volume = NULL;
 			if ( !light->lightDef->flags.noShadows && light->material->LightCastsShadows() &&
-					surface->material->SurfaceCastsShadow() && surface->geo != NULL &&
-					( surface->geo->shadowCache != NULL || surface->geo->shadowVertexes != NULL ) ) {
+					surface->material->SurfaceCastsShadow() && surface->geo != NULL && !suppressed ) {
+				volume = CreateShadowVolumeGeometry( surface, light );
+			}
+			if ( volume != NULL ) {
 				drawSurf_s* shadow = AllocInteractionSurface( surface );
+				shadow->geo = volume;
 				shadow->scissorRect = light->scissorRect;
+				shadow->dsFlags = ViewPotentiallyInsideShadow( surface, light, view ) ? DSF_VIEW_INSIDE_SHADOW : 0;
 				hadCaster = true;
 				if ( local ) {
 					shadow->nextOnLight = light->localShadows;
@@ -2557,6 +2919,8 @@ void R_AddLightSurfaces() {
 
 void R_InvalidateInteractionCache() {
 	interactionCache.clear();
+	shadowVolumeCache.clear();
+	shadowSilCache.clear();
 	interactionCacheWorld = NULL;
 }
 
