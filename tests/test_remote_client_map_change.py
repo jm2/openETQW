@@ -200,8 +200,8 @@ def main(argv):
             # the simulator's own count, printed when each socket closes
             reordered = {}
             for name, proc in (("server", srv), ("client", cl)):
-                counts = [tuple(int(v) for v in m.groups()) for l in proc.snapshot()
-                          if (m := REORDER_RE.search(l.text))]
+                counts = [tuple(int(v) for v in m.groups()) for line in proc.snapshot()
+                          if (m := REORDER_RE.search(line.text))]
                 reordered[name] = (sum(c[0] for c in counts), sum(c[1] for c in counts))
             print("packets released after a later one: " +
                   ", ".join(f"{n} {r} of {t}" for n, (r, t) in reordered.items()))
