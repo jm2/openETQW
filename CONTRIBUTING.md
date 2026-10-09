@@ -51,8 +51,8 @@ get CI back: both stay private until the owner decides to publish.
    `python3 tools/validation/screenshot_set.py capture --out ../shots/pr --label <commit> --anchors ../shots/main/screenshot_set.json`
    `python3 tools/validation/screenshot_set.py compare ../shots/main ../shots/pr --out ../shots/compare`
    Add `--rt 0` to both captures on a GPU without ray tracing. The client runs from the
-   build's own tree, so it uses that build's shaders, with a private save path and a fixed
-   1280x720 window. Upload each host's contact sheets (`sheet_rt*.png` and
+   build's own tree, so it uses that build's shaders, with a private save path, so no saved
+   setting differs between the captures. Upload each host's contact sheets (`sheet_rt*.png` and
    `compare_sheet.png`, JPEG is fine) as assets of a prerelease named `screenshots-prNNN`
    (`gh release create screenshots-prNNN --prerelease --title "Screenshots for #NNN" --notes "..."`,
    then `gh release upload screenshots-prNNN <files>`; one release per PR, owner decision

@@ -24,7 +24,7 @@ viewmodel or a sky drawn as a box; looking at the frames does not.
 The client is the build under test: it runs from the nearest folder above the binary that
 holds base/vkprogs (an installed tree, or the checkout the binary was built in), so the
 shaders are that build's. It gets a private fs_savepath (no saved config is read or written)
-and a fixed 1280x720 window without multisampling, so captures are comparable.
+and the same window as any fresh profile, without multisampling, so captures are comparable.
 
 The views (VIEWS) are offsets from a per-map eye position: fixed for valley and canyon
 (ANCHORS), else where the player spawned in the first capture, reused with --anchors. They
@@ -89,7 +89,7 @@ VIEWS = [
     ("sky_back", (0, 0, 0), 180, -60, False),
 ]
 
-WIDTH, HEIGHT = 1280, 720
+WIDTH, HEIGHT = 640, 480   # a fresh profile's window; only the thumbnails' aspect uses it
 ACTIVE_RE = re.compile(r"FRAME_TIMING: window_ms=[\d.]+ frames=\d+ ticks=(\d+)")
 VIEWPOS_RE = re.compile(r"\(\s*(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s*\)\s+(-?[\d.]+)\s+(-?[\d.]+)")
 SPAWNED_RE = re.compile(r"PLAYER_POS:.*spectating 0")
@@ -193,8 +193,9 @@ def capture_map(client_bin: Path, workdir: Path, data: Path, out: Path, map_name
     savepath = Path(tempfile.mkdtemp(prefix="etqw-shots-"))
     args = [str(client_bin), "+set", "fs_basepath", str(data), "+set", "fs_savepath", str(savepath),
             "+set", "fs_game", "base", "+set", "si_rules", "sdGameRulesObjective",
-            "+set", "r_renderAPI", "vulkan", "+set", "r_fullscreen", "0", "+set", "r_mode", "-1",
-            "+set", "r_customWidth", str(WIDTH), "+set", "r_customHeight", str(HEIGHT),
+            # the window is what a fresh profile gets (the private save path holds no config):
+            # 640x480 today; "+set r_mode" does not take effect at startup (issue filed)
+            "+set", "r_renderAPI", "vulkan", "+set", "r_fullscreen", "0",
             "+set", "r_multiSamples", "0", "+set", "r_vkValidation", "0", "+set", "r_rayTracing", rt,
             "+set", "com_logFrameTiming", "1", "+set", "g_logFramePoses", "0"]
     for i in range(0, len(extra), 2):
