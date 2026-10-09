@@ -185,7 +185,7 @@ bool idPort::GetPacket( netadr_t &from, void *data, int &size, int maxSize ) {
 	const int latency = Max( 0, net_forceLatency.GetInteger() );
 	const int jitter = Max( 0, net_forceJitter.GetInteger() );
 	const int reorderPercent = idMath::ClampInt( 0, 100, net_forceReorder.GetInteger() );
-	const int reorderDelay = Max( 1, net_forceReorderDelay.GetInteger() );
+	const int reorderDelay = idMath::ClampInt( 1, 10000, net_forceReorderDelay.GetInteger() );	// within MSVC's RAND_MAX (32767)
 	if ( latency == 0 && jitter == 0 && reorderPercent == 0 && delayedPackets.Num() == 0 ) {
 		if ( !Net_ReadSocket( netSocket, from, data, size, maxSize ) ) {
 			return false;
