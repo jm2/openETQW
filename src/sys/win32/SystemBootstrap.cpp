@@ -1305,11 +1305,70 @@ void Sys_AppendRetailDataCandidates( idStrList &candidates, idStrList &steamRoot
 	}
 }
 
-// No first-run prompt on Windows yet (openETQW-win: a folder picker to follow)
+/*
+==============
+Sys_PromptForRetailData
+
+Windows' first-run prompt (ledger 068): the shell's folder picker for the ET:QW install
+when the search found nothing. Only UI; FileSystem checks the choice and asks again with
+problem set when it holds no base/pak000.pk4. A folder the ANSI code page cannot name
+(and that has no 8.3 name) is refused here, with the reason, and the picker shown again.
+==============
+*/
 bool Sys_PromptForRetailData( idStr &root, const char *problem ) {
-	(void)root;
-	(void)problem;
-	return false;
+	const HRESULT init = CoInitializeEx( NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE );
+	// RPC_E_CHANGED_MODE: COM is already up on this thread in another mode, which the
+	// dialog can still use; only a successful init is balanced by CoUninitialize
+	if ( FAILED( init ) && init != RPC_E_CHANGED_MODE ) {
+		return false;
+	}
+	bool chosen = false;
+	idStr refusal = problem != NULL ? problem : "";
+	for ( int attempt = 0; attempt < 5 && !chosen; attempt++ ) {
+		if ( refusal.Length() > 0 ) {
+			// the engine's text is in the ANSI code page, as its paths
+			wchar_t text[ 2048 ];
+			if ( MultiByteToWideChar( CP_ACP, 0, refusal.c_str(), -1, text, 2048 ) <= 0 ) {
+				wcscpy_s( text, L"That folder does not hold the game data." );
+			}
+			if ( MessageBoxW( NULL, text, L"OpenETQW: that folder does not hold the game data",
+					MB_RETRYCANCEL | MB_ICONWARNING | MB_SETFOREGROUND ) != IDRETRY ) {
+				break;
+			}
+		}
+		IFileOpenDialog *dialog = NULL;
+		if ( FAILED( CoCreateInstance( CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS( &dialog ) ) ) ) {
+			break;
+		}
+		FILEOPENDIALOGOPTIONS options = 0;
+		dialog->GetOptions( &options );
+		dialog->SetOptions( options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST );
+		dialog->SetTitle( L"OpenETQW needs the Enemy Territory: QUAKE Wars folder (the one holding the base folder)" );
+		dialog->SetOkButtonLabel( L"Use This Folder" );
+		IShellItem *item = NULL;
+		PWSTR picked = NULL;
+		if ( SUCCEEDED( dialog->Show( NULL ) ) && SUCCEEDED( dialog->GetResult( &item ) )
+				&& SUCCEEDED( item->GetDisplayName( SIGDN_FILESYSPATH, &picked ) ) && picked != NULL ) {
+			if ( Win_NarrowPath( picked, root ) && root.Length() > 0 ) {
+				chosen = true;
+			} else {
+				refusal = "OpenETQW cannot open a folder with that name. Move or rename the Enemy Territory: QUAKE Wars "
+					"folder so its path uses only characters of your system's language, or start OpenETQW with "
+					"+set fs_basepath and its path.";
+			}
+		} else {
+			attempt = 5;	// cancelled: give up, FileSystem reports the retail-install error
+		}
+		CoTaskMemFree( picked );	// NULL is allowed
+		if ( item != NULL ) {
+			item->Release();
+		}
+		dialog->Release();
+	}
+	if ( SUCCEEDED( init ) ) {
+		CoUninitialize();
+	}
+	return chosen;
 }
 
 bool Sys_StdinIsPipe( void ) {
