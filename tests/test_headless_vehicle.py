@@ -147,6 +147,19 @@ def main(argv):
                 # one tick of movement (0.127 u, 2-3 runs in 10 on macOS). The seat
                 # is compared from SETTLE_TICKS after the first one both printed.
                 settled = common[SETTLE_TICKS:]
+                # per-tick error over the start of the pairing, for telling a
+                # transient (falling off with the tick) from a pairing offset
+                # (only on whichever tick is first); in brackets the error
+                # against the server's tick before and after, '-' when absent
+                def dist(t_srv, t_cl):
+                    if t_srv not in srv_views:
+                        return "-"
+                    a, b = srv_views[t_srv][2], cl_views[t_cl][2]
+                    return f"{sum((x - y) ** 2 for x, y in zip(a, b)) ** 0.5:.4f}"
+                head = [f"{tick}:{dist(tick, tick)}[{dist(tick - 1, tick)},{dist(tick + 1, tick)}]"
+                        for tick in common[:15]]
+                print(f"[{vehicle}] per-tick error from the first paired tick "
+                      f"(server first {min(srv_views)}, client first {min(cl_views)}): {' '.join(head)}")
                 worst, worst_tick = 0.0, None
                 for tick in settled:
                     a, b = srv_views[tick][2], cl_views[tick][2]
