@@ -128,6 +128,7 @@ typedef struct serverClient_s {
 	int					numDuplicatedUsercmds;
 	bool				isBot;
 	bool				isMapLoading;
+	bool				disconnectPending;	// a zombie told it was dropped (SendDisconnectToClient): its channel keeps going until the zombie timeout
 
 	char				guid[12];  // Even Balance - M. Quinn
 
@@ -268,6 +269,7 @@ private:
 	void				SendSyncedCvarsToClient( int clientNum, const idDict &cvars );
 	void				SendApplySnapshotToClient( int clientNum, int sequence );
 	bool				SendEmptyToClient( int clientNum, bool force = false );
+	void				SendDisconnectToClient( int clientNum, const char* reason );
 	bool				SendPingToClient( int clientNum );
 	void				SendGameInitToClient( int clientNum );
 	bool				SendSnapshotToClient( int clientNum );

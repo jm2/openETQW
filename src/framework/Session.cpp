@@ -53,6 +53,11 @@ static void Session_DevMap_f( const idCmdArgs& args ) {
 }
 
 static void Session_Disconnect_f( const idCmdArgs& args ) {
+	// a listen host's (or a server's) disconnect ends its server too, as Doom 3's Stop does: its
+	// remote clients are told and leave, rather than time out on a mapless server (#120). Before
+	// the map unloads, so the game sees its clients leave as on any drop. Not in Stop itself: an
+	// error in a map stops the session but keeps a dedicated server running.
+	idAsyncNetwork::server.Kill();
 	sessLocal.Stop();
 	if ( game != NULL && !game->IsMainMenuActive() ) {
 		console->Close();
