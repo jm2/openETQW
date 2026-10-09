@@ -3472,6 +3472,59 @@ void idFileSystemLocal::SetRestartChecksums( const int pureChecksums[ MAX_PURE_P
 	restartGamePakChecksum = gamePakChecksum;
 }
 
+idCVar fs_retailPrompt( "fs_retailPrompt", "1", CVAR_SYSTEM | CVAR_BOOL | CVAR_INIT,
+	"when no retail install is found and fs_basepath is not given, ask for the ET:QW folder (the platform's folder picker; ledger 068)" );
+
+/*
+================
+FS_PromptForRetailData
+
+The platform's prompt (Sys_PromptForRetailData), asked again while the chosen folder
+holds no base/pak000.pk4: the root itself, its parent when the player picked base/
+itself, or the folder holding a picked .app (Aspyr's retail Mac app sits beside base/).
+Never in a dedicated server, with fs_retailPrompt 0, or with stdin a pipe (a test
+harness drives the engine through one; nothing may wait on a dialog there).
+================
+*/
+static bool FS_PromptForRetailData( idStr &root ) {
+#if defined( ID_DEDICATED )
+	(void)root;
+	return false;
+#else
+	if ( !fs_retailPrompt.GetBool() || Sys_StdinIsPipe() ) {
+		return false;
+	}
+	const char *problem = NULL;
+	idStr refused;
+	for ( int attempt = 0; attempt < 5; attempt++ ) {
+		idStr chosen;
+		if ( !Sys_PromptForRetailData( chosen, problem ) ) {
+			return false;
+		}
+		chosen.StripTrailing( '/' );
+		chosen.StripTrailing( '\\' );
+		idStrList candidates;
+		candidates.Append( chosen );
+		idStr parent = chosen;
+		parent.StripFilename();
+		const idStr last = chosen.Right( chosen.Length() - parent.Length() );
+		if ( !idStr::Icmp( last.c_str() + ( last[ 0 ] == '/' || last[ 0 ] == '\\' ? 1 : 0 ), "base" ) ||
+			 ( last.Length() > 4 && !idStr::Icmp( last.c_str() + last.Length() - 4, ".app" ) ) ) {
+			candidates.Append( parent );
+		}
+		for ( int i = 0; i < candidates.Num(); i++ ) {
+			if ( RetailDiscovery::HasRetailData( candidates[ i ] ) ) {
+				root = candidates[ i ];
+				return true;
+			}
+		}
+		refused = va( "'%s' does not hold base/pak000.pk4. Choose the Enemy Territory: QUAKE Wars folder: the one with the base folder in it.", chosen.c_str() );
+		problem = refused.c_str();
+	}
+	return false;
+#endif
+}
+
 /*
 ================
 idFileSystemLocal::Init
@@ -3514,7 +3567,17 @@ void idFileSystemLocal::Init( bool quiet ) {
 			common->Printf( "Using '%s' as fs_basepath (from %s)\n", retailRoot.c_str(),
 				retailProbes[ retailProbes.Num() - 1 ].source.c_str() );
 		} else {
-			fs_basepath.SetString( Sys_DefaultBasePath() );
+			// the platform may ask the player (a first start without a known install); the
+			// choice is stored, so the next start finds it as the stored path
+			idStr picked;
+			if ( FS_PromptForRetailData( picked ) ) {
+				fs_basepath.SetString( picked );
+				const bool stored = RetailDiscovery::WriteStoredPath( fs_savepath.GetString(), picked );
+				common->Printf( "Using '%s' as fs_basepath (chosen by the player%s)\n", picked.c_str(),
+					stored ? "; stored in basepath.txt" : "; could not store it in basepath.txt" );
+			} else {
+				fs_basepath.SetString( Sys_DefaultBasePath() );
+			}
 		}
 	}
 	if ( fs_userpath.GetString()[0] == '\0' ) {

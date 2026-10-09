@@ -446,6 +446,21 @@ void Sys_AppendRetailDataCandidates( idStrList &candidates, idStrList &steamRoot
 	}
 }
 
+#if !defined( __APPLE__ )
+// Linux: no first-run prompt yet (the retail-install check's message says how to point
+// the engine at an install)
+bool Sys_PromptForRetailData( idStr &root, const char *problem ) {
+	(void)root;
+	(void)problem;
+	return false;
+}
+
+bool Sys_StdinIsPipe( void ) {
+	struct stat info;
+	return fstat( STDIN_FILENO, &info ) == 0 && ( S_ISFIFO( info.st_mode ) || S_ISSOCK( info.st_mode ) );
+}
+#endif
+
 const char *Sys_DefaultSavePath( void ) {
 	// per-user configs, logs and screenshots, as openQ4 (XDG data directory);
 	// an installed engine's own directory is often not writable

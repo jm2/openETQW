@@ -59,11 +59,25 @@ namespace RetailDiscovery {
 
 	// the whole search above; savePath is fs_savepath
 	bool	Discover( const char *savePath, idStr &root, idList<retailProbe_t> &probes );
+
+	// writes root as the stored path (<savePath>/basepath.txt), creating savePath if needed
+	bool	WriteStoredPath( const char *savePath, const char *root );
 }
 
 // Platform lists (src/sys/<platform>), in the order to probe:
 //	candidates	install roots: installer records, common install folders
 //	steamRoots	Steam installations, whose libraries are searched after them
 void	Sys_AppendRetailDataCandidates( idStrList &candidates, idStrList &steamRoots );
+
+// When the search finds nothing: the platform's way to ask the player for the install (a
+// folder picker). problem is NULL on the first ask, else why the last choice was refused.
+// true and the chosen folder when the player chose one, false when there is no such way or
+// the player gave up. Only UI: FileSystem checks the choice for base/pak000.pk4, asks again
+// if it fails, and stores an accepted one (basepath.txt). FileSystem never asks in a
+// dedicated server, with fs_retailPrompt 0, or with stdin a pipe (a test harness).
+bool	Sys_PromptForRetailData( idStr &root, const char *problem );
+
+// true when stdin is a pipe or a socket (a test harness or a script drives the engine)
+bool	Sys_StdinIsPipe( void );
 
 #endif /* !__RETAILDISCOVERY_H__ */
