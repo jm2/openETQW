@@ -466,9 +466,8 @@ void Sys_AppendRetailDataCandidates( idStrList &candidates, idStrList &steamRoot
 	}
 
 	RetailDiscovery::SplitPathList( getenv( "OPENETQW_STEAM_ROOT" ), steamRoots );
-	const char *xdgDataHome = getenv( "XDG_DATA_HOME" );
-	if ( xdgDataHome != NULL && xdgDataHome[0] == '/' ) {
-		idStr path = xdgDataHome;
+	if ( xdgData != NULL && xdgData[0] == '/' ) {
+		idStr path = xdgData;
 		path.AppendPath( "Steam" );
 		steamRoots.Append( path );
 	}
