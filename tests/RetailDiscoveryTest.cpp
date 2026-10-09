@@ -6,8 +6,9 @@ Retail data discovery (src/framework/RetailDiscovery.h, ledger 068) on
 synthetic trees in a temporary directory: the base/pak000.pk4 marker in any
 letter case, the path lists, the stored path file (UTF-8), Steam's
 libraryfolders.vdf (both formats, UTF-8, a symlinked root) and app manifests,
-names outside every code page, and the search order with the platform hooks
-stubbed here.
+names outside every code page, Wine prefixes (the prefix folders, one level
+down too, and the install folders and Steam under drive_c that exist, without
+case), and the search order with the platform hooks stubbed here.
 ===========================================================================
 */
 
@@ -33,6 +34,12 @@ idFileSystem * fileSystem = NULL;
 static idStr g_defaultBasePath;
 static idStrList g_platformCandidates;
 static idStrList g_steamRoots;
+
+// a real directory, for WriteStoredPath (the engine's Sys_Mkdir makes one level)
+void Sys_Mkdir( const char *path ) {
+	std::error_code error;
+	fs::create_directory( fs::u8path( path ), error );
+}
 
 const char *Sys_DefaultBasePath( void ) {
 	return g_defaultBasePath.c_str();
@@ -76,6 +83,17 @@ static fs::path MakeInstall( const fs::path &root, const char *baseName = "base"
 
 static std::string Str( const fs::path &path ) {
 	return path.string();	// the engine's form; only for names every code page holds
+}
+
+// a path in the engine's form when the code page can name it (path.string() converts to the
+// ANSI code page on Windows and throws for a name it cannot hold)
+static bool Narrow( const fs::path &path, idStr &name ) {
+	try {
+		name = path.string().c_str();
+		return true;
+	} catch ( const std::exception & ) {
+		return false;
+	}
 }
 
 // a path as UTF-8 (what Steam's files and Notepad write)
@@ -157,6 +175,26 @@ int main() {
 		WriteFile( tmp / "empty" / "basepath.txt", "\r\n" );
 		CHECK( !RetailDiscovery::ReadStoredPath( Str( tmp / "empty" / "basepath.txt" ).c_str(), path ), "an empty stored path read" );
 		CHECK( !RetailDiscovery::ReadStoredPath( Str( tmp / "none.txt" ).c_str(), path ), "a missing stored path read" );
+		// a first-run choice is written under a save path that does not exist yet, and read back
+		const fs::path savePath = tmp / "save" / "nested";
+		CHECK( RetailDiscovery::WriteStoredPath( Str( savePath ).c_str(), Str( lower ).c_str() ), "the stored path was not written" );
+		CHECK( RetailDiscovery::ReadStoredPath( Str( savePath / "basepath.txt" ).c_str(), path ) && SameDir( path, lower ),
+			"the written stored path read back as '%s'", path.c_str() );
+		CHECK( !RetailDiscovery::WriteStoredPath( "", Str( lower ).c_str() ) && !RetailDiscovery::WriteStoredPath( Str( savePath ).c_str(), "" ),
+			"an empty save path or root was written" );
+		// a non-ASCII root the code page can name ("Jeux vidéo") round-trips: written as
+		// UTF-8, read back as the engine's own name
+		const fs::path accented = tmp / fs::u8path( "Jeux vid\xC3\xA9o" );
+		idStr accentedName;
+		if ( Narrow( accented, accentedName ) ) {
+			const fs::path accentedSave = tmp / "save-accented";
+			CHECK( RetailDiscovery::WriteStoredPath( Str( accentedSave ).c_str(), accentedName.c_str() ), "a non-ASCII stored path was not written" );
+			// the read path is normalised (forward slashes on Windows): compare as directories
+			std::error_code error;
+			fs::create_directories( accented, error );
+			CHECK( RetailDiscovery::ReadStoredPath( Str( accentedSave / "basepath.txt" ).c_str(), path ) && SameDir( path, accented ),
+				"a non-ASCII stored path read back as '%s', want '%s'", path.c_str(), accentedName.c_str() );
+		}
 	}
 
 	// --- Steam: libraryfolders.vdf, new and old format, and steamapps/common ---
@@ -340,6 +378,77 @@ int main() {
 			found += probes[ i ].found ? 1 : 0;
 		}
 		CHECK( probes.Num() == 2 && found == 0, "nothing to find: %d probes, %d found (want 2, 0)", probes.Num(), found );
+	}
+
+	// Wine prefixes (Linux's table): the prefix folders of a Lutris-, Bottles- or
+	// PlayOnLinux-style parent, one level down too, and the install folders and Steam
+	// under drive_c that exist, matched without case
+	{
+		const fs::path wine = tmp / "wine";
+		const fs::path pfx1 = wine / "pfx1";
+		const fs::path pfx2 = wine / "pfx2";
+		const fs::path nested = wine / "lutrisgame" / "pfx";
+		const fs::path umu = wine / "umu" / "12345";
+		const fs::path game = MakeInstall( pfx1 / "drive_c" / "Program Files (x86)" / "id Software" / "Enemy Territory - QUAKE Wars" );
+		const fs::path steam = pfx1 / "drive_c" / "Program Files (x86)" / "Steam";
+		fs::create_directories( steam / "steamapps" );
+		const fs::path lowerGame = MakeInstall( nested / "drive_c" / "program files" / "etqw" );
+		fs::create_directories( pfx2 / "drive_c" / "windows" );
+		fs::create_directories( umu / "drive_c" );
+		fs::create_directories( wine / "notpfx" / "something" );
+		WriteFile( wine / "a-file", "not a prefix" );
+
+		idStrList prefixes, keys;
+		RetailDiscovery::AppendWinePrefixesIn( Str( wine ).c_str(), prefixes, keys );
+		CHECK( prefixes.Num() == 4, "wine: %d prefixes, want 4 (lutrisgame/pfx, pfx1, pfx2, umu/12345)", prefixes.Num() );
+		CHECK( prefixes.Num() == 4 && SameDir( prefixes[ 0 ], nested ) && SameDir( prefixes[ 1 ], pfx1 ) &&
+			SameDir( prefixes[ 2 ], pfx2 ) && SameDir( prefixes[ 3 ], umu ), "wine: prefixes not the four in name order" );
+		RetailDiscovery::AppendWinePrefix( Str( pfx1 ).c_str(), prefixes, keys );
+		RetailDiscovery::AppendWinePrefix( Str( wine / "notpfx" ).c_str(), prefixes, keys );
+#ifndef _WIN32
+		std::error_code linkError;
+		fs::create_directory_symlink( pfx1, tmp / "wine-link", linkError );
+		if ( !linkError ) {
+			RetailDiscovery::AppendWinePrefix( Str( tmp / "wine-link" ).c_str(), prefixes, keys );
+		}
+#endif
+		CHECK( prefixes.Num() == 4, "wine: %d prefixes after the same prefix, a symlink to it and a non-prefix, want 4", prefixes.Num() );
+		idStrList none, noKeys;
+		RetailDiscovery::AppendWinePrefixesIn( Str( tmp / "missing" ).c_str(), none, noKeys );
+		RetailDiscovery::AppendWinePrefixesIn( NULL, none, noKeys );
+		CHECK( none.Num() == 0, "wine: %d prefixes in a missing folder", none.Num() );
+
+		idStrList candidates, steamRoots;
+		RetailDiscovery::AppendWineInstalls( Str( pfx1 ).c_str(), candidates, steamRoots );
+		CHECK( candidates.Num() == 1 && SameDir( candidates[ 0 ], game ), "wine: %d install folders from pfx1, want the one that exists",
+			candidates.Num() );
+		CHECK( steamRoots.Num() == 1 && SameDir( steamRoots[ 0 ], steam ), "wine: %d Steam roots from pfx1, want its Steam", steamRoots.Num() );
+		idStrList lowerCandidates, lowerSteam;
+		RetailDiscovery::AppendWineInstalls( Str( nested ).c_str(), lowerCandidates, lowerSteam );
+		CHECK( lowerCandidates.Num() == 1 && SameDir( lowerCandidates[ 0 ], lowerGame ) && lowerSteam.Num() == 0,
+			"wine: 'program files/etqw' in another case not found (%d candidates)", lowerCandidates.Num() );
+		idStr root;
+		idList<retailProbe_t> probes;
+		CHECK( RetailDiscovery::FindFirst( candidates, "platform list", root, probes ) && SameDir( root, game ),
+			"wine: the game under drive_c not found ('%s')", root.c_str() );
+
+		idStrList noCandidates, noSteam;
+		RetailDiscovery::AppendWineInstalls( Str( pfx2 ).c_str(), noCandidates, noSteam );
+		RetailDiscovery::AppendWineInstalls( Str( wine / "notpfx" ).c_str(), noCandidates, noSteam );
+		RetailDiscovery::AppendWineInstalls( NULL, noCandidates, noSteam );
+		CHECK( noCandidates.Num() == 0 && noSteam.Num() == 0, "wine: an empty prefix or a folder without drive_c gave %d candidates, %d Steam roots",
+			noCandidates.Num(), noSteam.Num() );
+
+		// through the search: a platform table built from the prefixes finds the first install
+		ResetHooks( tmp / "engine-no-data" );
+		for ( int i = 0; i < prefixes.Num(); i++ ) {
+			RetailDiscovery::AppendWineInstalls( prefixes[ i ], g_platformCandidates, g_steamRoots );
+		}
+		probes.Clear();
+		CHECK( RetailDiscovery::Discover( Str( tmp / "no-save" ).c_str(), root, probes ) && SameDir( root, lowerGame ),
+			"wine: the search found '%s', want the first prefix's install", root.c_str() );
+		CHECK( probes.Num() > 0 && idStr::Cmp( probes[ probes.Num() - 1 ].source, "platform list" ) == 0,
+			"wine: the last probe is '%s', want the platform list", probes.Num() > 0 ? probes[ probes.Num() - 1 ].source.c_str() : "" );
 	}
 
 	SetEnv( "OPENETQW_BASEPATH", NULL );

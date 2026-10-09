@@ -1309,6 +1309,93 @@ void Sys_AppendRetailDataCandidates( idStrList &candidates, idStrList &steamRoot
 	}
 }
 
+// a refusal in a message box (the engine's text is in the ANSI code page, as its paths);
+// true when the player chose Retry (or OK)
+static bool Win_ShowRefusal( const idStr &text, const wchar_t *caption, UINT buttons ) {
+	wchar_t wide[ 2048 ];
+	if ( MultiByteToWideChar( CP_ACP, 0, text.c_str(), -1, wide, 2048 ) <= 0 ) {
+		wcscpy_s( wide, L"OpenETQW cannot use that folder." );
+	}
+	const int answer = MessageBoxW( NULL, wide, caption, buttons | MB_ICONWARNING | MB_SETFOREGROUND );
+	return answer == IDRETRY || answer == IDOK;
+}
+
+/*
+==============
+Sys_PromptForRetailData
+
+Windows' first-run prompt (ledger 068): the shell's folder picker for the ET:QW install
+when the search found nothing. Only UI; FileSystem checks the choice and asks again with
+problem set when it holds no base/pak000.pk4. A folder the ANSI code page cannot name
+(and that has no 8.3 name) is refused here, with the reason, and the picker shown again.
+==============
+*/
+bool Sys_PromptForRetailData( idStr &root, const char *problem ) {
+	const HRESULT init = CoInitializeEx( NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE );
+	// RPC_E_CHANGED_MODE: COM is already up on this thread in another mode, which the
+	// dialog can still use; only a successful init is balanced by CoUninitialize
+	if ( FAILED( init ) && init != RPC_E_CHANGED_MODE ) {
+		return false;
+	}
+	// the refusal shown before the next pick: FileSystem's (no base/pak000.pk4) or this
+	// function's own (a name the engine cannot open), each with its own caption
+	const wchar_t *const noDataCaption = L"OpenETQW: that folder does not hold the game data";
+	const wchar_t *const unnamableCaption = L"OpenETQW cannot use that folder";
+	bool chosen = false;
+	bool cancelled = false;
+	idStr refusal = problem != NULL ? problem : "";
+	const wchar_t *caption = noDataCaption;
+	for ( int attempt = 0; attempt < 5 && !chosen && !cancelled; attempt++ ) {
+		if ( refusal.Length() > 0 && !Win_ShowRefusal( refusal, caption, MB_RETRYCANCEL ) ) {
+			cancelled = true;
+			break;
+		}
+		IFileOpenDialog *dialog = NULL;
+		if ( FAILED( CoCreateInstance( CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS( &dialog ) ) ) ) {
+			break;
+		}
+		FILEOPENDIALOGOPTIONS options = 0;
+		dialog->GetOptions( &options );
+		dialog->SetOptions( options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST );
+		dialog->SetTitle( L"OpenETQW: find Enemy Territory: QUAKE Wars" );
+		dialog->SetFileNameLabel( L"ET:QW folder (the one holding base):" );
+		dialog->SetOkButtonLabel( L"Use This Folder" );
+		IShellItem *item = NULL;
+		PWSTR picked = NULL;
+		if ( SUCCEEDED( dialog->Show( NULL ) ) && SUCCEEDED( dialog->GetResult( &item ) )
+				&& SUCCEEDED( item->GetDisplayName( SIGDN_FILESYSPATH, &picked ) ) && picked != NULL ) {
+			if ( Win_NarrowPath( picked, root ) && root.Length() > 0 ) {
+				chosen = true;
+			} else {
+				refusal = "OpenETQW cannot open a folder with that name. Move or rename the Enemy Territory: QUAKE Wars "
+					"folder so its path uses only characters of your system's language, or start OpenETQW with "
+					"+set fs_basepath and its path.";
+				caption = unnamableCaption;
+			}
+		} else {
+			cancelled = true;	// FileSystem reports the retail-install error
+		}
+		CoTaskMemFree( picked );	// NULL is allowed
+		if ( item != NULL ) {
+			item->Release();
+		}
+		dialog->Release();
+	}
+	if ( !chosen && !cancelled && caption == unnamableCaption ) {
+		// the last pick was refused here: say why before FileSystem's generic error
+		Win_ShowRefusal( refusal, caption, MB_OK );
+	}
+	if ( SUCCEEDED( init ) ) {
+		CoUninitialize();
+	}
+	return chosen;
+}
+
+bool Sys_StdinIsPipe( void ) {
+	const HANDLE input = GetStdHandle( STD_INPUT_HANDLE );
+	return input != NULL && input != INVALID_HANDLE_VALUE && GetFileType( input ) == FILE_TYPE_PIPE;
+}
+
 // A wide path in the ANSI code page, which the file system opens paths with.
 // A name the code page cannot hold is not replaced by look-alikes or '?': its
 // 8.3 short form (ASCII where 8.3 names exist) is tried, else it fails.
@@ -1491,12 +1578,15 @@ void Sys_SetClipboardData( const wchar_t *string ) {
 idCVar net_forceDrop( "net_forceDrop", "0", CVAR_SYSTEM | CVAR_INTEGER, "percentage packet loss" );	// as win_net.cpp: outgoing packets
 idCVar net_forceLatency( "net_forceLatency", "0", CVAR_SYSTEM | CVAR_INTEGER, "milliseconds latency added to received packets" );
 idCVar net_forceJitter( "net_forceJitter", "0", CVAR_SYSTEM | CVAR_INTEGER, "up to this many more milliseconds of random latency per received packet (order kept)" );
+idCVar net_forceReorder( "net_forceReorder", "0", CVAR_SYSTEM | CVAR_INTEGER, "percentage of received packets held back so that later packets overtake them (network testing)" );
+idCVar net_forceReorderDelay( "net_forceReorderDelay", "30", CVAR_SYSTEM | CVAR_INTEGER, "up to this many milliseconds a net_forceReorder packet is held behind the packets after it" );
 
 // Received packets held back by net_forceLatency / net_forceJitter (network testing).
 // Keyed by socket, so idPort (shared with the game module) is unchanged.
 struct delayedPacket_t {
 	int				socket;
 	int				releaseTime;
+	int				sequence;		// arrival order on this socket, to count overtakes
 	netadr_t		from;
 	idList< byte >	data;
 };
@@ -1508,6 +1598,10 @@ static idList< delayedPacket_t* > delayedPackets;
 struct socketRelease_t {
 	int		socket;
 	int		releaseTime;
+	int		arrived;			// packets queued on this socket
+	int		lastReleasedSequence;
+	int		released;
+	int		reordered;		// released after a packet that arrived later
 };
 static idList< socketRelease_t > socketReleases;
 
@@ -1518,9 +1612,19 @@ static int Net_ReleaseTime( int netSocket, int wanted ) {
 			return socketReleases[ i ].releaseTime;
 		}
 	}
-	socketRelease_t release = { netSocket, wanted };
+	socketRelease_t release = { netSocket, wanted, 0, 0, 0, 0 };
 	socketReleases.Append( release );
 	return wanted;
+}
+
+static socketRelease_t* Net_SocketRelease( int netSocket ) {
+	for ( int i = 0; i < socketReleases.Num(); i++ ) {
+		if ( socketReleases[ i ].socket == netSocket ) {
+			return &socketReleases[ i ];
+		}
+	}
+	Net_ReleaseTime( netSocket, 0 );
+	return &socketReleases[ socketReleases.Num() - 1 ];
 }
 
 // a closed socket's descriptor is reused by the next one opened
@@ -1533,6 +1637,10 @@ static void Net_PurgeSocket( int netSocket ) {
 	}
 	for ( int i = socketReleases.Num() - 1; i >= 0; i-- ) {
 		if ( socketReleases[ i ].socket == netSocket ) {
+			if ( net_forceReorder.GetInteger() > 0 ) {
+				common->Printf( "NET_REORDER: %d of %d received packets released after a later one\n",
+					socketReleases[ i ].reordered, socketReleases[ i ].released );
+			}
 			socketReleases.RemoveIndex( i );
 		}
 	}
@@ -1607,7 +1715,9 @@ bool idPort::GetPacket( netadr_t &from, void *data, int &size, int maxSize ) {
 
 	const int latency = Max( 0, net_forceLatency.GetInteger() );
 	const int jitter = Max( 0, net_forceJitter.GetInteger() );
-	if ( latency == 0 && jitter == 0 && delayedPackets.Num() == 0 ) {
+	const int reorderPercent = idMath::ClampInt( 0, 100, net_forceReorder.GetInteger() );
+	const int reorderDelay = idMath::ClampInt( 1, 10000, net_forceReorderDelay.GetInteger() );	// within MSVC's RAND_MAX (32767)
+	if ( latency == 0 && jitter == 0 && reorderPercent == 0 && delayedPackets.Num() == 0 ) {
 		sockaddr_in address;
 		int addressLength = sizeof( address );
 		const int received = recvfrom( static_cast< SOCKET >( netSocket ), static_cast< char* >( data ), maxSize, 0, reinterpret_cast< sockaddr* >( &address ), &addressLength );
@@ -1630,7 +1740,16 @@ bool idPort::GetPacket( netadr_t &from, void *data, int &size, int maxSize ) {
 	while ( ( packetSize = recvfrom( static_cast< SOCKET >( netSocket ), static_cast< char* >( data ), maxSize, 0, reinterpret_cast< sockaddr* >( &address ), &addressLength ) ) > 0 ) {
 		delayedPacket_t* packet = new delayedPacket_t;
 		packet->socket = netSocket;
-		packet->releaseTime = Net_ReleaseTime( netSocket, now + latency + ( jitter > 0 ? rand() % ( jitter + 1 ) : 0 ) );
+		const int wanted = now + latency + ( jitter > 0 ? rand() % ( jitter + 1 ) : 0 );
+		if ( reorderPercent > 0 && rand() % 100 < reorderPercent ) {
+			// held behind the packets that arrive after it: later than the
+			// in-order release time, which it doesn't advance
+			const int inOrder = Max( wanted, Net_SocketRelease( netSocket )->releaseTime );
+			packet->releaseTime = inOrder + 1 + rand() % reorderDelay;
+		} else {
+			packet->releaseTime = Net_ReleaseTime( netSocket, wanted );
+		}
+		packet->sequence = ++Net_SocketRelease( netSocket )->arrived;
 		NetadrFromSockaddr( address, packet->from );
 		packet->data.SetNum( packetSize );
 		memcpy( &packet->data[ 0 ], data, packetSize );
@@ -1651,6 +1770,13 @@ bool idPort::GetPacket( netadr_t &from, void *data, int &size, int maxSize ) {
 	}
 	delayedPacket_t* packet = delayedPackets[ best ];
 	delayedPackets.RemoveIndex( best );
+	socketRelease_t* release = Net_SocketRelease( netSocket );
+	release->released++;
+	if ( packet->sequence < release->lastReleasedSequence ) {
+		release->reordered++;
+	} else {
+		release->lastReleasedSequence = packet->sequence;
+	}
 	from = packet->from;
 	size = Min( packet->data.Num(), maxSize );
 	memcpy( data, &packet->data[ 0 ], size );

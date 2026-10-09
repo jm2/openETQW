@@ -22,7 +22,10 @@ Both processes then exit 0 on 'quit'.
 With --drop N both processes drop N% of their outgoing packets
 (net_forceDrop), which exercises the snapshot resend and the reliable game init.
 --latency/--jitter delay received packets (jitter varies the delay, order kept)
-(net_forceLatency/net_forceJitter), and --base-check makes the server send a
+(net_forceLatency/net_forceJitter). --reorder N holds N% of the received packets
+back by up to --reorder-delay ms so that later packets overtake them
+(net_forceReorder/net_forceReorderDelay); each process then reports how many it
+released out of order ('NET_REORDER: a of b'), and the test requires some. --base-check makes the server send a
 checksum of the client's snapshot base with every snapshot
 (net_debugSnapshotBase): the client stops with an error if its base differs.
 
@@ -37,6 +40,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import etqw_harness as h  # noqa: E402
+
+REORDER_RE = re.compile(r"NET_REORDER: (\d+) of (\d+) received packets")
 
 READY = "------------- ETQW initialized -------------"
 SNAPSHOT_RE = re.compile(r"Client received snapshot (\d+) \(frame (\d+)\)")
@@ -85,6 +90,8 @@ def main(argv):
     ap.add_argument("--min-snapshots", type=int, default=5, help="snapshots required on each map")
     ap.add_argument("--latency", type=int, default=0, help="ms added to every received packet (both processes)")
     ap.add_argument("--jitter", type=int, default=0, help="up to this many more ms per packet (order kept)")
+    ap.add_argument("--reorder", type=int, default=0, help="percentage of received packets later packets overtake (both processes)")
+    ap.add_argument("--reorder-delay", type=int, default=30, help="ms a reordered packet is held behind the ones after it")
     ap.add_argument("--base-check", action="store_true", help="server sends a snapshot base checksum (net_debugSnapshotBase)")
     args = ap.parse_args(argv)
     first, second = [m for m in args.maps.split(",") if m][:2]
@@ -101,7 +108,8 @@ def main(argv):
         log_dir.mkdir(parents=True, exist_ok=True)
 
     failures = []
-    net = {"net_forceDrop": str(args.drop), "net_forceLatency": str(args.latency), "net_forceJitter": str(args.jitter)}
+    net = {"net_forceDrop": str(args.drop), "net_forceLatency": str(args.latency), "net_forceJitter": str(args.jitter),
+           "net_forceReorder": str(args.reorder), "net_forceReorderDelay": str(args.reorder_delay)}
     srv = h.DedicatedServer(binary, data, first, args.port,
                             log_path=(log_dir / "server.log") if log_dir else None,
                             cvars={"si_rules": "sdGameRulesObjective", "si_pure": "0", "g_teamSwitchDelay": "0",
@@ -188,6 +196,17 @@ def main(argv):
         for name, proc in (("server", srv), ("client", cl)):
             for b in h.scan_failures(l.text for l in proc.snapshot()):
                 failures.append(f"{name} log: {b}")
+        if args.reorder > 0:
+            # the simulator's own count, printed when each socket closes
+            reordered = {}
+            for name, proc in (("server", srv), ("client", cl)):
+                counts = [tuple(int(v) for v in m.groups()) for line in proc.snapshot()
+                          if (m := REORDER_RE.search(line.text))]
+                reordered[name] = (sum(c[0] for c in counts), sum(c[1] for c in counts))
+            print("packets released after a later one: " +
+                  ", ".join(f"{n} {r} of {t}" for n, (r, t) in reordered.items()))
+            if sum(r for r, _ in reordered.values()) == 0:
+                failures.append("--reorder was set but no process released a packet out of order (NET_REORDER)")
     finally:
         cl.cleanup()
         srv.cleanup()

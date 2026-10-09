@@ -399,6 +399,179 @@ void RetailDiscovery::AppendSteamInstalls( const char *library, idStrList &candi
 	}
 }
 
+// the Windows game's install folders under Program Files, as the Windows table lists them
+static const char *const WINDOWS_INSTALL_FOLDERS[] = {
+	"id Software/Enemy Territory - QUAKE Wars",
+	"Activision/Enemy Territory - QUAKE Wars",
+	"Enemy Territory - QUAKE Wars",
+	"Enemy Territory QUAKE Wars",
+	"ETQW",
+};
+
+// a relative path ('/' separated, ASCII) under directory, each component matched without
+// case (a prefix copied from Windows, or a case-insensitive file system's spelling)
+static bool FindPathNoCase( const fs::path &directory, const char *relative, fs::path &found ) {
+	fs::path at = directory;
+	idStr rest = relative;
+	while ( rest.Length() > 0 ) {
+		const int slash = rest.Find( '/' );
+		const idStr component = slash < 0 ? rest : rest.Left( slash );
+		rest = slash < 0 ? idStr() : rest.Right( rest.Length() - slash - 1 );
+		fs::path next;
+		if ( !FindEntryNoCase( at, component.c_str(), true, next ) ) {
+			return false;
+		}
+		at = next;
+	}
+	found = at;
+	return true;
+}
+
+// true and the prefix's drive_c when prefix is a Wine prefix
+static bool FindDriveC( const fs::path &prefix, fs::path &driveC ) {
+	try {
+		return FindEntryNoCase( prefix, "drive_c", true, driveC );
+	} catch ( const std::exception & ) {
+		return false;
+	}
+}
+
+void RetailDiscovery::AppendWinePrefix( const char *path, idStrList &prefixes, idStrList &keys ) {
+	if ( path == NULL || path[ 0 ] == '\0' ) {
+		return;
+	}
+	fs::path prefixPath;
+	fs::path driveC;
+	if ( ToPath( path, prefixPath ) && FindDriveC( prefixPath, driveC ) ) {
+		AddUniqueDirectory( prefixes, keys, path );
+	}
+}
+
+void RetailDiscovery::AppendWinePrefixesIn( const char *parent, idStrList &prefixes, idStrList &keys ) {
+	if ( parent == NULL || parent[ 0 ] == '\0' ) {
+		return;
+	}
+	fs::path parentPath;
+	if ( !ToPath( parent, parentPath ) ) {
+		return;
+	}
+	try {	// a folder that cannot be read is skipped, not the search
+		// each subfolder that is a prefix, else the prefixes one level inside it: Lutris keeps a
+		// game's prefix in the game folder or in its prefix/ or pfx/, and umu in umu/<id>
+		std::vector< fs::path > found;
+		ForEachEntry( parentPath, [&]( const fs::directory_entry &entry ) {
+			std::error_code typeError;
+			if ( !entry.is_directory( typeError ) ) {
+				return true;
+			}
+			fs::path driveC;
+			if ( FindDriveC( entry.path(), driveC ) ) {
+				found.push_back( entry.path() );
+				return true;
+			}
+			ForEachEntry( entry.path(), [&]( const fs::directory_entry &inner ) {
+				std::error_code innerError;
+				fs::path innerDriveC;
+				if ( inner.is_directory( innerError ) && FindDriveC( inner.path(), innerDriveC ) ) {
+					found.push_back( inner.path() );
+				}
+				return true;
+			} );
+			return true;
+		} );
+		std::sort( found.begin(), found.end() );	// a stable order across runs
+		for ( const fs::path &prefix : found ) {
+			idStr name;
+			if ( NarrowPath( prefix, name ) ) {
+				AddUniqueDirectory( prefixes, keys, name );
+			}
+		}
+	} catch ( const std::exception & ) {
+	}
+}
+
+void RetailDiscovery::AppendWineInstalls( const char *prefix, idStrList &candidates, idStrList &steamRoots ) {
+	if ( prefix == NULL || prefix[ 0 ] == '\0' ) {
+		return;
+	}
+	fs::path prefixPath;
+	fs::path driveC;
+	if ( !ToPath( prefix, prefixPath ) || !FindDriveC( prefixPath, driveC ) ) {
+		return;
+	}
+	try {	// a prefix that cannot be read is skipped, not the search
+		// only the folders that exist, spelled as they are on disk
+		static const char *const programFolders[] = { "Program Files (x86)", "Program Files" };
+		for ( const char *program : programFolders ) {
+			fs::path programDir;
+			if ( !FindEntryNoCase( driveC, program, true, programDir ) ) {
+				continue;
+			}
+			for ( const char *folder : WINDOWS_INSTALL_FOLDERS ) {
+				fs::path install;
+				idStr name;
+				if ( FindPathNoCase( programDir, folder, install ) && NarrowPath( install, name ) ) {
+					AddUnique( candidates, name );
+				}
+			}
+			// Steam for Windows in the prefix: only its own steamapps is searched (a second
+			// library it lists is a Windows path, not mapped through drive_c here)
+			fs::path steam;
+			idStr name;
+			if ( FindEntryNoCase( programDir, "Steam", true, steam ) && NarrowPath( steam, name ) ) {
+				AddUnique( steamRoots, name );
+			}
+		}
+	} catch ( const std::exception & ) {
+	}
+}
+
+bool RetailDiscovery::WriteStoredPath( const char *savePath, const char *root ) {
+	if ( savePath == NULL || savePath[ 0 ] == '\0' || root == NULL || root[ 0 ] == '\0' ) {
+		return false;
+	}
+	// the save path and its parents (a first start has none of them yet)
+	idStr partial;
+	const idStr full = savePath;
+	for ( int i = 0; i <= full.Length(); i++ ) {
+		if ( i == full.Length() || ( i > 0 && ( full[ i ] == '/' || full[ i ] == '\\' ) ) ) {
+			partial = idStr( full.c_str(), 0, i );
+			if ( partial.Length() > 0 && !( partial.Length() == 2 && partial[ 1 ] == ':' ) ) {
+				Sys_Mkdir( partial.c_str() );
+			}
+		}
+	}
+	// the file is UTF-8 on every platform (ReadStoredPath decodes it so); root is the
+	// engine's name, which on Windows is in the ANSI code page
+	std::string text;
+#ifdef _WIN32
+	fs::path rootPath;
+	if ( !ToPath( root, rootPath ) ) {
+		return false;
+	}
+	const std::wstring &wide = rootPath.native();
+	const int length = WideCharToMultiByte( CP_UTF8, 0, wide.c_str(), -1, NULL, 0, NULL, NULL );
+	if ( length <= 0 ) {
+		return false;
+	}
+	std::vector< char > buffer( static_cast< size_t >( length ) );
+	if ( WideCharToMultiByte( CP_UTF8, 0, wide.c_str(), -1, buffer.data(), length, NULL, NULL ) <= 0 ) {
+		return false;
+	}
+	text = buffer.data();
+#else
+	text = root;
+#endif
+	idStr file = savePath;
+	file.AppendPath( "basepath.txt" );
+	FILE *f = fopen( file.c_str(), "wb" );
+	if ( f == NULL ) {
+		return false;
+	}
+	const bool written = fprintf( f, "%s\n", text.c_str() ) > 0;
+	return fclose( f ) == 0 && written;
+}
+
 bool RetailDiscovery::ReadStoredPath( const char *file, idStr &path ) {
 	if ( file == NULL || file[ 0 ] == '\0' ) {
 		return false;
