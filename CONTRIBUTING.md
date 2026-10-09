@@ -41,6 +41,23 @@ get CI back: both stay private until the owner decides to publish.
    **Seat gate changes** (openETQW-game `src/game/vehicles/SeatGate.*`, `idPlayer::IsSeatPresentationAllowed`,
    or the seat latch) must also pass `seat-gate` (M5 step 13; part of the full suite): an excluded seat
    never unlocks, keys match, and the gate changes no `SIM_HASH`, `VEH_TRACE` or `SIM_VIEW` value.
+   **Graphics changes** (anything that changes what is drawn: `src/renderer`, the shaders under
+   `base/vkprogs` and the GL programs, materials, the viewmodel or sky code in openETQW-game)
+   must carry the standard screenshot set from **every platform**: Windows x64 with ray tracing
+   on and off, Windows arm64, Linux and macOS (owner decision, 2026-10-09). On each host, capture
+   the PR and `main` and compare them:
+   `python3 tools/validation/screenshot_set.py capture --out shots/main --label <main commit>` on
+   main first, then on the PR
+   `python3 tools/validation/screenshot_set.py capture --out shots/pr --label <commit> --anchors shots/main/screenshot_set.json`
+   (the same positions on maps without a fixed one; `--rt 0` on a GPU without ray tracing), then
+   `python3 tools/validation/screenshot_set.py compare shots/main shots/pr --out shots/compare`.
+   Attach each host's contact sheets (`sheet_rt*.png`, `compare_sheet.png`) and `compare.md` to
+   the PR. The author and a reviewing session look at every sheet before the merge and are the
+   gate: the numbers and the heuristic warnings (a near-black viewmodel, a flat sky) only
+   point at things, and their look decides. The owner is asked only when something is
+   ambiguous, for example when it is unclear what retail looks like (owner, 2026-10-09). The
+   tests check numbers only, and a dark viewmodel and a sky drawn as a box went unnoticed
+   until someone looked at the screen.
 3. **Independent review.** Someone other than the author (a person or a separate review
    session) reads the diff and the raw test output, not only the summary.
 4. **CodeRabbit.** CodeRabbit reviews each PR. It currently allows about one review per
