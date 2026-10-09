@@ -36,6 +36,7 @@ from test_remote_client_map_change import GAME_INIT_RE, RemoteClient, snapshots 
 
 VIEW_RE = re.compile(r"VIEW_STATE: side=(cli|srv) at=(\w+) tick=(\d+) client=(\d+) ent=(\d+) pos=(\d+) "
                      r".*? new=(\d) .*?fpo\(([-\d.e+]+),([-\d.e+]+),([-\d.e+]+)\)")
+PHYS_RE = re.compile(r" phys=\(?([-\d.e+]+),([-\d.e+]+),([-\d.e+]+)")
 SPAWNED_RE = re.compile(r"Player (\d+) \('[^']*'\) spawned at .* team (\w+) spectating 0")
 VEHICLES = ("vehicle_badger", "vehicle_titan")
 VIEW_TOLERANCE = 0.05
@@ -53,7 +54,9 @@ def views(proc, start, side, client):
             continue
         if side == "cli" and m.group(7) != "1":
             continue
-        out[int(m.group(3))] = (int(m.group(5)), int(m.group(6)), tuple(float(v) for v in m.group(8, 9, 10)))
+        p = PHYS_RE.search(ln.text)
+        phys = tuple(float(v) for v in p.groups()) if p else None
+        out[int(m.group(3))] = (int(m.group(5)), int(m.group(6)), tuple(float(v) for v in m.group(8, 9, 10)), phys)
     return out
 
 
@@ -158,6 +161,12 @@ def main(argv):
                     return f"{sum((x - y) ** 2 for x, y in zip(a, b)) ** 0.5:.4f}"
                 head = [f"{tick}:{dist(tick, tick)}[{dist(tick - 1, tick)},{dist(tick + 1, tick)}]"
                         for tick in common[:15]]
+                # which side moves: the view and the vehicle's physics origin, server / client
+                def pose(v):
+                    phys = "-" if v[3] is None else ",".join(f"{c:.4f}" for c in v[3])
+                    return f"fpo({','.join(f'{c:.4f}' for c in v[2])}) phys({phys})"
+                for tick in common[:15]:
+                    print(f"[{vehicle}]   tick {tick}: server {pose(srv_views[tick])}  client {pose(cl_views[tick])}")
                 print(f"[{vehicle}] per-tick error from the first paired tick "
                       f"(server first {min(srv_views)}, client first {min(cl_views)}): {' '.join(head)}")
                 worst, worst_tick = 0.0, None
