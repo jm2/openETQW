@@ -114,11 +114,32 @@ def scan_process_output():
     return found
 
 
+REORDER_EXPECTED = False  # --reorder: some packet must actually have been overtaken
+REORDER_RE = re.compile(r"NET_REORDER: (\d+) of (\d+) received packets")
+
+
+def reorder_counts():
+    """{process: (released after a later one, released)} from the simulator's
+    NET_REORDER lines, printed when each socket closes."""
+    counts = {}
+    for name, lines in PROCESS_LINES.items():
+        hits = [m for line in lines if (m := REORDER_RE.search(line))]
+        counts[name] = (sum(int(m.group(1)) for m in hits), sum(int(m.group(2)) for m in hits))
+    return counts
+
+
 def exit_with_scan(rc):
     # the processes have exited (or are being killed); a reader can still be draining
     # the pipe, so let each finish before scanning
     for t in READER_THREADS:
         t.join(timeout=10.0)
+    if REORDER_EXPECTED:
+        counts = reorder_counts()
+        print("packets released after a later one: " +
+              ", ".join(f"{n} {r} of {t}" for n, (r, t) in sorted(counts.items())))
+        if sum(r for r, _ in counts.values()) == 0:
+            print("FAIL: --reorder was set but no process released a packet out of order (NET_REORDER)")
+            rc = rc or 1
     bad = scan_process_output()
     if bad:
         print("\nFAILURE MARKERS in process output:")
@@ -550,6 +571,8 @@ def parse_args(argv):
     ap.add_argument("--latency", type=int, default=0)
     ap.add_argument("--jitter", type=int, default=0)
     ap.add_argument("--drop", type=int, default=0)
+    ap.add_argument("--reorder", type=int, default=0, help="percentage of received packets later ones overtake")
+    ap.add_argument("--reorder-delay", type=int, default=30, help="ms a reordered packet is held behind later ones")
     ap.add_argument("--base-check", action="store_true")
     ap.add_argument("--log-dir")
     return ap.parse_args(argv)
@@ -564,15 +587,18 @@ def use_binary(path):
 
 
 def apply_network_conditions(args):
-    """--latency/--jitter/--drop: simulated network conditions for all three
-    processes (net_forceLatency/net_forceJitter/net_forceDrop); --base-check
-    makes the server send its snapshot base checksum (net_debugSnapshotBase)."""
-    global LOG_DIR
+    """--latency/--jitter/--drop/--reorder: simulated network conditions for all
+    three processes (net_forceLatency/net_forceJitter/net_forceDrop/
+    net_forceReorder, net_forceReorderDelay); --base-check makes the server send
+    its snapshot base checksum (net_debugSnapshotBase)."""
+    global LOG_DIR, REORDER_EXPECTED
     if args.log_dir:
         Path(args.log_dir).mkdir(parents=True, exist_ok=True)
         LOG_DIR = args.log_dir
     net = ["+set", "net_forceLatency", str(args.latency), "+set", "net_forceJitter", str(args.jitter),
-           "+set", "net_forceDrop", str(args.drop)]
+           "+set", "net_forceDrop", str(args.drop),
+           "+set", "net_forceReorder", str(args.reorder), "+set", "net_forceReorderDelay", str(args.reorder_delay)]
+    REORDER_EXPECTED = args.reorder > 0
     for proc_args in (SERVER_ARGS, CLIENT1_ARGS, CLIENT2_ARGS):
         proc_args[-2:-2] = net  # before the final +spawnServer/+connect
     if args.base_check:

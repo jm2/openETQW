@@ -668,6 +668,47 @@ if build_dedicated
     timeout: 600,
     is_parallel: false,
   )
+  # out-of-order delivery (net_forceReorder): 20% of the packets each process
+  # receives are held back up to 60 ms so later ones overtake them. The map
+  # change's reliable game init and the snapshot stream must survive it, with
+  # the snapshot base checked; the test requires that packets were reordered.
+  test(
+    'remote-client-map-change-reorder',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_remote_client_map_change.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--maps', 'outskirts,quarry',
+      '--latency', '20',
+      '--reorder', '20',
+      '--reorder-delay', '60',
+      '--base-check',
+      '--port', '29977',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'remote-client-map-change-reorder',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration', 'stock-maps'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
+  # two clients and a server with the same reordering on a 40 ms link: spawns,
+  # mutual replication within tolerance, peer movement, the attack usercmd
+  test(
+    'multiclient-gameplay-reorder',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_multiclient_gameplay.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--base-check', '--latency', '40', '--reorder', '20', '--reorder-delay', '60',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'multiclient-gameplay-reorder',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
 endif
 
 # 8. The Vulkan client on a network (needs both binaries; opens a window):
