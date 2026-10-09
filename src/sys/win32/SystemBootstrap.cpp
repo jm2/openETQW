@@ -29,6 +29,7 @@
 #include <shlobj.h>
 #include "../sys_package.h"
 #include "../../framework/RetailDiscovery.h"
+#include "../../framework/Session_local.h"
 
 // Instantiation of system localization and sysLocal interfaces for Windows builds
 const char * sysLanguageNames[] = {
@@ -729,10 +730,13 @@ void idSysLocal::SetClipboardData( const wchar_t *string ) {
 	Sys_SetClipboardData( string );
 }
 
-void idSysLocal::SetServerInfo( const char*, const char* ) {
+// the game's server info writes: the shared engine helpers (Session.cpp), as on the other platforms
+void idSysLocal::SetServerInfo( const char* key, const char* value ) {
+	Session_SetServerInfoFromGame( key, value );
 }
 
 void idSysLocal::FlushServerInfo() {
+	Session_FlushServerInfoFromGame();
 }
 
 void idSysLocal::InitInput() {

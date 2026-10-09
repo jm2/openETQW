@@ -51,6 +51,19 @@ namespace RetailDiscovery {
 	// of each steamapps/appmanifest_*.acf whose "name" holds "QUAKE Wars"
 	void	AppendSteamInstalls( const char *library, idStrList &candidates );
 
+	// Wine prefixes, for Linux's table (macOS still keeps its own copy of this logic for
+	// CrossOver bottles): path when it holds drive_c; keys (the canonical forms) drop a
+	// prefix already listed under another spelling, such as a symlink
+	void	AppendWinePrefix( const char *path, idStrList &prefixes, idStrList &keys );
+
+	// the Wine prefixes in parent, in name order: each subfolder holding drive_c, else the
+	// prefixes one level inside it (Lutris's <game>/prefix or pfx, umu's umu/<id>)
+	void	AppendWinePrefixesIn( const char *parent, idStrList &prefixes, idStrList &keys );
+
+	// a prefix's Windows install folders under drive_c's Program Files (x86) and Program
+	// Files, and its Steam folders, as they exist on disk (each name matched without case)
+	void	AppendWineInstalls( const char *prefix, idStrList &candidates, idStrList &steamRoots );
+
 	// the first line of a stored-path file, trimmed; false when there is none
 	bool	ReadStoredPath( const char *file, idStr &path );
 
