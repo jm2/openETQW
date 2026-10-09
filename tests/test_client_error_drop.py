@@ -224,6 +224,13 @@ def run_load(binary, vk, data, args, log_dir):
             failures.append("no ERROR for the broken scoreboard GUI during the client's map load")
         if not abandoned:
             failures.append("the client's map load was not abandoned after the error stopped the session")
+        # the load finishing as a game of the client's own spawned a local player (and crashed)
+        after_error = False
+        for t in lines:
+            after_error = after_error or (t.startswith("ERROR:") and "oetqwNoSuchScope" in t)
+            if after_error and t.startswith("SpawnPlayer:"):
+                failures.append(f"the client spawned a local player after the load error ('{t}')")
+                break
         if not dropped:
             failures.append(f"the server did not drop client {slot}")
         elif dropped[2].group(1).strip() != "disconnected":

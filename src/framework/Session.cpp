@@ -465,6 +465,7 @@ void idSessionLocal::ExecuteMapChange( const char* mapName, int startTime, bool 
 		if ( loadingForServer && !idAsyncNetwork::client.IsActive() ) {
 			insideExecuteMapChange = false;
 			mapSpawned = gameLoaded;
+			currentMapName.Clear();	// the level load was not ended: the next load of this map begins one again
 			renderSystem->UnlockThreads();
 			common->Error( "the load of %s was stopped: the client left the server", fullMapName.c_str() );
 		}
