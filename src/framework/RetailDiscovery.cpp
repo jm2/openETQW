@@ -408,42 +408,46 @@ static const char *const WINDOWS_INSTALL_FOLDERS[] = {
 	"ETQW",
 };
 
-void RetailDiscovery::AppendWineInstalls( const char *prefix, idStrList &candidates, idStrList &steamRoots ) {
-	if ( prefix == NULL || prefix[ 0 ] == '\0' ) {
-		return;
-	}
-	fs::path prefixPath;
-	if ( !ToPath( prefix, prefixPath ) ) {
-		return;
-	}
-	try {	// a prefix that cannot be read is skipped, not the search
-		fs::path driveC;
-		if ( !FindEntryNoCase( prefixPath, "drive_c", true, driveC ) ) {
-			return;
+// a relative path ('/' separated, ASCII) under directory, each component matched without
+// case (a prefix copied from Windows, or a case-insensitive file system's spelling)
+static bool FindPathNoCase( const fs::path &directory, const char *relative, fs::path &found ) {
+	fs::path at = directory;
+	idStr rest = relative;
+	while ( rest.Length() > 0 ) {
+		const int slash = rest.Find( '/' );
+		const idStr component = slash < 0 ? rest : rest.Left( slash );
+		rest = slash < 0 ? idStr() : rest.Right( rest.Length() - slash - 1 );
+		fs::path next;
+		if ( !FindEntryNoCase( at, component.c_str(), true, next ) ) {
+			return false;
 		}
+		at = next;
+	}
+	found = at;
+	return true;
+}
+
+// true and the prefix's drive_c when prefix is a Wine prefix
+static bool FindDriveC( const fs::path &prefix, fs::path &driveC ) {
+	try {
+		return FindEntryNoCase( prefix, "drive_c", true, driveC );
 	} catch ( const std::exception & ) {
-		return;
-	}
-	static const char *const programFolders[] = { "Program Files (x86)", "Program Files" };
-	for ( const char *program : programFolders ) {
-		for ( const char *folder : WINDOWS_INSTALL_FOLDERS ) {
-			idStr path = prefix;
-			path.AppendPath( "drive_c" );
-			path.AppendPath( program );
-			path.AppendPath( folder );
-			AddUnique( candidates, path );
-		}
-		// Steam for Windows in the prefix: only its own steamapps is searched (a second
-		// library it lists is a Windows path, not mapped through drive_c here)
-		idStr steam = prefix;
-		steam.AppendPath( "drive_c" );
-		steam.AppendPath( program );
-		steam.AppendPath( "Steam" );
-		AddUnique( steamRoots, steam );
+		return false;
 	}
 }
 
-void RetailDiscovery::AppendWinePrefixesIn( const char *parent, idStrList &prefixes ) {
+void RetailDiscovery::AppendWinePrefix( const char *path, idStrList &prefixes, idStrList &keys ) {
+	if ( path == NULL || path[ 0 ] == '\0' ) {
+		return;
+	}
+	fs::path prefixPath;
+	fs::path driveC;
+	if ( ToPath( path, prefixPath ) && FindDriveC( prefixPath, driveC ) ) {
+		AddUniqueDirectory( prefixes, keys, path );
+	}
+}
+
+void RetailDiscovery::AppendWinePrefixesIn( const char *parent, idStrList &prefixes, idStrList &keys ) {
 	if ( parent == NULL || parent[ 0 ] == '\0' ) {
 		return;
 	}
@@ -452,20 +456,70 @@ void RetailDiscovery::AppendWinePrefixesIn( const char *parent, idStrList &prefi
 		return;
 	}
 	try {	// a folder that cannot be read is skipped, not the search
+		// each subfolder that is a prefix, else the prefixes one level inside it: Lutris keeps a
+		// game's prefix in the game folder or in its prefix/ or pfx/, and umu in umu/<id>
 		std::vector< fs::path > found;
 		ForEachEntry( parentPath, [&]( const fs::directory_entry &entry ) {
 			std::error_code typeError;
-			fs::path driveC;
-			if ( entry.is_directory( typeError ) && FindEntryNoCase( entry.path(), "drive_c", true, driveC ) ) {
-				found.push_back( entry.path() );
+			if ( !entry.is_directory( typeError ) ) {
+				return true;
 			}
+			fs::path driveC;
+			if ( FindDriveC( entry.path(), driveC ) ) {
+				found.push_back( entry.path() );
+				return true;
+			}
+			ForEachEntry( entry.path(), [&]( const fs::directory_entry &inner ) {
+				std::error_code innerError;
+				fs::path innerDriveC;
+				if ( inner.is_directory( innerError ) && FindDriveC( inner.path(), innerDriveC ) ) {
+					found.push_back( inner.path() );
+				}
+				return true;
+			} );
 			return true;
 		} );
 		std::sort( found.begin(), found.end() );	// a stable order across runs
 		for ( const fs::path &prefix : found ) {
 			idStr name;
 			if ( NarrowPath( prefix, name ) ) {
-				AddUnique( prefixes, name );
+				AddUniqueDirectory( prefixes, keys, name );
+			}
+		}
+	} catch ( const std::exception & ) {
+	}
+}
+
+void RetailDiscovery::AppendWineInstalls( const char *prefix, idStrList &candidates, idStrList &steamRoots ) {
+	if ( prefix == NULL || prefix[ 0 ] == '\0' ) {
+		return;
+	}
+	fs::path prefixPath;
+	fs::path driveC;
+	if ( !ToPath( prefix, prefixPath ) || !FindDriveC( prefixPath, driveC ) ) {
+		return;
+	}
+	try {	// a prefix that cannot be read is skipped, not the search
+		// only the folders that exist, spelled as they are on disk
+		static const char *const programFolders[] = { "Program Files (x86)", "Program Files" };
+		for ( const char *program : programFolders ) {
+			fs::path programDir;
+			if ( !FindEntryNoCase( driveC, program, true, programDir ) ) {
+				continue;
+			}
+			for ( const char *folder : WINDOWS_INSTALL_FOLDERS ) {
+				fs::path install;
+				idStr name;
+				if ( FindPathNoCase( programDir, folder, install ) && NarrowPath( install, name ) ) {
+					AddUnique( candidates, name );
+				}
+			}
+			// Steam for Windows in the prefix: only its own steamapps is searched (a second
+			// library it lists is a Windows path, not mapped through drive_c here)
+			fs::path steam;
+			idStr name;
+			if ( FindEntryNoCase( programDir, "Steam", true, steam ) && NarrowPath( steam, name ) ) {
+				AddUnique( steamRoots, name );
 			}
 		}
 	} catch ( const std::exception & ) {

@@ -408,8 +408,9 @@ Sys_AppendRetailDataCandidates
 Linux's table for RetailDiscovery (ledger 068), in the order probed:
   - the retail Linux client's usual install folders;
   - the Windows game in a Wine prefix: WINEPREFIX, ~/.wine, then the prefix folders of
-    Lutris (~/Games/<game>), Bottles (native and Flatpak) and PlayOnLinux, each with the
-    Windows install folders under drive_c's Program Files (x86) and Program Files;
+    Lutris (~/Games/<game>, its prefix/ or pfx/, umu's ~/Games/umu/<id>), Bottles (native,
+    Flatpak and under XDG_DATA_HOME) and PlayOnLinux; in each, the Windows install folders
+    under drive_c's Program Files (x86) and Program Files that exist, matched without case;
   - the Steam roots, in this order: OPENETQW_STEAM_ROOT, the native and Flatpak Steam
     (whose libraries also hold a Proton install of the Windows game), then Steam inside
     each Wine prefix (only its own steamapps: a second library it lists is a Windows path,
@@ -430,17 +431,20 @@ void Sys_AppendRetailDataCandidates( idStrList &candidates, idStrList &steamRoot
 		candidates.Append( path );
 	}
 
+	// Wine prefixes (RetailDiscovery's shared helpers; keys drop a symlinked second spelling)
 	idStrList prefixes;
+	idStrList prefixKeys;
 	const char *winePrefix = getenv( "WINEPREFIX" );
 	if ( winePrefix != NULL && winePrefix[0] == '/' ) {
-		prefixes.Append( winePrefix );
+		RetailDiscovery::AppendWinePrefix( winePrefix, prefixes, prefixKeys );
 	}
+	const char *xdgData = getenv( "XDG_DATA_HOME" );
 	if ( haveHome ) {
 		idStr wine = home;
 		wine.AppendPath( ".wine" );
-		prefixes.Append( wine );
+		RetailDiscovery::AppendWinePrefix( wine, prefixes, prefixKeys );
 		static const char *const prefixFolders[] = {
-			"Games",												// Lutris's default game folder
+			"Games",												// Lutris's default game folder (and umu/)
 			".local/share/bottles/bottles",							// Bottles
 			".var/app/com.usebottles.bottles/data/bottles/bottles",	// Bottles (Flatpak)
 			".PlayOnLinux/wineprefix",								// PlayOnLinux
@@ -448,8 +452,13 @@ void Sys_AppendRetailDataCandidates( idStrList &candidates, idStrList &steamRoot
 		for ( const char *folder : prefixFolders ) {
 			idStr path = home;
 			path.AppendPath( folder );
-			RetailDiscovery::AppendWinePrefixesIn( path, prefixes );
+			RetailDiscovery::AppendWinePrefixesIn( path, prefixes, prefixKeys );
 		}
+	}
+	if ( xdgData != NULL && xdgData[0] == '/' ) {
+		idStr bottles = xdgData;
+		bottles.AppendPath( "bottles/bottles" );	// Bottles under a moved XDG data directory
+		RetailDiscovery::AppendWinePrefixesIn( bottles, prefixes, prefixKeys );
 	}
 	idStrList prefixSteamRoots;
 	for ( int i = 0; i < prefixes.Num(); i++ ) {
