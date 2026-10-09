@@ -668,6 +668,24 @@ if build_dedicated
     timeout: 600,
     is_parallel: false,
   )
+  # a headless remote client (the dedicated binary with +connect) put in a
+  # vehicle by the server: it survives, its seat replicates (g_logVehicleViews
+  # VIEW_STATE on both sides), exitVehicle clears it (badger, then titan)
+  test(
+    'headless-client-vehicle',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_headless_vehicle.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--port', '29983',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'headless-client-vehicle',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
   # out-of-order delivery (net_forceReorder): 20% of the packets each process
   # receives are held back up to 60 ms so later ones overtake them. The map
   # change's reliable game init and the snapshot stream must survive it, with
