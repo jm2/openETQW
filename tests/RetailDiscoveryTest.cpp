@@ -35,6 +35,12 @@ static idStr g_defaultBasePath;
 static idStrList g_platformCandidates;
 static idStrList g_steamRoots;
 
+// a real directory, for WriteStoredPath (the engine's Sys_Mkdir makes one level)
+void Sys_Mkdir( const char *path ) {
+	std::error_code error;
+	fs::create_directory( fs::u8path( path ), error );
+}
+
 const char *Sys_DefaultBasePath( void ) {
 	return g_defaultBasePath.c_str();
 }
@@ -77,6 +83,17 @@ static fs::path MakeInstall( const fs::path &root, const char *baseName = "base"
 
 static std::string Str( const fs::path &path ) {
 	return path.string();	// the engine's form; only for names every code page holds
+}
+
+// a path in the engine's form when the code page can name it (path.string() converts to the
+// ANSI code page on Windows and throws for a name it cannot hold)
+static bool Narrow( const fs::path &path, idStr &name ) {
+	try {
+		name = path.string().c_str();
+		return true;
+	} catch ( const std::exception & ) {
+		return false;
+	}
 }
 
 // a path as UTF-8 (what Steam's files and Notepad write)
@@ -158,6 +175,26 @@ int main() {
 		WriteFile( tmp / "empty" / "basepath.txt", "\r\n" );
 		CHECK( !RetailDiscovery::ReadStoredPath( Str( tmp / "empty" / "basepath.txt" ).c_str(), path ), "an empty stored path read" );
 		CHECK( !RetailDiscovery::ReadStoredPath( Str( tmp / "none.txt" ).c_str(), path ), "a missing stored path read" );
+		// a first-run choice is written under a save path that does not exist yet, and read back
+		const fs::path savePath = tmp / "save" / "nested";
+		CHECK( RetailDiscovery::WriteStoredPath( Str( savePath ).c_str(), Str( lower ).c_str() ), "the stored path was not written" );
+		CHECK( RetailDiscovery::ReadStoredPath( Str( savePath / "basepath.txt" ).c_str(), path ) && SameDir( path, lower ),
+			"the written stored path read back as '%s'", path.c_str() );
+		CHECK( !RetailDiscovery::WriteStoredPath( "", Str( lower ).c_str() ) && !RetailDiscovery::WriteStoredPath( Str( savePath ).c_str(), "" ),
+			"an empty save path or root was written" );
+		// a non-ASCII root the code page can name ("Jeux vidéo") round-trips: written as
+		// UTF-8, read back as the engine's own name
+		const fs::path accented = tmp / fs::u8path( "Jeux vid\xC3\xA9o" );
+		idStr accentedName;
+		if ( Narrow( accented, accentedName ) ) {
+			const fs::path accentedSave = tmp / "save-accented";
+			CHECK( RetailDiscovery::WriteStoredPath( Str( accentedSave ).c_str(), accentedName.c_str() ), "a non-ASCII stored path was not written" );
+			// the read path is normalised (forward slashes on Windows): compare as directories
+			std::error_code error;
+			fs::create_directories( accented, error );
+			CHECK( RetailDiscovery::ReadStoredPath( Str( accentedSave / "basepath.txt" ).c_str(), path ) && SameDir( path, accented ),
+				"a non-ASCII stored path read back as '%s', want '%s'", path.c_str(), accentedName.c_str() );
+		}
 	}
 
 	// --- Steam: libraryfolders.vdf, new and old format, and steamapps/common ---

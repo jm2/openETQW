@@ -1305,6 +1305,18 @@ void Sys_AppendRetailDataCandidates( idStrList &candidates, idStrList &steamRoot
 	}
 }
 
+// No first-run prompt on Windows yet (openETQW-win: a folder picker to follow)
+bool Sys_PromptForRetailData( idStr &root, const char *problem ) {
+	(void)root;
+	(void)problem;
+	return false;
+}
+
+bool Sys_StdinIsPipe( void ) {
+	const HANDLE input = GetStdHandle( STD_INPUT_HANDLE );
+	return input != NULL && input != INVALID_HANDLE_VALUE && GetFileType( input ) == FILE_TYPE_PIPE;
+}
+
 // A wide path in the ANSI code page, which the file system opens paths with.
 // A name the code page cannot hold is not replaced by look-alikes or '?': its
 // 8.3 short form (ASCII where 8.3 names exist) is tried, else it fails.
