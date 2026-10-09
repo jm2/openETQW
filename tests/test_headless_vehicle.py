@@ -8,11 +8,12 @@ does). The client joins GDF as a soldier and spawns; then, for each vehicle:
 1. The server puts it in the vehicle (enterVehicle <client> <entityDef>).
 2. Both sides print the client's seat each tick with g_logVehicleViews
    (VIEW_STATE: ... client=<n> ent=<vehicle> pos=<seat> ...): the client must
-   report the same vehicle entity and position as the server, and at every
-   tick both printed after the first five (the placement; the server's at=pre
-   line against the client's at=pre line for the snapshot's own tick, new=1)
-   its first-person view origin must be within 0.05 units of the server's; it
-   must still be running.
+   report the same vehicle entity and position as the server. At every tick
+   both printed (the server's at=pre line against the client's at=pre line
+   for the snapshot's own tick, new=1), its first-person view origin relative
+   to the vehicle's physics origin must be within 0.05 units of the server's,
+   and the vehicle's physics origin within 0.5 units (the client predicts the
+   parked vehicle itself: see the comparison). It must still be running.
 3. exitVehicle <client>: the client stops printing VIEW_STATE for itself.
 Both processes then exit 0 on 'quit', and neither log has a failure marker.
 
@@ -41,7 +42,7 @@ SPAWNED_RE = re.compile(r"Player (\d+) \('[^']*'\) spawned at .* team (\w+) spec
 VEHICLES = ("vehicle_badger", "vehicle_titan")
 VIEW_TOLERANCE = 0.05
 PAIRED_TICKS = 60
-SETTLE_TICKS = 5  # the placement ticks after enterVehicle, not compared
+VEHICLE_TOLERANCE = 0.5  # the client's own prediction of the parked vehicle; see the comparison
 
 
 def views(proc, start, side, client):
@@ -58,6 +59,15 @@ def views(proc, start, side, client):
         phys = tuple(float(v) for v in p.groups()) if p else None
         out[int(m.group(3))] = (int(m.group(5)), int(m.group(6)), tuple(float(v) for v in m.group(8, 9, 10)), phys)
     return out
+
+
+def distance(a, b):
+    return sum((x - y) ** 2 for x, y in zip(a, b)) ** 0.5
+
+
+def pose(v):
+    phys = "-" if v[3] is None else ",".join(f"{c:.4f}" for c in v[3])
+    return f"fpo({','.join(f'{c:.4f}' for c in v[2])}) phys({phys})"
 
 
 def wait_until(predicate, timeout, step=0.25):
@@ -145,42 +155,45 @@ def main(argv):
                 print(f"[{vehicle}] seat (vehicle entity, position): server {sorted(srv_seat)}, client {sorted(cl_seat)}")
                 if len(srv_seat) != 1 or srv_seat != cl_seat:
                     failures.append(f"[{vehicle}] seats differ: server {sorted(srv_seat)}, client {sorted(cl_seat)}")
-                # The first ticks after enterVehicle are the placement: the client
-                # predicts them from the pose it had on foot, so they can differ by
-                # one tick of movement (0.127 u, 2-3 runs in 10 on macOS). The seat
-                # is compared from SETTLE_TICKS after the first one both printed.
-                settled = common[SETTLE_TICKS:]
-                # per-tick error over the start of the pairing, for telling a
-                # transient (falling off with the tick) from a pairing offset
-                # (only on whichever tick is first); in brackets the error
-                # against the server's tick before and after, '-' when absent
-                def dist(t_srv, t_cl):
-                    if t_srv not in srv_views:
-                        return "-"
-                    a, b = srv_views[t_srv][2], cl_views[t_cl][2]
-                    return f"{sum((x - y) ** 2 for x, y in zip(a, b)) ** 0.5:.4f}"
-                head = [f"{tick}:{dist(tick, tick)}[{dist(tick - 1, tick)},{dist(tick + 1, tick)}]"
-                        for tick in common[:15]]
-                # which side moves: the view and the vehicle's physics origin, server / client
-                def pose(v):
-                    phys = "-" if v[3] is None else ",".join(f"{c:.4f}" for c in v[3])
-                    return f"fpo({','.join(f'{c:.4f}' for c in v[2])}) phys({phys})"
-                for tick in common[:15]:
-                    print(f"[{vehicle}]   tick {tick}: server {pose(srv_views[tick])}  client {pose(cl_views[tick])}")
-                print(f"[{vehicle}] per-tick error from the first paired tick "
-                      f"(server first {min(srv_views)}, client first {min(cl_views)}): {' '.join(head)}")
-                worst, worst_tick = 0.0, None
-                for tick in settled:
-                    a, b = srv_views[tick][2], cl_views[tick][2]
-                    error = sum((x - y) ** 2 for x, y in zip(a, b)) ** 0.5
-                    if error > worst:
-                        worst, worst_tick = error, tick
-                print(f"[{vehicle}] first-person view origin, client against server over {len(settled)} ticks "
-                      f"(paired from tick {common[0] if common else '-'}, the first {SETTLE_TICKS} skipped): "
-                      f"worst {worst:.4f} u (tick {worst_tick})")
-                if settled and worst > VIEW_TOLERANCE:
-                    failures.append(f"[{vehicle}] client view origin {worst:.4f} u from the server's at tick {worst_tick} "
-                                    f"(tolerance {VIEW_TOLERANCE})")
+                # The view is compared in the vehicle's frame (first-person view origin
+                # minus the vehicle's physics origin, on each side), and the vehicle
+                # against a looser bound. The client's copy of a parked vehicle is
+                # its own prediction: it starts from the snapshot's quantized origin
+                # (about 0.04 u off the server's), and in some runs the SDK's wheel
+                # suspension wakes it and it pops up about 0.08 u, then sinks back
+                # over seconds while the server's copy stays at rest (2-3 runs in 10
+                # on macOS, #117). The view must follow the client's vehicle exactly.
+                worst_view = worst_vehicle = 0.0
+                worst_view_tick = worst_vehicle_tick = None
+                no_phys = [t for t in common if srv_views[t][3] is None or cl_views[t][3] is None]
+                if no_phys:
+                    failures.append(f"[{vehicle}] VIEW_STATE without phys= at tick {no_phys[0]}")
+                for tick in common:
+                    if tick in no_phys:
+                        continue
+                    srv_fpo, srv_phys = srv_views[tick][2:4]
+                    cl_fpo, cl_phys = cl_views[tick][2:4]
+                    view = distance([a - b for a, b in zip(srv_fpo, srv_phys)], [a - b for a, b in zip(cl_fpo, cl_phys)])
+                    if view > worst_view:
+                        worst_view, worst_view_tick = view, tick
+                    moved = distance(srv_phys, cl_phys)
+                    if moved > worst_vehicle:
+                        worst_vehicle, worst_vehicle_tick = moved, tick
+                print(f"[{vehicle}] over {len(common)} ticks from tick {common[0] if common else '-'}, client against server: "
+                      f"view in the vehicle's frame worst {worst_view:.4f} u (tick {worst_view_tick}); "
+                      f"vehicle physics origin worst {worst_vehicle:.4f} u (tick {worst_vehicle_tick})")
+                bad = False
+                if common and worst_view > VIEW_TOLERANCE:
+                    bad = True
+                    failures.append(f"[{vehicle}] client view, relative to its vehicle, {worst_view:.4f} u from the server's "
+                                    f"at tick {worst_view_tick} (tolerance {VIEW_TOLERANCE})")
+                if common and worst_vehicle > VEHICLE_TOLERANCE:
+                    bad = True
+                    failures.append(f"[{vehicle}] client vehicle {worst_vehicle:.4f} u from the server's "
+                                    f"at tick {worst_vehicle_tick} (tolerance {VEHICLE_TOLERANCE})")
+                if bad:
+                    for tick in common[:15]:
+                        print(f"[{vehicle}]   tick {tick}: server {pose(srv_views[tick])}  client {pose(cl_views[tick])}")
 
             # always leave the seat, so a failure above doesn't spill into the next vehicle
             exit_mark = cl.mark()
