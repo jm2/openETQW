@@ -45,7 +45,7 @@ def main(argv):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--client-binary")
     ap.add_argument("--map", default="valley")
-    ap.add_argument("--port", type=int, default=29986)
+    ap.add_argument("--port", type=int, default=29988)
     ap.add_argument("--log-dir")
     args = ap.parse_args(argv)
 
@@ -81,8 +81,14 @@ def main(argv):
         passed_on = gfx.wait_for(lambda s: PASSED_ON in s or SWALLOWED in s or None, 30.0, mark)
         time.sleep(3)
         lines = [ln.text for ln in gfx.snapshot(mark)]
+        banner = any(t.startswith("ERROR:") and "oetqwNoSuchScope" in t for t in lines)
+        shutdown = any("Game Map Shutdown" in t for t in lines)
         print(f"[in map] passed on: {any(PASSED_ON in t for t in lines)}, swallowed: {any(SWALLOWED in t for t in lines)}, "
-              f"error banner: {any('ERROR:' in t for t in lines)}")
+              f"error banner: {banner}, map shut down: {shutdown}")
+        if not banner:
+            failures.append("in the map, no ERROR banner for the broken GUI")
+        if not shutdown:
+            failures.append("in the map, the error did not shut the map down")
         if not passed_on or not any(PASSED_ON in t for t in lines):
             failures.append("in the map, the GUI loader did not pass the parse error on")
         if any(SWALLOWED in t for t in lines):
@@ -91,7 +97,9 @@ def main(argv):
             failures.append("the client died after the GUI error in the map")
             return report(failures)
 
-        # 2. without a map (the drop above left the client at the menu)
+        # 2. without a map (the drop above left the client at the menu). A fresh
+        # load must happen: AllocUI keeps no half-built instance from step 1
+        # that a lookup by name could return without loading (game #50 review)
         mark = gfx.mark()
         gfx.send("testGUI oetqw_test_broken")
         gfx.wait_for(lambda s: PASSED_ON in s or SWALLOWED in s or None, 30.0, mark)

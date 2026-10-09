@@ -348,7 +348,7 @@ if build_engine
     args: [
       meson.project_source_root() / 'tests' / 'test_gui_load_error.py',
       '--client-binary', campaign_client,
-      '--port', '29986',
+      '--port', '29988',
       '--log-dir', meson.project_build_root() / 'meson-logs' / 'gui-load-error',
     ],
     workdir: meson.project_source_root(),
