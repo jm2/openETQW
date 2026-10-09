@@ -453,6 +453,23 @@ void idSessionLocal::ExecuteMapChange( const char* mapName, int startTime, bool 
 	}
 	fullMapName.SetFileExtension( ".world" );
 
+	// A client loads the server's map from inside the game init message.  An error
+	// during the load that the game swallows (a GUI that fails to parse: Load passes
+	// only a map's teardown on, game #50) has still stopped the session, which left
+	// the server (engine #116): the load is then abandoned as the drop it is, not
+	// finished as a game of the client's own.
+	// gameLoaded: the game has the map (InitFromNewMap returned), so the drop's
+	// UnloadMap must shut it down
+	const bool loadingForServer = idAsyncNetwork::client.IsActive();
+	auto abandonIfStopped = [ & ]( bool gameLoaded ) {
+		if ( loadingForServer && !idAsyncNetwork::client.IsActive() ) {
+			insideExecuteMapChange = false;
+			mapSpawned = gameLoaded;
+			renderSystem->UnlockThreads();
+			common->Error( "the load of %s was stopped: the client left the server", fullMapName.c_str() );
+		}
+	};
+
 	sys->SetServerInfo( "si_map", mapName );
 	if ( startFadeWipe ) {
 		StartWipe( "wipe2Material", true );
@@ -491,6 +508,7 @@ void idSessionLocal::ExecuteMapChange( const char* mapName, int startTime, bool 
 	}
 	ClearWipe();
 	PacifierUpdate();
+	abandonIfStopped( false );
 
 	common->Printf( "--------- Map Initialization ---------\n" );
 	common->Printf( "Map: %s\n", fullMapName.c_str() );
@@ -514,6 +532,7 @@ void idSessionLocal::ExecuteMapChange( const char* mapName, int startTime, bool 
 		startTime,
 		isUserChange
 	);
+	abandonIfStopped( true );
 
 	// A direct map/devmap is neither an async server nor an async client.  The
 	// retail session creates its local player here; without this block the map
@@ -553,6 +572,7 @@ void idSessionLocal::ExecuteMapChange( const char* mapName, int startTime, bool 
 	if ( sw->IsPaused() ) {
 		sw->UnPause();
 	}
+	abandonIfStopped( true );
 	mapSpawned = true;
 	sys->ClearEvents();
 	renderSystem->UnlockThreads();

@@ -755,6 +755,27 @@ if build_dedicated
     timeout: 600,
     is_parallel: false,
   )
+  # the same during the client's load of the server's map (the Vulkan client: the
+  # headless binary loads no HUD GUIs): the load is abandoned as a drop (#118 review)
+  if build_engine
+    test(
+      'client-error-load-drop',
+      py,
+      args: [
+        meson.project_source_root() / 'tests' / 'test_client_error_drop.py',
+        '--at', 'load',
+        '--ded-binary', all_stock_maps_ded,
+        '--client-binary', campaign_client,
+        '--port', '29998',
+        '--log-dir', meson.project_build_root() / 'meson-logs' / 'client-error-load-drop',
+      ],
+      workdir: meson.project_source_root(),
+      suite: ['client', 'integration'],
+      protocol: 'exitcode',
+      timeout: 600,
+      is_parallel: false,
+    )
+  endif
   # out-of-order delivery (net_forceReorder): 20% of the packets each process
   # receives are held back up to 60 ms so later ones overtake them. The map
   # change's reliable game init and the snapshot stream must survive it, with
