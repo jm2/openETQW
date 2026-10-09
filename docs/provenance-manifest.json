@@ -16,7 +16,7 @@
   },
   "postSplitAsOf": {
     "openETQW": "the commit that last changed this manifest",
-    "openETQW-game": "5b187ffe0809d9d68de2d83fb291cefd90e1f031"
+    "openETQW-game": "12db3e0200eadbe4af8337208fb4b927dcb297ad"
   },
   "files": [
     {
@@ -49620,8 +49620,8 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "f1e4c8fdc7f51ca61a940849b52ce627f3f20111a4197efa6439db2705b1f76d",
-      "canonicalSha256": "f1e4c8fdc7f51ca61a940849b52ce627f3f20111a4197efa6439db2705b1f76d",
+      "rawSha256": "b50d497b1c2533cc239cbc8640cb9794f5d4c91b2161f1473711ed84b5d56839",
+      "canonicalSha256": "b50d497b1c2533cc239cbc8640cb9794f5d4c91b2161f1473711ed84b5d56839",
       "bytes": 41,
       "addedAfterSplit": true,
       "addedIn": "96be8171ffa1e6299cb40d4423a3e10c3a54cd81",
