@@ -17,13 +17,13 @@ layout( location = 1 ) out float fragmentSideBlend;
 
 void main() {
 	// retail skies/skybox: the stage's texture matrix turns the dome's positions
-	// (DP3 position with $diffuseMatrix_s/_t; z kept), and the mesh's own texture
+	// (DP3 position with $diffuseMatrix_s/_t, whose translation sits in .w: x and y only; z kept), and the mesh's own texture
 	// coordinates are used as they are. Applying the matrix to the coordinates
 	// instead rotated the top image against the side strip, so the box's faces
 	// showed hard seams (issue #121).
 	fragmentTexCoord = inPackedTexCoord * pc.parameters.y;
 	fragmentSideBlend = clamp( inColor.r, 0.0, 1.0 );
-	vec3 position = vec3( dot( pc.textureMatrixS.xyz, inPosition ),
-		dot( pc.textureMatrixT.xyz, inPosition ), inPosition.z );
+	vec3 position = vec3( dot( pc.textureMatrixS.xy, inPosition.xy ),
+		dot( pc.textureMatrixT.xy, inPosition.xy ), inPosition.z );
 	gl_Position = pc.modelViewProjection * vec4( position, 1.0 );
 }

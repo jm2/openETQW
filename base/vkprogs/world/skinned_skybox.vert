@@ -34,14 +34,14 @@ vec3 skinPosition( vec3 position ) {
 
 void main() {
 	// retail skies/skybox: the stage's texture matrix turns the dome's positions
-	// (DP3 position with $diffuseMatrix_s/_t; z kept), and the mesh's own texture
+	// (DP3 position with $diffuseMatrix_s/_t, whose translation sits in .w: x and y only; z kept), and the mesh's own texture
 	// coordinates are used as they are. Applying the matrix to the coordinates
 	// instead rotated the top image against the side strip, so the box's faces
 	// showed hard seams (issue #121).
 	fragmentTexCoord = inPackedTexCoord * pc.parameters.y;
 	fragmentSideBlend = clamp( inColor.r, 0.0, 1.0 );
 	vec3 skinned = skinPosition( inPosition );
-	vec3 position = vec3( dot( pc.textureMatrixS.xyz, skinned ),
-		dot( pc.textureMatrixT.xyz, skinned ), skinned.z );
+	vec3 position = vec3( dot( pc.textureMatrixS.xy, skinned.xy ),
+		dot( pc.textureMatrixT.xy, skinned.xy ), skinned.z );
 	gl_Position = pc.modelViewProjection * vec4( position, 1.0 );
 }
