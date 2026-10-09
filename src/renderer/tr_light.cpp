@@ -1717,6 +1717,16 @@ namespace {
 		unsigned long long misses;
 		unsigned long long uncached;
 	} interactionCacheStats = { 0, 0, 0 };
+	// shadow volumes (#124): reused from the cache, built (cache miss or not cacheable),
+	// silhouette-edge builds, volumes drawn depth-fail, and indexes queued
+	struct shadowVolumeStats_t {
+		unsigned long long hits;
+		unsigned long long built;
+		unsigned long long silBuilds;
+		unsigned long long depthFail;
+		unsigned long long volumes;
+		unsigned long long indexes;
+	} shadowVolumeStats = { 0, 0, 0, 0, 0, 0 };
 	idList< idRenderModel* > frontEndDynamicModels;
 	struct ambientSurfaceCandidate_t {
 		viewEntity_s*			space;
@@ -2110,6 +2120,7 @@ namespace {
 			entry.numIndexes == tri->numIndexes && entry.checksum == checksum;
 		entry.lastUsedFrame = interactionCacheFrame;
 		if ( valid ) return &entry.edges;
+		shadowVolumeStats.silBuilds++;
 		entry.numVerts = tri->numVerts;
 		entry.numIndexes = tri->numIndexes;
 		entry.checksum = checksum;
@@ -2302,9 +2313,11 @@ namespace {
 					entry->volume.Num() * sizeof( glIndex_t ) );
 				numIndexesNoCaps = entry->numIndexesNoCaps;
 				casts = true;
+				shadowVolumeStats.hits++;
 			}
 		}
 		if ( !casts ) {
+			shadowVolumeStats.built++;
 			casts = BuildShadowVolume( source, matrix, light, numIndexesNoCaps );
 			if ( entry != NULL ) {
 				entry->globalLightOrigin = light->globalLightOrigin;
@@ -2326,6 +2339,8 @@ namespace {
 		}
 
 		const int numIndexes = frontEndInteractionIndexes.Num() - firstIndex;
+		shadowVolumeStats.volumes++;
+		shadowVolumeStats.indexes += numIndexes;
 		srfTriangles_t* geometry = frontEndInteractionGeometryAllocator.Alloc();
 		*geometry = *source;
 		geometry->ambientSurface = const_cast< srfTriangles_t* >( source );
@@ -2851,8 +2866,12 @@ void R_AddLightSurfaces() {
 			if ( !SurfaceIntersectsLight( surface, light ) ) continue;
 			const bool local = surface->space != NULL && surface->space->entityDef != NULL;
 			const renderEntity_t* casterEntity = surface->space != NULL ? surface->space->entityDef : NULL;
-			const bool suppressed = casterEntity != NULL &&
-				( ( casterEntity->suppressShadowInViewID != 0 &&
+			// no volume for entities that cast none (noShadow; a view weapon's depth hack
+			// implies it, RenderWorld.h) or are drawn in another depth range (a model depth
+			// hack): their volumes would not meet the world's depth
+			const bool suppressed = casterEntity != NULL && ( casterEntity->flags.noShadow ||
+				surface->space->weaponDepthHack || surface->space->modelDepthHack != 0.0f ||
+				( casterEntity->suppressShadowInViewID != 0 &&
 					casterEntity->suppressShadowInViewID == view->renderView.viewID ) ||
 				  ( casterEntity->suppressShadowInLightID != 0 &&
 					casterEntity->suppressShadowInLightID == light->lightDef->lightId ) );
@@ -2866,6 +2885,9 @@ void R_AddLightSurfaces() {
 				shadow->geo = volume;
 				shadow->scissorRect = light->scissorRect;
 				shadow->dsFlags = ViewPotentiallyInsideShadow( surface, light, view ) ? DSF_VIEW_INSIDE_SHADOW : 0;
+				if ( shadow->dsFlags != 0 ) {
+					shadowVolumeStats.depthFail++;
+				}
 				hadCaster = true;
 				if ( local ) {
 					shadow->nextOnLight = light->localShadows;
@@ -2930,6 +2952,10 @@ void R_PrintInteractionCacheMetrics() {
 		interactionCacheStats.hits, interactionCacheStats.misses,
 		cached > 0 ? 100.0 * interactionCacheStats.hits / cached : 0.0,
 		interactionCacheStats.uncached, static_cast< unsigned int >( interactionCache.size() ) );
+	common->Printf( "Vulkan shadow volumes: %llu drawn (%llu depth-fail), %llu reused, %llu built, %llu silhouette builds, %.0f indexes per volume, %u cached\n",
+		shadowVolumeStats.volumes, shadowVolumeStats.depthFail, shadowVolumeStats.hits, shadowVolumeStats.built,
+		shadowVolumeStats.silBuilds, shadowVolumeStats.volumes > 0 ? static_cast< double >( shadowVolumeStats.indexes ) / shadowVolumeStats.volumes : 0.0,
+		static_cast< unsigned int >( shadowVolumeCache.size() ) );
 }
 
 void R_RemoveUnecessaryViewLights() {
