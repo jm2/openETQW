@@ -340,6 +340,23 @@ if build_engine
     suite: ['client', 'integration'],
     timeout: 120,
   )
+  # a GUI that fails to parse while a map is loaded (game #49): the error is
+  # passed on as the drop it is, not swallowed; at the menu it stays a warning
+  test(
+    'gui-load-error',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_gui_load_error.py',
+      '--client-binary', campaign_client,
+      '--port', '29988',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'gui-load-error',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
 endif
 
 
