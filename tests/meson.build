@@ -738,6 +738,23 @@ if build_dedicated
     timeout: 600,
     is_parallel: false,
   )
+  # a remote client whose GUI fails to parse in a map (engine #116): the drop
+  # disconnects it from the server, it reads no more snapshots, and it can reconnect
+  test(
+    'client-error-drop',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_client_error_drop.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--port', '29996',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'client-error-drop',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
   # out-of-order delivery (net_forceReorder): 20% of the packets each process
   # receives are held back up to 60 ms so later ones overtake them. The map
   # change's reliable game init and the snapshot stream must survive it, with

@@ -190,6 +190,11 @@ void idSessionLocal::Stop() {
 	UnloadMap();
 	renderSystem->UnlockThreads();
 
+	// leave the server too (Doom 3): with the map unloaded, a client still connected
+	// would go on predicting and applying snapshots to an unloaded game, as after an
+	// error in a map (engine #116) or the disconnect command
+	idAsyncNetwork::client.DisconnectFromServer();
+
 	mapSpawnData.clientSyncedCVars.Clear();
 	if ( sw != NULL ) {
 		sw->StopAllSounds();
