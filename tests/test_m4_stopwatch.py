@@ -70,7 +70,7 @@ def wait_round(srv, n, timeout):
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--ded-binary")
-    ap.add_argument("--port", type=int, default=29984)
+    ap.add_argument("--port", type=int, default=29985)
     ap.add_argument("--log-dir")
     args = ap.parse_args(argv)
     try:

@@ -639,7 +639,7 @@ if build_dedicated
     args: [
       meson.project_source_root() / 'tests' / 'test_m4_stopwatch.py',
       '--ded-binary', all_stock_maps_ded,
-      '--port', '29984',
+      '--port', '29985',
       '--log-dir', meson.project_build_root() / 'meson-logs' / 'm4-stopwatch',
     ],
     workdir: meson.project_source_root(),
