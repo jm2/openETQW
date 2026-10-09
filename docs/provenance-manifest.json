@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5496,
+  "totalFiles": 5497,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 311,
@@ -9,14 +9,14 @@
     "Reconstruction_original": 402
   },
   "postSplitCounts": {
-    "Reconstruction_original": 217,
+    "Reconstruction_original": 218,
     "ThirdParty": 1,
     "Doom3_GPL": 2,
     "SDK": 2
   },
   "postSplitAsOf": {
     "openETQW": "the commit that last changed this manifest",
-    "openETQW-game": "728dd1c2c47d337e174a4d6737f32b1f9b7b98bc"
+    "openETQW-game": "4db2d4b3de6069e73f7008db02e080ba22b31d8d"
   },
   "files": [
     {
@@ -47664,9 +47664,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "a677b2100c37dd715d80b5ff41e5a866f4b429275c66bcc6b1ab9d10b1e52380",
-      "canonicalSha256": "a677b2100c37dd715d80b5ff41e5a866f4b429275c66bcc6b1ab9d10b1e52380",
-      "bytes": 161494,
+      "rawSha256": "501c55d0b30f252fad12436a3a639b84590975c490da5f6257a13b51abd4edff",
+      "canonicalSha256": "501c55d0b30f252fad12436a3a639b84590975c490da5f6257a13b51abd4edff",
+      "bytes": 161845,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": null
@@ -48492,9 +48492,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "646b0ccac63d85f54bea038892177517b12c01440edc6f5a43747bf09d1df77e",
-      "canonicalSha256": "646b0ccac63d85f54bea038892177517b12c01440edc6f5a43747bf09d1df77e",
-      "bytes": 29908,
+      "rawSha256": "a14b4f8fa18e466e228d4237991ae41eb24160ec5aecc2f21e5686885f7743be",
+      "canonicalSha256": "a14b4f8fa18e466e228d4237991ae41eb24160ec5aecc2f21e5686885f7743be",
+      "bytes": 30575,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": "GPL-3.0-or-later"
@@ -48701,6 +48701,18 @@
       "bytes": 53868,
       "addedAfterSplit": true,
       "addedIn": "c818ae2ed1a958f7bba1a37d7f0bba70d16aaa79",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
+      "path": "tests/test_headless_vehicle.py",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "3e6c3fb2b990596a692123ec7e1eb57e30aa05a16da0994ec5d8a3ac60ec5c0a",
+      "canonicalSha256": "3e6c3fb2b990596a692123ec7e1eb57e30aa05a16da0994ec5d8a3ac60ec5c0a",
+      "bytes": 7260,
+      "addedAfterSplit": true,
+      "addedIn": null,
       "spdx": "GPL-3.0-or-later"
     },
     {
@@ -49608,9 +49620,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "3e51cb7db954090052177e3e827fbedb43a994883e71a16fe1cd68bd55b3a907",
-      "canonicalSha256": "3e51cb7db954090052177e3e827fbedb43a994883e71a16fe1cd68bd55b3a907",
-      "bytes": 41,
+      "rawSha256": "a4984b76d3935a9b14af8691eea64412a170b31273c79ddeb0e01df86d5ee1ba",
+      "canonicalSha256": "21d8aa0bc818ca66d8cfc7f6359d8436976616defcc94cabeb5e99ccfc41fe4f",
+      "bytes": 42,
       "addedAfterSplit": true,
       "addedIn": "96be8171ffa1e6299cb40d4423a3e10c3a54cd81",
       "spdx": null
