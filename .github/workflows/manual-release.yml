@@ -19,8 +19,6 @@
 #   release   the exact asset set checked (tools/build/verify_release_asset_set.py),
 #             the changelog, and the GitHub release created or updated; a draft by
 #             default, since the release gate in readme.md is not cleared
-#   discord   the announcement, for a published (non-draft) release with the
-#             DISCORD_RELEASE_WEBHOOK secret set
 #
 # A published release must be dispatched from main; a draft may come from any
 # pushed branch (to exercise the pipeline). The companion is required: while it is
@@ -615,29 +613,3 @@ jobs:
             echo "### ${RELEASE_NAME}: $([ "${DRAFT}" = "true" ] && echo "draft" || echo "published")"
             printf -- '- %s\n' "${assets[@]##*/}"
           } >> "${GITHUB_STEP_SUMMARY}"
-
-  discord:
-    name: Announce on Discord
-    needs: [metadata, release]
-    if: needs.release.result == 'success' && inputs.draft == false
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - name: Setup Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.x"
-
-      - name: Send the release embed
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
-          DISCORD_RELEASE_MENTIONS: ${{ vars.DISCORD_RELEASE_MENTIONS }}
-          DISCORD_RELEASE_AVATAR_URL: ${{ vars.DISCORD_RELEASE_AVATAR_URL }}
-        run: python tools/build/announce_release_discord.py

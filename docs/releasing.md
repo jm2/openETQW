@@ -52,7 +52,6 @@ Options: `--sanitize address,undefined`, `--cross-file tools/cross/linux-arm64.i
 | `macos-debug.yml` | manual | a debug build through the `push` profile, host diagnostics, an optional MoltenVK `vulkaninfo` probe; publishes the debug payload |
 | `macos-sanitizer.yml` | manual | ASan+UBSan build, instrumentation check, unit suite and smoke |
 | `manual-release.yml` | manual | version, packages for every platform, checks, changelog, GitHub release (a draft by default) |
-| `discord-release.yml` | release published | the Discord announcement, when `DISCORD_RELEASE_WEBHOOK` is set |
 
 Every build job first runs `.github/actions/prepare`: it fetches `openETQW-game` at
 the commit pinned in `tools/ci/companion.ref`, and while the repositories are private
@@ -117,4 +116,3 @@ Secrets and variables, all optional:
 |---|---|
 | `OPENETQW_CROSS_REPO_TOKEN` | read access to the private companion (required for any build while it is private) |
 | `MACOS_DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64`, `MACOS_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD`, `MACOS_DEVELOPER_ID_APPLICATION_IDENTITY`, `MACOS_NOTARY_APPLE_ID`, `MACOS_NOTARY_TEAM_ID`, `MACOS_NOTARY_APP_PASSWORD` | a Developer ID signed, notarized and stapled DMG instead of the unsigned tarball (all six are needed) |
-| `DISCORD_RELEASE_WEBHOOK` (secret), `DISCORD_RELEASE_MENTIONS`, `DISCORD_RELEASE_AVATAR_URL` (variables) | the Discord announcement |
