@@ -384,7 +384,7 @@ Notes on the per-map results:
   - `sdVehiclePart::AddSurface`: "Invalid Surface", on the headless server (inprocess-map-change and all-stock-maps), on the DVD and the 1.5 data alike; not new with 1.5.
   - Client logs: renderprog parse and "cannot upload ARB" warnings.
 - **Navigation data checks.** The AAS map CRC is never compared. The .nav loader does not bounds-check node links (`BotAI_Navigation.cpp` `LoadNodes`). The AAS loader reads packed disk structs raw, with no layout assertions (`AASFile_local.cpp`).
-- **Vulkan.** Validation layers are not installed on the host. The backend has no screenshot or image capture.
+- **Vulkan.** Validation layers are not installed on the host. The backend writes a frame with `r_vkScreenshot <path>` (a TGA of the next presented frame); `tools/validation/screenshot_set.py` takes the standard set from it (CONTRIBUTING, "Graphics changes"). No test compares images automatically: a person looks at the sets.
 - **macOS dedicated binary** links AppKit, OpenGL, CoreFoundation, CoreGraphics, Foundation and libobjc (`otool -L`, 2026-09-30; of the frameworks `ded_deps` in `meson.build` names, Cocoa, IOKit, CoreVideo, Metal, QuartzCore and ApplicationServices are dead-stripped and only OpenGL stays). It has never run on a host without a GPU or display.
 - **Retail-install check.** Only the English edition's checksums are known; other editions' `pak000`–`pak004` are refused until their checksums are added (Inputs needed). The check runs in the unit suite on Linux and Windows too (`retail-install-check`, synthetic paks).
 - **Leftover CMake.** Engine `src/CMakeLists.txt` and game `src/compiledscript/CMakeLists.txt` are still tracked.
