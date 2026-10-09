@@ -1305,6 +1305,17 @@ void Sys_AppendRetailDataCandidates( idStrList &candidates, idStrList &steamRoot
 	}
 }
 
+// a refusal in a message box (the engine's text is in the ANSI code page, as its paths);
+// true when the player chose Retry (or OK)
+static bool Win_ShowRefusal( const idStr &text, const wchar_t *caption, UINT buttons ) {
+	wchar_t wide[ 2048 ];
+	if ( MultiByteToWideChar( CP_ACP, 0, text.c_str(), -1, wide, 2048 ) <= 0 ) {
+		wcscpy_s( wide, L"OpenETQW cannot use that folder." );
+	}
+	const int answer = MessageBoxW( NULL, wide, caption, buttons | MB_ICONWARNING | MB_SETFOREGROUND );
+	return answer == IDRETRY || answer == IDOK;
+}
+
 /*
 ==============
 Sys_PromptForRetailData
@@ -1322,19 +1333,18 @@ bool Sys_PromptForRetailData( idStr &root, const char *problem ) {
 	if ( FAILED( init ) && init != RPC_E_CHANGED_MODE ) {
 		return false;
 	}
+	// the refusal shown before the next pick: FileSystem's (no base/pak000.pk4) or this
+	// function's own (a name the engine cannot open), each with its own caption
+	const wchar_t *const noDataCaption = L"OpenETQW: that folder does not hold the game data";
+	const wchar_t *const unnamableCaption = L"OpenETQW cannot use that folder";
 	bool chosen = false;
+	bool cancelled = false;
 	idStr refusal = problem != NULL ? problem : "";
-	for ( int attempt = 0; attempt < 5 && !chosen; attempt++ ) {
-		if ( refusal.Length() > 0 ) {
-			// the engine's text is in the ANSI code page, as its paths
-			wchar_t text[ 2048 ];
-			if ( MultiByteToWideChar( CP_ACP, 0, refusal.c_str(), -1, text, 2048 ) <= 0 ) {
-				wcscpy_s( text, L"That folder does not hold the game data." );
-			}
-			if ( MessageBoxW( NULL, text, L"OpenETQW: that folder does not hold the game data",
-					MB_RETRYCANCEL | MB_ICONWARNING | MB_SETFOREGROUND ) != IDRETRY ) {
-				break;
-			}
+	const wchar_t *caption = noDataCaption;
+	for ( int attempt = 0; attempt < 5 && !chosen && !cancelled; attempt++ ) {
+		if ( refusal.Length() > 0 && !Win_ShowRefusal( refusal, caption, MB_RETRYCANCEL ) ) {
+			cancelled = true;
+			break;
 		}
 		IFileOpenDialog *dialog = NULL;
 		if ( FAILED( CoCreateInstance( CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS( &dialog ) ) ) ) {
@@ -1343,7 +1353,8 @@ bool Sys_PromptForRetailData( idStr &root, const char *problem ) {
 		FILEOPENDIALOGOPTIONS options = 0;
 		dialog->GetOptions( &options );
 		dialog->SetOptions( options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST );
-		dialog->SetTitle( L"OpenETQW needs the Enemy Territory: QUAKE Wars folder (the one holding the base folder)" );
+		dialog->SetTitle( L"OpenETQW: find Enemy Territory: QUAKE Wars" );
+		dialog->SetFileNameLabel( L"ET:QW folder (the one holding base):" );
 		dialog->SetOkButtonLabel( L"Use This Folder" );
 		IShellItem *item = NULL;
 		PWSTR picked = NULL;
@@ -1355,15 +1366,20 @@ bool Sys_PromptForRetailData( idStr &root, const char *problem ) {
 				refusal = "OpenETQW cannot open a folder with that name. Move or rename the Enemy Territory: QUAKE Wars "
 					"folder so its path uses only characters of your system's language, or start OpenETQW with "
 					"+set fs_basepath and its path.";
+				caption = unnamableCaption;
 			}
 		} else {
-			attempt = 5;	// cancelled: give up, FileSystem reports the retail-install error
+			cancelled = true;	// FileSystem reports the retail-install error
 		}
 		CoTaskMemFree( picked );	// NULL is allowed
 		if ( item != NULL ) {
 			item->Release();
 		}
 		dialog->Release();
+	}
+	if ( !chosen && !cancelled && caption == unnamableCaption ) {
+		// the last pick was refused here: say why before FileSystem's generic error
+		Win_ShowRefusal( refusal, caption, MB_OK );
 	}
 	if ( SUCCEEDED( init ) ) {
 		CoUninitialize();
