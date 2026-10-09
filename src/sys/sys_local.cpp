@@ -10,6 +10,7 @@
 #include <time.h>
 
 #include "sys_local.h"
+#include "../framework/Session_local.h"
 #include "posix/posix_public.h"
 
 const char * sysLanguageNames[] = {
@@ -490,10 +491,13 @@ idWStr idSysLocal::GetClipboardData( void ) {
 void idSysLocal::SetClipboardData( const wchar_t *string ) {
 }
 
+// the game's server info writes: the shared engine helpers (Session.cpp), as on Windows
 void idSysLocal::SetServerInfo( const char* key, const char* value ) {
+	Session_SetServerInfoFromGame( key, value );
 }
 
 void idSysLocal::FlushServerInfo( void ) {
+	Session_FlushServerInfoFromGame();
 }
 
 void idSysLocal::InitInput() {

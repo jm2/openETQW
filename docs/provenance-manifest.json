@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5497,
+  "totalFiles": 5499,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 311,
@@ -9,14 +9,14 @@
     "Reconstruction_original": 402
   },
   "postSplitCounts": {
-    "Reconstruction_original": 218,
+    "Reconstruction_original": 220,
     "ThirdParty": 1,
     "Doom3_GPL": 2,
     "SDK": 2
   },
   "postSplitAsOf": {
     "openETQW": "the commit that last changed this manifest",
-    "openETQW-game": "12db3e0200eadbe4af8337208fb4b927dcb297ad"
+    "openETQW-game": "81f2977a87ee3ac42a51156a518190ad22b8b19b"
   },
   "files": [
     {
@@ -48492,9 +48492,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "a14b4f8fa18e466e228d4237991ae41eb24160ec5aecc2f21e5686885f7743be",
-      "canonicalSha256": "a14b4f8fa18e466e228d4237991ae41eb24160ec5aecc2f21e5686885f7743be",
-      "bytes": 30575,
+      "rawSha256": "cc9395600124206a2611f0b92c4f08c17de410dcdf4ce17af3c4576e25fbdeb4",
+      "canonicalSha256": "cc9395600124206a2611f0b92c4f08c17de410dcdf4ce17af3c4576e25fbdeb4",
+      "bytes": 31792,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": "GPL-3.0-or-later"
@@ -48788,6 +48788,18 @@
       "spdx": "GPL-3.0-or-later"
     },
     {
+      "path": "tests/test_m4_campaign.py",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "e2be5307a366351f2995d5b85a55f94a1c47118465236d6b8ac9e998327676c1",
+      "canonicalSha256": "e2be5307a366351f2995d5b85a55f94a1c47118465236d6b8ac9e998327676c1",
+      "bytes": 11500,
+      "addedAfterSplit": true,
+      "addedIn": "d262b9599476e210305a6e93c1967fa3b0b015e2",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
       "path": "tests/test_m4_classes.py",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -48833,6 +48845,18 @@
       "bytes": 8350,
       "addedAfterSplit": true,
       "addedIn": "b92c817ee7267d1f907abcfbb0dea1d735087ad7",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
+      "path": "tests/test_m4_stopwatch.py",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "71b246d18aa81ce32674459bdee027cc9b43cc6186d4d0f1e5102c84527a91f4",
+      "canonicalSha256": "71b246d18aa81ce32674459bdee027cc9b43cc6186d4d0f1e5102c84527a91f4",
+      "bytes": 6455,
+      "addedAfterSplit": true,
+      "addedIn": "d262b9599476e210305a6e93c1967fa3b0b015e2",
       "spdx": "GPL-3.0-or-later"
     },
     {
@@ -49620,8 +49644,8 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "b50d497b1c2533cc239cbc8640cb9794f5d4c91b2161f1473711ed84b5d56839",
-      "canonicalSha256": "b50d497b1c2533cc239cbc8640cb9794f5d4c91b2161f1473711ed84b5d56839",
+      "rawSha256": "89d6ecba52bba41c49ed095bf2201b7952915b36b65e913be4b70023b3eab7ce",
+      "canonicalSha256": "89d6ecba52bba41c49ed095bf2201b7952915b36b65e913be4b70023b3eab7ce",
       "bytes": 41,
       "addedAfterSplit": true,
       "addedIn": "96be8171ffa1e6299cb40d4423a3e10c3a54cd81",

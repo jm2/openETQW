@@ -134,6 +134,8 @@ typedef struct serverClient_s {
 } serverClient_t;
 
 
+void Server_DiscardFrameCommands();	// drop the game's queued frame commands (AsyncServer.cpp)
+
 class idAsyncServer {
 public:
 						idAsyncServer();
@@ -143,6 +145,11 @@ public:
 	void				Spawn( void );
 	void				Kill( void );
 	void				ExecuteMapChange( void );
+	// the rules' own next map (a campaign's StartMap, "map <name>" frame command): no OnUserStartMap,
+	// so the rules object and its campaign state carry over; isUserChange false reaches the game
+	void				ChangeMapForRules( const char* mapName );
+	// the game's frame commands (cmdSystem->PushFrameCommand): "map" and "usermap"
+	void				HandleFrameCommand( const idCmdArgs& args );
 						// true if the running map was started from this si_map value
 	bool				IsMapRequestLoaded( const char *mapRequest ) const;
 
@@ -222,6 +229,9 @@ private:
 
 	idStr				loadedMapRequest;			// normalized si_map of the running map, empty if none
 	idStr				loadedRules;				// si_rules the running map was started with
+	idStr				loadedMapName;				// normalized name of the map loaded (a campaign's request names the campaign)
+
+	void				FinishMapChange( const char* mapName, const char* mapRequest, bool isUserChange );
 
 	bool				noRconOutput;				// for default rcon response when command is silent
 
