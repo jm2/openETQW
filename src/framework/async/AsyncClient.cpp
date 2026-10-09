@@ -575,6 +575,9 @@ void idAsyncClient::InitGame( int serverGameInitId, int serverGameFrame, int ser
 	if ( mapName.Length() > 0 ) {
 		common->Printf( "Client initializing map %s\n", mapName.c_str() );
 		sessLocal.ExecuteMapChange( mapName.c_str(), 0, true, true, true );
+		if ( !active ) {
+			return;	// the load stopped the session, which left the server (engine #116)
+		}
 	}
 	game->SetClientNum( clientNum, false );
 	// In the game once the first snapshot of this game arrives (as in Doom 3):
@@ -676,7 +679,8 @@ void idAsyncClient::ProcessReliableServerMessages() {
 	byte buffer[ MAX_MESSAGE_SIZE ];
 	idBitMsg msg;
 	msg.InitWrite( buffer, sizeof( buffer ) );
-	while ( channel.GetReliableMessage( msg ) ) {
+	// active: a message handled here can leave the server (engine #116)
+	while ( active && channel.GetReliableMessage( msg ) ) {
 		const int type = msg.ReadByte();
 		switch ( type ) {
 			case SERVER_RELIABLE_MESSAGE_DISCONNECT:
