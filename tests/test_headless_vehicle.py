@@ -10,10 +10,10 @@ does). The client joins GDF as a soldier and spawns; then, for each vehicle:
    (VIEW_STATE: ... client=<n> ent=<vehicle> pos=<seat> ...): the client must
    report the same vehicle entity and position as the server. At every tick
    both printed (the server's at=pre line against the client's at=pre line
-   for the snapshot's own tick, new=1), its first-person view origin relative
-   to the vehicle's physics origin must be within 0.05 units of the server's,
-   and the vehicle's physics origin within 0.5 units (the client predicts the
-   parked vehicle itself: see the comparison). It must still be running.
+   for the snapshot's own tick, new=1), the vehicle's physics origin must be
+   within 0.5 units of the server's (the client predicts the parked vehicle
+   itself: see the comparison), and the first-person view origin no further
+   from the server's than that plus 0.05 units. It must still be running.
 3. exitVehicle <client>: the client stops printing VIEW_STATE for itself.
 Both processes then exit 0 on 'quit', and neither log has a failure marker.
 
@@ -155,39 +155,38 @@ def main(argv):
                 print(f"[{vehicle}] seat (vehicle entity, position): server {sorted(srv_seat)}, client {sorted(cl_seat)}")
                 if len(srv_seat) != 1 or srv_seat != cl_seat:
                     failures.append(f"[{vehicle}] seats differ: server {sorted(srv_seat)}, client {sorted(cl_seat)}")
-                # The view is compared in the vehicle's frame (first-person view origin
-                # minus the vehicle's physics origin, on each side), and the vehicle
-                # against a looser bound. The client's copy of a parked vehicle is
-                # its own prediction: it starts from the snapshot's quantized origin
-                # (about 0.04 u off the server's), and in some runs the SDK's wheel
-                # suspension wakes it and it pops up about 0.08 u, then sinks back
-                # over seconds while the server's copy stays at rest (2-3 runs in 10
-                # on macOS, #117). The view must follow the client's vehicle exactly.
-                worst_view = worst_vehicle = 0.0
-                worst_view_tick = worst_vehicle_tick = None
+                # The client's copy of a parked vehicle is its own prediction: it
+                # starts from the snapshot's quantized origin (about 0.04 u off the
+                # server's), and in some runs the SDK's wheel suspension wakes it and
+                # it pops up about 0.08 u (tilting too), then sinks back over seconds
+                # while the server's copy stays at rest (2-3 runs in 10 on macOS,
+                # #117). So the vehicle is held to 0.5 u, and the view may be off by
+                # no more than its vehicle is, plus 0.05 u. The view at=pre is the
+                # previous tick's calculation, so its vehicle is the worse of this
+                # tick's and the previous one's.
+                worst_view = worst_vehicle = worst_excess = 0.0
+                worst_vehicle_tick = worst_excess_tick = None
                 no_phys = [t for t in common if srv_views[t][3] is None or cl_views[t][3] is None]
                 if no_phys:
                     failures.append(f"[{vehicle}] VIEW_STATE without phys= at tick {no_phys[0]}")
-                for tick in common:
-                    if tick in no_phys:
-                        continue
-                    srv_fpo, srv_phys = srv_views[tick][2:4]
-                    cl_fpo, cl_phys = cl_views[tick][2:4]
-                    view = distance([a - b for a, b in zip(srv_fpo, srv_phys)], [a - b for a, b in zip(cl_fpo, cl_phys)])
-                    if view > worst_view:
-                        worst_view, worst_view_tick = view, tick
-                    moved = distance(srv_phys, cl_phys)
+                vehicle_error = {t: distance(srv_views[t][3], cl_views[t][3]) for t in common if t not in no_phys}
+                for tick, moved in vehicle_error.items():
                     if moved > worst_vehicle:
                         worst_vehicle, worst_vehicle_tick = moved, tick
+                    view = distance(srv_views[tick][2], cl_views[tick][2])
+                    worst_view = max(worst_view, view)
+                    excess = view - max(moved, vehicle_error.get(tick - 1, moved))
+                    if worst_excess_tick is None or excess > worst_excess:
+                        worst_excess, worst_excess_tick = excess, tick
                 print(f"[{vehicle}] over {len(common)} ticks from tick {common[0] if common else '-'}, client against server: "
-                      f"view in the vehicle's frame worst {worst_view:.4f} u (tick {worst_view_tick}); "
+                      f"view worst {worst_view:.4f} u, beyond its vehicle's worst {worst_excess:+.4f} u (tick {worst_excess_tick}); "
                       f"vehicle physics origin worst {worst_vehicle:.4f} u (tick {worst_vehicle_tick})")
                 bad = False
-                if common and worst_view > VIEW_TOLERANCE:
+                if vehicle_error and worst_excess > VIEW_TOLERANCE:
                     bad = True
-                    failures.append(f"[{vehicle}] client view, relative to its vehicle, {worst_view:.4f} u from the server's "
-                                    f"at tick {worst_view_tick} (tolerance {VIEW_TOLERANCE})")
-                if common and worst_vehicle > VEHICLE_TOLERANCE:
+                    failures.append(f"[{vehicle}] client view {worst_excess:.4f} u further from the server's than its vehicle is "
+                                    f"at tick {worst_excess_tick} (tolerance {VIEW_TOLERANCE})")
+                if vehicle_error and worst_vehicle > VEHICLE_TOLERANCE:
                     bad = True
                     failures.append(f"[{vehicle}] client vehicle {worst_vehicle:.4f} u from the server's "
                                     f"at tick {worst_vehicle_tick} (tolerance {VEHICLE_TOLERANCE})")
