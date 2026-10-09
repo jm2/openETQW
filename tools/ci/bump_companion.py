@@ -182,7 +182,9 @@ def main(argv: list[str]) -> int:
         print("bump_companion: dry run, nothing written")
         return 0
     args.pin_file.parent.mkdir(parents=True, exist_ok=True)
-    args.pin_file.write_text(target + "\n", encoding="utf-8")
+    # LF on every host: write_text would write CRLF on Windows
+    with args.pin_file.open("w", encoding="utf-8", newline="\n") as pin:
+        pin.write(target + "\n")
     print(f"bump_companion: wrote {shown_pin}; commit it with the engine change that needs it")
     return 0
 
