@@ -44,15 +44,19 @@ get CI back: both stay private until the owner decides to publish.
    **Graphics changes** (anything that changes what is drawn: `src/renderer`, the shaders under
    `base/vkprogs` and the GL programs, materials, the viewmodel or sky code in openETQW-game)
    must carry the standard screenshot set from **every platform**: Windows x64 with ray tracing
-   on and off, Windows arm64, Linux and macOS (owner decision, 2026-10-09). On each host, capture
-   the PR and `main` and compare them:
-   `python3 tools/validation/screenshot_set.py capture --out shots/main --label <main commit>` on
-   main first, then on the PR
-   `python3 tools/validation/screenshot_set.py capture --out shots/pr --label <commit> --anchors shots/main/screenshot_set.json`
-   (the same positions on maps without a fixed one; `--rt 0` on a GPU without ray tracing), then
-   `python3 tools/validation/screenshot_set.py compare shots/main shots/pr --out shots/compare`.
-   Attach each host's contact sheets (`sheet_rt*.png`, `compare_sheet.png`) and `compare.md` to
-   the PR. The author and a reviewing session look at every sheet before the merge and are the
+   on and off, Windows arm64, Linux and macOS (owner decision, 2026-10-09). On each host, build
+   the engine and the game at `main` and capture, then build both at the PR and capture with
+   main's positions, then compare (keep the output outside the checkout):
+   `python3 tools/validation/screenshot_set.py capture --out ../shots/main --label <main commit>`
+   `python3 tools/validation/screenshot_set.py capture --out ../shots/pr --label <commit> --anchors ../shots/main/screenshot_set.json`
+   `python3 tools/validation/screenshot_set.py compare ../shots/main ../shots/pr --out ../shots/compare`
+   Add `--rt 0` to both captures on a GPU without ray tracing. The client runs from the
+   build's own tree, so it uses that build's shaders, with a private save path and a fixed
+   1280x720 window. Upload each host's contact sheets (`sheet_rt*.png` and
+   `compare_sheet.png`, JPEG is fine) as assets of a prerelease named `screenshots-prNNN`
+   (`gh release create screenshots-prNNN --prerelease --title "Screenshots for #NNN" --notes "..."`,
+   then `gh release upload screenshots-prNNN <files>`; one release per PR, owner decision
+   2026-10-09), and post the links and `compare.md` on the PR. The author and a reviewing session look at every sheet before the merge and are the
    gate: the numbers and the heuristic warnings (a near-black viewmodel, a flat sky) only
    point at things, and their look decides. The owner is asked only when something is
    ambiguous, for example when it is unclear what retail looks like (owner, 2026-10-09). The

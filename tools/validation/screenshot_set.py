@@ -9,41 +9,55 @@ reviewing session look at every sheet and are the gate; the owner is asked only 
 something is ambiguous (for example, what retail looks like). Numbers-only tests miss a dark
 viewmodel or a sky drawn as a box; looking at the frames does not.
 
-  capture   start the Vulkan client on each map (devmap, cheats on), stand at the spawn and
-            write each view of the standard list with r_vkScreenshot (one TGA per view and
-            ray tracing mode), plus a contact sheet when Pillow is installed:
-              screenshot_set.py capture --out shots/pr --rt both
-  compare   per-view mean difference between two capture directories (the PR's and main's,
-            same machine), a side-by-side sheet, and the warning heuristics on both:
-              screenshot_set.py compare shots/main shots/pr --out shots/compare
+  capture   start the Vulkan client on each map (devmap, cheats on) and write each view of
+            the standard list with r_vkScreenshot (one TGA per view and ray tracing mode),
+            plus a contact sheet per mode when Pillow is installed. Capture main first, then
+            the PR with main's positions:
+              screenshot_set.py capture --out ../shots/main --label <main commit>
+              screenshot_set.py capture --out ../shots/pr --label <pr commit> \\
+                  --anchors ../shots/main/screenshot_set.json
+  compare   every (map, ray tracing, view) of either capture: the difference (mean, max and
+            the share of pixels off by more than 16 of 255), shots missing on either side, a
+            side-by-side sheet, and the warning heuristics on the PR's frames:
+              screenshot_set.py compare ../shots/main ../shots/pr --out ../shots/compare
 
-The views (VIEWS) are relative to where the player spawns, so they need no per-map
-coordinates: forward with the weapon, terrain near and from the air in two directions, the
-horizon, and the sky in two directions. The heuristics only warn (a near-black viewmodel
-corner, a sky band of one flat colour, an all-black or all-one-colour frame); the decision
-is made by looking at the sheets.
+The client is the build under test: it runs from the nearest folder above the binary that
+holds base/vkprogs (an installed tree, or the checkout the binary was built in), so the
+shaders are that build's. It gets a private fs_savepath (no saved config is read or written)
+and a fixed 1280x720 window without multisampling, so captures are comparable.
 
-capture needs nothing beyond the standard library; the sheets, compare and the heuristics
-need Pillow (pip install pillow).
+The views (VIEWS) are offsets from a per-map eye position: fixed for valley and canyon
+(ANCHORS), else where the player spawned in the first capture, reused with --anchors. They
+cover the weapon, terrain near and from the air in two directions, the horizon and the sky in
+two directions. The heuristics only warn (a near-black viewmodel corner, a sky band of one
+flat colour, an all-black or one-colour frame); the decision is made by looking at the sheets.
+
+capture needs only the standard library; the sheets, compare and the heuristics need Pillow
+(pip install pillow). The data root comes from --data or $ETQW_DATA_PATH; tests/ must be
+importable for the defaults (etqw_harness), which the script arranges itself.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import platform
 import queue
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT / "tests"))
 
-# map, team, class: outdoor maps with terrain and sky in view of the spawn
+# map, team, class: outdoor maps with terrain and sky in view
 MAPS = [
     ("valley", "gdf", "soldier"),
     ("canyon", "strogg", "aggressor"),
@@ -52,16 +66,16 @@ MAPS = [
 
 # Fixed eye positions (x, y, z, yaw) the views are taken from, so two captures (main and the
 # PR, or ray tracing on and off) show the same frames: spawns are random. Valley's is the GDF
-# spawn area the sky reports used (#121), canyon's the Strogg spawn viewpoint of #108. A map
-# without one uses where the player spawned, and records it (screenshot_set.json); pass that
-# file to the other capture with --anchors so both use the same place.
-ANCHORS = {
-    "valley": (10600.0, -10824.0, 1480.5, 90.0),
-    "canyon": (-1271.86, 4348.12, 472.0, 225.0),   # the Strogg spawn's eye (getviewpos)
-}
+# spawn area the sky reports used (#121), canyon's the Strogg spawn (indoors: its ground
+# views show the hangar). A map without one uses where the player spawned and records it
+# (screenshot_set.json); pass that file to the other capture with --anchors.
 # Positions are eye positions as getviewpos prints them: a spot even slightly below the floor
 # drops the player out of the world, and the "view" is then the map from underneath. Aerial
 # views use noclip; ground views do not (in noclip the player's own model shows overhead).
+ANCHORS = {
+    "valley": (10600.0, -10824.0, 1480.5, 90.0),
+    "canyon": (-1271.86, 4348.12, 472.0, 225.0),
+}
 
 # name, (forward, right, up) offset in units relative to the anchor, yaw delta, pitch
 # (idTech: negative pitch looks up), noclip (needed off the ground)
@@ -75,38 +89,54 @@ VIEWS = [
     ("sky_back", (0, 0, 0), 180, -60, False),
 ]
 
+WIDTH, HEIGHT = 1280, 720
 ACTIVE_RE = re.compile(r"FRAME_TIMING: window_ms=[\d.]+ frames=\d+ ticks=(\d+)")
 VIEWPOS_RE = re.compile(r"\(\s*(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s*\)\s+(-?[\d.]+)\s+(-?[\d.]+)")
+SPAWNED_RE = re.compile(r"PLAYER_POS:.*spectating 0")
+SHOT_RE = re.compile(r"r_vkScreenshot: (wrote|could not|the swapchain|swapchain format)")
 
 
 def find_client(explicit: str | None) -> Path:
     if explicit:
-        return Path(explicit)
+        return Path(explicit).resolve()
     env = os.environ.get("OPENETQW_CLIENT_BINARY")
     if env:
-        return Path(env)
-    sys.path.insert(0, str(REPO_ROOT / "tests"))
+        return Path(env).resolve()
     import etqw_harness as h  # noqa: E402
-    return h.build_binary("client")
+    return h.build_binary("client").resolve()
 
 
 def find_data(explicit: str | None) -> Path:
     if explicit:
         return Path(explicit)
-    sys.path.insert(0, str(REPO_ROOT / "tests"))
-    import etqw_harness as h  # noqa: E402
-    return h.resolve_data_path()
+    if os.environ.get("ETQW_DATA_PATH"):
+        return Path(os.environ["ETQW_DATA_PATH"])
+    raise SystemExit("no retail data: pass --data <ET:QW install root> or set ETQW_DATA_PATH")
+
+
+def client_workdir(binary: Path) -> Path:
+    """The folder the client finds vkprogs/ from: the nearest one above the binary that holds
+    base/vkprogs (an installed tree, or the checkout it was built in)."""
+    for parent in binary.parents:
+        if (parent / "base" / "vkprogs").is_dir():
+            return parent
+    raise SystemExit(f"no base/vkprogs above {binary}: cannot tell which shaders the client would use")
 
 
 class Client:
     """The Vulkan client with its console on stdin and stdout collected."""
 
-    def __init__(self, args: list[str], log: Path):
+    def __init__(self, args: list[str], log: Path, cwd: Path):
         self.log = log.open("w", encoding="utf-8", errors="replace")
-        self.proc = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                     stderr=subprocess.STDOUT, text=True, bufsize=1, errors="replace")
+        try:
+            self.proc = subprocess.Popen(args, cwd=str(cwd), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                         stderr=subprocess.STDOUT, text=True, bufsize=1, errors="replace")
+        except OSError as e:
+            self.log.close()
+            raise RuntimeError(f"cannot start the client: {e}") from e
         self.lines: "queue.Queue[str | None]" = queue.Queue()
-        threading.Thread(target=self._read, daemon=True).start()
+        self.reader = threading.Thread(target=self._read, daemon=True)
+        self.reader.start()
 
     def _read(self):
         for line in iter(self.proc.stdout.readline, ""):
@@ -115,8 +145,11 @@ class Client:
         self.lines.put(None)
 
     def send(self, command: str):
-        self.proc.stdin.write(command + "\n")
-        self.proc.stdin.flush()
+        try:
+            self.proc.stdin.write(command + "\n")
+            self.proc.stdin.flush()
+        except OSError:
+            pass  # the client has gone; wait_for notices
 
     def wait_for(self, predicate, timeout: float):
         deadline = time.monotonic() + timeout
@@ -135,16 +168,17 @@ class Client:
         return None
 
     def close(self):
+        self.send("quit")
         try:
-            self.send("quit")
             self.proc.wait(timeout=60)
-        except (OSError, subprocess.TimeoutExpired):
+        except subprocess.TimeoutExpired:
             self.proc.kill()
+            self.proc.wait(timeout=30)
+        self.reader.join(timeout=10)
         self.log.close()
 
 
 def view_target(spawn, offset, yaw_delta, pitch):
-    import math
     x, y, z, yaw, _ = spawn
     rad = math.radians(yaw)
     fwd, right, up = offset
@@ -153,21 +187,31 @@ def view_target(spawn, offset, yaw_delta, pitch):
     return tx, ty, z + up, (yaw + yaw_delta) % 360.0, pitch
 
 
-def capture_map(client_bin: Path, data: Path, out: Path, map_name: str, team: str, cls: str,
-                rt: str, extra: list[str], settle: float, anchors: dict) -> list[dict]:
+def capture_map(client_bin: Path, workdir: Path, data: Path, out: Path, map_name: str, team: str,
+                cls: str, rt: str, extra: list[str], settle: float, anchors: dict) -> list[dict]:
     tag = f"{map_name}_rt{rt}"
-    args = [str(client_bin), "+set", "fs_basepath", str(data), "+set", "fs_game", "base",
-            "+set", "si_rules", "sdGameRulesObjective", "+set", "r_renderAPI", "vulkan",
-            "+set", "r_fullscreen", "0", "+set", "r_vkValidation", "0", "+set", "r_rayTracing", rt,
+    savepath = Path(tempfile.mkdtemp(prefix="etqw-shots-"))
+    args = [str(client_bin), "+set", "fs_basepath", str(data), "+set", "fs_savepath", str(savepath),
+            "+set", "fs_game", "base", "+set", "si_rules", "sdGameRulesObjective",
+            "+set", "r_renderAPI", "vulkan", "+set", "r_fullscreen", "0", "+set", "r_mode", "-1",
+            "+set", "r_customWidth", str(WIDTH), "+set", "r_customHeight", str(HEIGHT),
+            "+set", "r_multiSamples", "0", "+set", "r_vkValidation", "0", "+set", "r_rayTracing", rt,
             "+set", "com_logFrameTiming", "1", "+set", "g_logFramePoses", "0"]
     for i in range(0, len(extra), 2):
         args += ["+set", extra[i], extra[i + 1]]
     args += ["+devmap", map_name, "+clientTeam", team, "+clientClass", cls, "+closeLimbo"]
     results = []
-    client = Client(args, out / f"{tag}.log")
+    client = Client(args, out / f"{tag}.log", workdir)
     try:
         if not client.wait_for(lambda s: (m := ACTIVE_RE.search(s)) and int(m.group(1)) >= 25, 240.0):
             raise RuntimeError(f"{tag}: the client never reached play")
+        # spawned, not in limbo: the position recorded for --anchors must be the player's
+        for _ in range(30):
+            client.send("playerPos")
+            if client.wait_for(lambda s: SPAWNED_RE.search(s), 1.0):
+                break
+        else:
+            raise RuntimeError(f"{tag}: the player never spawned")
         time.sleep(settle)
         client.send("god")
         if map_name in anchors:
@@ -182,7 +226,6 @@ def capture_map(client_bin: Path, data: Path, out: Path, map_name: str, team: st
             anchors[map_name] = spawn[:4]   # the other ray tracing mode and --anchors reuse it
         noclip = False
         for name, offset, yaw_delta, pitch, needs_noclip in VIEWS:
-            # noclip only off the ground: in noclip the GDF player's own model shows overhead
             if needs_noclip != noclip:
                 client.send("noclip")
                 noclip = needs_noclip
@@ -194,16 +237,17 @@ def capture_map(client_bin: Path, data: Path, out: Path, map_name: str, team: st
             if path.exists():
                 path.unlink()
             client.send(f'set r_vkScreenshot "{path.as_posix()}"')
-            deadline = time.monotonic() + 20.0
-            while time.monotonic() < deadline and not (path.exists() and path.stat().st_size > 0):
-                time.sleep(0.2)
-            time.sleep(0.3)  # the writer closes the file after it appears
-            ok = path.exists() and path.stat().st_size > 0
+            # the engine prints "wrote" after it closed the file, or why it could not
+            answer = client.wait_for(lambda s: SHOT_RE.search(s), 20.0)
+            ok = bool(answer) and answer.group(1) == "wrote" and path.exists()
             results.append({"map": map_name, "rt": rt, "view": name, "file": path.name if ok else None,
                             "at": [round(x, 1), round(y, 1), round(z, 1), round(yaw, 1), pitch]})
             print(f"  {tag}_{name}: {'ok' if ok else 'NOT WRITTEN'}", flush=True)
+            if client.proc.poll() is not None:
+                raise RuntimeError(f"{tag}: the client exited (code {client.proc.returncode})")
     finally:
         client.close()
+        shutil.rmtree(savepath, ignore_errors=True)
     return results
 
 
@@ -211,24 +255,38 @@ def capture_map(client_bin: Path, data: Path, out: Path, map_name: str, team: st
 
 def _pil():
     try:
-        from PIL import Image, ImageDraw, ImageStat  # noqa: F401
-        return Image, ImageDraw, ImageStat
+        from PIL import Image, ImageChops, ImageDraw, ImageStat  # noqa: F401
+        return Image, ImageChops, ImageDraw, ImageStat
     except ImportError:
         return None
 
 
-def heuristics(path: Path, view: str) -> list[str]:
+def _open(path: Path):
+    """The image as RGB, or None when it cannot be read (a truncated or broken TGA)."""
     pil = _pil()
     if pil is None:
-        return []
-    Image, _, ImageStat = pil
-    img = Image.open(path).convert("RGB")
+        return None
+    try:
+        return pil[0].open(path).convert("RGB")
+    except (OSError, ValueError):
+        return None
+
+
+def heuristics(path: Path, view: str) -> list[str] | None:
+    """Warnings for one frame; None without Pillow (not checked, as opposed to clean)."""
+    pil = _pil()
+    if pil is None:
+        return None
+    _, _, _, ImageStat = pil
+    img = _open(path)
+    if img is None:
+        return ["unreadable image"]
     w, h = img.size
     warnings = []
     whole = ImageStat.Stat(img.convert("L"))
     if whole.mean[0] < 8:
         warnings.append("frame almost entirely black")
-    if max(whole.stddev[0], 0) < 2:
+    if whole.stddev[0] < 2:
         warnings.append("frame is one flat colour")
     if view == "forward":
         # the viewmodel sits in the lower right; a lit weapon is not near-black
@@ -247,52 +305,62 @@ def contact_sheet(entries: list[tuple[str, Path | None]], out: Path, cols: int, 
     if pil is None:
         print("  (Pillow not installed: no contact sheet)")
         return
-    Image, ImageDraw, _ = pil
-    thumb_w, thumb_h, label_h = 480, 270, 18
-    rows = (len(entries) + cols - 1) // cols
+    Image, _, ImageDraw, _ = pil
+    thumb_w, label_h = 480, 18
+    thumb_h = thumb_w * HEIGHT // WIDTH
+    rows = max(1, (len(entries) + cols - 1) // cols)
     sheet = Image.new("RGB", (cols * thumb_w, rows * (thumb_h + label_h) + label_h), (32, 32, 32))
     draw = ImageDraw.Draw(sheet)
     draw.text((4, 2), title, fill=(255, 255, 255))
     for i, (label, path) in enumerate(entries):
         x, y = (i % cols) * thumb_w, label_h + (i // cols) * (thumb_h + label_h)
         draw.text((x + 4, y + 2), label, fill=(255, 220, 120))
-        if path and path.exists():
-            img = Image.open(path).convert("RGB").resize((thumb_w, thumb_h))
+        img = _open(path) if path is not None and path.exists() else None
+        if img is not None:
+            img.thumbnail((thumb_w, thumb_h))
             sheet.paste(img, (x, y + label_h))
         else:
-            draw.text((x + 8, y + label_h + 8), "missing", fill=(255, 80, 80))
+            draw.text((x + 8, y + label_h + 8), "missing" if path is None or not path.exists() else "unreadable",
+                      fill=(255, 80, 80))
     sheet.save(out)
     print(f"  contact sheet: {out}")
 
 
 def cmd_capture(a) -> int:
-    out = Path(a.out)
-    out.mkdir(parents=True, exist_ok=True)
+    known = {m[0] for m in MAPS}
+    wanted = a.maps.split(",") if a.maps else [m[0] for m in MAPS]
+    unknown = [m for m in wanted if m not in known]
+    if unknown:
+        raise SystemExit(f"unknown map(s) {', '.join(unknown)}; known: {', '.join(sorted(known))}")
+    maps = [m for m in MAPS if m[0] in wanted]
     client_bin, data = find_client(a.client), find_data(a.data)
+    workdir = client_workdir(client_bin)
+    out = Path(a.out).resolve()
+    out.mkdir(parents=True, exist_ok=True)
     modes = ["1", "0"] if a.rt == "both" else [a.rt]
-    maps = [m for m in MAPS if not a.maps or m[0] in a.maps.split(",")]
     anchors = {k: tuple(v) for k, v in ANCHORS.items()}
     if a.anchors:
         anchors.update({k: tuple(v) for k, v in
                         json.loads(Path(a.anchors).read_text(encoding="utf-8")).get("anchors", {}).items()})
     meta = {"platform": f"{platform.system()} {platform.machine()}", "client": str(client_bin),
-            "label": a.label, "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "shots": [],
-            "anchors": anchors}
-    failures = 0
+            "workdir": str(workdir), "label": a.label, "size": [WIDTH, HEIGHT],
+            "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "shots": [], "failed": [], "anchors": anchors}
+    print(f"client {client_bin}\nshaders from {workdir / 'base' / 'vkprogs'}", flush=True)
     for rt in modes:
         for map_name, team, cls in maps:
             print(f"{map_name}, r_rayTracing {rt}", flush=True)
             try:
-                meta["shots"] += capture_map(client_bin, data, out, map_name, team, cls, rt,
+                meta["shots"] += capture_map(client_bin, workdir, data, out, map_name, team, cls, rt,
                                              a.set or [], a.settle, anchors)
             except RuntimeError as e:
                 print(f"  FAILED: {e}", flush=True)
-                failures += 1
+                meta["failed"].append({"map": map_name, "rt": rt, "reason": str(e)})
+    if _pil() is None:
+        print("Pillow not installed: no heuristics or contact sheets (pip install pillow)")
     for shot in meta["shots"]:
-        if shot["file"]:
-            shot["warnings"] = heuristics(out / shot["file"], shot["view"])
-            for w in shot["warnings"]:
-                print(f"  WARNING {shot['map']} rt{shot['rt']} {shot['view']}: {w}")
+        shot["warnings"] = heuristics(out / shot["file"], shot["view"]) if shot["file"] else None
+        for w in shot["warnings"] or []:
+            print(f"  WARNING {shot['map']} rt{shot['rt']} {shot['view']}: {w}")
     (out / "screenshot_set.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     for rt in modes:
         entries = [(f"{s['map']} {s['view']}", out / s["file"] if s["file"] else None)
@@ -300,8 +368,9 @@ def cmd_capture(a) -> int:
         contact_sheet(entries, out / f"sheet_rt{rt}.png", len(VIEWS),
                       f"{a.label or 'screenshot set'}  {meta['platform']}  r_rayTracing {rt}")
     missing = sum(1 for s in meta["shots"] if not s["file"])
-    print(f"{len(meta['shots']) - missing} shots written, {missing} missing, {failures} map(s) failed")
-    return 1 if failures or missing else 0
+    written = len(meta["shots"]) - missing
+    print(f"{written} shots written, {missing} missing, {len(meta['failed'])} map run(s) failed")
+    return 1 if meta["failed"] or missing else 0
 
 
 def cmd_compare(a) -> int:
@@ -309,42 +378,61 @@ def cmd_compare(a) -> int:
     if pil is None:
         print("compare needs Pillow (pip install pillow)")
         return 2
-    Image, _, ImageStat = pil
-    from PIL import ImageChops
+    _, ImageChops, _, ImageStat = pil
     base, head, out = Path(a.base), Path(a.head), Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    meta_head = json.loads((head / "screenshot_set.json").read_text(encoding="utf-8"))
-    rows, entries = [], []
-    for shot in meta_head["shots"]:
-        name = shot["file"]
-        if not name:
-            continue
-        b, h = base / name, head / name
-        if not b.exists():
-            rows.append((name, None, heuristics(h, shot["view"])))
-            continue
-        ib, ih = Image.open(b).convert("RGB"), Image.open(h).convert("RGB")
-        if ib.size != ih.size:
-            ih = ih.resize(ib.size)
-        diff = ImageStat.Stat(ImageChops.difference(ib, ih).convert("L")).mean[0]
-        rows.append((name, diff, heuristics(h, shot["view"])))
-        entries += [(f"base {name}", b), (f"head {name}", h)]
-    report = ["| shot | mean diff vs base (0-255) | warnings on head |", "|---|---|---|"]
-    for name, diff, warns in rows:
-        report.append(f"| {name} | {'no base' if diff is None else f'{diff:.2f}'} | {'; '.join(warns) or '-'} |")
+
+    def shots(d: Path) -> dict:
+        meta = json.loads((d / "screenshot_set.json").read_text(encoding="utf-8"))
+        table = {(s["map"], s["rt"], s["view"]): s for s in meta["shots"]}
+        for f in meta.get("failed", []):   # a failed map run has no shots: list each view as missing
+            for v in VIEWS:
+                table.setdefault((f["map"], f["rt"], v[0]), {"file": None})
+        return table
+
+    b_shots, h_shots = shots(base), shots(head)
+    order = {m[0]: i for i, m in enumerate(MAPS)}
+    vorder = {v[0]: i for i, v in enumerate(VIEWS)}
+    keys = sorted(set(b_shots) | set(h_shots),
+                  key=lambda k: (k[1] != "1", order.get(k[0], 99), vorder.get(k[2], 99)))
+    report = ["| map | rt | view | mean diff | max | pixels > 16 | warnings on head |", "|---|---|---|---|---|---|---|"]
+    entries, problems = [], 0
+    for key in keys:
+        bs, hs = b_shots.get(key, {}), h_shots.get(key, {})
+        bp = base / bs["file"] if bs.get("file") else None
+        hp = head / hs["file"] if hs.get("file") else None
+        warns = heuristics(hp, key[2]) if hp else None
+        ib, ih = (_open(bp) if bp else None), (_open(hp) if hp else None)
+        if ih is None:
+            cells = ["**missing in head**" if hp is None else "**unreadable in head**", "", ""]
+            problems += 1
+        elif ib is None:
+            cells = ["missing in base" if bp is None else "unreadable in base", "", ""]
+        else:
+            note = ""
+            if ib.size != ih.size:
+                note = f" (sizes differ: {ib.size} vs {ih.size})"
+                ih = ih.resize(ib.size)
+            diff = ImageChops.difference(ib, ih).convert("L")
+            hist = diff.histogram()
+            over = sum(hist[17:]) / max(1, sum(hist))
+            cells = [f"{ImageStat.Stat(diff).mean[0]:.2f}{note}", str(diff.getextrema()[1]), f"{over * 100:.1f}%"]
+        report.append(f"| {key[0]} | {key[1]} | {key[2]} | " + " | ".join(cells) +
+                      f" | {'; '.join(warns) if warns else ('-' if warns is not None else 'n/a')} |")
+        entries += [(f"base {key[0]} rt{key[1]} {key[2]}", bp), (f"head {key[0]} rt{key[1]} {key[2]}", hp)]
     (out / "compare.md").write_text("\n".join(report) + "\n", encoding="utf-8")
     print("\n".join(report))
     contact_sheet(entries, out / "compare_sheet.png", 2, f"left: {base}   right: {head}")
-    return 0
+    return 1 if problems else 0
 
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("capture", help="capture the standard set")
-    c.add_argument("--out", required=True)
+    c.add_argument("--out", required=True, help="output folder (outside the checkout, e.g. ../shots/pr)")
     c.add_argument("--client", help="client binary (default: $OPENETQW_CLIENT_BINARY or the build dir)")
-    c.add_argument("--data", help="retail data root (default: $ETQW_DATA_PATH and the usual search)")
+    c.add_argument("--data", help="retail data root (default: $ETQW_DATA_PATH)")
     c.add_argument("--rt", choices=["0", "1", "both"], default="both",
                    help="r_rayTracing modes (both on a GPU with ray tracing; 0 elsewhere)")
     c.add_argument("--maps", help="comma-separated subset of " + ",".join(m[0] for m in MAPS))
