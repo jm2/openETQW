@@ -13,7 +13,8 @@ does). The client joins GDF as a soldier and spawns; then, for each vehicle:
    for the snapshot's own tick, new=1), its first-person view origin must be
    within 0.05 units of the server's; if the client's own copy of the parked
    vehicle wakes (see the comparison), from then on the view and the vehicle's
-   physics origin within 0.5 units. It must still be running.
+   physics origin within 0.5 units, and the view relative to the vehicle
+   within 0.25. It must still be running.
 3. exitVehicle <client>: the client stops printing VIEW_STATE for itself.
 Both processes then exit 0 on 'quit', and neither log has a failure marker.
 
@@ -43,6 +44,7 @@ VEHICLES = ("vehicle_badger", "vehicle_titan")
 VIEW_TOLERANCE = 0.05
 PAIRED_TICKS = 60
 WAKE_STEP = 0.02  # the client's vehicle origin moving this far in a tick, the server's not
+WOKEN_SEAT_TOLERANCE = 0.25  # after a wake, the view relative to the vehicle (the hull tilts)
 VEHICLE_TOLERANCE = 0.5  # the client's own prediction of the parked vehicle; see the comparison
 
 
@@ -163,7 +165,8 @@ def main(argv):
                 # 0.08 u and tilts, then sinks back over seconds while the server's
                 # copy stays at rest (2-3 runs in 10 on macOS, #117). Until such a
                 # wake the view must be within 0.05 u of the server's; from it on,
-                # the view and the vehicle within 0.5 u.
+                # the view and the vehicle within 0.5 u, and the view relative to
+                # the vehicle within 0.25 u.
                 no_phys = [t for t in common if srv_views[t][3] is None or cl_views[t][3] is None]
                 if no_phys:
                     failures.append(f"[{vehicle}] VIEW_STATE without phys= at tick {no_phys[0]}")
@@ -192,7 +195,15 @@ def main(argv):
                     checks = [("view", distance(srv_views[tick][2], cl_views[tick][2]),
                                VEHICLE_TOLERANCE if after else VIEW_TOLERANCE)]
                     if after:
-                        checks.append(("vehicle", distance(srv_views[tick][3], cl_views[tick][3]), VEHICLE_TOLERANCE))
+                        srv_fpo, srv_phys = srv_views[tick][2:4]
+                        cl_fpo, cl_phys = cl_views[tick][2:4]
+                        checks.append(("vehicle", distance(srv_phys, cl_phys), VEHICLE_TOLERANCE))
+                        # the seat: the view relative to its vehicle, in world axes, so
+                        # the woken hull's tilt (about 0.08 u at the eye) is allowed
+                        checks.append(("view relative to its vehicle",
+                                       distance([v - p for v, p in zip(srv_fpo, srv_phys)],
+                                                [v - p for v, p in zip(cl_fpo, cl_phys)]),
+                                       WOKEN_SEAT_TOLERANCE))
                     for name, error, tolerance in checks:
                         key = (name, tolerance)
                         if key not in worst or error > worst[key][0]:
