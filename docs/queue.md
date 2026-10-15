@@ -13,8 +13,8 @@ quota; nothing has merged since #131.
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
-| [#129](https://github.com/jm2/openETQW/pull/129) | Raster stencil shadows build real volumes; fixes #124's black shards. Ledger 074. | `openETQW-win-arm64` | 75b4455 | (1) Merge `main` and regenerate the manifest (coordination §8). (2) Rerun the full retail suite at the new head on win-arm64. (3) Windows x64 screenshot set with RT on and off, compared against `main`, on `screenshots-pr129`. (4) A Linux x64 set, unless the reviewer accepts Linux arm64's (posted at 73fca6b) as the Linux leg. (5) An independent review that looks at every sheet. **Open question:** on a network client the jetpack seat draws 85 pairs against `main`'s 108; find the cause or show it is unrelated. Also answer Linux arm64's question about the valley tank's shadow (issuecomment-6085445717). macOS: APPROVE. |
-| [#130](https://github.com/jm2/openETQW/pull/130) | The server tells a dropped client, and `disconnect` ends a listen host's server (#119, #120). Ledger 075. | `openETQW-linux` | 514bcac | After #129 merges: (1) merge `main` and regenerate the manifest; (2) run `client-server-kick`, `client-server-timeout`, `listen-host-disconnect`, `client-error-drop`, `client-error-load-drop`, `remote-client-map-change`, `reconnect-restart`, `client-network-join` and `client-network-listen` on Windows x64; (3) get an independent review. macOS and Linux arm64 each passed 9/9 at 514bcac. Linux x64 (antec), full suite at 568b101 (the same code; only the ledger number and manifest changed since): 64 OK, 1 fail (`mixed-caps` A1, environmental: `main` 7782751 failed it the same way on the same host), 1 skip. The merge with #129 will conflict in `docs/compat-ledger.md`, where both insert a row after 073: keep 074 (#129), then 075 (#130). The worktree is `/var/tmp/openetqw-net/engine` on antec, branch `net/client-drop-stop`. |
+| [#129](https://github.com/jm2/openETQW/pull/129) | Raster stencil shadows build real volumes; fixes #124's black shards. Ledger 074. | `openETQW-win-arm64` | 75b4455 | (1) Answer CodeRabbit's finding at `src/renderer/tr_light.cpp:2122` (cached vertex welds may go stale on a cache hit). (2) Merge `main` and regenerate the manifest (coordination §8). (3) Rerun the full retail suite at the new head on win-arm64. (4) All five screenshot sets at the new head, compared against `main` and uploaded to `screenshots-pr129` (coordination §8): 75b4455 changed which casters get volumes, so the sets taken at 73fca6b (win-arm64, macOS APPROVE, Linux arm64) are stale. (5) An independent review that looks at every sheet. **Open question:** on a network client the jetpack seat draws 85 pairs against `main`'s 108; find the cause or show it is unrelated. The valley tank's shadow question (issuecomment-6085445717) needs someone who knows retail's valley; if nobody does, ask the owner. |
+| [#130](https://github.com/jm2/openETQW/pull/130) | The server tells a dropped client, and `disconnect` ends a listen host's server (#119, #120). Ledger 075. | `openETQW-linux` | 514bcac | After #129 merges: (1) merge `main` and regenerate the manifest; (2) run `client-server-kick`, `client-server-timeout`, `listen-host-disconnect`, `client-error-drop`, `client-error-load-drop`, `remote-client-map-change`, `reconnect-restart`, `client-network-join` and `client-network-listen` on Windows x64; (3) answer CodeRabbit's finding at `src/framework/async/AsyncServer.cpp:1113`; (4) get an independent review. macOS and Linux arm64 each passed 9/9 at 514bcac. Linux x64 (antec), full suite at 568b101 (the same code; only the ledger number and manifest changed since): 64 OK, 1 fail (`mixed-caps` A1, environmental: `main` 7782751 failed it the same way on the same host), 1 skip. The merge with #129 will conflict in `docs/compat-ledger.md`, where both insert a row after 073: keep 074 (#129), then 075 (#130). The worktree is `/var/tmp/openetqw-net/engine` on antec, branch `net/client-drop-stop`. |
 
 ## 2. Open issues, in priority order
 
@@ -44,7 +44,7 @@ Each item names its acceptance test. Details are in the linked plan.
 4. **M4 gameplay tests** (`STATUS.md` § Milestones, M4): classes, damage and kills,
    deployable delivery, a defender or time-limit win, stopwatch and campaign transitions,
    and a started match on maps other than Valley. Acceptance: new meson tests pass on the
-   retail 1.5 data on two platforms.
+   retail 1.5 data on two platforms (any two; STATUS's older "macOS arm64" is just where the work started).
 5. **Retail data discovery** (`STATUS.md` § Next steps, item 7): the Linux folder picker,
    and a person trying the macOS and Windows pickers (owner).
 6. **Provenance labels** (`docs/provenance.md` §6): the minizip relabel and the other
@@ -52,11 +52,27 @@ Each item names its acceptance test. Details are in the linked plan.
    `check_spdx.py` passes, and the §6 rows are resolved.
 7. **`docs/platform-matrix.md`** (release gate, M7): what is verified per platform, with
    the evidence level, host and commit.
+8. **Release gate 5, third-party binaries:** review `src/openal/lib/openal32.lib`, both
+   copies of `eaxguid.lib` and zlib contrib's `.obj` files. Replace each, or record why it
+   stays (`STATUS.md` § Release gate, item 5).
+9. **The M1 and M2 gaps** (`STATUS.md` § Milestones):
+   - M1: the `false` defaults of `build_engine` and `build_dedicated`;
+   - M2: collision in the graphical client is never asserted;
+   - M2: the headless render world is still stubbed.
+
+   Each gap gets a test or a recorded decision.
+10. **Leftovers to re-check against current `main`:** STATUS lists these as open, but
+    later steps may have closed them. Close each with evidence, or give it its own row:
+    - the mixed-caps producer gap (A7/A7o, before step 8);
+    - the vehicle proxy gate (`docs/frame-path.md` §9).
+
+**Before you add a row:** compare `STATUS.md` § Milestones and § Release gate with this
+list. Anything open there and missing here belongs in this section or in §4.
 
 ## 4. Owner-gated
 
 No session can finish these alone. Prepare the evidence, then ask the owner
-(`fleet_ask` to `user:owner`).
+(`fleet_ask` to the owner's address, coordination §3).
 
 - **Release gate 1, the jmarshall licence.** Blocking for any public release. The owner
   deferred it on 2026-09-25. Nothing to do until the owner reopens it.
@@ -71,6 +87,8 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   `sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add ~/openETQW/build/openETQW-ded_arm64`
   and `sudo … --unblockapp` on the same path. Then `OPENETQW_REMOTE_SERVER=host:port meson test -C build cross-os`
   both ways against `antec` and ANTEC-WIN.
+- **A Windows run on an NVIDIA or Intel GPU** (`STATUS.md` § Next steps, item 3). No such
+  host is in the fleet; the owner would have to provide one.
 - **Hosted CI:** comes back only with Actions minutes. Until then, local checks replace it.
 - **#122's retail reference** if none can be found.
 
