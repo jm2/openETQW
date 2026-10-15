@@ -193,6 +193,54 @@ without a desktop. On `macmini-m1`, add `--timeout-multiplier 3` to `meson test`
   on a quiet antec (2026-10-09 morning), about 281 when it failed that afternoon. Rerun the
   test on `main` on the same host. If `main` fails too, it is the host.
 
+**`yoga-slim7x` specifics** (`openETQW-win-arm64`; Windows 11 arm64, Snapdragon X, Adreno X1-85):
+- The tool shell is Git Bash. Build and test through a `.bat` wrapper so MSVC's environment
+  applies; the wrapper ends with `%*`:
+  ```bat
+  @echo off
+  call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvarsarm64.bat" >nul
+  set PATH=%APPDATA%\Python\Python314-arm64\Scripts;%USERPROFILE%\tools\glslang;%PATH%
+  set ETQW_DATA_PATH=%USERPROFILE%\etqw_data
+  set OPENETQW_GAME_REPO=%USERPROFILE%\openETQW-game-hl
+  set PKG_CONFIG=%USERPROFILE%\vcpkg\installed\arm64-windows\tools\pkgconf\pkgconf.exe
+  set PKG_CONFIG_PATH=%USERPROFILE%\vcpkg\installed\arm64-windows\lib\pkgconfig;%USERPROFILE%\vcpkg\installed\arm64-windows\share\pkgconfig
+  set CMAKE_PREFIX_PATH=%USERPROFILE%\vcpkg\installed\arm64-windows
+  set VK_ADD_LAYER_PATH=%USERPROFILE%\vcpkg\installed\arm64-windows\bin
+  cd /d %USERPROFILE%\openETQW
+  %*
+  ```
+  Call it from Git Bash as `cmd //c "$(cygpath -w wrapper.bat)" meson compile -C build`.
+  Its `'vswhere.exe' is not recognized` line is harmless.
+- The meson scripts directory (meson itself) is `%APPDATA%\Python\Python314-arm64\Scripts`;
+  glslang is built into `%USERPROFILE%\tools\glslang` by `tools/build/build_glslang.py`.
+- The game checkout that `OPENETQW_GAME_REPO` points at must be at the engine's
+  `tools/ci/companion.ref` before any test run; a stale game DLL failed 7 suite tests once.
+  Run `meson setup --reconfigure build` after the pin changes or after adding a meson test.
+- Binaries: `build\openETQW-client_arm64.exe`, `build\openETQW-ded_arm64.exe`. Full retail
+  suite: `meson test -C build --print-errorlogs`, 62-63 tests, about 75 minutes; `cross-os`
+  skips (exit 77), so a clean run is "N OK, 0 fail, 1 skip".
+- To test another commit without disturbing `~/openETQW`, keep a second worktree with its
+  own `build` (`%USERPROFILE%\openETQW-rel`) and a second wrapper that `cd`s there. For the
+  provenance manifest, point `--game-repo` at a game worktree detached at the pin, not at a
+  PR branch: `tools/build/provenance_post_split.py --game-repo ..\openETQW-game-pin --update`.
+- Adreno is raster only (no ray tracing) and GPU-bound: in `com_logFrameTiming 1` output, a
+  large `fence_ms` means the GPU is the limit. Reference, uncapped (`com_maxFPS 0`), valley
+  GDF spawn, `main` 2fbadab: about 157 fps. For an fps A/B, alternate `main` and the PR
+  builds, two rounds of 30 s windows each; the first canyon window is noisy (170 vs 216 fps
+  on the same build).
+- Screenshots: `r_vkScreenshot "<path>.tga"` writes the next frame. `screenshot_set.py`
+  needs Pillow (`python -m pip install --user pillow`) for sheets and compare.
+- Traps:
+  - Bash heredocs eat backslashes: `\\` becomes `\` and `"\n"` in a heredoc'd Python or C++
+    string becomes a real newline. Write code with backslashes through a file editor or a
+    script file, never a heredoc.
+  - Python's `write_text` on Windows writes CRLF; pass `newline="\n"` or write bytes.
+    `companion.ref` and the provenance manifest must be LF.
+  - Never regenerate the manifest mid-merge: commit the merge first, or entries get a null
+    `addedIn`. On a manifest conflict take `main`'s side, commit, then regenerate.
+  - Host claims: `~/.host-coordination/openETQW-win-arm64.<heavy|timing>.claim`; the host is
+    shared with `kisakcod-win-arm64`.
+
 **xmat** (`jm2/xmat`; binary `~/xmat/xmat` on antec). It builds one commit on several
 hosts over ssh, with antec as the controller.
 - `openETQW-linux` owns the fleet file (`~/.config/xmat/fleet.toml`) and the target setup
@@ -424,6 +472,8 @@ decisions:
 | 2026-10-03 | "limited to single-thread/one agent per session/machine": no subagents or multi-agent workflows; one session per host does its own planning, work and reviews. Given to `openETQW-linux`. |
 | 2026-10-03 | "ensure your messages go to the other openetqw sessions only", with the exception "you can message more widely, but only for machine loading/heads up purposes so we don't overload macmini-m1 especially since it only has 8gb ram". Given to `openETQW-linux`. |
 | 2026-10-06 | Idle hosts test open work: "If the machine is idle and there are open changes or pending work, you're authorized to proactively test/fix in the idle gaps." This replaced "run the full suite only when requested". Merging still needs the merge role. Given to `openETQW-linux-arm64`. |
+| 2026-10-06 | Owner, in the `openETQW-win-arm64` session: "If no one else is managing it you are authorized to merge if complete and clean" (merge commits, once the local checks, the full retail suite, a review and CodeRabbit or a session review are done). Superseded for merging by the 2026-10-08 merge role. |
+| 2026-10-07 | Owner, answering `openETQW-win-arm64`: files derived from openQ4 are GPL-3.0-or-later ("or-later (Recommended)"), matching openQ4's own SPDX tags and the engine's licence; the tooling ports first tagged GPL-3.0-only were retagged (#89). |
 | 2026-10-08 | `openETQW-win` is the coordinator, with the merge role and the right to push review fixes to other sessions' branches (§2). |
 | 2026-10-09 | Graphics changes need the screenshot set from every platform, including terrain views. The sessions review the sheets; the owner sees only ambiguous cases. The sheets go to one prerelease per PR, `screenshots-prNNN`. |
 | 2026-10-09 | Owner, in the `openETQW-mac` session: "I don't need to look at every single screenshot unless there ambiguity or an escalation. Please self-review screenshots for correctness and be the primary gate unless further review required." |
