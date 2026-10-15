@@ -510,6 +510,10 @@ harness shells don't keep it between calls.
 Product decisions are in `STATUS.md` § Owner decisions in effect. These are the process
 decisions:
 
+The owner confirmed on 2026-10-15, in the `openETQW-win` session, the rows that other
+sessions relayed ("largely right, just replace the coordinator parts with my new rule").
+The coordinator rows below now point to §2.
+
 | Date | Decision |
 |---|---|
 | 2026-09-24 | Hosted CI is off: Actions minutes are gone. Local checks replace it. Both repositories stay private. |
@@ -519,15 +523,15 @@ decisions:
 | 2026-09-30 | Shared hosts use host claims (§6). |
 | 2026-09-30 | "Go with your recommendations; see how openQ4 does it when in doubt, with escalation to me if I've differed on it before." |
 | 2026-10-03 | Sessions talk within their own project: "ensure openetqw is talking to openetqw sessions and likewise for kisakcod". Notices about a shared host across projects are fine. Given to `openETQW-linux-arm64`. |
-| 2026-10-03 | "limited to single-thread/one agent per session/machine": no subagents or multi-agent workflows; one session per host does its own planning, work and reviews. Given to `openETQW-linux`. |
+| 2026-10-03 | "limited to single-thread/one agent per session/machine". Given to `openETQW-linux`. **Superseded** by the 2026-10-15 subagent rule (§7). |
 | 2026-10-03 | "ensure your messages go to the other openetqw sessions only", with the exception "you can message more widely, but only for machine loading/heads up purposes so we don't overload macmini-m1 especially since it only has 8gb ram". Given to `openETQW-linux`. |
 | 2026-10-06 | Idle hosts test open work: "If the machine is idle and there are open changes or pending work, you're authorized to proactively test/fix in the idle gaps." This replaced "run the full suite only when requested". Merging still needs the merge role. Given to `openETQW-linux-arm64`. |
-| 2026-10-06 | Owner, in the `openETQW-win-arm64` session: "If no one else is managing it you are authorized to merge if complete and clean" (merge commits, once the local checks, the full retail suite, a review and CodeRabbit or a session review are done). Superseded for merging by the 2026-10-08 merge role. |
+| 2026-10-06 | A merge authorization given to `openETQW-win-arm64`. **Superseded** by the 2026-10-15 coordinator rule: only the coordinator merges (§2). |
 | 2026-10-07 | Owner, answering `openETQW-win-arm64`: files derived from openQ4 are GPL-3.0-or-later ("or-later (Recommended)"), matching openQ4's own SPDX tags and the engine's licence; the tooling ports first tagged GPL-3.0-only were retagged (#89). |
-| 2026-10-08 | `openETQW-win` is the coordinator, with the merge role and the right to push review fixes to other sessions' branches. The coordinator's powers stand. Who holds them was superseded on 2026-10-15. |
-| 2026-10-15 | Owner, in the `openETQW-win` session: "primary coordinator shouldn't be hardcoded; coordinator should be selected by online/response availability: antec should be first preference, followed by antec-win, then mbp16 and down the list until nothing remains online. The Fedora machines in particular reboot semi-frequently for system updates, windows and macOS less-so but still can as well. Until switchyard (or claude) has a graceful automatic resumption on reboot, remaining online nodes should continue on with a new coordinator by preference list if the current one goes missing." Implemented in §2. |
-| 2026-10-15 | Owner, in the `openETQW-win` session, on subagents: "yes but no more than four at once per session, and the rule only applies to DeepSeek/Xiaomi endpoints for now. Other models should stick to one main agent as much as possible except for when a no-context review/validation pass is required." This replaces the 2026-09-30 subagent-review row and the 2026-10-03 "one agent per session/machine" row (§7). |
+| 2026-10-08 | The coordinator may merge any session's PR, and push review fixes to another session's branch, once the PR meets §8. Who the coordinator is follows the 2026-10-15 rule (§2); this row first named `openETQW-win`. |
 | 2026-10-09 | Graphics changes need the screenshot set from every platform, including terrain views. The sessions review the sheets; the owner sees only ambiguous cases. The sheets go to one prerelease per PR, `screenshots-prNNN`. |
 | 2026-10-09 | Owner, in the `openETQW-mac` session: "I don't need to look at every single screenshot unless there ambiguity or an escalation. Please self-review screenshots for correctness and be the primary gate unless further review required." |
 | 2026-10-09 | A parked vehicle's client-prediction pop matches retail; `headless-client-vehicle` tolerates it (#117). |
 | 2026-10-09 | The Discord release announcement is removed and is not to come back. |
+| 2026-10-15 | Owner, in the `openETQW-win` session: "primary coordinator shouldn't be hardcoded; coordinator should be selected by online/response availability: antec should be first preference, followed by antec-win, then mbp16 and down the list until nothing remains online. The Fedora machines in particular reboot semi-frequently for system updates, windows and macOS less-so but still can as well. Until switchyard (or claude) has a graceful automatic resumption on reboot, remaining online nodes should continue on with a new coordinator by preference list if the current one goes missing." Implemented in §2. |
+| 2026-10-15 | Owner, in the `openETQW-win` session, on subagents: "yes but no more than four at once per session, and the rule only applies to DeepSeek/Xiaomi endpoints for now. Other models should stick to one main agent as much as possible except for when a no-context review/validation pass is required." This replaces the 2026-09-30 subagent-review row and the 2026-10-03 "one agent per session/machine" row (§7). |
