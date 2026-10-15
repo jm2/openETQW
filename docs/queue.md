@@ -66,7 +66,11 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   join the default list. Needs a review on a high-refresh display.
 - **Render portals, stage 2:** the network decision (`docs/render-portals.md`).
 - **Mac M3 cross-OS runs:** the macOS Local Network permission and the firewall rules.
-  The owner sets these.
+  The owner sets these: grant Local Network to the terminal app (System Settings → Privacy &
+  Security → Local Network), then restart its tmux server. For a Mac-hosted server, also
+  `sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add ~/openETQW/build/openETQW-ded_arm64`
+  and `sudo … --unblockapp` on the same path. Then `OPENETQW_REMOTE_SERVER=host:port meson test -C build cross-os`
+  both ways against `antec` and ANTEC-WIN.
 - **Hosted CI:** comes back only with Actions minutes. Until then, local checks replace it.
 - **#122's retail reference** if none can be found.
 
