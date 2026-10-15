@@ -133,6 +133,42 @@ stop a game process with `Stop-Process`.
 **Linux (`antec`, `macmini-m1`).** Set `SDL_VIDEO_DRIVER=offscreen` for client tests
 without a desktop. On `macmini-m1`, add `--timeout-multiplier 3` to `meson test`.
 
+**`macmini-m1` specifics** (builddir `build` in both repos):
+
+```sh
+cd ~/openETQW-game && git checkout <companion.ref> && meson setup --reconfigure build && ninja -C build
+cd ~/openETQW && ln -sfn ~/openETQW-game/build/game_arm64.so build/game_arm64.so   # once per builddir
+ninja -C build
+SDL_VIDEO_DRIVER=offscreen ETQW_DATA_PATH=~/etqw_data meson test -C build -j 1                # retail suite, ~60-75 min
+SDL_VIDEO_DRIVER=offscreen ETQW_DATA_PATH=~/etqw_data meson test -C build <name>              # one test
+```
+
+- Run `meson setup --reconfigure build` in the game repo after every pull or checkout. Its
+  `meson.build` globs sources at configure time, so a new `.cpp` is missed and the link
+  fails with undefined references.
+- `meson test` with both `--suite X` and a test name prints nothing. Run them separately.
+- Stop a client with `pkill -x openETQW-client`. `pkill -f` also matches the harness's
+  own Python process.
+- The host auto-updates (dnf, kernel and SDL3). When results shift on plain `main`, check
+  `rpm -qa --last | head -30` and A/B on `main` before blaming a branch.
+- Push over HTTPS with `gh` credentials, as on Windows; SSH to GitHub fails here.
+- Screenshot sets work offscreen under Honeykrisp
+  (`SDL_VIDEO_DRIVER=offscreen python3 tools/validation/screenshot_set.py capture ...`).
+  Upload the sheets as JPEG with `gh release upload screenshots-prNNN <files>`, or use
+  `gh release create screenshots-prNNN --prerelease ...` if no platform has made the
+  release yet. `gh` can't attach images to a comment.
+
+**After merging `main` into a branch** (the manifest conflicts often): take `main`'s
+`docs/provenance-manifest.json`, commit the merge, then regenerate on the committed merge
+with the game at the pin, and commit that:
+`python3 tools/build/provenance_post_split.py --game-repo <game checkout at companion.ref> --update`.
+Running it before the merge commit exists is what left an `addedIn` null (2026-10-08).
+
+**Test ports.** Before adding a networked test, check its server port and every client
+port (`port + 1`, …) against every literal port in `tests/meson.build` and each
+`default=` in `tests/*.py`. Two tests sharing a port collide once meson runs them in
+parallel (m4-stopwatch was moved to 29985 for that, #107).
+
 **macOS.** Both game client windows open on one display. Don't move them during a
 timing test.
 
@@ -151,6 +187,11 @@ and its `README.md` has the format and the PowerShell commands.
   `seat-poses-*`), wait for live `heavy` claims to end.
 - Hold your own claim while you run either one, and delete it when you are done. A claim
   whose `pid` is dead or whose `until` has passed may be deleted by anyone.
+
+`macmini-m1` has no `~/.host-coordination` folder (as of 2026-10-15). It is shared with
+`kisakcod-linux-arm64`, a different project, and the two coordinate by message instead.
+Before a heavy or timing job, send it a heads-up with the expected length and wait for
+its ack. Send "done" when the job is finished. It does the same in return.
 
 ## 7. Reviews
 
@@ -227,6 +268,8 @@ decisions:
 | 2026-09-30 | Your own PRs merge once checks pass and the review is resolved. Don't wait for CodeRabbit's quota; use a session review. |
 | 2026-09-30 | Shared hosts use host claims (§6). |
 | 2026-09-30 | "Go with your recommendations; see how openQ4 does it when in doubt, with escalation to me if I've differed on it before." |
+| 2026-10-03 | Sessions talk within their own project: "ensure openetqw is talking to openetqw sessions and likewise for kisakcod". Notices about a shared host across projects are fine. Given to `openETQW-linux-arm64`. |
+| 2026-10-06 | Idle hosts test open work: "If the machine is idle and there are open changes or pending work, you're authorized to proactively test/fix in the idle gaps." This replaced "run the full suite only when requested". Merging still needs the merge role. Given to `openETQW-linux-arm64`. |
 | 2026-10-08 | `openETQW-win` is the coordinator, with the merge role and the right to push review fixes to other sessions' branches (§2). |
 | 2026-10-09 | Graphics changes need the screenshot set from every platform, including terrain views. The sessions review the sheets; the owner sees only ambiguous cases. The sheets go to one prerelease per PR, `screenshots-prNNN`. |
 | 2026-10-09 | A parked vehicle's client-prediction pop matches retail; `headless-client-vehicle` tolerates it (#117). |
