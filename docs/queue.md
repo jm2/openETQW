@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 # Work queue
 
-The shared to-do list for every session. Take items from the top. The coordinator keeps it
+The shared to-do list for every session. Coordinator log: [#133](https://github.com/jm2/openETQW/issues/133); see its latest comment for who coordinates now (coordination §2). Take items from the top. The coordinator keeps it
 in order, and every PR that changes an item's state updates its row. `owner` names the
 session that holds the item; `—` means nobody does. Before taking an item, check its PR or
 issue for anything newer than this file.

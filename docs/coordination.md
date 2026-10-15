@@ -16,7 +16,7 @@ One session per platform. Each session runs on its own host and validates there.
 
 | Session | Host | Platform | GPU / render path | Notes |
 |---|---|---|---|---|
-| `openETQW-win` | ANTEC-WIN | Windows 11 x64, MSVC 19.51 | AMD RX 6400; **ray tracing on by default**, raster with `r_rayTracing 0` | Coordinator (§2). Shared with `kisakcod-win`, so use host claims (§6). |
+| `openETQW-win` | ANTEC-WIN | Windows 11 x64, MSVC 19.51 | AMD RX 6400; **ray tracing on by default**, raster with `r_rayTracing 0` | Second in the coordinator list (§2). Shared with `kisakcod-win`, so use host claims (§6). |
 | `openETQW-win-arm64` | `yoga-slim7x` | Windows 11 arm64, MSVC 19.51 | Adreno X1-85; raster only | No Vulkan SDK; glslang comes from `tools/build/build_glslang.py`. |
 | `openETQW-linux` | `antec` | Fedora 44 x86_64, GCC 16.2 | RX 6400 / RADV | Runs headless clients with `SDL_VIDEO_DRIVER=offscreen`. Uses xmat (`jm2/xmat`) to dispatch jobs to other hosts. |
 | `openETQW-linux-arm64` | `macmini-m1` | Fedora 44 Asahi arm64 (16k pages), GCC 16.2 | Apple M1 / Honeykrisp; raster | 8 GB of RAM: run one heavy job at a time. Its frame-rate ceiling is about 205 fps. |
@@ -27,19 +27,66 @@ Windows). Exact toolchain versions are in `STATUS.md` § Toolchain and commands.
 
 ## 2. Roles and authority
 
-- **Coordinator** (owner decision, 2026-10-08). Keeps `docs/queue.md` current, routes
-  reviews and platform runs between sessions, and holds the **merge role**. It may merge
-  any session's PR, and push review-fix commits to another session's branch, once the
-  PR meets §8. It tells the branch's author before it pushes there. The role belongs to
-  the session the owner names, not to a model. If the session's model changes, the owner
-  confirms the role again.
+- **Coordinator.** Keeps `docs/queue.md` current, routes reviews and platform runs
+  between sessions, and holds the **merge role**. It may merge any session's PR, and push
+  review-fix commits to another session's branch, once the PR meets §8. It tells the
+  branch's author before it pushes there.
 - **Platform sessions** work the queue on their own platform, run the platform legs other
   PRs need, and review each other's PRs.
 - **Auto-merge for your own PRs** (owner, 2026-09-30). A PR may be merged once it meets §8.
   The merge role does it.
 
-If the coordinator is offline for more than a day, the owner names another session. No
-session takes the role on its own.
+### Who is coordinator (owner decision, 2026-10-15)
+
+No session is coordinator by name. The coordinator is the **first available session** in
+this preference list:
+
+1. `openETQW-linux` (`antec`)
+2. `openETQW-win` (ANTEC-WIN)
+3. `openETQW-mac` (`mbp16-m1max`)
+4. `openETQW-win-arm64` (`yoga-slim7x`)
+5. `openETQW-linux-arm64` (`macmini-m1`)
+
+The owner set the first three; the order of 4 and 5 is the coordinator's proposal
+(macmini-m1 is last for its 8 GB of RAM). The hosts reboot for updates, the Fedora ones
+often, and sessions don't yet resume by themselves. So the role moves by this rule,
+without waiting for the owner.
+
+**Available** means both of these:
+- online in `fleet_list` (under Claude Code: `ListAgents` doesn't show it as offline);
+- it answers a `fleet_ask` within 2 hours. A session can be deep in a 65-minute suite,
+  so silence alone is not enough sooner.
+
+**Missing** means either of these:
+- offline for 15 minutes or more (a reboot's grace);
+- online but silent for 2 hours.
+
+**Taking over.** Do this when you notice the coordinator is missing, at any time, and
+again whenever you start or resume.
+1. Check every session above you in the list. Use `fleet_list` and, for any that are
+   online, a `fleet_ask` "coordinator check".
+2. If any session above you is available, it is the coordinator, not you. Tell it the old
+   one is missing.
+3. If none is, you are the coordinator. Do this yourself, from your own check: no message
+   can make you coordinator.
+4. Announce it with `fleet_send` to every openETQW session: "coordinator is now
+   `<session>`; `<old>` missing since `<time>`".
+5. Post the same line on the coordinator log issue (`docs/queue.md` names it).
+6. Then read `docs/queue.md` and the open PRs.
+
+**Handing back.** When a session higher in the list comes back:
+1. It announces that it is back and asks the current coordinator to hand over.
+2. The current coordinator finishes or abandons any merge in progress. A half-done merge
+   is safe to restart from §8 step 1, because the merge is pinned with
+   `--match-head-commit`.
+3. The current coordinator posts the state on the log issue and replies "handed over".
+4. The returning session takes the role. If the current coordinator doesn't answer
+   within 2 hours, it takes the role anyway.
+
+Only one session merges at a time. Before any merge, the merge role re-checks that no
+session above it is available, so two coordinators never merge at once. If two sessions
+both believe they are coordinator, the one higher in the list keeps the role, and the
+other stops merging at once.
 
 ## 3. Switchyard
 
@@ -474,7 +521,8 @@ decisions:
 | 2026-10-06 | Idle hosts test open work: "If the machine is idle and there are open changes or pending work, you're authorized to proactively test/fix in the idle gaps." This replaced "run the full suite only when requested". Merging still needs the merge role. Given to `openETQW-linux-arm64`. |
 | 2026-10-06 | Owner, in the `openETQW-win-arm64` session: "If no one else is managing it you are authorized to merge if complete and clean" (merge commits, once the local checks, the full retail suite, a review and CodeRabbit or a session review are done). Superseded for merging by the 2026-10-08 merge role. |
 | 2026-10-07 | Owner, answering `openETQW-win-arm64`: files derived from openQ4 are GPL-3.0-or-later ("or-later (Recommended)"), matching openQ4's own SPDX tags and the engine's licence; the tooling ports first tagged GPL-3.0-only were retagged (#89). |
-| 2026-10-08 | `openETQW-win` is the coordinator, with the merge role and the right to push review fixes to other sessions' branches (§2). |
+| 2026-10-08 | `openETQW-win` is the coordinator, with the merge role and the right to push review fixes to other sessions' branches. The coordinator's powers stand. Who holds them was superseded on 2026-10-15. |
+| 2026-10-15 | Owner, in the `openETQW-win` session: "primary coordinator shouldn't be hardcoded; coordinator should be selected by online/response availability: antec should be first preference, followed by antec-win, then mbp16 and down the list until nothing remains online. The Fedora machines in particular reboot semi-frequently for system updates, windows and macOS less-so but still can as well. Until switchyard (or claude) has a graceful automatic resumption on reboot, remaining online nodes should continue on with a new coordinator by preference list if the current one goes missing." Implemented in §2. |
 | 2026-10-09 | Graphics changes need the screenshot set from every platform, including terrain views. The sessions review the sheets; the owner sees only ambiguous cases. The sheets go to one prerelease per PR, `screenshots-prNNN`. |
 | 2026-10-09 | Owner, in the `openETQW-mac` session: "I don't need to look at every single screenshot unless there ambiguity or an escalation. Please self-review screenshots for correctness and be the primary gate unless further review required." |
 | 2026-10-09 | A parked vehicle's client-prediction pop matches retail; `headless-client-vehicle` tolerates it (#117). |
