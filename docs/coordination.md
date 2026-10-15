@@ -15,7 +15,7 @@ One session per platform. Each session runs on its own host and validates there.
 | `openETQW-win-arm64` | `yoga-slim7x` | Windows 11 arm64, MSVC 19.51 | Adreno X1-85; raster only | No Vulkan SDK; glslang comes from `tools/build/build_glslang.py`. |
 | `openETQW-linux` | `antec` | Fedora 44 x86_64, GCC 16.2 | RX 6400 / RADV | Runs headless clients with `SDL_VIDEO_DRIVER=offscreen`. Uses xmat (`jm2/xmat`) to dispatch jobs to other hosts. |
 | `openETQW-linux-arm64` | `macmini-m1` | Fedora 44 Asahi arm64 (16k pages), GCC 16.2 | Apple M1 / Honeykrisp; raster | 8 GB of RAM: run one heavy job at a time. Its frame-rate ceiling is about 205 fps. |
-| `openETQW-mac` | `mbp16-m1max` | macOS 27 arm64, Apple clang 21 | M1 Max / MoltenVK; raster, 120 Hz panel | macOS is arm64 only (owner, 2026-09-30). |
+| `openETQW-mac` | `mbp16-m1max` | macOS 27 arm64, Apple clang 21 | M1 Max / MoltenVK; raster, 120 Hz panel | macOS is arm64 only (owner, 2026-09-30). Shared with `kisakcod-mac`; there is no `~/.host-coordination` here, so the sessions agree by message (§6). Also an xmat build host for `antec`. Older text calls it `mbp-m1max`. |
 
 Each host has the retail 1.5 data at `~/etqw_data` (`C:\Users\<user>\etqw_data` on
 Windows). Exact toolchain versions are in `STATUS.md` § Toolchain and commands.
@@ -133,8 +133,37 @@ stop a game process with `Stop-Process`.
 **Linux (`antec`, `macmini-m1`).** Set `SDL_VIDEO_DRIVER=offscreen` for client tests
 without a desktop. On `macmini-m1`, add `--timeout-multiplier 3` to `meson test`.
 
-**macOS.** Both game client windows open on one display. Don't move them during a
-timing test.
+**macOS (`mbp16-m1max`).** Build the game first, then the engine.
+`build` is the working build directory here (`validate pr` uses its own):
+
+```sh
+ninja -C ~/openETQW-game/build && ninja -C ~/openETQW/build
+ETQW_DATA_PATH=~/etqw_data meson test -C ~/openETQW/build --no-rebuild -j 1 <names>
+```
+
+- Both game client windows open on one display. Don't move them during a timing test.
+- The engine loads the game module from its own directory first:
+  `build/game_arm64.dylib` is a symlink to `~/openETQW-game/build/game_arm64.dylib`. To
+  test another game build, re-point the symlink for the run and restore it. A module in
+  the data's `base/` is ignored while the symlink exists.
+- The engine stages the game's headers only at configure time. After editing game idlib or
+  interface headers, run `meson setup --reconfigure build` in the engine, or it builds
+  against stale headers.
+- When Homebrew upgrades `vulkan-loader`, the old Cellar path stays in Meson's cache and the
+  link fails (`libvulkan.dylib … missing`). Fix it with `meson setup --reconfigure --clearcache build`.
+- The client binary is `build/openETQW-client_arm64`, not an `.app`. Pass it to
+  `screenshot_set.py --client`. Shaders compile at runtime from the tree's `base/vkprogs`,
+  which is gitignored, so stage shader edits with `git add -u` (or `-f`).
+- **Packaging:** see `docs/releasing.md`. The `.app` takes SDL3, the Vulkan loader, MoltenVK and the game
+  module from `Contents/Frameworks`, and MoltenVK through `Contents/Resources/vulkan/icd.d`.
+- **Local Network privacy:** macOS refuses UDP to LAN hosts other than the gateway
+  (`EHOSTUNREACH`) for a terminal app without the Local Network permission. That blocks
+  the M3 `cross-os` legs from this Mac (queue §4, owner-gated). Loopback tests are unaffected.
+- **Before heavy or timing jobs,** message `kisakcod-mac` (same Mac) to hold its builds,
+  and tell it when you're done. It asks before its own heavy builds.
+- **xmat:** this Mac serves `antec`'s controller through `~/.ssh/xmat-forced.sh`, which
+  allows only `xmat host`, `host-file` and `host-info`. Any change under `~/.ssh` is the
+  owner's to make. Never widen those keys unless the owner asks directly.
 
 **Screenshot set (graphics PRs).** See `CONTRIBUTING.md` § Merge gates, item 2. On ANTEC-WIN,
 capture with `--rt both`. On the other hosts, capture with `--rt 0`.
@@ -223,11 +252,13 @@ decisions:
 | Date | Decision |
 |---|---|
 | 2026-09-24 | Hosted CI is off: Actions minutes are gone. Local checks replace it. Both repositories stay private. |
+| 2026-09-24 | Owner, in the `openETQW-mac` session: "We're out of minutes for private repos for now: do you best with independent local reviews until that changes. Do not make the repos public under any circumstances until you hear otherwise from me." Later: "Stay private, gates by convention." Never push the pre-purge backup bundles in `~/openETQW/.agents/backups-2026-09-24-prepurge/`; they hold the purged retail bitmap. |
 | 2026-09-25 | Retail-data testing is manual and local. Automated CI uses no retail data (C12). |
 | 2026-09-30 | Your own PRs merge once checks pass and the review is resolved. Don't wait for CodeRabbit's quota; use a session review. |
 | 2026-09-30 | Shared hosts use host claims (§6). |
 | 2026-09-30 | "Go with your recommendations; see how openQ4 does it when in doubt, with escalation to me if I've differed on it before." |
 | 2026-10-08 | `openETQW-win` is the coordinator, with the merge role and the right to push review fixes to other sessions' branches (§2). |
 | 2026-10-09 | Graphics changes need the screenshot set from every platform, including terrain views. The sessions review the sheets; the owner sees only ambiguous cases. The sheets go to one prerelease per PR, `screenshots-prNNN`. |
+| 2026-10-09 | Owner, in the `openETQW-mac` session: "I don't need to look at every single screenshot unless there ambiguity or an escalation. Please self-review screenshots for correctness and be the primary gate unless further review required." |
 | 2026-10-09 | A parked vehicle's client-prediction pop matches retail; `headless-client-vehicle` tolerates it (#117). |
 | 2026-10-09 | The Discord release announcement is removed and is not to come back. |
