@@ -1,6 +1,9 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 # Contributing
 
+Agents: read `AGENTS.md` first. `docs/coordination.md` has the merge procedure and the
+per-platform commands, and `docs/queue.md` the work queue.
+
 `main` changes only through pull requests. Branch protection is not available on
 these private repositories, so the merge gates below are a convention, not
 enforced by GitHub. Keep to them anyway.
