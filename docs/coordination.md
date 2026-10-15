@@ -133,6 +133,55 @@ stop a game process with `Stop-Process`.
 **Linux (`antec`, `macmini-m1`).** Set `SDL_VIDEO_DRIVER=offscreen` for client tests
 without a desktop. On `macmini-m1`, add `--timeout-multiplier 3` to `meson test`.
 
+**`antec` specifics** (`openETQW-linux`):
+- Scratch goes under `/var/tmp`, never `/tmp`. `/tmp` is a RAM tmpfs with a per-user
+  quota, and it fails with `Disk quota exceeded` mid-build or mid-push. Set
+  `TMPDIR=/var/tmp` for test runs.
+- Fetch and push over HTTPS, as on Windows: tool shells have no SSH agent, so `origin`
+  fails with `Permission denied (publickey)`.
+  `git -c credential.helper='!gh auth git-credential' fetch https://github.com/jm2/openETQW.git +refs/heads/main:refs/remotes/origin/main`
+- To test a PR without touching `~/openETQW`, use worktrees. Run from `~/openETQW`, in one shell
+  (`W` is reused; `pr/N` comes from
+  `git -c credential.helper='!gh auth git-credential' fetch https://github.com/jm2/openETQW.git pull/<N>/head:refs/remotes/pr/<N>`):
+  ```sh
+  W=/var/tmp/oe-<name>; mkdir -p $W
+  git worktree add --detach $W/engine <engine sha or pr/N>
+  git -C ~/openETQW-game worktree add --detach $W/game "$(git show <engine sha or pr/N>:tools/ci/companion.ref)"
+  ln -sfn $W/game $W/openETQW-game     # the engine's meson finds ../openETQW-game
+  (cd $W/game && meson setup build -Duse_pch=false && ninja -C build)
+  cd $W/engine && meson setup build -Duse_pch=false -Dplatform_backend=sdl3 \
+    -Dbuild_engine=true -Dbuild_dedicated=true -Dbuild_games=true -Dbuild_tests=true && ninja -C build
+  ln -sfn ../../openETQW-game/build/game_x64.so build/game_x64.so
+  ```
+  Without the four `-Dbuild_*` options the engine configures, but no binaries are built.
+  Remove the worktrees afterwards: `git worktree remove --force …`, then `git worktree prune`.
+- Full retail suite in that tree (66 tests, about 65 minutes on 2026-10-09):
+  `SDL_VIDEO_DRIVER=offscreen ETQW_DATA_PATH=$HOME/etqw_data TMPDIR=/var/tmp meson test -C build -j 1 --no-rebuild --logbase <name>`.
+  The full log is `build/meson-logs/<name>.txt`.
+- One stock map: `python3 tests/test_all_stock_maps.py --ded-binary build/openETQW-ded_x64 --jobs 1 --maps slipgate --log-dir <dir>`.
+- `tests/test_valley_objective_adversarial.py` is not a meson test. Run it as a script.
+- Never `pkill -f <pattern>` when the pattern can match your own shell's command line,
+  because it kills the agent's shell. Find the PID with `ps -eo pid,args | grep <name> | grep -v grep`,
+  then `kill <pid>`.
+- `cross-os` skips (exit 77) on antec. A full run is "N OK, 0 fail, 1 skip".
+- `mixed-caps` and `high-refresh-*` A1 measure frame throughput and read low under host
+  load. Before blaming a change, read the `ceiling N` value in the A1 lines: 324–329 fps
+  on a quiet antec (2026-10-09 morning), about 281 when it failed that afternoon. Rerun the
+  test on `main` on the same host. If `main` fails too, it is the host.
+
+**xmat** (`jm2/xmat`; binary `~/xmat/xmat` on antec). It builds one commit on several
+hosts over ssh, with antec as the controller.
+- `openETQW-linux` owns the fleet file (`~/.config/xmat/fleet.toml`) and the target setup
+  for every project. Other projects add only their own `.xmat.toml`.
+- `~/xmat/xmat doctor` checks the targets; `xmat run [<commit>]`, `xmat log <target>` and
+  `xmat get` are the rest.
+- openETQW has no `.xmat.toml` (2026-10-15), so platform runs are done by each host's own
+  session, not by xmat.
+- Setting up a new target needs the owner's approval in that host's own session.
+- Message `openETQW-win` before any xmat run on ANTEC-WIN beyond a quick build.
+- `~/xmat/.git/info/exclude` must list `xmat`; otherwise the binary reports `+dirty`
+  and `doctor` shows a version mismatch.
+
 **macOS.** Both game client windows open on one display. Don't move them during a
 timing test.
 
@@ -151,6 +200,16 @@ and its `README.md` has the format and the PowerShell commands.
   `seat-poses-*`), wait for live `heavy` claims to end.
 - Hold your own claim while you run either one, and delete it when you are done. A claim
   whose `pid` is dead or whose `until` has passed may be deleted by anyone.
+
+**`antec` has no `~/.host-coordination/` (2026-10-15).** Other projects share it:
+`kisakcod-linux`, and Q3A, which builds under `/var/tmp/q3-*`. Coordinate by message:
+- Before a timing run, ask `kisakcod-linux` to hold heavy builds and GPU runs, with an
+  end time. It answers "go" or "busy until X", holds when asked, and says when it is done.
+- When it asks for antec, answer "go", or "busy until X" with your suite's progress.
+- Check `uptime` and `ps -eo pcpu,comm --sort=-pcpu | head` before blaming a timing failure.
+- Messages to non-openETQW sessions are for load and heads-ups only (§9, 2026-10-03).
+
+`macmini-m1` (8 GB) is shared with `kisakcod-linux-arm64`. Announce heavy jobs there first.
 
 ## 7. Reviews
 
@@ -226,6 +285,8 @@ decisions:
 | 2026-09-25 | Retail-data testing is manual and local. Automated CI uses no retail data (C12). |
 | 2026-09-30 | Your own PRs merge once checks pass and the review is resolved. Don't wait for CodeRabbit's quota; use a session review. |
 | 2026-09-30 | Shared hosts use host claims (§6). |
+| 2026-10-03 | "limited to single-thread/one agent per session/machine": no subagents or multi-agent workflows; one session per host does its own planning, work and reviews. |
+| 2026-10-03 | "ensure your messages go to the other openetqw sessions only", with the exception "you can message more widely, but only for machine loading/heads up purposes so we don't overload macmini-m1 especially since it only has 8gb ram". |
 | 2026-09-30 | "Go with your recommendations; see how openQ4 does it when in doubt, with escalation to me if I've differed on it before." |
 | 2026-10-08 | `openETQW-win` is the coordinator, with the merge role and the right to push review fixes to other sessions' branches (§2). |
 | 2026-10-09 | Graphics changes need the screenshot set from every platform, including terrain views. The sessions review the sheets; the owner sees only ambiguous cases. The sheets go to one prerelease per PR, `screenshots-prNNN`. |
