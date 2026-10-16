@@ -9036,27 +9036,6 @@ void sdVulkanBackend::DestroyBuffer( const void* owner ) {
 	DropPendingBufferUploads( *state, removed.buffer );
 }
 
-static void VulkanCreateShadowCache( srfTriangles_t* tri ) {
-	if ( tri == NULL || tri->verts == NULL || tri->numVerts <= 0 ) {
-		return;
-	}
-	idList<shadowCache_t> temp;
-	temp.SetNum( tri->numVerts * 2 );
-	for ( int i = 0; i < tri->numVerts; ++i ) {
-		const float* v = tri->verts[ i ].xyz.ToFloatPtr();
-		temp[ i * 2 + 0 ].xyz[ 0 ] = v[ 0 ];
-		temp[ i * 2 + 1 ].xyz[ 0 ] = v[ 0 ];
-		temp[ i * 2 + 0 ].xyz[ 1 ] = v[ 1 ];
-		temp[ i * 2 + 1 ].xyz[ 1 ] = v[ 1 ];
-		temp[ i * 2 + 0 ].xyz[ 2 ] = v[ 2 ];
-		temp[ i * 2 + 1 ].xyz[ 2 ] = v[ 2 ];
-		temp[ i * 2 + 0 ].xyz[ 3 ] = 1.0f;
-		temp[ i * 2 + 1 ].xyz[ 3 ] = 0.0f;
-	}
-	vertexCache.Alloc( temp.Begin(), tri->numVerts * 2 * sizeof( shadowCache_t ),
-		&tri->shadowCache, false );
-}
-
 // The projection and viewport depth range the base pass draws a surface with
 // (DrawView's per-space submission): the world in [r_depthRangeStartDefault, 1],
 // a weapon in [0, r_depthRangeWeaponHackEnd] with its own field of view and
@@ -9120,10 +9099,11 @@ void DrawVulkanShadowSurface( sdVulkanBackendState& state, const drawSurf_s* sur
 	const srfTriangles_t* tri = surface->geo;
 
 	bool external = false;
+	// The front end gives each light shadow volume geometry (tr_light.cpp's
+	// CreateShadowVolumeGeometry, #124) with its no-caps counts; a count of 0
+	// draws nothing.  Drawing the surface's own triangles instead smeared them to
+	// infinity.
 	int numIndexes = ShadowIndexCount( surface, light, external );
-	if ( numIndexes <= 0 && tri != NULL && tri->numIndexes > 0 ) {
-		numIndexes = tri->numIndexes;
-	}
 	if ( numIndexes <= 0 ) {
 		return;
 	}
@@ -9131,9 +9111,6 @@ void DrawVulkanShadowSurface( sdVulkanBackendState& state, const drawSurf_s* sur
 	if ( tri->shadowCache == NULL && tri->shadowVertexes != NULL && tri->numVerts > 0 ) {
 		vertexCache.Alloc( tri->shadowVertexes, tri->numVerts * sizeof( shadowCache_t ),
 			const_cast<vertCache_t**>( &tri->shadowCache ), false );
-	}
-	if ( tri->shadowCache == NULL && tri->verts != NULL && tri->numVerts > 0 ) {
-		VulkanCreateShadowCache( const_cast<srfTriangles_t*>( tri ) );
 	}
 	if ( tri->indexCache == NULL && tri->indexes != NULL && tri->numIndexes > 0 ) {
 		vertexCache.Alloc( tri->indexes, tri->numIndexes * sizeof( glIndex_t ),

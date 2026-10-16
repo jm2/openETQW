@@ -15,6 +15,9 @@
 #include <cstdint>
 
 static const int SERVER_EMPTY_RESEND_MSEC = 500;
+// a dropped client's disconnect message is resent this long (4 resends): a resend still in
+// flight when the client reconnects into the same slot could advance its new channel's sequence
+static const int SERVER_DISCONNECT_RESEND_MSEC = 2000;
 
 // user info limits: client input is untrusted, and every client's info goes to every client
 static const int USERINFO_MIN_INTERVAL_MSEC	= 1000;	// a client's user info goes out at most this often
@@ -178,6 +181,21 @@ void idAsyncServer::Spawn() {
 void idAsyncServer::Kill() {
 	if ( !active ) {
 		return;
+	}
+	// tell the remote clients (Doom 3), so they leave now instead of timing out on a server that is
+	// gone (#120); the message goes out with a few empty ones, in case one is lost
+	bool told = false;
+	for ( int i = 0; i < MAX_ASYNC_CLIENTS; ++i ) {
+		SendDisconnectToClient( i, "server shut down" );
+		told |= clients[ i ].disconnectPending;
+	}
+	for ( int j = 0; told && j < 3; ++j ) {
+		Sys_Sleep( 10 );
+		for ( int i = 0; i < MAX_ASYNC_CLIENTS; ++i ) {
+			if ( clients[ i ].disconnectPending ) {
+				SendEmptyToClient( i, true );
+			}
+		}
 	}
 	for ( int i = 0; i < MAX_ASYNC_CLIENTS; ++i ) {
 		if ( clients[ i ].clientState != SCS_FREE ) {
@@ -537,6 +555,19 @@ void idAsyncServer::RunFrame() {
 	ProcessConnectionLessMessages();
 	CheckClientTimeouts();
 
+	// a dropped client: its disconnect message is retransmitted in empty messages until the
+	// resend window ends (SERVER_DISCONNECT_RESEND_MSEC), with a map or without one (a drop
+	// while no map is spawned)
+	for ( int i = 0; i < MAX_ASYNC_CLIENTS; ++i ) {
+		if ( clients[ i ].clientState == SCS_ZOMBIE && clients[ i ].disconnectPending ) {
+			if ( realTime - clients[ i ].disconnectTime > SERVER_DISCONNECT_RESEND_MSEC ) {
+				clients[ i ].disconnectPending = false;
+			} else {
+				SendEmptyToClient( i, false );
+			}
+		}
+	}
+
 	// The requested map was denied or failed to load: the server stays up so
 	// an admin can start another map, but there is no game to tick.
 	if ( !sessLocal.MapSpawned() ) {
@@ -674,7 +705,8 @@ void idAsyncServer::MasterHeartbeat( bool force ) {
 }
 
 void idAsyncServer::DropClient( int clientNum, const char* reason ) {
-	if ( clientNum < 0 || clientNum >= MAX_ASYNC_CLIENTS || clients[ clientNum ].clientState == SCS_FREE ) {
+	// a zombie has been dropped already
+	if ( clientNum < 0 || clientNum >= MAX_ASYNC_CLIENTS || clients[ clientNum ].clientState <= SCS_ZOMBIE ) {
 		return;
 	}
 	common->Printf( "client %d dropped: %s\n", clientNum, reason != NULL ? reason : "" );
@@ -686,6 +718,8 @@ void idAsyncServer::DropClient( int clientNum, const char* reason ) {
 		ClearClient( clientNum );
 		return;
 	}
+	// the client is told, so a kick or our timeout of it unloads its map (#119)
+	SendDisconnectToClient( clientNum, reason );
 	clients[ clientNum ].clientState = SCS_ZOMBIE;
 	clients[ clientNum ].lastPacketTime = realTime;
 }
@@ -797,6 +831,8 @@ void idAsyncServer::ClearClient( int clientNum ) {
 	client.numDuplicatedUsercmds = 0;
 	client.isBot = false;
 	client.isMapLoading = false;
+	client.disconnectPending = false;
+	client.disconnectTime = 0;
 	client.guid[ 0 ] = '\0';
 	client.channel.Shutdown();
 }
@@ -1084,7 +1120,8 @@ int idAsyncServer::SendMessageToClient( serverClient_t& client, const idBitMsg& 
 }
 
 bool idAsyncServer::SendEmptyToClient( int clientNum, bool force ) {
-	if ( clientNum < 0 || clientNum >= MAX_ASYNC_CLIENTS || clients[ clientNum ].clientState < SCS_CONNECTED ) {
+	if ( clientNum < 0 || clientNum >= MAX_ASYNC_CLIENTS ||
+		( clients[ clientNum ].clientState < SCS_CONNECTED && !clients[ clientNum ].disconnectPending ) ) {
 		return false;
 	}
 	serverClient_t& client = clients[ clientNum ];
@@ -1099,6 +1136,45 @@ bool idAsyncServer::SendEmptyToClient( int clientNum, bool force ) {
 	SendMessageToClient( client, msg );
 	client.lastEmptyTime = realTime;
 	return true;
+}
+
+/*
+==================
+idAsyncServer::SendDisconnectToClient
+
+Tells a remote client it is dropped (a kick, our timeout of it, the server shutting down), as Doom 3
+does: SERVER_RELIABLE_MESSAGE_DISCONNECT with the reason, sent at once in an empty message. Until
+then a client found out only by timing out, with its map still loaded (#119, #120). The reliable
+message is queued on the channel directly: SendReliableMessage drops the client when the queue is
+full, which would come back here; with a full queue the client times out as before.
+==================
+*/
+void idAsyncServer::SendDisconnectToClient( int clientNum, const char* reason ) {
+	if ( clientNum < 0 || clientNum >= MAX_ASYNC_CLIENTS ) {
+		return;
+	}
+	serverClient_t& client = clients[ clientNum ];
+	if ( clientNum == localClientNum || client.isBot || client.clientState < SCS_CONNECTED ) {
+		return;
+	}
+	byte buffer[ MAX_MESSAGE_SIZE ];
+	idBitMsg msg;
+	msg.InitWrite( buffer, sizeof( buffer ) );
+	msg.BeginWriting();
+	msg.WriteByte( SERVER_RELIABLE_MESSAGE_DISCONNECT );
+	msg.WriteString( reason != NULL ? reason : "" );
+	// the record (+6: its size and sequence) must leave room for the empty message that carries
+	// the queue (4 + queue + 4 + 1, idMsgChannel::SendMessage); a queue that full would hold an
+	// undeliverable disconnect, so the client times out as with a full queue (CodeRabbit, #130)
+	if ( 4 + client.channel.GetReliableSendSize() + msg.GetSize() + 6 + 4 + 1 > MAX_MESSAGE_SIZE ) {
+		return;
+	}
+	if ( !client.channel.SendReliableMessage( msg ) ) {
+		return;
+	}
+	client.disconnectPending = true;
+	client.disconnectTime = realTime;
+	SendEmptyToClient( clientNum, true );
 }
 
 bool idAsyncServer::SendPingToClient( int clientNum ) {

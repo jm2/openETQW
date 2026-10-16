@@ -379,7 +379,8 @@ void idAsyncNetwork::Kick_f( const idCmdArgs &args ) {
 		return;
 	}
 
-	server.DropClient( iclient, "#str_07134" );
+	// Doom 3 sent its string #str_07134 ("was kicked"), which ETQW's string tables do not have
+	server.DropClient( iclient, "kicked" );
 }
 
 /*

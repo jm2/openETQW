@@ -201,6 +201,20 @@ void idAsyncClient::DisconnectFromServer() {
 	Clear();
 }
 
+/*
+==================
+idAsyncClient::DropFromServer
+
+The server ended the connection (a kick, its timeout of us, its shutdown) or went quiet: leave the
+game as Doom 3 does. Session::Stop unloads the map and disconnects (DisconnectFromServer, engine
+#118), so nothing predicts or applies snapshots to an unloaded game; then the menu (#119).
+==================
+*/
+void idAsyncClient::DropFromServer() {
+	session->Stop();
+	session->StartMenu();
+}
+
 void idAsyncClient::GetServerInfo( const netadr_t adr ) {
 	if ( !InitPort() ) {
 		return;
@@ -327,8 +341,8 @@ void idAsyncClient::RunFrame() {
 	}
 
 	if ( CheckTimeout() ) {
-		DisconnectFromServer();
-		session->StartMenu();
+		common->Printf( "Server connection timed out\n" );
+		DropFromServer();
 		return;
 	}
 
@@ -355,6 +369,9 @@ void idAsyncClient::RunFrame() {
 			predictedGameFrame++;
 		}
 		ProcessReliableServerMessages();
+		if ( !active ) {
+			return;	// the server dropped us (DropFromServer): the map is unloaded
+		}
 
 		// com_unlockFPS 0 draws no render-only frame (idCommonLocal::Frame), so none is prepared.
 		// M5 step 10 (D7): a frame that ran a tick is prepared too, with the last tick's
@@ -683,10 +700,14 @@ void idAsyncClient::ProcessReliableServerMessages() {
 	while ( active && channel.GetReliableMessage( msg ) ) {
 		const int type = msg.ReadByte();
 		switch ( type ) {
-			case SERVER_RELIABLE_MESSAGE_DISCONNECT:
-				DisconnectFromServer();
-				session->StartMenu();
+			case SERVER_RELIABLE_MESSAGE_DISCONNECT: {
+				// a kick, the server's timeout of us or its shutdown (idAsyncServer::SendDisconnectToClient)
+				char reason[ MAX_STRING_CHARS ];
+				msg.ReadString( reason, sizeof( reason ) );
+				common->Printf( "Disconnected by server: %s\n", reason );
+				DropFromServer();
 				return;
+			}
 			case SERVER_RELIABLE_MESSAGE_GAMEINIT: {
 				// Loads the map here, so the reliable messages after it (the new
 				// game's state) are handled on the new map.
@@ -763,9 +784,9 @@ void idAsyncClient::ProcessConnectResponseMessage( const netadr_t from, const id
 }
 
 void idAsyncClient::ProcessDisconnectMessage( const netadr_t from, const idBitMsg& msg ) {
-	if ( Sys_CompareNetAdrBase( from, serverAddress ) ) {
-		DisconnectFromServer();
-		session->StartMenu();
+	if ( active && Sys_CompareNetAdrBase( from, serverAddress ) ) {
+		common->Printf( "Disconnected by server\n" );
+		DropFromServer();
 	}
 }
 
@@ -830,6 +851,9 @@ void idAsyncClient::ProcessMessage( const netadr_t from, idBitMsg& msg ) {
 		serverMessageSequence = sequence;
 		lastPacketTime = realTime;
 		ProcessReliableServerMessages();
+		if ( !active ) {
+			return;	// dropped by a reliable message: no snapshot for the unloaded map
+		}
 		ProcessUnreliableServerMessage( msg );
 	}
 }
