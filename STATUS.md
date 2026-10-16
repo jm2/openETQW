@@ -83,12 +83,12 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 2026-10-15/16, `openETQW-linux` on `antec`, as coordinator. The owner asked to burn down the PRs opened before 2026-10-15 and to bring the status docs current. Other sessions did platform runs and reviews (`openETQW-win`, `-mac`, `-win-arm64`, `-linux-arm64`). Earlier sessions' plans are in git history and their PR descriptions; the tables below keep their merges.
 
 **Merged:**
-- **#130** (2bd4501, 2026-10-16): the server tells a dropped client (kick, its timeout of the client, its shutdown), and the client unloads its map; `disconnect` on a listen host ends its server (#119, #120; ledger 075). meson `client-server-kick`, `client-server-timeout`, `listen-host-disconnect`. Reviewed by `openETQW-linux-arm64` and CodeRabbit (three findings, all fixed). Runs: Linux x64 full suite on `antec`, Windows x64 and macOS (the 9 network tests), Linux arm64.
-- **#129** (667db63, 2026-10-16, `openETQW-win-arm64`): raster stencil shadows build real shadow volumes, so #124's black shards over terrain are gone (ledger 074); GPU-skinned casters cast no stencil volume. Reviewed by `openETQW-mac`; screenshot sets approved on all five GPUs (Windows x64 RT on/off, win-arm64, Linux x64, Linux arm64, macOS); full suite on win-arm64 62/0/1.
+- **#130** (2bd4501, 2026-10-16): the server tells a dropped client (kick, its timeout of the client, its shutdown), and the client unloads its map; `disconnect` on a listen host ends its server (#119, #120; ledger 075). meson `client-server-kick`, `client-server-timeout`, `listen-host-disconnect`. Reviewed by `openETQW-linux-arm64` (one finding) and CodeRabbit (two findings); all fixed. Runs: Linux x64 full suite on `antec`, Windows x64 and macOS (the 9 network tests), Linux arm64.
+- **#129** (667db63, 2026-10-16, `openETQW-win-arm64`): raster stencil shadows build real shadow volumes, so #124's black shards over terrain are gone (ledger 074); GPU-skinned casters cast no stencil volume. Reviewed by `openETQW-mac`; screenshot sets approved on all five platforms, four GPU models (Windows x64 RT on/off, win-arm64, Linux x64, Linux arm64, macOS); full suite on win-arm64 62/0/1.
 
-**Filed:** #126 (all-stock-maps: slipgate teleporter samples), #134 (retail shadow distance limits not applied), #135 (`mixed-caps` B 240 A1 sits at its threshold on antec), #136 (`bot-gameplay`: the bots sometimes never engage). None loosens a test.
+**Filed:** #134 (retail shadow distance limits not applied, by `openETQW-win-arm64`), #135 (`mixed-caps` B 240 A1 sits at its threshold on antec), #136 (`bot-gameplay`: the bots sometimes never engage); earlier, on 2026-10-09, #126 (all-stock-maps: slipgate teleporter samples). None loosens a test.
 
-**Open:** PR #132 (the agent runbook; needs the owner's own approval and the owner's Switchyard user name).
+**Open:** PR #132 (the agent runbook; needs the owner's own approval and the owner's Switchyard user name) and PR #137 (this STATUS update).
 
 ### Merged on 2026-09-25
 | Repo | PR (merge) | What |
@@ -131,7 +131,7 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 | game | #14 2485998 (`ci/refresh-engine-pin-and-blockers`) | CI facts: engine contract pin 84a224b -> cba54bb (engine main after #25); the contract legs' blocker reasons as they stand (the engine builds on Linux and with MSVC); Windows x64 legs on `windows-2025-vs2026`; zlib from vcpkg on the Windows contract leg |
 
 ### Open and pending
-- **Open PRs (2026-10-16):** #132, the agent runbook (`AGENTS.md`, `docs/coordination.md`, `docs/queue.md`), a draft that needs the owner's own approval and the owner's Switchyard user name. No other PR is open in either repository.
+- **Open PRs (2026-10-16):** #132, the agent runbook (`AGENTS.md`, `docs/coordination.md`, `docs/queue.md`), a draft that needs the owner's own approval and the owner's Switchyard user name; #137, this STATUS update. No other PR is open in either repository.
 - **Open issues to work, in `docs/queue.md` order:** #128 (raster shadows: casters outside the view), #134 (retail shadow distance limits), #122 (GDF rifle viewmodel dark on raster; needs a retail reference), #127 (`+set r_mode` ignored at startup), #126, #135 and #136 (test flakes: slipgate teleporter samples, `mixed-caps` on antec, `bot-gameplay` engagement).
 - **M5 step 14b, the hull lead: plan (2026-10-06, the Mac session; `docs/hull-lead.md`).**
   - A first measurement (`tools/analysis/veh_pred.py` over `g_determinismTest 2`'s `VEH_TRACE`, on this Mac):
@@ -481,7 +481,7 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
 - Loss and jitter simulation (POSIX and, since 2026-09-28, Windows) keeps packet order. Since 2026-10-08 `net_forceReorder` (percent) and `net_forceReorderDelay` (ms) hold received packets back so later ones overtake them, and each process reports how many it released out of order (`NET_REORDER`). meson `remote-client-map-change-reorder` (20 ms link, 20% reordered by up to 60 ms, base check) and `multiclient-gameplay-reorder` (40 ms link, 20%, 60 ms, base check) pass on win-arm64, Windows x64 and Linux arm64; no netcode failure was found. The counts are per socket, so a server's covers all its clients. A packet that arrives after a later one is dropped by the channel (`idMsgChannel` drops a sequence at or below the last one it accepted), so on the wire a reordered packet acts as a loss that the snapshot stream and the reliable resend recover, as they do for `net_forceDrop`.
 
 **M4 (full match): partial. The gameplay transitions are shown by tests with bots and helper commands; a full match played by bots or people is not.**
-- meson `m4-*` (2026-10-08/09, #104 and #107 with game #45/#47; valley unless noted; read from the server's `g_logGameEvents` lines):
+- meson `m4-*` (2026-10-08/09, #104 and #107 with game #45/#47; valley unless noted; read from the server's `g_logGameEvents` lines, except `m4-deployable`, which reads `g_debugDeployables` and `deployStatus`):
   - `m4-classes`: each of the ten classes spawns with its retail 1.5 kit;
   - `m4-damage-kills`: a hit damages, hits kill (one KILL line with victim, attacker, teams and damage decl), and the dead player spawns again;
   - `m4-deployable`: a deployable is requested with the deploy checks on, carried in and landed, for each team;
@@ -579,10 +579,12 @@ The shared, owner-ordered list is `docs/queue.md` (PR #132); this table follows 
 | 1 | M5 step 14b, the hull lead (`docs/hull-lead.md`; ledger 067, off by default): a network client's `VEH_PRED` numbers per class, then the owner's review on a high-refresh display | any; owner | owner review | The owner's per-class bound and default seat list |
 | 2 | M5 step 3's last part: frame-pose capture in vehicle seats. First check whether `seat-poses-join`/`-listen` already cover it | any | none | `docs/m5-plan.md` step 3 marked done with its checks, or `frame-poses-*` seat checks with a negative control |
 | 3 | M5 step 14, the remaining seats: `pivot` and `freepivot` views | any | none | `seat-poses` covers them; the owner picks the default seats |
-| 4 | Shadows after #129: casters outside the view cast no shadow (#128); retail's shadow distance limits (#134) | raster GPU (win-arm64, Linux, macOS) | none | Screenshot set on every GPU; `seat-poses-join` jetpack frame rate back to `main`'s |
+| 4 | M4, what is left: a match played out by bots (they play no objectives), and a started match on maps beyond the campaign's three | any | none | New meson tests pass on the retail 1.5 data on two platforms |
 | 5 | Retail data discovery: the Linux folder picker; a person tries the macOS and Windows pickers | Linux; owner | none | A package started from its own directory finds a configured ET:QW install |
 | 6 | Provenance labels: the minizip relabel and the other label questions (`docs/provenance.md` §6) | any | none | `provenance_post_split.py` no gap; game `check_spdx.py` passes; §6 rows resolved |
 | 7 | `docs/platform-matrix.md` (release gate, M7) | any | none | Every platform's verified items with evidence level, host and commit |
+
+The open issues (`docs/queue.md` §2) run beside these, the shadow follow-ups first: #128 (casters outside the view) and #134 (retail's shadow distance limits), both raster-path graphics changes that need the screenshot set.
 
 ## Inputs needed from the owner
 - Optional: `Loaded pk4 ... with checksum` lines from other-language editions (`pak000`–`pak004`), so the retail-install check can accept them.
