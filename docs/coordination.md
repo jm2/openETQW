@@ -363,9 +363,11 @@ ETQW_DATA_PATH=~/etqw_data meson test -C ~/openETQW/build --no-rebuild -j 1 <nam
 - **Packaging:** see `docs/releasing.md`. The `.app` takes SDL3, the Vulkan loader, MoltenVK and the game
   module from `Contents/Frameworks`, and MoltenVK through `Contents/Resources/vulkan/icd.d`.
 - **Local Network privacy:** non-Apple binaries started from this session (python, the
-  game client and server) get `EHOSTUNREACH` for UDP and TCP to other LAN hosts. The session's
-  tmux server runs under launchd, so macOS shows no prompt and lists no app to switch on.
-  Apple binaries (`nc`, `ping`, `ssh`) are exempt, so don't probe with them. That blocks
+  game client and server) get `EHOSTUNREACH` for UDP and TCP to other LAN hosts. Apple's
+  TN3179 exempts tools run from Terminal or over SSH, and their children, but not launchd
+  agents. The session's tmux server has been reparented to launchd (ppid 1, observed
+  2026-10-16), so its children lose the Terminal exemption, and macOS shows no prompt and
+  lists no app. Apple binaries (`nc`, `ping`, `ssh`) succeed anyway, so don't probe with them. That blocks
   the M3 `cross-os` legs from this Mac (queue §4, owner-gated). Loopback tests are unaffected.
 - **Before heavy or timing jobs,** message `kisakcod-mac` (same Mac) to hold its builds,
   and tell it when you're done. It asks before its own heavy builds.
