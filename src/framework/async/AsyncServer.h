@@ -128,7 +128,8 @@ typedef struct serverClient_s {
 	int					numDuplicatedUsercmds;
 	bool				isBot;
 	bool				isMapLoading;
-	bool				disconnectPending;	// a zombie told it was dropped (SendDisconnectToClient): its channel keeps going until the zombie timeout
+	bool				disconnectPending;	// a zombie told it was dropped (SendDisconnectToClient): its channel keeps going for SERVER_DISCONNECT_RESEND_MSEC
+	int					disconnectTime;		// when it was told (realTime)
 
 	char				guid[12];  // Even Balance - M. Quinn
 

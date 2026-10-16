@@ -15,6 +15,9 @@
 #include <cstdint>
 
 static const int SERVER_EMPTY_RESEND_MSEC = 500;
+// a dropped client's disconnect message is resent this long (4 resends): a resend still in
+// flight when the client reconnects into the same slot could advance its new channel's sequence
+static const int SERVER_DISCONNECT_RESEND_MSEC = 2000;
 
 // user info limits: client input is untrusted, and every client's info goes to every client
 static const int USERINFO_MIN_INTERVAL_MSEC	= 1000;	// a client's user info goes out at most this often
@@ -553,10 +556,15 @@ void idAsyncServer::RunFrame() {
 	CheckClientTimeouts();
 
 	// a dropped client: its disconnect message is retransmitted in empty messages until the
-	// zombie times out, with a map or without one (a drop while no map is spawned)
+	// resend window ends (SERVER_DISCONNECT_RESEND_MSEC), with a map or without one (a drop
+	// while no map is spawned)
 	for ( int i = 0; i < MAX_ASYNC_CLIENTS; ++i ) {
 		if ( clients[ i ].clientState == SCS_ZOMBIE && clients[ i ].disconnectPending ) {
-			SendEmptyToClient( i, false );
+			if ( realTime - clients[ i ].disconnectTime > SERVER_DISCONNECT_RESEND_MSEC ) {
+				clients[ i ].disconnectPending = false;
+			} else {
+				SendEmptyToClient( i, false );
+			}
 		}
 	}
 
@@ -824,6 +832,7 @@ void idAsyncServer::ClearClient( int clientNum ) {
 	client.isBot = false;
 	client.isMapLoading = false;
 	client.disconnectPending = false;
+	client.disconnectTime = 0;
 	client.guid[ 0 ] = '\0';
 	client.channel.Shutdown();
 }
@@ -1158,6 +1167,7 @@ void idAsyncServer::SendDisconnectToClient( int clientNum, const char* reason ) 
 		return;
 	}
 	client.disconnectPending = true;
+	client.disconnectTime = realTime;
 	SendEmptyToClient( clientNum, true );
 }
 
