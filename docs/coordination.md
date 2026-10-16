@@ -236,9 +236,11 @@ without a desktop. On `macmini-m1`, add `--timeout-multiplier 3` to `meson test`
   then `kill <pid>`.
 - `cross-os` skips (exit 77) on antec. A full run is "N OK, 0 fail, 1 skip".
 - `mixed-caps` and `high-refresh-*` A1 measure frame throughput and read low under host
-  load. Before blaming a change, read the `ceiling N` value in the A1 lines: 324–329 fps
-  on a quiet antec (2026-10-09 morning), about 281 when it failed that afternoon. Rerun the
-  test on `main` on the same host. If `main` fails too, it is the host.
+  load. Compare a test's `ceiling N` only with the same test's earlier runs: on a quiet
+  antec the single-client tests read 324–329 fps, and `mixed-caps` (two clients) about 282.
+  `mixed-caps` B's 240 cap sits at its A1 threshold there and flakes (#135). Before blaming
+  a change, rerun the test on `main` on the same host; if `main` fails too, it is not the
+  change.
 
 **`yoga-slim7x` specifics** (`openETQW-win-arm64`; Windows 11 arm64, Snapdragon X, Adreno X1-85):
 - The tool shell is Git Bash. Build and test through a `.bat` wrapper so MSVC's environment

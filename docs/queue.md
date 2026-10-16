@@ -6,25 +6,27 @@ in order, and every PR that changes an item's state updates its row. `owner` nam
 session that holds the item; `—` means nobody does. Before taking an item, check its PR or
 issue for anything newer than this file.
 
-Updated: 2026-10-15 by `openETQW-win`. Work has been paused since 2026-10-09 for the weekly
-quota; nothing has merged since #131.
+Updated: 2026-10-16 by `openETQW-linux` (coordinator). #130 and #129 merged on 2026-10-16;
+the PRs opened before 2026-10-15 are all merged.
 
 ## 1. Open PRs, in merge order
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
-| [#129](https://github.com/jm2/openETQW/pull/129) | Raster stencil shadows build real volumes; fixes #124's black shards. Ledger 074. | `openETQW-win-arm64` | 75b4455 | (1) Answer CodeRabbit's finding at `src/renderer/tr_light.cpp:2122` (cached vertex welds may go stale on a cache hit). (2) Merge `main` and regenerate the manifest (coordination §8). (3) Rerun the full retail suite at the new head on win-arm64. (4) All five screenshot sets at the new head, compared against `main` and uploaded to `screenshots-pr129` (coordination §8): 75b4455 changed which casters get volumes, so the sets taken at 73fca6b (win-arm64, macOS APPROVE, Linux arm64) are stale. (5) An independent review that looks at every sheet. **Open question:** on a network client the jetpack seat draws 85 pairs against `main`'s 108; find the cause or show it is unrelated. What is known (win-arm64): it is the GPU (`fence_ms` about 18 of 23 ms per frame at 73fca6b); 75b4455's skipping of `noShadow`, weapon- and model-depth-hacked casters fixed `seat-poses-join` I1c (18 to 28 pairs) but not the whole gap; on foot at the same spot the PR is faster than `main` (189 vs 143 fps), and `seat-poses-devmap`/`-listen` pass, so look at what a remote client draws in the jetpack seat. A devmap repro with `enterVehicle 0 vehicle_icarus` drew no frame timing; use the `seat-poses-join` harness with `com_logFrameTiming 1` added to the client's cvars, and the `Vulkan shadow volumes:` shutdown line. `m4-campaign` failed once at 73fca6b with the headless client exiting 0xC0000005 and passed on rerun; it is not this PR, since the dedicated binary does not compile `tr_light.cpp`. The valley tank's shadow question (issuecomment-6085445717) needs someone who knows retail's valley; if nobody does, ask the owner. |
-| [#130](https://github.com/jm2/openETQW/pull/130) | The server tells a dropped client, and `disconnect` ends a listen host's server (#119, #120). Ledger 075. | `openETQW-linux` | 514bcac | After #129 merges: (1) merge `main` and regenerate the manifest; (2) run `client-server-kick`, `client-server-timeout`, `listen-host-disconnect`, `client-error-drop`, `client-error-load-drop`, `remote-client-map-change`, `reconnect-restart`, `client-network-join` and `client-network-listen` on Windows x64; (3) answer CodeRabbit's finding at `src/framework/async/AsyncServer.cpp:1113`; (4) get an independent review. macOS and Linux arm64 each passed 9/9 at 514bcac. Linux x64 (antec), full suite at 568b101 (the same code; only the ledger number and manifest changed since): 64 OK, 1 fail (`mixed-caps` A1, environmental: `main` 7782751 failed it the same way on the same host), 1 skip. The merge with #129 will conflict in `docs/compat-ledger.md`, where both insert a row after 073: keep 074 (#129), then 075 (#130). The worktree is `/var/tmp/openetqw-net/engine` on antec, branch `net/client-drop-stop`. |
+| [#132](https://github.com/jm2/openETQW/pull/132) | This runbook: `AGENTS.md`, `docs/coordination.md`, `docs/queue.md`. | coordinator | (branch head) | The owner's own approval, and the owner's Switchyard user name in §3. |
+| [#137](https://github.com/jm2/openETQW/pull/137) | `STATUS.md` current after #129 and #130. Docs only. | `openETQW-linux` | (branch head) | An independent review. |
 
 ## 2. Open issues, in priority order
 
 | # | What | Owner | Next step |
 |---|---|---|---|
-| [#128](https://github.com/jm2/openETQW/issues/128) | Raster stencil shadows: casters outside the view cast no shadow. | — | After #129. Raster path, so test on win-arm64, Linux arm64 or macOS. A graphics change, so it needs the screenshot set. |
+| [#128](https://github.com/jm2/openETQW/issues/128) | Raster stencil shadows: casters outside the view cast no shadow. | — | #129 is merged. Raster path, so test on win-arm64, Linux arm64 or macOS. A graphics change, so it needs the screenshot set. |
+| [#134](https://github.com/jm2/openETQW/issues/134) | Raster shadows: retail's `shadowVisDistMult` / `shadowProjectDist` limits are not applied, so far props' sun volumes fill the stencil (the jetpack seat on a network client: 84 draw pairs against 113 without entity casters). | — | Read what retail's renderer does with them first; don't guess. A graphics change: screenshot set. |
 | [#122](https://github.com/jm2/openETQW/issues/122) | GDF rifle viewmodel: near-black on raster, tan with ray tracing. | `openETQW-win` | Get a retail reference first: a retail 1.5 screenshot from the owner, or published retail footage. Until then, don't change either path. Escalate to the owner if no reference turns up. |
 | [#127](https://github.com/jm2/openETQW/issues/127) | `+set r_mode N` on the command line is ignored at startup. | — | Any platform. Small. Fixing it lets `screenshot_set.py` capture above 640x480. |
 | [#126](https://github.com/jm2/openETQW/issues/126) | `all-stock-maps`: slipgate's `aas_area_validity` flakes on teleporter transit samples. | — | Test-only fix: exclude samples taken in transit, and explain why in the PR. Don't loosen the bound (`AGENTS.md` rule 4). |
-| — | `antec`: `mixed-caps` misses A1 at times. | `openETQW-linux` | Likely load on the host, such as the owner's GNOME indexer. Run it on a quiet host before treating it as a bug. Seen on 2026-10-09: B's 240 cap read 233–234 fps in "turn" (need ≥ 235.2), with a `ceiling` of about 281, against 324–329 that morning; `main` 7782751 failed it identically. kisakcod-linux's runs changed no GPU setting. The GNOME session was already up during the morning's good runs, so the indexer (`localsearch-3`) is the remaining suspect; it is the owner's to pause. |
+| [#135](https://github.com/jm2/openETQW/issues/135) | `mixed-caps`: B's 240 cap A1 'turn' sits at its threshold on `antec` (233–235.3 fps against 235.2; the test's own ceiling is about 282 with two clients) and fails on `main` too. | — | Find what costs B frames while turning with a second client, or ask the owner about B's high cap on antec. Not a host-load problem (the 2026-10-09 'ceiling drop' note compared different tests). |
+| [#136](https://github.com/jm2/openETQW/issues/136) | `bot-gameplay`: the two bots sometimes never engage in the window. | — | Make the encounter deterministic; don't loosen the check. |
 | — | `screenshot_set.py`: the canyon anchor is indoors. | — | Add an outdoor canyon anchor; take eye positions from `getviewpos`. |
 
 ## 3. Milestone work, in order
@@ -94,7 +96,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 
 ## 5. Recently done
 
-#131 (removed the Discord announcement), #125 (the screenshot tool and rule), #123 (the
+#130 (dropped clients are told; listen-host `disconnect` ends its server), #129 (raster shadow volumes; #124 fixed), #131 (removed the Discord announcement), #125 (the screenshot tool and rule), #123 (the
 raster sky), #118 (Stop disconnects the client), #117 (the vehicle-pop tolerance),
 #112 (the Windows retail-data folder picker). Older work is in `STATUS.md` and the merged
 PRs.
