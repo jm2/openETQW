@@ -43,10 +43,11 @@ Each item names its acceptance test. Details are in the linked plan.
 3. **M5 step 14, the remaining seats:** `pivot` and `freepivot` views wait for joint
    blending and stage 5 (`docs/vehicle-responsiveness.md`). Acceptance: `seat-poses`
    covers them, and the owner decides which seats join the default list.
-4. **M4 gameplay tests** (`STATUS.md` § Milestones, M4): classes, damage and kills,
-   deployable delivery, a defender or time-limit win, stopwatch and campaign transitions,
-   and a started match on maps other than Valley. Acceptance: new meson tests pass on the
-   retail 1.5 data on two platforms (any two; STATUS's older "macOS arm64" is just where the work started).
+4. **M4, what is left** (`STATUS.md` § Milestones, M4). Done: classes, damage and kills,
+   deployable delivery, both match endings, stopwatch and campaign transitions (meson
+   `m4-*`, #104 and #107). Left: a match played out by bots (they play no objectives), and
+   a started match on maps beyond the campaign's three. Acceptance: new meson tests pass on
+   the retail 1.5 data on two platforms.
 5. **Retail data discovery** (`STATUS.md` § Next steps, item 7): the Linux folder picker,
    and a person trying the macOS and Windows pickers (owner).
 6. **Provenance labels** (`docs/provenance.md` §6): the minizip relabel and the other
