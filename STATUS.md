@@ -2,12 +2,12 @@
 
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
-Updated: 2026-09-30 · session/agent: Claude Code integrator session 3a9edf51 · host: mbp16-m1max, macOS 27.0 (Darwin 27.0.0), arm64 (Apple M1 Max)
-Engine repo `~/openETQW`: `main` with M5 step 14a (`tools/ci/companion.ref` pins game b709345) · game repo `~/openETQW-game`: `main` b709345 (PR #23, merged 2026-09-30) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (new jmarshall commits since last session: none; upstream checked 2026-09-24)
+Updated: 2026-10-16 · session/agent: `openETQW-linux` (Claude Code), coordinator · host: `antec`, Fedora 44 x86_64 (Linux 7.2.10), RX 6400 / RADV
+Engine repo `~/openETQW`: `main` 667db63 (#129; `tools/ci/companion.ref` pins game 28be6b6) · game repo `~/openETQW-game`: `main` 28be6b6 (game #50) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (upstream last checked 2026-09-24)
 
 Engine SHAs quoted in older docs (`CHECKPOINT_STOCK_MAPS_PHASE.md`, ledger rows, earlier STATUS text) may not resolve in the current history, and neither do some of the game's historical `tools/ci/engine.ref` pins.
 
-**Integrator role:** held by Claude Code integrator session 3a9edf51 on mbp16-m1max
+**Coordinator and merge role:** chosen by availability (owner, 2026-10-15): the first online session in the order `openETQW-linux` (antec), `openETQW-win`, `openETQW-mac`, `openETQW-win-arm64`, `openETQW-linux-arm64`. Held by `openETQW-linux` since 2026-10-15; each handover is logged on issue #133. The procedures are in `docs/coordination.md` and the work queue in `docs/queue.md` (both on PR #132 until it merges).
 
 ## Owner decisions in effect
 D1 public source and binaries · D2 all RE methods · D3 hard fork · D4 macOS / Windows 11 / Arch / Fedora / Debian, inputs on request · D5 two repos: GPL-3.0-or-later engine; SDK license + MIT game · D6 Meson · D7 clean network break from retail 1.5 (2026-09-22; deferred 2026-09-24; **dropped 2026-09-25**: OpenETQW does not aim for retail 1.5 network compatibility, matching openQ4; retail 1.5 data stays required and supported)
@@ -80,11 +80,15 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 
 ## This session
 
-2026-09-30, the Linux session on `antec` (beside the macOS and Windows sessions). Earlier sessions' plans are in git history and their PR descriptions; the tables below keep their merges.
+2026-10-15/16, `openETQW-linux` on `antec`, as coordinator. The owner asked to burn down the PRs opened before 2026-10-15 and to bring the status docs current. Other sessions did platform runs and reviews (`openETQW-win`, `-mac`, `-win-arm64`, `-linux-arm64`). Earlier sessions' plans are in git history and their PR descriptions; the tables below keep their merges.
 
-**Plan, and why it advances the engine:**
-- M5 step 6, no presentation values in tick, snapshot or AoR state: the network test first (game #22, engine #43; merged), then OpenETQW's vehicle-view code back to the SDK (game #24, engine #46). The frame rate must not change authoritative state on a server or a client before step 18 raises the default cap.
-- Each step's tests assert what it restored, its known gaps go as it lands, and the docs follow the evidence.
+**Merged:**
+- **#130** (2bd4501, 2026-10-16): the server tells a dropped client (kick, its timeout of the client, its shutdown), and the client unloads its map; `disconnect` on a listen host ends its server (#119, #120; ledger 075). meson `client-server-kick`, `client-server-timeout`, `listen-host-disconnect`. Reviewed by `openETQW-linux-arm64` and CodeRabbit (three findings, all fixed). Runs: Linux x64 full suite on `antec`, Windows x64 and macOS (the 9 network tests), Linux arm64.
+- **#129** (667db63, 2026-10-16, `openETQW-win-arm64`): raster stencil shadows build real shadow volumes, so #124's black shards over terrain are gone (ledger 074); GPU-skinned casters cast no stencil volume. Reviewed by `openETQW-mac`; screenshot sets approved on all five GPUs (Windows x64 RT on/off, win-arm64, Linux x64, Linux arm64, macOS); full suite on win-arm64 62/0/1.
+
+**Filed:** #126 (all-stock-maps: slipgate teleporter samples), #134 (retail shadow distance limits not applied), #135 (`mixed-caps` B 240 A1 sits at its threshold on antec), #136 (`bot-gameplay`: the bots sometimes never engage). None loosens a test.
+
+**Open:** PR #132 (the agent runbook; needs the owner's own approval and the owner's Switchyard user name).
 
 ### Merged on 2026-09-25
 | Repo | PR (merge) | What |
@@ -127,6 +131,8 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 | game | #14 2485998 (`ci/refresh-engine-pin-and-blockers`) | CI facts: engine contract pin 84a224b -> cba54bb (engine main after #25); the contract legs' blocker reasons as they stand (the engine builds on Linux and with MSVC); Windows x64 legs on `windows-2025-vs2026`; zlib from vcpkg on the Windows contract leg |
 
 ### Open and pending
+- **Open PRs (2026-10-16):** #132, the agent runbook (`AGENTS.md`, `docs/coordination.md`, `docs/queue.md`), a draft that needs the owner's own approval and the owner's Switchyard user name. No other PR is open in either repository.
+- **Open issues to work, in `docs/queue.md` order:** #128 (raster shadows: casters outside the view), #134 (retail shadow distance limits), #122 (GDF rifle viewmodel dark on raster; needs a retail reference), #127 (`+set r_mode` ignored at startup), #126, #135 and #136 (test flakes: slipgate teleporter samples, `mixed-caps` on antec, `bot-gameplay` engagement).
 - **M5 step 14b, the hull lead: plan (2026-10-06, the Mac session; `docs/hull-lead.md`).**
   - A first measurement (`tools/analysis/veh_pred.py` over `g_determinismTest 2`'s `VEH_TRACE`, on this Mac):
     - stage 7's physics step about the centre of mass is essentially exact in free flight (anansi median 0.005 u);
@@ -140,6 +146,7 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
   - Built 2026-10-07 (ledger 067), off by default (`g_unlock_vehicleLead`; built-in list empty): at L = 1 the drawn hull's median error against the true path falls from 7–16 u to 0.01–0.26 u (`docs/hull-lead.md` §7).
   - Next: a network client's `VEH_PRED` numbers, the human review on a high-refresh display, and the owner's per-class bound.
   - Owner questions: three are below, and the fourth is the existing decay question (`vehicle-responsiveness.md` §5.1 item 7).
+### Done, formerly listed as open (2026-09-26 to 2026-10-01; kept for the record)
 - **M5 step 6, no presentation values in tick, snapshot or AoR state** (2026-09-30).
   - First half, merged: game #22 (cd18aee) and engine #43 (7368e68): the vehicle view probe (`g_logVehicleViews`: `AOR_VIEW`, `VIEW_STATE`), `cycleVehicleCamera`, and meson `vehicle-view-net` with the old behaviour as its known gaps (numbers in `docs/m5-plan.md` step 6). The test runs two Vulkan clients, each with its own window (the listen host and the remote client; a headless remote client crashes in a vehicle, Known broken). At engine 7368e68 / game cd18aee it passed on Linux (`antec`, `SDL_VIDEO_DRIVER=offscreen`), macOS arm64 (MoltenVK, both windows overlapping on one display; 52.2 s) and Windows x64 (a real desktop; debugoptimized 42.8 s, debug 58.9 s), each with the known gaps in their shapes.
   - Second half, game #24 and engine #46 (branches `m5/6-no-presentation-in-tick`): the `originlog` reset at the pose log (C8, ledger 057), the draw-time proxy guard (C1, ledger 056), the proxy branch, `ClientUpdateInterpolation` and the chassis logs deleted (C2, C3), the `UpdateModelTransform` early return removed (C4), and the damped and smooth vehicle views back to SDK code (C5, C6; ledger 029 widened). `KNOWN_VIEW_LEAK`, `ENTRY_LEAK` and `vehicle-view-net`'s known gaps are gone. On `antec`: `SIM_VIEW` identical to cap 30 at every cap with the game at C2 alone; at the head `high-refresh-determinism` (2 runs), `seat-gate` (2), `vehicle-view-net` with N0–N5 asserted (3), `vehicle-physics-golden` (exact), `frame-poses-join`, `frame-poses-listen` and `valley-match` pass, and `vehicle-view-net` against game `main` fails N1, N4 and N5 (numbers in `docs/m5-plan.md` step 6). `frame-poses-listen` missed A1 at cap 240 twice while the host was busy (its turn phase, 234.1 and 231.1 against 235.2 fps), as the full suite saw once on the probe alone; on a quiet host it passed 3 of 3 with the revert and 3 of 3 on game `main`. The full suite with the revert (2026-09-30, 38/39) failed only `frame-poses-join`'s same check (turn 233.8 fps, uncapped ceiling 321), which passed 3 of 3 on a quiet host after the rebase onto step 14a (turn 238.0–238.7). At engine a695b8c / game fd2bcc9 the four flipped tests (`high-refresh-determinism`, `seat-gate`, `vehicle-view-net`, `vehicle-physics-golden`) also passed 4/4 on macOS arm64 (the golden exact against `macos-arm64-appleclang21`) and on Windows x64 debugoptimized (exact against `windows-x64-msvc19`). The guard (ledger 056) changes nothing any test can see (the ledger row says why), so its hold is not asserted. The companion is pinned at the game branch head until the game PR merges.
@@ -153,7 +160,7 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 - Done 2026-09-29 (34/34 on `main` cba54bb plus the StrBuilderTest fix; Demonstrated): macOS re-verification of #21/#22 on the macOS host: the full suite, since every engine change in #22 also runs on MoltenVK (the vertex cache's end of frame and 3 temp buffers, the removed in-rendering barrier, the swapchain stage mask, streamed stuff); KNOWN_VIEW_LEAK bounds 40–59 with `vehicle_titan`.
 - Owner decision (2026-09-26), done: `frame-poses` A8 counts the ticks with an off-clock draw (max(1, 5%)) and bounds each miss (8 ms beyond the 4 ms slack) instead of counting draws; smoothing the prediction clock itself is a candidate for M5 step 10.
 
-### Found this session
+### Found in earlier sessions (2026-09-24 to 2026-10-09)
 - **Windows ARM64 builds and runs Vulkan (#59; the win-arm64 session, 2026-10-04).** First native build on `yoga-slim7x`: Windows 11 25H2 (build 26200) ARM64, Snapdragon with Adreno X1-85, VS 2026 MSVC 19.51.36256 for ARM64, vcpkg `arm64-windows`, glslangValidator 16.6.0 from `build_glslang.py`, no Vulkan SDK. Two problems found:
   - `stacktracer.cpp` had no `_M_ARM64` branch (C2039 on `Eip`). This was the only build error.
   - `CreateSwapchain` demanded storage swapchain images whenever `r_rayTracing` was set (the `_WIN64` default), even after `Init` had fallen back to rasterization. Adreno's driver exposes the ray-tracing extensions, but its surface has no storage usage, so the client went silently to OpenGL on Microsoft's GL-on-D3D12 layer. Storage is now required only on a device created for ray tracing.
@@ -364,7 +371,6 @@ Notes on the per-map results:
   - Other per-frame effects of late view-angle sampling that the audit listed (the mouse smoothing history, `game->UsercommandCallback`) were not reviewed (2026-09-24 audit).
 - **Silent engine no-ops** in `src/framework/async/NetworkSystem.cpp`:
   - `ServerGetClientNetId` (:245);
-  - `ServerKickClient` (:255), empty, so kicks the game requests do nothing;
   - VOIP (:350);
   - demos (`CanPlayDemo`, :377);
   - sound test (:391);
@@ -456,7 +462,7 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
   - In the graphical client, spawn and movement are asserted only by the network tests (`client-network-*`, 2026-09-25), from the server's and the peer's side; collision is not asserted.
   - The skipped-chunk list was incomplete: portal data is discarded, the client portal API is stubbed, and the headless render world is stubbed. Ledger 013 records them since the 2026-09-24 docs pass; their gameplay effects are not measured.
 
-**M3 (OpenETQW multiplayer): partial; loopback on one host at a time (the suites also pass on Linux and Windows); the cross-OS pair is missing.**
+**M3 (OpenETQW multiplayer): partial. The suites pass on every platform over loopback; one cross-OS pair (Linux x86_64 and Windows 11 x64, both ways) passed on 2026-10-08; macOS cross-OS waits on the owner (Local Network permission).**
 - Shown (map-loaded):
   - A dedicated server and two headless clients connect, spawn on opposite teams and replicate positions.
   - Movement replicates in both directions: each client sees the other walk, and its copy ends within 2 units of the server's position once the walker is at rest (2026-09-25).
@@ -467,19 +473,23 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
   - The two-client test also passes at 80 ms + 0–40 ms latency with 5% loss.
   - User info reaches both clients.
   - The server registers a client's attack and its release (asserted since 2026-09-24).
+  - A dropped client is told and leaves its game: a kick, the server's timeout of the client, and a listen host's `disconnect` (which also ends the host's server) each reach the client as a disconnect with the reason; it unloads its map, reads no more snapshots and can `reconnect` or join another server. A client that times out the server unloads its map too (2026-10-16, #130: `client-server-kick`, `client-server-timeout`, `listen-host-disconnect`; Linux x64, Windows x64, macOS, Linux arm64; the timeout case skips on Windows, which has no SIGSTOP).
 - Not tested:
   - peer-observed weapon fire (a headless peer cannot observe it);
-  - a cross-OS pair (the Linux and Windows hosts exist since 2026-09-26/28; no pair has been run);
+  - a cross-OS pair with macOS (the Linux ↔ Windows pair passed both ways on 2026-10-08; evidence table);
   - the Vulkan client with a human at the controls.
 - Loss and jitter simulation (POSIX and, since 2026-09-28, Windows) keeps packet order. Since 2026-10-08 `net_forceReorder` (percent) and `net_forceReorderDelay` (ms) hold received packets back so later ones overtake them, and each process reports how many it released out of order (`NET_REORDER`). meson `remote-client-map-change-reorder` (20 ms link, 20% reordered by up to 60 ms, base check) and `multiclient-gameplay-reorder` (40 ms link, 20%, 60 ms, base check) pass on win-arm64, Windows x64 and Linux arm64; no netcode failure was found. The counts are per socket, so a server's covers all its clients. A packet that arrives after a later one is dropped by the channel (`idMsgChannel` drops a sequence at or below the last one it accepted), so on the wire a reordered packet acts as a loss that the snapshot stream and the reliable resend recover, as they do for `net_forceDrop`.
 
-**M4 (full match): mostly not met.**
-- One started Valley objective match, bots only (one soldier per team):
-  - objectives forced with `completeObjective`;
-  - a Titan entered with `enterVehicle` (driver seat), and the seat swap asserted;
-  - a deployable requested with `g_skipDeployChecks 1`, never delivered ("DEPLOYABLE GONE" at the forced match end);
-  - the attackers' win reaches game review.
-- Not shown: other classes, damage or kills, deployable delivery, a defender or time-limit win, stopwatch or campaign transitions, and a started match on any other map.
+**M4 (full match): partial. The gameplay transitions are shown by tests with bots and helper commands; a full match played by bots or people is not.**
+- meson `m4-*` (2026-10-08/09, #104 and #107 with game #45/#47; valley unless noted; read from the server's `g_logGameEvents` lines):
+  - `m4-classes`: each of the ten classes spawns with its retail 1.5 kit;
+  - `m4-damage-kills`: a hit damages, hits kill (one KILL line with victim, attacker, teams and damage decl), and the dead player spawns again;
+  - `m4-deployable`: a deployable is requested with the deploy checks on, carried in and landed, for each team;
+  - `m4-match-end`: an objective match ends both ways, the defenders' time-limit win and the attackers' objective win;
+  - `m4-stopwatch`: a stopwatch pair, round 1 setting the time to beat and round 2 played against it, with the teams swapped;
+  - `m4-campaign`: a campaign plays its three maps (valley, outskirts, area22) with a remote client following, then an admin map change; the engine now runs the game's queued map changes (#107).
+- `valley-match`: a started objective match with a Titan entered and a seat swap, ending in game review.
+- Not shown: a match played out by bots (they play no objectives), a started match on maps other than the campaign's three, and a human at the controls.
 - Bots / navigation row: partial. Retail AAS is on all 12 maps and bots traverse in warmup. Bots play no objectives.
 
 **M5 (high-refresh multiplayer): not met.**
@@ -562,15 +572,17 @@ Both repositories are private and have no releases.
 None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline/observations-etqw-f2b655c.json` is unchanged.
 
 ## Next steps (7 or fewer, ordered)
+The shared, owner-ordered list is `docs/queue.md` (PR #132); this table follows its milestone section.
+
 | # | Step | Host / OS needed | Depends on | Acceptance test |
 |---|---|---|---|---|
-| 1 | **After the Windows merge (the owner waived the pre-merge run on 2026-09-29): done.** macOS: 34/34 on `main` cba54bb once `fix/macos-strbuilder-test` lets it build (Demonstrated). Linux: 34/34 on `main` cba54bb on `antec` (2026-09-30), after the reviewed #24/#25 heads (which include #23) passed 34/34 | — | `fix/macos-strbuilder-test` merged | Done on both hosts |
-| 2 | M5 in the order of `docs/m5-plan.md` (done: the D1 test change; step 5a, the vehicle physics guard, `vehicle-physics-golden`; steps 11 and 12, the `com_unlock_*` CVars; step 13, the seat gate, `seat-gate`; step 14a, the aircraft re-prediction fix, `aircraft-reprediction`; step 17; step 6, no presentation values in tick state, `vehicle-view-net`, second half on branches; step 4's MoltenVK part: on this Mac the queue submit waits for the 120 Hz panel, in a window and in fullscreen, and `FRAME_TIMING` reports the fence, acquire, submit and present waits; step 15, the mixed-cap session, `mixed-caps`, with A7/A7o open until step 8; step 7, the listen host's render-only frames, on branches `m5/7-listen-host-view`): steps 8–17, with the vehicle stages of `docs/vehicle-responsiveness.md` in steps 8, 9, 14 and 14b | macOS arm64 | none | Each step's test (see the plan) |
-| 3 | Windows follow-ups after the merge: a run on an NVIDIA or Intel GPU (the 4096 allocation limit was only simulated here); the hosted Windows CI leg once Actions minutes are back | Windows | step 1 | Full suite on that GPU; the CI leg green |
-| 4 | Provenance and license records: the minizip relabel and the other label questions (`docs/provenance.md` §6; release gate 3). Post-split files and the openQ4 donors are in the manifest since 2026-10-07 | any | none | `tools/build/provenance_post_split.py` reports no gap; game `check_spdx.py` passes; the minizip and label rows of `docs/provenance.md` §6 resolved |
-| 5 | M4 gameplay-driven tests: classes, damage and kills, deployable delivery, stopwatch and campaign transitions | macOS arm64 | none | New meson tests pass on the 1.5 data |
-| 6 | CI and release parity (#24, #25) on real runners: once Actions minutes and `OPENETQW_CROSS_REPO_TOKEN` exist, run Commit Validation and a draft Manual Release from a branch; flip each build leg's `experimental` once it passes on `main`. Windows done 2026-09-30: `validate pr` passes and the zip and the installer run, with the fixes on `fix/windows-main-pass`. macOS arm64 done 2026-09-30 with `fix/property-value-init` (game) and `fix/macos-release-build`: `validate push`/`pr` pass, and the installed tree and the `.app` load a map from outside the repository. macOS is arm64 only since 2026-09-30 (the owner dropped macOS x64): no Intel leg, no universal2 candidate workflow or assembler. The macOS legs use GitHub's newest GA macOS image, `macos-26`, in both repositories (macOS 27 is only a preview image); no hosted run has exercised it yet. Left: optimized retail runs on Linux (the `sdPropertyValue` bug showed with Clang at `-O2`; the Linux session found GCC 16 unaffected) | Linux, hosted CI | #24, #25 | Every leg green; each package starts a map from outside the repository |
-| 7 | Packages find the retail data. The engine search is in (ledger 068): Windows is in place; Linux has starter folders, Wine prefixes (Lutris, Bottles, PlayOnLinux, `~/.wine`, `WINEPREFIX`) and Steam roots; macOS searches the app's folder, Aspyr's retail folders, CrossOver and Wine bottles and Steam (#91). First-run prompt: the hook `Sys_PromptForRetailData` is in, with FileSystem's checks, retries and `basepath.txt` (2026-10-08); macOS and Windows show a folder picker, neither yet tried by a person. Left: the Linux picker, and a person trying the macOS and Windows ones | Linux, macOS | #24 | A package started from its own directory finds a configured ET:QW install (Windows: done) |
+| 1 | M5 step 14b, the hull lead (`docs/hull-lead.md`; ledger 067, off by default): a network client's `VEH_PRED` numbers per class, then the owner's review on a high-refresh display | any; owner | owner review | The owner's per-class bound and default seat list |
+| 2 | M5 step 3's last part: frame-pose capture in vehicle seats. First check whether `seat-poses-join`/`-listen` already cover it | any | none | `docs/m5-plan.md` step 3 marked done with its checks, or `frame-poses-*` seat checks with a negative control |
+| 3 | M5 step 14, the remaining seats: `pivot` and `freepivot` views | any | none | `seat-poses` covers them; the owner picks the default seats |
+| 4 | Shadows after #129: casters outside the view cast no shadow (#128); retail's shadow distance limits (#134) | raster GPU (win-arm64, Linux, macOS) | none | Screenshot set on every GPU; `seat-poses-join` jetpack frame rate back to `main`'s |
+| 5 | Retail data discovery: the Linux folder picker; a person tries the macOS and Windows pickers | Linux; owner | none | A package started from its own directory finds a configured ET:QW install |
+| 6 | Provenance labels: the minizip relabel and the other label questions (`docs/provenance.md` §6) | any | none | `provenance_post_split.py` no gap; game `check_spdx.py` passes; §6 rows resolved |
+| 7 | `docs/platform-matrix.md` (release gate, M7) | any | none | Every platform's verified items with evidence level, host and commit |
 
 ## Inputs needed from the owner
 - Optional: `Loaded pk4 ... with checksum` lines from other-language editions (`pak000`–`pak004`), so the retail-install check can accept them.
