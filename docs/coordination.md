@@ -362,8 +362,10 @@ ETQW_DATA_PATH=~/etqw_data meson test -C ~/openETQW/build --no-rebuild -j 1 <nam
   which is gitignored, so stage shader edits with `git add -u` (or `-f`).
 - **Packaging:** see `docs/releasing.md`. The `.app` takes SDL3, the Vulkan loader, MoltenVK and the game
   module from `Contents/Frameworks`, and MoltenVK through `Contents/Resources/vulkan/icd.d`.
-- **Local Network privacy:** macOS refuses UDP to LAN hosts other than the gateway
-  (`EHOSTUNREACH`) for a terminal app without the Local Network permission. That blocks
+- **Local Network privacy:** non-Apple binaries started from this session (python, the
+  game client and server) get `EHOSTUNREACH` for UDP and TCP to other LAN hosts. The session's
+  tmux server runs under launchd, so macOS shows no prompt and lists no app to switch on.
+  Apple binaries (`nc`, `ping`, `ssh`) are exempt, so don't probe with them. That blocks
   the M3 `cross-os` legs from this Mac (queue §4, owner-gated). Loopback tests are unaffected.
 - **Before heavy or timing jobs,** message `kisakcod-mac` (same Mac) to hold its builds,
   and tell it when you're done. It asks before its own heavy builds.

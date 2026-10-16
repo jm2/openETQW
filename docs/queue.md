@@ -84,8 +84,11 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   join the default list. Needs a review on a high-refresh display.
 - **Render portals, stage 2:** the network decision (`docs/render-portals.md`).
 - **Mac M3 cross-OS runs:** the macOS Local Network permission and the firewall rules.
-  The owner sets these: grant Local Network to the terminal app (System Settings → Privacy &
-  Security → Local Network), then restart its tmux server. For a Mac-hosted server, also
+  The session's tmux server runs under launchd, so macOS never prompts and no app appears in
+  the Local Network list (checked 2026-10-16). The owner, at the Mac: open a fresh Terminal.app
+  window outside tmux, send one LAN packet from it so macOS prompts
+  (`python3 -c "import socket;socket.socket(2,2).sendto(b'x',('192.168.1.194',27733))"`),
+  allow it, and run the test from that same window. For a Mac-hosted server, also
   `sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add ~/openETQW/build/openETQW-ded_arm64`
   and `sudo … --unblockapp` on the same path. Then `OPENETQW_REMOTE_SERVER=host:port meson test -C build cross-os`
   both ways against `antec` and ANTEC-WIN.
