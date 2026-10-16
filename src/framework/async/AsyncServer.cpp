@@ -552,6 +552,14 @@ void idAsyncServer::RunFrame() {
 	ProcessConnectionLessMessages();
 	CheckClientTimeouts();
 
+	// a dropped client: its disconnect message is retransmitted in empty messages until the
+	// zombie times out, with a map or without one (a drop while no map is spawned)
+	for ( int i = 0; i < MAX_ASYNC_CLIENTS; ++i ) {
+		if ( clients[ i ].clientState == SCS_ZOMBIE && clients[ i ].disconnectPending ) {
+			SendEmptyToClient( i, false );
+		}
+	}
+
 	// The requested map was denied or failed to load: the server stays up so
 	// an admin can start another map, but there is no game to tick.
 	if ( !sessLocal.MapSpawned() ) {
@@ -586,12 +594,6 @@ void idAsyncServer::RunFrame() {
 	}
 
 	for ( int i = 0; i < MAX_ASYNC_CLIENTS; ++i ) {
-		if ( clients[ i ].clientState == SCS_ZOMBIE && clients[ i ].disconnectPending ) {
-			// a dropped client: its disconnect message is retransmitted in empty messages
-			// until the zombie times out
-			SendEmptyToClient( i, false );
-			continue;
-		}
 		// the local client shares the server's game: no snapshots, no channel traffic
 		if ( i == localClientNum || clients[ i ].clientState < SCS_CONNECTED || clients[ i ].isBot ) {
 			continue;
