@@ -1163,6 +1163,12 @@ void idAsyncServer::SendDisconnectToClient( int clientNum, const char* reason ) 
 	msg.BeginWriting();
 	msg.WriteByte( SERVER_RELIABLE_MESSAGE_DISCONNECT );
 	msg.WriteString( reason != NULL ? reason : "" );
+	// the record (+6: its size and sequence) must leave room for the empty message that carries
+	// the queue (4 + queue + 4 + 1, idMsgChannel::SendMessage); a queue that full would hold an
+	// undeliverable disconnect, so the client times out as with a full queue (CodeRabbit, #130)
+	if ( 4 + client.channel.GetReliableSendSize() + msg.GetSize() + 6 + 4 + 1 > MAX_MESSAGE_SIZE ) {
+		return;
+	}
 	if ( !client.channel.SendReliableMessage( msg ) ) {
 		return;
 	}

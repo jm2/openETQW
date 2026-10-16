@@ -129,6 +129,9 @@ public:
 					// Returns true if there are unsent fragments left.
 	bool			UnsentFragmentsLeft( void ) const { return unsentFragments; }
 
+					// Returns the bytes of reliable messages queued and not yet acknowledged.
+	int				GetReliableSendSize( void ) const { return reliableSend.GetTotalSize(); }
+
 					// Processes the incoming message. Returns true when a complete message
 					// is ready for further processing. In that case the read pointer of msg
 					// points to the first byte ready for reading, and sequence is set to
