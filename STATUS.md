@@ -1,5 +1,7 @@
 # OpenETQW status
 
+> **Agents: start with `AGENTS.md`, then `docs/queue.md` (what to do next) and `docs/coordination.md` (how). This file is the long record; search it rather than reading it whole. Its "Next steps" table below is superseded by `docs/queue.md` (2026-10-15).**
+>
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
 Updated: 2026-10-16 · session/agent: `openETQW-linux` (Claude Code), coordinator · host: `antec`, Fedora 44 x86_64 (Linux 7.2.10), RX 6400 / RADV
