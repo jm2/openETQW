@@ -2093,6 +2093,7 @@ namespace {
 		int						numVerts;
 		int						numIndexes;
 		unsigned int			checksum;			// of the indexes: models built in memory reuse addresses
+		idList< int >			weld;				// each vertex's representative when the edges were built
 		idList< shadowSilEdge_t >	edges;
 		int						lastUsedFrame;
 	};
@@ -2116,8 +2117,20 @@ namespace {
 			checksum = ( checksum ^ tri->indexes[ i ] ) * 16777619u;
 		}
 		shadowSilCacheEntry_t& entry = shadowSilCache[ tri->indexes ];
-		const bool valid = entry.lastUsedFrame != 0 && entry.numVerts == tri->numVerts &&
+		bool valid = entry.lastUsedFrame != 0 && entry.numVerts == tri->numVerts &&
 			entry.numIndexes == tri->numIndexes && entry.checksum == checksum;
+		// The welds must still hold: vertexes that shared a position when the edges were
+		// built (a collapsed first pose, a model spawned at zero scale) may have moved
+		// apart, and an edge across them would join triangles that no longer meet, so the
+		// volume would lose its side there (#129 review).  Vertexes that have come
+		// together since need nothing: an unwelded seam only adds open edges, whose
+		// quads cancel.
+		for ( int i = 0; valid && i < tri->numVerts; ++i ) {
+			const int representative = entry.weld[ i ];
+			if ( representative != i && tri->verts[ i ].xyz != tri->verts[ representative ].xyz ) {
+				valid = false;
+			}
+		}
 		entry.lastUsedFrame = interactionCacheFrame;
 		if ( valid ) return &entry.edges;
 		shadowVolumeStats.silBuilds++;
@@ -2127,7 +2140,7 @@ namespace {
 		entry.edges.SetNum( 0, false );
 
 		// weld by position
-		idList< int > weld;
+		idList< int >& weld = entry.weld;
 		weld.SetNum( tri->numVerts );
 		std::unordered_map< weldKey_t, int, weldKeyHash_t > first;
 		first.reserve( tri->numVerts );
