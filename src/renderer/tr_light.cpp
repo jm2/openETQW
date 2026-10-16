@@ -2282,6 +2282,13 @@ namespace {
 				source->shadowVertexes != NULL ) {
 			return NULL;
 		}
+		// A GPU-skinned surface's verts are the unposed mesh (Model.cpp copies the source
+		// surface; the lit pass skins it on the GPU), and the shadow draw does not skin, so
+		// its volume would be the rest pose's.  No volume until shadows are skinned too
+		// (#129 review).
+		if ( source->hardwareSkinnedSurface ) {
+			return NULL;
+		}
 		// 16-bit indexes address both copies of every vertex
 		if ( sizeof( glIndex_t ) == 2 && source->numVerts * 2 > 0xffff ) return NULL;
 		if ( source->shadowCache == NULL ) {
