@@ -776,6 +776,48 @@ if build_dedicated
       is_parallel: false,
     )
   endif
+  # the server lets a remote client go (#119): a kick, or its timeout of the client
+  # (and the client's of the server); the client is told, shuts its map down, reads
+  # no snapshots and can reconnect
+  foreach drop_case : [['kick', '29944'], ['timeout', '29946']]
+    test(
+      'client-server-' + drop_case[0],
+      py,
+      args: [
+        meson.project_source_root() / 'tests' / 'test_client_server_drop.py',
+        '--case', drop_case[0],
+        '--ded-binary', all_stock_maps_ded,
+        '--port', drop_case[1],
+        '--log-dir', meson.project_build_root() / 'meson-logs' / ('client-server-' + drop_case[0]),
+      ],
+      workdir: meson.project_source_root(),
+      suite: ['integration'],
+      protocol: 'exitcode',
+      timeout: 600,
+      is_parallel: false,
+    )
+  endforeach
+  # 'disconnect' on a listen host ends its server (#120): the remote client is told
+  # and joins another server (ports 29954 host, 29955 client, 29956 the second server)
+  if build_engine
+    test(
+      'listen-host-disconnect',
+      py,
+      args: [
+        meson.project_source_root() / 'tests' / 'test_client_server_drop.py',
+        '--case', 'listen',
+        '--ded-binary', all_stock_maps_ded,
+        '--client-binary', campaign_client,
+        '--port', '29954',
+        '--log-dir', meson.project_build_root() / 'meson-logs' / 'listen-host-disconnect',
+      ],
+      workdir: meson.project_source_root(),
+      suite: ['client', 'integration'],
+      protocol: 'exitcode',
+      timeout: 600,
+      is_parallel: false,
+    )
+  endif
   # out-of-order delivery (net_forceReorder): 20% of the packets each process
   # receives are held back up to 60 ms so later ones overtake them. The map
   # change's reliable game init and the snapshot stream must survive it, with
