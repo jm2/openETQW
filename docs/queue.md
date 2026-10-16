@@ -85,14 +85,15 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 - **Render portals, stage 2:** the network decision (`docs/render-portals.md`).
 - **Mac M3 cross-OS runs:** where the tests are started (Local Network privacy) and the firewall rules.
   Apple's TN3179: command-line tools run from Terminal or over SSH, and their child processes,
-  get Local Network access automatically; launchd agents don't. The Mac session's tmux server
-  was started on 2026-10-04 and has since been reparented to launchd (ppid 1), so it no longer
-  counts as Terminal-run. Its non-Apple binaries get `EHOSTUNREACH`, no prompt is shown, and
-  no app is listed (checked 2026-10-16). So there is nothing to toggle: run the test from a
-  fresh Terminal.app window outside tmux, or start it over SSH. Check with a non-Apple binary,
-  e.g. `python3 -c "import socket;socket.socket(2,2).sendto(b'x',('192.168.1.194',27733))"`
+  get Local Network access automatically; launchd agents don't. From the Mac session's tmux
+  server, non-Apple binaries get `EHOSTUNREACH`, no prompt is shown and no app is listed
+  (checked 2026-10-16), so macOS doesn't treat that server as Terminal-run. There is nothing
+  to toggle: run the test from a fresh Terminal.app window outside tmux, or start it over SSH.
+  Both routes are untested. Check with a non-Apple binary, e.g.
+  `python3 -c "import socket;socket.socket(2,2).sendto(b'x',('192.168.1.194',27733))"`
   (192.168.1.194 is `antec`); `nc` and `ping` are Apple binaries and succeed even while
-  blocked. The SSH route is untested: the Mac's only authorized key is xmat's forced-command key. For a Mac-hosted server, also
+  blocked. The Mac's only authorized SSH key is xmat's forced-command key.
+  For a Mac-hosted server, also
   `sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add ~/openETQW/build/openETQW-ded_arm64`
   and `sudo … --unblockapp` on the same path. Then `OPENETQW_REMOTE_SERVER=host:port meson test -C build cross-os`
   both ways against `antec` and ANTEC-WIN.

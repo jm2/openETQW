@@ -365,9 +365,8 @@ ETQW_DATA_PATH=~/etqw_data meson test -C ~/openETQW/build --no-rebuild -j 1 <nam
 - **Local Network privacy:** non-Apple binaries started from this session (python, the
   game client and server) get `EHOSTUNREACH` for UDP and TCP to other LAN hosts. Apple's
   TN3179 exempts tools run from Terminal or over SSH, and their children, but not launchd
-  agents. The session's tmux server has been reparented to launchd (ppid 1, observed
-  2026-10-16), so its children lose the Terminal exemption, and macOS shows no prompt and
-  lists no app. Apple binaries (`nc`, `ping`, `ssh`) succeed anyway, so don't probe with them. That blocks
+  agents. From this session's tmux server, macOS doesn't apply the Terminal exemption: no
+  prompt is shown and no app is listed (observed 2026-10-16). Apple binaries (`nc`, `ping`, `ssh`) succeed anyway, so don't probe with them. That blocks
   the M3 `cross-os` legs from this Mac (queue §4, owner-gated). Loopback tests are unaffected.
 - **Before heavy or timing jobs,** message `kisakcod-mac` (same Mac) to hold its builds,
   and tell it when you're done. It asks before its own heavy builds.
