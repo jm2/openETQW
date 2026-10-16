@@ -5,11 +5,11 @@
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
 Updated: 2026-10-16 · session/agent: `openETQW-linux` (Claude Code), coordinator · host: `antec`, Fedora 44 x86_64 (Linux 7.2.10), RX 6400 / RADV
-Engine repo `~/openETQW`: `main` 667db63 (#129; `tools/ci/companion.ref` pins game 28be6b6) · game repo `~/openETQW-game`: `main` 28be6b6 (game #50) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (upstream last checked 2026-09-24)
+Engine repo `~/openETQW`: `main` bfe0734 (#132; `tools/ci/companion.ref` pins game 28be6b6) · game repo `~/openETQW-game`: `main` 28be6b6 (game #50) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (upstream last checked 2026-09-24)
 
 Engine SHAs quoted in older docs (`CHECKPOINT_STOCK_MAPS_PHASE.md`, ledger rows, earlier STATUS text) may not resolve in the current history, and neither do some of the game's historical `tools/ci/engine.ref` pins.
 
-**Coordinator and merge role:** chosen by availability (owner, 2026-10-15): the first online session in the order `openETQW-linux` (antec), `openETQW-win`, `openETQW-mac`, `openETQW-win-arm64`, `openETQW-linux-arm64`. Held by `openETQW-linux` since 2026-10-15; each handover is logged on issue #133. The procedures are in `docs/coordination.md` and the work queue in `docs/queue.md` (both on PR #132 until it merges).
+**Coordinator and merge role:** chosen by availability (owner, 2026-10-15): the first online session in the order `openETQW-linux` (antec), `openETQW-win`, `openETQW-mac`, `openETQW-win-arm64`, `openETQW-linux-arm64`. Held by `openETQW-linux` since 2026-10-15; each handover is logged on issue #133. The procedures are in `docs/coordination.md` and the work queue in `docs/queue.md` (merged in #132, 2026-10-16).
 
 ## Owner decisions in effect
 D1 public source and binaries · D2 all RE methods · D3 hard fork · D4 macOS / Windows 11 / Arch / Fedora / Debian, inputs on request · D5 two repos: GPL-3.0-or-later engine; SDK license + MIT game · D6 Meson · D7 clean network break from retail 1.5 (2026-09-22; deferred 2026-09-24; **dropped 2026-09-25**: OpenETQW does not aim for retail 1.5 network compatibility, matching openQ4; retail 1.5 data stays required and supported)
@@ -90,7 +90,7 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 
 **Filed:** #134 (retail shadow distance limits not applied, by `openETQW-win-arm64`), #135 (`mixed-caps` B 240 A1 sits at its threshold on antec), #136 (`bot-gameplay`: the bots sometimes never engage); earlier, on 2026-10-09, #126 (all-stock-maps: slipgate teleporter samples). None loosens a test.
 
-**Open:** PR #132 (the agent runbook; needs the owner's own approval and the owner's Switchyard user name) and PR #137 (this STATUS update).
+**Merged the same day:** #137 (this STATUS update) and #132 (the agent runbook, approved and merged by the owner). The owner's Switchyard address in `docs/coordination.md` §3 is still blank.
 
 ### Merged on 2026-09-25
 | Repo | PR (merge) | What |
@@ -133,7 +133,7 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 | game | #14 2485998 (`ci/refresh-engine-pin-and-blockers`) | CI facts: engine contract pin 84a224b -> cba54bb (engine main after #25); the contract legs' blocker reasons as they stand (the engine builds on Linux and with MSVC); Windows x64 legs on `windows-2025-vs2026`; zlib from vcpkg on the Windows contract leg |
 
 ### Open and pending
-- **Open PRs (2026-10-16):** #132, the agent runbook (`AGENTS.md`, `docs/coordination.md`, `docs/queue.md`), a draft that needs the owner's own approval and the owner's Switchyard user name; #137, this STATUS update. No other PR is open in either repository.
+- **Open PRs (2026-10-16):** none in either repository. #137 (this STATUS update) and #132 (the agent runbook) merged that day.
 - **Open issues to work, in `docs/queue.md` order:** #128 (raster shadows: casters outside the view), #134 (retail shadow distance limits), #122 (GDF rifle viewmodel dark on raster; needs a retail reference), #127 (`+set r_mode` ignored at startup), #126, #135 and #136 (test flakes: slipgate teleporter samples, `mixed-caps` on antec, `bot-gameplay` engagement).
 - **M5 step 14b, the hull lead: plan (2026-10-06, the Mac session; `docs/hull-lead.md`).**
   - A first measurement (`tools/analysis/veh_pred.py` over `g_determinismTest 2`'s `VEH_TRACE`, on this Mac):
@@ -574,7 +574,7 @@ Both repositories are private and have no releases.
 None. `~/etqw` is still at f2b655c (upstream checked 2026-09-24). `docs/baseline/observations-etqw-f2b655c.json` is unchanged.
 
 ## Next steps (7 or fewer, ordered)
-The shared, owner-ordered list is `docs/queue.md` (PR #132); this table follows its milestone section.
+The shared, owner-ordered list is `docs/queue.md`; this table follows its milestone section.
 
 | # | Step | Host / OS needed | Depends on | Acceptance test |
 |---|---|---|---|---|
