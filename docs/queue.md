@@ -14,7 +14,6 @@ the PRs opened before 2026-10-15 are all merged.
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
 | [#132](https://github.com/jm2/openETQW/pull/132) | This runbook: `AGENTS.md`, `docs/coordination.md`, `docs/queue.md`. | coordinator | (branch head) | The owner's own approval, and the owner's Switchyard user name in §3. |
-| [#137](https://github.com/jm2/openETQW/pull/137) | `STATUS.md` current after #129 and #130. Docs only. | `openETQW-linux` | (branch head) | An independent review. |
 
 ## 2. Open issues, in priority order
 
@@ -97,7 +96,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 
 ## 5. Recently done
 
-#130 (dropped clients are told; listen-host `disconnect` ends its server), #129 (raster shadow volumes; #124 fixed), #131 (removed the Discord announcement), #125 (the screenshot tool and rule), #123 (the
+#137 (STATUS current), #130 (dropped clients are told; listen-host `disconnect` ends its server), #129 (raster shadow volumes; #124 fixed), #131 (removed the Discord announcement), #125 (the screenshot tool and rule), #123 (the
 raster sky), #118 (Stop disconnects the client), #117 (the vehicle-pop tolerance),
 #112 (the Windows retail-data folder picker). Older work is in `STATUS.md` and the merged
 PRs.
