@@ -6,7 +6,8 @@ in order, and every PR that changes an item's state updates its row. `owner` nam
 session that holds the item; `—` means nobody does. Before taking an item, check its PR or
 issue for anything newer than this file.
 
-Updated: 2026-10-16 by `openETQW-linux` (coordinator). The Mac → `antec` cross-OS run passed; #130 and #129 merged on 2026-10-16;
+Updated: 2026-10-16 by `openETQW-linux` (coordinator). The Mac → `antec` cross-OS run
+passed; #130 and #129 merged on 2026-10-16;
 the PRs opened before 2026-10-15 are all merged; #132 merged the same day.
 
 ## 1. Open PRs, in merge order
@@ -83,7 +84,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 - **The hull lead:** the p95 bound and each class's L, and which driver and pilot seats
   join the default list. Needs a review on a high-refresh display.
 - **Render portals, stage 2:** the network decision (`docs/render-portals.md`).
-- **Mac M3 cross-OS, the Mac-hosted direction:** the Mac → `antec` direction passed on
+- **Mac M3 cross-OS, what's left:** the Mac → `antec` direction passed on
   2026-10-16 (`STATUS.md` evidence table). Left: a Mac-hosted server with `antec`'s clients,
   and the Mac against ANTEC-WIN. The owner first allows the server through the macOS firewall:
   `sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add ~/openETQW/build/openETQW-ded_arm64`
