@@ -371,9 +371,9 @@ ETQW_DATA_PATH=~/etqw_data meson test -C ~/openETQW/build --no-rebuild -j 1 <nam
   separately opened Terminal.app window, LAN tests work. So run any LAN test (`cross-os`) in a
   new Terminal window. The session can open one itself with `open -a Terminal <script>.command`
   (it sends no Apple Events, so there's no Automation prompt). `osascript` telling Terminal to
-  run a script hangs on an Automation consent prompt. To drive a dedicated server's console
-  from tmux, start it as `tail -f <cmdfile> | <ded> … | tee <log>` and append commands to
-  `<cmdfile>`. Loopback tests are unaffected.
+  run a script hangs on an Automation consent prompt. For a dedicated server whose console the
+  session drives from tmux, have the `.command` script start it as
+  `tail -f <cmdfile> | <ded> … | tee <log>`, then append commands to `<cmdfile>`. Loopback tests are unaffected.
 - **Before heavy or timing jobs,** message `kisakcod-mac` (same Mac) to hold its builds,
   and tell it when you're done. It asks before its own heavy builds.
 - **xmat:** this Mac serves `antec`'s controller through `~/.ssh/xmat-forced.sh`, which
