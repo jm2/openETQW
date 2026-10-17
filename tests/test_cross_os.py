@@ -9,7 +9,8 @@ this engine can drive it remotely (rcon is a stub). This test runs on the client
 
 or meson `cross-os` with that variable set (exit 77, SKIP, without it). The server must
 be on the same engine and game commits (the clean-break protocol rejects others), with
-si_pure 0, net_allowCheats 1 (playerPos on a client is a cheat-free read, the walk uses
+si_rules sdGameRulesObjective (without it `spawnServer valley` is refused: "Unknown
+Campaign 'valley'"), si_pure 0, net_allowCheats 1 (playerPos on a client is a cheat-free read, the walk uses
 clientMove), si_teamForceBalance 0 and g_teamSwitchDelay 0.
 
   X1 join       the Vulkan client and a headless peer (the dedicated binary with
