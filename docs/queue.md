@@ -6,7 +6,7 @@ in order, and every PR that changes an item's state updates its row. `owner` nam
 session that holds the item; `—` means nobody does. Before taking an item, check its PR or
 issue for anything newer than this file.
 
-Updated: 2026-10-16 by `openETQW-linux` (coordinator). #130 and #129 merged on 2026-10-16;
+Updated: 2026-10-16 by `openETQW-linux` (coordinator). The Mac → `antec` cross-OS run passed; #130 and #129 merged on 2026-10-16;
 the PRs opened before 2026-10-15 are all merged; #132 merged the same day.
 
 ## 1. Open PRs, in merge order
@@ -83,20 +83,13 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 - **The hull lead:** the p95 bound and each class's L, and which driver and pilot seats
   join the default list. Needs a review on a high-refresh display.
 - **Render portals, stage 2:** the network decision (`docs/render-portals.md`).
-- **Mac M3 cross-OS runs:** where the tests are started (Local Network privacy) and the firewall rules.
-  Apple's TN3179: command-line tools run from Terminal or over SSH, and their child processes,
-  get Local Network access automatically; launchd agents don't. From the Mac session's tmux
-  server, non-Apple binaries get `EHOSTUNREACH`, no prompt is shown and no app is listed
-  (checked 2026-10-16), so macOS doesn't treat that server as Terminal-run. There is nothing
-  to toggle: run the test from a fresh Terminal.app window outside tmux, or start it over SSH.
-  Both routes are untested. Check with a non-Apple binary, e.g.
-  `python3 -c "import socket;socket.socket(2,2).sendto(b'x',('192.168.1.194',27733))"`
-  (192.168.1.194 is `antec`); `nc` and `ping` are Apple binaries and succeed even while
-  blocked. The Mac's only authorized SSH key is xmat's forced-command key.
-  For a Mac-hosted server, also
+- **Mac M3 cross-OS, the Mac-hosted direction:** the Mac → `antec` direction passed on
+  2026-10-16 (`STATUS.md` evidence table). Left: a Mac-hosted server with `antec`'s clients,
+  and the Mac against ANTEC-WIN. The owner first allows the server through the macOS firewall:
   `sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add ~/openETQW/build/openETQW-ded_arm64`
-  and `sudo … --unblockapp` on the same path. Then `OPENETQW_REMOTE_SERVER=host:port meson test -C build cross-os`
-  both ways against `antec` and ANTEC-WIN.
+  and `sudo … --unblockapp` on the same path. Run every Mac-side process from a Terminal.app
+  window, not the session's tmux. The owner confirmed on 2026-10-16 that tmux was the Local
+  Network block and a separate Terminal window works (coordination §5).
 - **A Windows run on an NVIDIA or Intel GPU** (`STATUS.md` § Next steps, item 3). No such
   host is in the fleet; the owner would have to provide one.
 - **Hosted CI:** comes back only with Actions minutes. Until then, local checks replace it.
