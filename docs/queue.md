@@ -6,8 +6,8 @@ in order, and every PR that changes an item's state updates its row. `owner` nam
 session that holds the item; `—` means nobody does. Before taking an item, check its PR or
 issue for anything newer than this file.
 
-Updated: 2026-10-16 by `openETQW-linux` (coordinator). The Mac → `antec` cross-OS run
-passed; #130 and #129 merged on 2026-10-16;
+Updated: 2026-10-16 by `openETQW-linux` (coordinator). Cross-OS pairs among Linux, Windows
+and macOS all passed both ways; #130 and #129 merged on 2026-10-16;
 the PRs opened before 2026-10-15 are all merged; #132 merged the same day.
 
 ## 1. Open PRs, in merge order
@@ -84,13 +84,6 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 - **The hull lead:** the p95 bound and each class's L, and which driver and pilot seats
   join the default list. Needs a review on a high-refresh display.
 - **Render portals, stage 2:** the network decision (`docs/render-portals.md`).
-- **Mac M3 cross-OS, what's left:** the Mac → `antec` direction passed on
-  2026-10-16 (`STATUS.md` evidence table). Left: a Mac-hosted server with `antec`'s clients,
-  and the Mac against ANTEC-WIN. The owner first allows the server through the macOS firewall:
-  `sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add ~/openETQW/build/openETQW-ded_arm64`
-  and `sudo … --unblockapp` on the same path. Run every Mac-side process from a Terminal.app
-  window, not the session's tmux. The owner confirmed on 2026-10-16 that tmux was the Local
-  Network block and a separate Terminal window works (coordination §5).
 - **A Windows run on an NVIDIA or Intel GPU** (`STATUS.md` § Next steps, item 3). No such
   host is in the fleet; the owner would have to provide one.
 - **Hosted CI:** comes back only with Actions minutes. Until then, local checks replace it.
@@ -98,7 +91,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 
 ## 5. Recently done
 
-#132 (this runbook), #137 (STATUS current), #130 (dropped clients are told; listen-host `disconnect` ends its server), #129 (raster shadow volumes; #124 fixed), #131 (removed the Discord announcement), #125 (the screenshot tool and rule), #123 (the
+M3 cross-OS with the Mac, all four directions (2026-10-16, `STATUS.md` evidence), #139 (the first of them), #138 (the Mac Local Network notes), #132 (this runbook), #137 (STATUS current), #130 (dropped clients are told; listen-host `disconnect` ends its server), #129 (raster shadow volumes; #124 fixed), #131 (removed the Discord announcement), #125 (the screenshot tool and rule), #123 (the
 raster sky), #118 (Stop disconnects the client), #117 (the vehicle-pop tolerance),
 #112 (the Windows retail-data folder picker). Older work is in `STATUS.md` and the merged
 PRs.
