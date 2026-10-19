@@ -5,7 +5,7 @@
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
 Updated: 2026-10-18 · session/agent: `openETQW-linux` (Claude Code), coordinator · host: `antec`, Fedora 44 x86_64 (Linux 7.2.11), RX 6400 / RADV
-Engine repo `~/openETQW`: `main` b318c87 (#140; `tools/ci/companion.ref` pins game 28be6b6) · game repo `~/openETQW-game`: `main` 28be6b6 (game #50) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (upstream last checked 2026-09-24)
+Engine repo `~/openETQW`: `main` 3403362 (#142; `tools/ci/companion.ref` pins game 28be6b6) · game repo `~/openETQW-game`: `main` 281f76d (game #52, README only; the engine pins 28be6b6, game #50) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (upstream last checked 2026-09-24)
 
 Engine SHAs quoted in older docs (`CHECKPOINT_STOCK_MAPS_PHASE.md`, ledger rows, earlier STATUS text) may not resolve in the current history, and neither do some of the game's historical `tools/ci/engine.ref` pins.
 
@@ -100,7 +100,7 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 - the provenance count;
 - the Mac's LAN-test steps in `docs/coordination.md` §5.
 
-The owner's Switchworks address in `docs/coordination.md` §3 is still blank (Switchyard was renamed Switchworks; the rename is PR #143).
+The owner's Switchworks address is `user:owner` (`docs/coordination.md` §3; Switchyard was renamed Switchworks, PR #143).
 
 ### Merged on 2026-09-25
 | Repo | PR (merge) | What |
