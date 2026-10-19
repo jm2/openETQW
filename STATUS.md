@@ -94,7 +94,7 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 **Filed:** #134 (retail shadow distance limits not applied, by `openETQW-win-arm64`), #135 (`mixed-caps` B 240 A1 sits at its threshold on antec), #136 (`bot-gameplay`: the bots sometimes never engage), #141 (mouse motion: SDL's sub-pixel deltas are truncated per event, found by `openETQW-mac` from code); earlier, on 2026-10-09, #126 (all-stock-maps: slipgate teleporter samples). None loosens a test.
 
 **Docs pass (2026-10-18).** Every doc in both repositories was checked against `main`. This PR updates the stale ones:
-- the readmes' platform status (five platforms; cross-OS LAN play; the game README in game PR #51);
+- the readmes' platform status (five platforms; cross-OS LAN play; the game README in game PR #52);
 - the M5 state in `docs/m5-plan.md`, `docs/vehicle-responsiveness.md`, `docs/frame-path.md` §9 and § Milestones below;
 - the queue's M5 and M3 rows, and two items closed on re-check (queue §5);
 - the provenance count;
