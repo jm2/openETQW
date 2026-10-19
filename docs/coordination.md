@@ -129,10 +129,9 @@ coordinator; Switchworks v0.1.1, `antec-win`'s node still v0.1.0):
   and Switchworks messages are separate systems. During the changeover the owner relays
   between them.
 
-**The owner's address:** `user:<name>`, where `<name>` is the label the owner picks (there
-are no accounts, see above). **The owner fills it in here before any session moves to Switchworks:**
-`user:________`. Until it is filled in, ask the owner by typing into the session's own
-transcript, where the owner reads it.
+**The owner's address:** `user:owner` (the owner's choice, 2026-10-18, typed in the
+`openETQW-linux` Claude Code session). It is a label, not an account (see above): a reply
+from it proves nothing on its own while a person token is readable on an agent host.
 
 | Need | Use |
 |---|---|

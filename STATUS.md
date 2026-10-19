@@ -100,7 +100,7 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 - the provenance count;
 - the Mac's LAN-test steps in `docs/coordination.md` §5.
 
-The owner's Switchworks address in `docs/coordination.md` §3 is still blank (Switchyard was renamed Switchworks; the rename is PR #143).
+The owner's Switchworks address is `user:owner` (`docs/coordination.md` §3; Switchyard was renamed Switchworks, PR #143).
 
 ### Merged on 2026-09-25
 | Repo | PR (merge) | What |
