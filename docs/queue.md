@@ -6,9 +6,10 @@ in order, and every PR that changes an item's state updates its row. `owner` nam
 session that holds the item; `—` means nobody does. Before taking an item, check its PR or
 issue for anything newer than this file.
 
-Updated: 2026-10-16 by `openETQW-linux` (coordinator). Cross-OS pairs among Linux, Windows
-and macOS all passed both ways; #130 and #129 merged on 2026-10-16;
-the PRs opened before 2026-10-15 are all merged; #132 merged the same day.
+Updated: 2026-10-18 by `openETQW-linux` (coordinator), after a pass over every doc. Since
+2026-10-15: the old PRs are all merged, and cross-OS pairs among Linux, Windows and macOS
+passed both ways (#139, #140). This pass rewrote §3's M5 rows to match what has landed and
+added the M3 row. It also closed two re-check items with evidence (§5).
 
 ## 1. Open PRs, in merge order
 
@@ -27,6 +28,7 @@ the PRs opened before 2026-10-15 are all merged; #132 merged the same day.
 | [#126](https://github.com/jm2/openETQW/issues/126) | `all-stock-maps`: slipgate's `aas_area_validity` flakes on teleporter transit samples. | — | Test-only fix: exclude samples taken in transit, and explain why in the PR. Don't loosen the bound (`AGENTS.md` rule 4). |
 | [#135](https://github.com/jm2/openETQW/issues/135) | `mixed-caps`: B's 240 cap A1 'turn' sits at its threshold on `antec` (233–235.3 fps against 235.2; the test's own ceiling is about 282 with two clients) and fails on `main` too. | — | Find what costs B frames while turning with a second client, or ask the owner about B's high cap on antec. Not a host-load problem (the 2026-10-09 'ceiling drop' note compared different tests). |
 | [#136](https://github.com/jm2/openETQW/issues/136) | `bot-gameplay`: the two bots sometimes never engage in the window. | — | Make the encounter deterministic; don't loosen the check. |
+| [#141](https://github.com/jm2/openETQW/issues/141) | Mouse motion: SDL's sub-pixel `xrel`/`yrel` is truncated per event (`src/sys/sdl/sdl_events.cpp:238`), so slow motion is lost on high-DPI displays. From code, not reproduced. | — | Port openQ4's remainder-keeping `SDL3_ConsumeMouseDelta`, with a test that feeds fractional deltas. Check it on a Retina Mac. Input path only. |
 | — | `screenshot_set.py`: the canyon anchor is indoors. | — | Add an outdoor canyon anchor; take eye positions from `getviewpos`. |
 
 ## 3. Milestone work, in order
@@ -38,11 +40,16 @@ Each item names its acceptance test. Details are in the linked plan.
    review on a high-refresh display (owner-gated, §4).
 2. **M5 step 3, the last part:** frame-pose capture in vehicle seats (D2). The devmap
    variant is done. First check whether `seat-poses-join`/`-listen` (step 14) already
-   cover it. If they do, mark step 3 done in `docs/m5-plan.md` and cite their checks. If
+   cover it. They log `FRAME_POSE` in listed seats and check the camera on every draw (the
+   late-look phases), the drawn turret joints and view yaw (gunner phase G1–G2), and a
+   walking peer drawn on every frame (stage 4). Check the viewmodel/cockpit as well. If they do, mark step 3 done in `docs/m5-plan.md` and cite their checks. If
    they don't, `frame-poses-*` gain seat checks, with a negative control.
-3. **M5 step 14, the remaining seats:** `pivot` and `freepivot` views wait for joint
-   blending and stage 5 (`docs/vehicle-responsiveness.md`). Acceptance: `seat-poses`
-   covers them, and the owner decides which seats join the default list.
+3. **M5 step 14, what is left:** late mouse look for `freepivot` views and for the seats
+   with `clampDamped*` clamps (the titan, the husky; ledger 064). The `pivot` and
+   `freepivot` views themselves have been presentable since 2026-10-07 (joint blending,
+   ledger 070), and `pivot` has late look since 2026-10-08. Acceptance: `seat-poses`
+   late-look phases for those seats. Then the owner decides which seats join the default
+   list (§4).
 4. **M4, what is left** (`STATUS.md` § Milestones, M4). Done: classes, damage and kills,
    deployable delivery, both match endings, stopwatch and campaign transitions (meson
    `m4-*`, #104 and #107). Left: a match played out by bots (they play no objectives), and
@@ -64,10 +71,14 @@ Each item names its acceptance test. Details are in the linked plan.
    - M2: the headless render world is still stubbed.
 
    Each gap gets a test or a recorded decision.
-10. **Leftovers to re-check against current `main`:** STATUS lists these as open, but
-    later steps may have closed them. Close each with evidence, or give it its own row:
-    - the mixed-caps producer gap (A7/A7o, before step 8);
-    - the vehicle proxy gate (`docs/frame-path.md` §9).
+10. **M3, what is left** (`STATUS.md` § Milestones, M3):
+    - cross-OS pairs that include an arm64 host. `openETQW-linux-arm64` offered
+      `macmini-m1`; ask `kisakcod` first, since it's the 8 GB host;
+    - weapon fire seen by the other player (a headless peer can't observe it; needs a
+      Vulkan observer or a server-side check).
+
+    Acceptance: `cross-os` X1–X4 each way per pair, recorded like the evidence rows of
+    2026-10-16. With the server's `playerPos` polled every 0.25 s (coordination §5).
 
 **Before you add a row:** compare `STATUS.md` § Milestones and § Release gate with this
 list. Anything open there and missing here belongs in this section or in §4.
@@ -88,10 +99,16 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   host is in the fleet; the owner would have to provide one.
 - **Hosted CI:** comes back only with Actions minutes. Until then, local checks replace it.
 - **#122's retail reference** if none can be found.
+- **A person at the controls.** Smooth motion at high caps, and M3's "Vulkan client with a
+  human at the controls", are judged by people on real displays (M5 D3), not by a test.
 
 ## 5. Recently done
 
-M3 cross-OS with the Mac, all four directions (2026-10-16, `STATUS.md` evidence), #139 (the first of them), #138 (the Mac Local Network notes), #132 (this runbook), #137 (STATUS current), #130 (dropped clients are told; listen-host `disconnect` ends its server), #129 (raster shadow volumes; #124 fixed), #131 (removed the Discord announcement), #125 (the screenshot tool and rule), #123 (the
+Closed on re-check (2026-10-18), with evidence:
+- the mixed-caps producer gap: M5 step 8 removed it (`docs/m5-plan.md` step 8, ledger 059: A7/A7o pass, known gaps removed);
+- the vehicle proxy gate: steps 13–14 replaced it for listed seats, so all that's left is the owner's default seat list (§4).
+
+M3 cross-OS with the Mac, all four directions (2026-10-16, `STATUS.md` evidence), #140 (the other three), #139 (the first of them), #138 (the Mac Local Network notes), #132 (this runbook), #137 (STATUS current), #130 (dropped clients are told; listen-host `disconnect` ends its server), #129 (raster shadow volumes; #124 fixed), #131 (removed the Discord announcement), #125 (the screenshot tool and rule), #123 (the
 raster sky), #118 (Stop disconnects the client), #117 (the vehicle-pop tolerance),
 #112 (the Windows retail-data folder picker). Older work is in `STATUS.md` and the merged
 PRs.
