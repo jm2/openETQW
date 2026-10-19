@@ -511,9 +511,10 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
 **M5 (high-refresh multiplayer): not met.**
 - **State (2026-10-18), by `docs/m5-plan.md` step:**
   - **Done:**
+    - 1: the frame-path doc;
     - 2: frame timing;
     - 3: frame poses on foot;
-    - 5: the replay hash, in single player and on the listen host;
+    - 5 and 5a: the replay hash, in single player and on the listen host, and the vehicle physics guard;
     - 6: no presentation values in tick state;
     - 7: the listen host's per-frame view;
     - 8–10: remote entities interpolated everywhere, and tick frames drawn at their sub-tick fraction (ledgers 059–061);
@@ -524,10 +525,10 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
     - 16: GUI updates;
     - 17: a cap change during play;
     - 18: the default cap of 240 (ledger 069).
-  - **Step 14's seat presentation:** built for the `standard`, chase, `pivot`/`freepivot` and jetpack views. `pivot`/`freepivot` use the transport's joints blended per draw. Late look covers the `standard`, chase, rate-limited and `pivot` seats (ledgers 062–066, 070).
+  - **Step 14's seat presentation:** built for the `standard`, chase, `pivot`/`freepivot` and jetpack views. `pivot`/`freepivot` use the transport's joints blended per draw. Late look covers the `standard`, chase, rate-limited and `pivot` seats. Ledgers: 062, 063, 066 and 070 for the presentation, 064 and 065 for late look.
   - **Step 14b's hull lead:** built, off by default (ledger 067).
   - **Left:**
-    - late look for `freepivot` and the `clampDamped*` seats (the titan, the husky);
+    - late look for `freepivot` and the `clampDamped*` seats (the desecrator and husky drivers);
     - the default seat list and the hull-lead bounds (the owner, after a review on a high-refresh display);
     - step 3's check of the seat capture.
 
@@ -617,7 +618,7 @@ The shared, owner-ordered list is `docs/queue.md`; this table follows its milest
 |---|---|---|---|---|
 | 1 | M5 step 14b, the hull lead (`docs/hull-lead.md`; ledger 067, off by default): a network client's `VEH_PRED` numbers per class, then the owner's review on a high-refresh display | any; owner | owner review | The owner's per-class bound and default seat list |
 | 2 | M5 step 3's last part: frame-pose capture in vehicle seats. First check whether `seat-poses-join`/`-listen` already cover it | any | none | `docs/m5-plan.md` step 3 marked done with its checks, or `frame-poses-*` seat checks with a negative control |
-| 3 | M5 step 14, what is left: late mouse look for `freepivot` views and the `clampDamped*` seats (titan, husky); `pivot`/`freepivot` are presentable since 2026-10-07 (ledger 070) | any | none | `seat-poses` late-look phases for them; then the owner picks the default seats |
+| 3 | M5 step 14, what is left: late mouse look for `freepivot` views and the `clampDamped*` seats (the desecrator and husky drivers); `pivot`/`freepivot` are presentable since 2026-10-07 (ledger 070) | any | none | `seat-poses` late-look phases for them; then the owner picks the default seats |
 | 4 | M4, what is left: a match played out by bots (they play no objectives), and a started match on maps beyond the campaign's three | any | none | New meson tests pass on the retail 1.5 data on two platforms |
 | 5 | Retail data discovery: the Linux folder picker; a person tries the macOS and Windows pickers | Linux; owner | none | A package started from its own directory finds a configured ET:QW install |
 | 6 | Provenance labels: the minizip relabel and the other label questions (`docs/provenance.md` §6) | any | none | `provenance_post_split.py` no gap; game `check_spdx.py` passes; §6 rows resolved |

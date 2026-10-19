@@ -42,10 +42,11 @@ Each item names its acceptance test. Details are in the linked plan.
    variant is done. First check whether `seat-poses-join`/`-listen` (step 14) already
    cover it. They log `FRAME_POSE` in listed seats and check the camera on every draw (the
    late-look phases), the drawn turret joints and view yaw (gunner phase G1–G2), and a
-   walking peer drawn on every frame (stage 4). Check the viewmodel/cockpit as well. If they do, mark step 3 done in `docs/m5-plan.md` and cite their checks. If
-   they don't, `frame-poses-*` gain seat checks, with a negative control.
+   walking peer drawn on every frame (stage 4). Check the viewmodel/cockpit as well. If
+   they do, mark step 3 done in `docs/m5-plan.md` and cite their checks. If they don't,
+   `frame-poses-*` gain seat checks, with a negative control.
 3. **M5 step 14, what is left:** late mouse look for `freepivot` views and for the seats
-   with `clampDamped*` clamps (the titan, the husky; ledger 064). The `pivot` and
+   with hull-relative `clampDamped*` clamps (the desecrator and husky drivers; ledger 064). The `pivot` and
    `freepivot` views themselves have been presentable since 2026-10-07 (joint blending,
    ledger 070), and `pivot` has late look since 2026-10-08. Acceptance: `seat-poses`
    late-look phases for those seats. Then the owner decides which seats join the default
@@ -78,7 +79,7 @@ Each item names its acceptance test. Details are in the linked plan.
       Vulkan observer or a server-side check).
 
     Acceptance: `cross-os` X1–X4 each way per pair, recorded like the evidence rows of
-    2026-10-16. With the server's `playerPos` polled every 0.25 s (coordination §5).
+    2026-10-16, with the server's `playerPos` polled every 0.25 s (coordination §5).
 
 **Before you add a row:** compare `STATUS.md` § Milestones and § Release gate with this
 list. Anything open there and missing here belongs in this section or in §4.

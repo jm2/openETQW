@@ -85,7 +85,7 @@ The commands are the macOS ones, with `game_x64.so` in the symlink step (`game_a
 
 ## Build on Windows
 
-You need Windows x64, Visual Studio 2026 (MSVC 19.51 or later, the "Desktop development with C++" workload), Python 3 with `meson` and `ninja`, the Vulkan SDK (the client compiles its shaders with its `glslangValidator`), and vcpkg (triplet `x64-windows`) with `sdl3[vulkan]`, `zlib`, `vulkan-headers`, `vulkan-loader` and `pkgconf`.
+You need Windows x64 (or arm64, see below), Visual Studio 2026 (MSVC 19.51 or later, the "Desktop development with C++" workload), Python 3 with `meson` and `ninja`, the Vulkan SDK (the client compiles its shaders with its `glslangValidator`), and vcpkg (triplet `x64-windows`) with `sdl3[vulkan]`, `zlib`, `vulkan-headers`, `vulkan-loader` and `pkgconf`.
 
 ```powershell
 # vcpkg's prefix; PKG_CONFIG lets Meson find SDL3 and zlib through pkg-config
@@ -104,7 +104,7 @@ meson setup build --vsenv -Dbuild_engine=true -Dbuild_dedicated=true -Dbuild_tes
 meson compile -C build
 ```
 
-This produces `build\openETQW-client_x64.exe` and `build\openETQW-ded_x64.exe`. Windows arm64 builds the same way, with the vcpkg triplet `arm64-windows` and the ARM64 toolset (`docs/coordination.md` §5 has the exact commands), and produces `_arm64` binaries. The engine build copies `game_x64.dll`, `SDL3.dll` and `z.dll` next to them, and copies the game module again whenever the game build replaces it. Start the client from the repository root: it finds its Vulkan shaders (`base\vkprogs`) through the current directory.
+This produces `build\openETQW-client_x64.exe` and `build\openETQW-ded_x64.exe`. Windows arm64 builds the same way, with the vcpkg triplet `arm64-windows` and the ARM64 toolset (`docs/coordination.md` §5 has the exact commands), and produces `_arm64` binaries. The engine build copies `game_x64.dll` (`game_arm64.dll` on arm64), `SDL3.dll` and `z.dll` next to them, and copies the game module again whenever the game build replaces it. Start the client from the repository root: it finds its Vulkan shaders (`base\vkprogs`) through the current directory.
 
 The engine links the idLib in the game repository's `build` directory, so for an optimized build configure both with the same `--buildtype` (for example `debugoptimized`). MSVC 19.51 miscompiles an inlined `strncpy` at `/O2`; the game repository works around it (`src/idlib/text/StrBuilder.h`). The dedicated server stops cleanly on Ctrl+C or Ctrl+Break, as on SIGTERM elsewhere.
 
