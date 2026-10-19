@@ -98,8 +98,39 @@ session as `<host>/<session>`, where `<host>` is the name the host was enrolled 
 (`swk hosts` lists them). A bare session name works when it is unique, and the session
 names in §1 are.
 
-**The owner's address:** `user:<name>`, where `<name>` is the owner's Switchworks user
-name. **The owner fills it in here before any session moves to Switchworks:**
+**The setup as of 2026-10-18** (reported by the `switchworks-linux` session from the live
+coordinator; Switchworks v0.1.1, `antec-win`'s node still v0.1.0):
+- **Coordinator and hosts:** the coordinator runs on `antec` (https://antec.lan:7480; nodes
+  use 7481). Hosts are enrolled lowercase as `antec`, `antec-win`, `mbp16-m1max`,
+  `yoga-slim7x` and `macmini-m1`. `yoga-slim7x` shows as windows/amd64 because the x64
+  `swk` runs under emulation, and it has no Goose.
+- **Sessions:** the openETQW sessions are named in lowercase: `antec/openetqw-linux`,
+  `macmini-m1/openetqw-linux-arm64`, `mbp16-m1max/openetqw-mac` and
+  `yoga-slim7x/openetqw-win-arm64`. None exists on `antec-win` yet. Each works in
+  `~/openETQW` (`C:\Users\thesa\openETQW` on `yoga-slim7x`). They run Codex with DeepSeek
+  Flash, approval `never` and sandbox `workspace-write`, and carry no labels. Labels that the
+  owner sets at spawn (`owner.*`) can't be set by agents, so they are trustworthy for routing
+  (`@owner.role=coordinator`); adding one means respawning.
+- **Pushing:** on `antec`, Codex's sandbox has no network, so `git push` and `gh` fail there.
+  Other hosts are unchecked. Network access for the sandbox is the owner's setting.
+- **People:** there are no accounts. Every `user:<name>` lands in one shared person inbox,
+  and any person credential can answer any person-ask. The name is only a label: the web UI
+  sends as `user:web`, the CLI as `user:cli`.
+- **Tokens:** `antec` has an operate-scope `cli.json` that agents there can read, so the
+  headerless rule below does **not** hold on `antec` until the owner replaces it with a
+  read-only token. On the other hosts, check `~/.config/swk/cli.json`,
+  `~/Library/Application Support/swk/cli.json` (macOS) and `%AppData%\swk\cli.json` (Windows).
+  Node keys are readable by agents too, but a node key cannot send person messages.
+- **v0.1.2 (Switchworks PRs #23, #24; not merged yet):** person asks and replies will always
+  carry a header, and plain person messages sent with a non-owner token will carry
+  `via=token:<name>`. The owner will also be able to change a running session's approval
+  policy. Update the rule below and `AGENTS.md` rule 1 when it lands.
+- **Claude Code and Switchworks don't reach each other.** Claude Code cross-session messages
+  and Switchworks messages are separate systems. During the changeover the owner relays
+  between them.
+
+**The owner's address:** `user:<name>`, where `<name>` is the label the owner picks (there
+are no accounts, see above). **The owner fills it in here before any session moves to Switchworks:**
 `user:________`. Until it is filled in, ask the owner by typing into the session's own
 transcript, where the owner reads it.
 
