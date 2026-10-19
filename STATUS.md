@@ -4,8 +4,8 @@
 >
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
-Updated: 2026-10-16 · session/agent: `openETQW-linux` (Claude Code), coordinator · host: `antec`, Fedora 44 x86_64 (Linux 7.2.10), RX 6400 / RADV
-Engine repo `~/openETQW`: `main` bfe0734 (#132; `tools/ci/companion.ref` pins game 28be6b6) · game repo `~/openETQW-game`: `main` 28be6b6 (game #50) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (upstream last checked 2026-09-24)
+Updated: 2026-10-18 · session/agent: `openETQW-linux` (Claude Code), coordinator · host: `antec`, Fedora 44 x86_64 (Linux 7.2.11), RX 6400 / RADV
+Engine repo `~/openETQW`: `main` b318c87 (#140; `tools/ci/companion.ref` pins game 28be6b6) · game repo `~/openETQW-game`: `main` 28be6b6 (game #50) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (upstream last checked 2026-09-24)
 
 Engine SHAs quoted in older docs (`CHECKPOINT_STOCK_MAPS_PHASE.md`, ledger rows, earlier STATUS text) may not resolve in the current history, and neither do some of the game's historical `tools/ci/engine.ref` pins.
 
@@ -82,15 +82,25 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 
 ## This session
 
-2026-10-15/16, `openETQW-linux` on `antec`, as coordinator. The owner asked to burn down the PRs opened before 2026-10-15 and to bring the status docs current. Other sessions did platform runs and reviews (`openETQW-win`, `-mac`, `-win-arm64`, `-linux-arm64`). Earlier sessions' plans are in git history and their PR descriptions; the tables below keep their merges.
+2026-10-15 to 10-18, `openETQW-linux` on `antec`, as coordinator. The owner asked for three things: burn down the PRs opened before 2026-10-15, run the macOS cross-OS legs once the Local Network question was settled, and bring every repository doc up to date. Other sessions did platform runs and reviews (`openETQW-win`, `-mac`, `-win-arm64`, `-linux-arm64`). Earlier sessions' plans are in git history and their PR descriptions; the tables below keep their merges.
 
 **Merged:**
 - **#130** (2bd4501, 2026-10-16): the server tells a dropped client (kick, its timeout of the client, its shutdown), and the client unloads its map; `disconnect` on a listen host ends its server (#119, #120; ledger 075). meson `client-server-kick`, `client-server-timeout`, `listen-host-disconnect`. Reviewed by `openETQW-linux-arm64` (one finding) and CodeRabbit (two findings); all fixed. Runs: Linux x64 full suite on `antec`, Windows x64 and macOS (the 9 network tests), Linux arm64.
 - **#129** (667db63, 2026-10-16, `openETQW-win-arm64`): raster stencil shadows build real shadow volumes, so #124's black shards over terrain are gone (ledger 074); GPU-skinned casters cast no stencil volume. Reviewed by `openETQW-mac`; screenshot sets approved on all five platforms, four GPU models (Windows x64 RT on/off, win-arm64, Linux x64, Linux arm64, macOS); full suite on win-arm64 62/0/1.
+- **#137** and **#132** (2026-10-16): this file brought current, and the agent runbook (`AGENTS.md`, `docs/coordination.md`, `docs/queue.md`), approved and merged by the owner.
+- **#138** (2026-10-16): why macOS blocked LAN traffic from the Mac session. The session's tmux server isn't Terminal-run, so Apple's TN3179 exemption for Terminal and SSH tools doesn't reach it. The owner confirmed it the same day: a separate Terminal window works.
+- **#139** and **#140** (2026-10-16/17): **M3 cross-OS with the Mac, all four directions, X1–X4 pass** (engine 33d2018, game 28be6b6): Mac clients on `antec`'s server, `antec`'s clients on a Mac server, Mac clients on ANTEC-WIN, and ANTEC-WIN's clients on a Mac server. In the last two the server polled `playerPos` every 0.25 s, and its own start-to-far-rest distance for every walk matches the clients' within 0.1 u. With the Linux ↔ Windows pair (2026-10-08), every pair of the three desktop OSes has passed both ways (evidence rows above).
 
-**Filed:** #134 (retail shadow distance limits not applied, by `openETQW-win-arm64`), #135 (`mixed-caps` B 240 A1 sits at its threshold on antec), #136 (`bot-gameplay`: the bots sometimes never engage); earlier, on 2026-10-09, #126 (all-stock-maps: slipgate teleporter samples). None loosens a test.
+**Filed:** #134 (retail shadow distance limits not applied, by `openETQW-win-arm64`), #135 (`mixed-caps` B 240 A1 sits at its threshold on antec), #136 (`bot-gameplay`: the bots sometimes never engage), #141 (mouse motion: SDL's sub-pixel deltas are truncated per event, found by `openETQW-mac` from code); earlier, on 2026-10-09, #126 (all-stock-maps: slipgate teleporter samples). None loosens a test.
 
-**Merged the same day:** #137 (this STATUS update) and #132 (the agent runbook, approved and merged by the owner). The owner's Switchyard address in `docs/coordination.md` §3 is still blank.
+**Docs pass (2026-10-18).** Every doc in both repositories was checked against `main`. This PR updates the stale ones:
+- the readmes' platform status (five platforms; cross-OS LAN play; the game README in game PR #52);
+- the M5 state in `docs/m5-plan.md`, `docs/vehicle-responsiveness.md`, `docs/frame-path.md` §9 and § Milestones below;
+- the queue's M5 and M3 rows, and two items closed on re-check (queue §5);
+- the provenance count;
+- the Mac's LAN-test steps in `docs/coordination.md` §5.
+
+The owner's Switchworks address in `docs/coordination.md` §3 is still blank (Switchyard was renamed Switchworks; the rename is PR #143).
 
 ### Merged on 2026-09-25
 | Repo | PR (merge) | What |
@@ -133,7 +143,7 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 | game | #14 2485998 (`ci/refresh-engine-pin-and-blockers`) | CI facts: engine contract pin 84a224b -> cba54bb (engine main after #25); the contract legs' blocker reasons as they stand (the engine builds on Linux and with MSVC); Windows x64 legs on `windows-2025-vs2026`; zlib from vcpkg on the Windows contract leg |
 
 ### Open and pending
-- **Open PRs (2026-10-16):** none in either repository. #137 (this STATUS update) and #132 (the agent runbook) merged that day.
+- **Open PRs (2026-10-18):** none in either repository apart from this docs pass.
 - **Open issues to work, in `docs/queue.md` order:** #128 (raster shadows: casters outside the view), #134 (retail shadow distance limits), #122 (GDF rifle viewmodel dark on raster; needs a retail reference), #127 (`+set r_mode` ignored at startup), #126, #135 and #136 (test flakes: slipgate teleporter samples, `mixed-caps` on antec, `bot-gameplay` engagement).
 - **M5 step 14b, the hull lead: plan (2026-10-06, the Mac session; `docs/hull-lead.md`).**
   - A first measurement (`tools/analysis/veh_pred.py` over `g_determinismTest 2`'s `VEH_TRACE`, on this Mac):
@@ -499,6 +509,30 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
 - Bots / navigation row: partial. Retail AAS is on all 12 maps and bots traverse in warmup. Bots play no objectives.
 
 **M5 (high-refresh multiplayer): not met.**
+- **State (2026-10-18), by `docs/m5-plan.md` step:**
+  - **Done:**
+    - 1: the frame-path doc;
+    - 2: frame timing;
+    - 3: frame poses on foot;
+    - 5 and 5a: the replay hash, in single player and on the listen host, and the vehicle physics guard;
+    - 6: no presentation values in tick state;
+    - 7: the listen host's per-frame view;
+    - 8–10: remote entities interpolated everywhere, and tick frames drawn at their sub-tick fraction (ledgers 059–061);
+    - 11–12: the unlock CVars;
+    - 13: the seat gate (ledger 054);
+    - 14a: aircraft re-prediction (ledger 055);
+    - 15: mixed caps (A7/A7o pass since step 8);
+    - 16: GUI updates;
+    - 17: a cap change during play;
+    - 18: the default cap of 240 (ledger 069).
+  - **Step 14's seat presentation:** built for the `standard`, chase, `pivot`/`freepivot` and jetpack views. `pivot`/`freepivot` use the transport's joints blended per draw. Late look covers the `standard`, chase, rate-limited and `pivot` seats. Ledgers: 062, 063, 066 and 070 for the presentation, 064 and 065 for late look.
+  - **Step 14b's hull lead:** built, off by default (ledger 067).
+  - **Left:**
+    - late look for `freepivot` and the `clampDamped*` seats (the desecrator and husky drivers);
+    - the default seat list and the hull-lead bounds (the owner, after a review on a high-refresh display);
+    - step 3's check of the seat capture.
+
+    The default seat list is empty, so by default seats still draw at the tick rate. Step 4's ~120 fps ceiling is the display's, accepted as evidence (D3). `docs/queue.md` §3 has the order.
 - The replay runs offline in single player (`high-refresh-determinism`) and, since 2026-10-01, on a listen host (`high-refresh-determinism-listen`: the Vulkan client with `+spawnServer`, the same schedules; plan step 5's listen variant): `SIM_HASH`, `SIM_VIEW` and `VEH_TRACE` identical to cap 30's and to `com_unlockFPS 0`'s on every tick (`antec`, 5 runs). Before plan step 7 the host drew between ticks but never called `ClientUpdateView` there, so none of those draws was an unlocked draw; since step 7 every one is (asserted), and both replays check that tick code never starts on a render frame's view (`TICK_VIEW`, owner decision E3). `SIM_HASH` leaves out view angles, other players and projectiles; since PR #14 the replay also compares `SIM_VIEW` each tick at full precision (view angles, the logged view origin and weapon pose, the vehicle's pose and its view's last returned axis). Other players and projectiles are still not compared.
 - In network games (client or listen host) no GUI updated: the engine never called the per-frame GUI update outside single player (0 updates in 5 s of play). Fixed 2026-09-25; `client-network-*` require it (60 updates/s at cap 60).
 - What the Vulkan client draws is now captured per frame (`g_logFramePoses`, meson `frame-poses-join`/`-listen`, 2026-09-25, on foot, caps 60/120/240): on a network client the camera changes on every draw, remote players only once per tick (the `Entity::Present` producer is off) and, since the `PresentUnlocked` fix, the viewmodel changes on every draw (before it, it repeated on about a fifth of draws: after a snapshot re-ran prediction, `isNewFrame` was false and the weapon's `Present()` returned early); on a listen host camera, viewmodel and remote players all changed only once per tick until plan step 7; since then the host's camera and viewmodel change on every draw (A4–A6 100%, A8 every draw between ticks unlocked, at caps 60/120/240), and since step 9 its remote players too (A7 100%).
@@ -506,9 +540,9 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
 - The 2026-09-24 turn-rate fix removed one render-rate dependence of authoritative state (key turning). Since 2026-10-01 `turn-rate-listen` also checks it on the Vulkan listen host: 20.0 deg/s at cap 30 and 19.8 deg/s at cap 240 (7.7–7.9 frames a tick), both ways (`antec`, 2 runs). Before plan step 7 the host built a usercmd only at each tick (`LocalClientInput`); since step 7 it also builds one on each render-only frame, so `TurnTimeScale`'s scaling across them is exercised there too: 20.0 deg/s at caps 30 and 240, both ways, with 413–415 of 474–475 draws of each cap-240 hold unlocked (`antec`, 2 runs).
 - `docs/frame-path.md` (2026-09-25) traces one host frame in each mode, from code; its pacing section (§7.1, §7.5, §7.6) also has the frame rates measured with `com_logFrameTiming`. `docs/m5-plan.md` orders the remaining work in 17 steps; the owner made its ten decisions (D1–D10) on 2026-09-25; D10's seat view is on by default.
 - Open (details and file:line in `docs/frame-path.md` §9):
-  - the vehicle proxy gate;
+  - vehicle seats by default. Steps 13–14 replaced the SDK's proxy gate for listed seats, but the default seat list is empty until the owner picks seats (queue §4);
   - the SDK channels from render frames into tick state that remain: the damped views' `lastReturnedAxis` (owner decision 7, kept), and on network clients the `renderView` that `ClientUpdateView` writes and scripts read before `CalculateView` (since plan step 7 it is put back at each tick's entry on the listen host and in single player, owner decision E3; OpenETQW's vehicle-view interpolation was removed in step 6);
-  - in a mixed-cap live session (meson `mixed-caps`, M5 step 15, since 2026-10-01), what each client sees of the other client and of the peer changes once per tick, the producer gap above; the rest of that test passes on macOS and, since #54, on Windows and Linux. A cap change during play is tested since 2026-09-30 (M5 step 17, engine #39): map-loaded on macOS arm64, Apple Clang 21, debug, retail 1.5 data: a `high-refresh-determinism` schedule changes the cap from 60 to 90 (`com_unlock_maxFPS`) and to 45 (`com_maxFPS`) during play; the simulation matches every other schedule and each new cap is held (90.0 and 45.0 fps);
+  - in a mixed-cap live session (meson `mixed-caps`, M5 step 15, since 2026-10-01), what each client sees of the other client and of the peer changed once per tick until M5 step 8 restored the producer (2026-10-03, ledger 059: `mixed-caps` A7/A7o pass, their known gaps removed; #135 tracks a separate A1 flake on `antec`); the rest of that test passes on macOS and, since #54, on Windows and Linux. A cap change during play is tested since 2026-09-30 (M5 step 17, engine #39): map-loaded on macOS arm64, Apple Clang 21, debug, retail 1.5 data: a `high-refresh-determinism` schedule changes the cap from 60 to 90 (`com_unlock_maxFPS`) and to 45 (`com_maxFPS`) during play; the simulation matches every other schedule and each new cap is held (90.0 and 45.0 fps);
 
 **M7 (public release): not met.** None of the six release-gate items is cleared yet. Item 2's SDK exceptions are approved (A6) and their condition, the SDK EULA in every engine package, is met (PR #19); the SDK files in engine history still hold it open (next section). Also missing:
 - a release made on hosted runners: the packaging scripts and the manual release workflow exist since #25 (`docs/releasing.md`), and the Windows zip and installer, the Linux tar.xz and AppImage and the macOS app were each built and run locally, but hosted CI has no Actions minutes;
@@ -530,7 +564,7 @@ Both repositories are private and have no releases.
    - Still open before publishing: engine history holds SDK files through jmarshall's root commits (the owner left them in place); SDK EULA §5 (the EULA must accompany each copy) still has to be handled for those commits (`docs/provenance.md` §6).
 3. **`docs/provenance.md` coverage: not cleared.**
    - `docs/provenance-manifest.json` classifies 5,274 imported files.
-   - Files added after the split: in it since 2026-10-07 (213 entries, `addedAfterSplit`; `tools/build/provenance_post_split.py` reports and adds later ones).
+   - Files added after the split: in it since 2026-10-07 (213 entries then, 230 at b318c87: 193 engine, 37 game; `addedAfterSplit`; `tools/build/provenance_post_split.py` reports and adds later ones).
    - At 84a224b / 24f58bf, the manifest and the game's `tools/ci/spdx_allowlist.txt` label the 204 files in `src/compiledscript/scripts/` (202 `.script`, 2 `.include`) and 13 compiledscript runtime files (217 in all) Reconstruction_original/MIT. They are SDK files (`LicenseRef-ETQW-SDK`).
    - The 2026-09-24 docs pass corrected this. The manifest relabels 217 compiledscript files as SDK, fixes the two minizip entries. The allowlist is updated to match (merged in PR #2).
    - jmarshall files are labeled GPL-3.0-or-later although their license is the open question.
@@ -584,7 +618,7 @@ The shared, owner-ordered list is `docs/queue.md`; this table follows its milest
 |---|---|---|---|---|
 | 1 | M5 step 14b, the hull lead (`docs/hull-lead.md`; ledger 067, off by default): a network client's `VEH_PRED` numbers per class, then the owner's review on a high-refresh display | any; owner | owner review | The owner's per-class bound and default seat list |
 | 2 | M5 step 3's last part: frame-pose capture in vehicle seats. First check whether `seat-poses-join`/`-listen` already cover it | any | none | `docs/m5-plan.md` step 3 marked done with its checks, or `frame-poses-*` seat checks with a negative control |
-| 3 | M5 step 14, the remaining seats: `pivot` and `freepivot` views | any | none | `seat-poses` covers them; the owner picks the default seats |
+| 3 | M5 step 14, what is left: late mouse look for `freepivot` views and the `clampDamped*` seats (the desecrator and husky drivers); `pivot`/`freepivot` are presentable since 2026-10-07 (ledger 070) | any | none | `seat-poses` late-look phases for them; then the owner picks the default seats |
 | 4 | M4, what is left: a match played out by bots (they play no objectives), and a started match on maps beyond the campaign's three | any | none | New meson tests pass on the retail 1.5 data on two platforms |
 | 5 | Retail data discovery: the Linux folder picker; a person tries the macOS and Windows pickers | Linux; owner | none | A package started from its own directory finds a configured ET:QW install |
 | 6 | Provenance labels: the minizip relabel and the other label questions (`docs/provenance.md` §6) | any | none | `provenance_post_split.py` no gap; game `check_spdx.py` passes; §6 rows resolved |

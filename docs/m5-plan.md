@@ -9,6 +9,21 @@ M5 is done when:
 - the listen host is covered;
 - changing the cap during play works.
 
+**State (2026-10-18).**
+- **Done:**
+  - steps 1, 2, 5, 5a, 6–13, 14a and 15–18;
+  - step 3 on foot.
+- **Step 14:**
+  - Built: the seat presentation for the `standard`, chase, `pivot`/`freepivot` (joint blending) and jetpack views.
+  - Late look: built for `standard`, chase, rate-limited and `pivot` seats.
+  - Left: late look for `freepivot` and the `clampDamped*` seats (the desecrator and husky drivers).
+- **Step 14b:** the hull lead is built, off by default.
+- **Owner's choice, after a review on a high-refresh display:** the default seat list, which is still empty, and the hull-lead bounds.
+- **Step 3:** the seat capture still needs checking against `seat-poses-*`.
+- **Step 4:** the ceiling is the display's (D3).
+
+The queue (`docs/queue.md` §3) has the order. The steps below keep their own records.
+
 ## Measure first
 
 1. **Frame-path doc** (`docs/frame-path.md`). Documentation only.

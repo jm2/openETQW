@@ -373,7 +373,12 @@ ETQW_DATA_PATH=~/etqw_data meson test -C ~/openETQW/build --no-rebuild -j 1 <nam
   (it sends no Apple Events, so there's no Automation prompt). `osascript` telling Terminal to
   run a script hangs on an Automation consent prompt. For a dedicated server whose console the
   session drives from tmux, have the `.command` script start it as
-  `tail -f <cmdfile> | <ded> … | tee <log>`, then append commands to `<cmdfile>`. Loopback tests are unaffected.
+  `tail -f <cmdfile> | <ded> … | tee <log>`, then append commands to `<cmdfile>`.
+  A fresh Terminal has none of the session's environment, so the `.command` script sets
+  `ETQW_DATA_PATH=~/etqw_data` itself, or `cross-os` skips (exit 77). For the server's
+  own copy of each walk, append `playerPos 0` and `playerPos 1` every 0.25 s, plus
+  `echo TS $(date +%H:%M:%S)` each second for timestamps. At 2 s the far-end rest of
+  every walk was missed (2026-10-16). Loopback tests are unaffected.
 - **Before heavy or timing jobs,** message `kisakcod-mac` (same Mac) to hold its builds,
   and tell it when you're done. It asks before its own heavy builds.
 - **xmat:** this Mac serves `antec`'s controller through `~/.ssh/xmat-forced.sh`, which

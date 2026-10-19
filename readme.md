@@ -41,7 +41,14 @@ This follows openQ4: retail 1.5 network compatibility is not a goal. Retail 1.5 
 
 ## Status
 
-The engine builds and runs on macOS arm64 (Apple Clang), Linux x86_64 (GCC) and Windows x64 (MSVC). The dedicated server loads every stock map with its scripts and navigation, and bots move. The Vulkan client (through MoltenVK on macOS) renders maps, joins dedicated servers and hosts listen servers. Automated tests cover a dedicated server hosting multiple clients over loopback, reconnects, map restarts and a long lossy session. [`STATUS.md`](STATUS.md) has the evidence levels, the exact commands, the known failures and the open items.
+The engine builds and runs on five platforms: macOS arm64 (Apple Clang), Linux x86_64 and arm64 (GCC), and Windows x64 and arm64 (MSVC). On each, the dedicated server loads every stock map with its scripts and navigation, and bots move. The Vulkan client (through MoltenVK on macOS) renders maps, joins dedicated servers and hosts listen servers. Automated tests cover:
+- a dedicated server hosting several clients over loopback;
+- reconnects and map changes;
+- dropped and kicked clients;
+- a long lossy session;
+- LAN play between Linux x86_64, Windows x64 and macOS arm64, every pair in both directions.
+
+High-refresh play, drawing above the 30 Hz game tick (default cap 240), works on foot and in the vehicle seats that are turned on. Which seats are on by default is still to be decided. [`STATUS.md`](STATUS.md) has the evidence levels, the exact commands, the known failures and the open items.
 
 ## Build on macOS
 
@@ -74,11 +81,11 @@ Configuring the engine copies headers and a few sources from the game repository
 
 You need GCC, Python 3, Meson and Ninja, and these packages (Fedora names): `gcc-c++`, `meson`, `ninja-build`, `pkgconf`, `SDL3-devel`, `vulkan-loader-devel`, `vulkan-headers`, `zlib-ng-compat-devel`, `mesa-libGL-devel`, plus `glslang` (the client compiles its shaders with `glslangValidator`) and `vulkan-validation-layers` for the tests. Ubuntu 24.04 has no SDL3 package; `tools/ci/linux_deps.sh` installs the rest and builds SDL3 into a private prefix, as CI does.
 
-The commands are the macOS ones, with `game_x64.so` in the symlink step.
+The commands are the macOS ones, with `game_x64.so` in the symlink step (`game_arm64.so` on arm64).
 
 ## Build on Windows
 
-You need Windows x64, Visual Studio 2026 (MSVC 19.51 or later, the "Desktop development with C++" workload), Python 3 with `meson` and `ninja`, the Vulkan SDK (the client compiles its shaders with its `glslangValidator`), and vcpkg (triplet `x64-windows`) with `sdl3[vulkan]`, `zlib`, `vulkan-headers`, `vulkan-loader` and `pkgconf`.
+You need Windows x64 (or arm64, see below), Visual Studio 2026 (MSVC 19.51 or later, the "Desktop development with C++" workload), Python 3 with `meson` and `ninja`, the Vulkan SDK (the client compiles its shaders with its `glslangValidator`), and vcpkg (triplet `x64-windows`) with `sdl3[vulkan]`, `zlib`, `vulkan-headers`, `vulkan-loader` and `pkgconf`.
 
 ```powershell
 # vcpkg's prefix; PKG_CONFIG lets Meson find SDL3 and zlib through pkg-config
@@ -97,7 +104,7 @@ meson setup build --vsenv -Dbuild_engine=true -Dbuild_dedicated=true -Dbuild_tes
 meson compile -C build
 ```
 
-This produces `build\openETQW-client_x64.exe` and `build\openETQW-ded_x64.exe`. The engine build copies `game_x64.dll`, `SDL3.dll` and `z.dll` next to them, and copies the game module again whenever the game build replaces it. Start the client from the repository root: it finds its Vulkan shaders (`base\vkprogs`) through the current directory.
+This produces `build\openETQW-client_x64.exe` and `build\openETQW-ded_x64.exe`. Windows arm64 builds the same way, with the vcpkg triplet `arm64-windows` and the ARM64 toolset (`docs/coordination.md` §5 has the exact commands), and produces `_arm64` binaries. The engine build copies `game_x64.dll` (`game_arm64.dll` on arm64), `SDL3.dll` and `z.dll` next to them, and copies the game module again whenever the game build replaces it. Start the client from the repository root: it finds its Vulkan shaders (`base\vkprogs`) through the current directory.
 
 The engine links the idLib in the game repository's `build` directory, so for an optimized build configure both with the same `--buildtype` (for example `debugoptimized`). MSVC 19.51 miscompiles an inlined `strncpy` at `/O2`; the game repository works around it (`src/idlib/text/StrBuilder.h`). The dedicated server stops cleanly on Ctrl+C or Ctrl+Break, as on SIGTERM elsewhere.
 
@@ -167,8 +174,12 @@ The release gate has six items: a redistributable license for jmarshall's code (
 
 ## Documents
 
+- [`AGENTS.md`](AGENTS.md): rules and the work loop for coding agents; start here.
+- [`docs/queue.md`](docs/queue.md): the work queue, in order.
+- [`docs/coordination.md`](docs/coordination.md): sessions, hosts, per-platform commands, reviews and merging.
 - [`STATUS.md`](STATUS.md): current state of both repositories, with evidence.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md): merge gates and local checks.
 - [`docs/compat-ledger.md`](docs/compat-ledger.md): deliberate deviations from retail 1.5.
 - [`docs/provenance.md`](docs/provenance.md): file origins and licenses.
 - [`docs/releasing.md`](docs/releasing.md): CI workflows, packages and releases.
+- [`docs/m5-plan.md`](docs/m5-plan.md), [`docs/frame-path.md`](docs/frame-path.md), [`docs/vehicle-responsiveness.md`](docs/vehicle-responsiveness.md), [`docs/hull-lead.md`](docs/hull-lead.md): the high-refresh work.
