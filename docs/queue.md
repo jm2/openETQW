@@ -16,6 +16,7 @@ added the M3 row. It also closed two re-check items with evidence (§5).
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
 | [#149](https://github.com/jm2/openETQW/pull/149) | #128: off-view static casters cast stencil shadows. | `openETQW-win-arm64` | 66e86b3 | The retail suite; every platform's screenshot set; an independent review. |
+| [#156](https://github.com/jm2/openETQW/pull/156) | `screenshot_set.py`: canyon's anchor is outdoors (the GDF spawn area); the hangar stays as an extra view. Tooling only. | `openETQW-win` | 5e47d0a | An independent review; CodeRabbit. |
 
 ## 2. Open issues, in priority order
 
@@ -30,7 +31,6 @@ added the M3 row. It also closed two re-check items with evidence (§5).
 | [#141](https://github.com/jm2/openETQW/issues/141) | Mouse motion: SDL's sub-pixel `xrel`/`yrel` is truncated per event (`src/sys/sdl/sdl_events.cpp:238`), so slow motion is lost on high-DPI displays. From code, not reproduced. | — | Port openQ4's remainder-keeping `SDL3_ConsumeMouseDelta`, with a test that feeds fractional deltas. Check it on a Retina Mac. Input path only. |
 | [#147](https://github.com/jm2/openETQW/issues/147) | High-density displays: should `r_mode` / `r_custom*` mean pixels or points (SDL sizes on macOS are points)? | — | An owner question with three options; not urgent. |
 | [#148](https://github.com/jm2/openETQW/issues/148) | `ANTEC-WIN` drew at about 30 fps for some 15 minutes during a retail suite (2026-10-20 02:16–02:31Z); cause unknown. | — | If it recurs, capture what the issue lists. |
-| — | `screenshot_set.py`: the canyon anchor is indoors. | — | Add an outdoor canyon anchor; take eye positions from `getviewpos`. |
 
 ## 3. Milestone work, in order
 
