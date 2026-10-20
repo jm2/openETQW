@@ -95,8 +95,8 @@ SERVER_ARGS = [
     # server. With the thread and a stdin join, the bots took one of a few routes
     # chosen by timing; first combat came 17-80 s into monitoring, and once never
     # within the window. Inline with a fixed join, 10 runs on antec all met at
-    # 19.8-22.3 s. The checks below are unchanged. Threaded bot AI stays covered by
-    # bot-combat-stress, all-stock-maps (botThreadStats), the m4 tests and others.
+    # 19.8-22.3 s. The checks below are unchanged. Threaded bot AI stays covered in the
+    # suite by all-stock-maps (botThreadStats), the m4-* tests and valley-match.
     "+set", "bot_threading", "0",
     "+spawnServer", "valley",
     "+addbot", "gdf", "soldier",
