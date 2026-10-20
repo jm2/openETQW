@@ -2476,6 +2476,10 @@ namespace {
 	// draws it.  Left out: dynamic models (built only for a view that sees them; animated
 	// ones are GPU-skinned and cast no volume yet), stuff models, entities with a render
 	// callback, and entities whose surfaces this view suppresses or only another allows.
+	// For the atmosphere light, which has no areas, world areas the view culls whole are
+	// left out too: there they are mostly indoor and underground areas, whose sun volumes
+	// reach the view's frustum below ground and cost valley's aerial view a third of its
+	// frame rate on Adreno for no visible shadow.
 	idCVar r_offViewShadows( "r_offViewShadows", "1", CVAR_RENDERER | CVAR_BOOL,
 		"raster stencil shadows: static casters outside the view cast when their shadow may reach it" );
 	struct offViewCasterGroup_t {
@@ -2483,6 +2487,7 @@ namespace {
 		idBounds		bounds;			// local; cleared when unknown
 		int				firstCaster;
 		int				numCasters;
+		bool			wholeArea;		// a world area the view culled whole
 	};
 	struct offViewCaster_t {
 		const modelSurface_t*	surface;
@@ -2507,12 +2512,13 @@ namespace {
 		return space;
 	}
 
-	void BeginOffViewGroup( viewEntity_s* space, const idBounds& bounds ) {
+	void BeginOffViewGroup( viewEntity_s* space, const idBounds& bounds, bool wholeArea = false ) {
 		offViewCasterGroup_t group;
 		group.space = space;
 		group.bounds = bounds;
 		group.firstCaster = offViewCasters.Num();
 		group.numCasters = 0;
+		group.wholeArea = wholeArea;
 		offViewGroups.Append( group );
 	}
 
@@ -2577,7 +2583,7 @@ namespace {
 			if ( space->entityDef == NULL ) worldModelsInView.Append( space->model );
 			if ( !space->culled || space->numInsts > 0 ) continue;
 			if ( !OffViewEntityCasts( space->entityDef ) ) continue;
-			BeginOffViewGroup( space, space->model->Bounds( space->entityDef ) );
+			BeginOffViewGroup( space, space->model->Bounds( space->entityDef ), space->entityDef == NULL );
 			for ( int surfaceIndex = 0; surfaceIndex < space->model->NumSurfaces(); ++surfaceIndex ) {
 				AddOffViewCaster( space->entityDef, space->model->Surface( surfaceIndex ) );
 			}
@@ -2586,7 +2592,7 @@ namespace {
 		for ( int modelIndex = 0; modelIndex < world->BackendNumLocalModels(); ++modelIndex ) {
 			idRenderModel* model = world->BackendLocalModel( modelIndex );
 			if ( model == NULL || !model->IsStaticWorldModel() || worldModelsInView.FindIndex( model ) >= 0 ) continue;
-			BeginOffViewGroup( NULL, model->Bounds() );
+			BeginOffViewGroup( NULL, model->Bounds(), true );
 			for ( int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex ) {
 				AddOffViewCaster( NULL, model->Surface( surfaceIndex ) );
 			}
@@ -2674,6 +2680,7 @@ namespace {
 		bool added = false;
 		for ( int groupIndex = 0; groupIndex < offViewGroups.Num(); ++groupIndex ) {
 			const offViewCasterGroup_t& group = offViewGroups[ groupIndex ];
+			if ( group.wholeArea && light->lightDef->flags.atmosphereLight ) continue;
 			const viewEntity_s* space = group.space;
 			const renderEntity_t* entity = space->entityDef;
 			if ( entity != NULL && ( ( entity->suppressShadowInViewID != 0 &&
