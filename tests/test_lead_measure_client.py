@@ -130,14 +130,17 @@ def main(argv: list[str]) -> int:
     schedule = {"g_determinismTest": "4", "g_leadMeasureDrive": "0"}
     game = {"si_rules": "sdGameRulesObjective", "si_pure": "0", "g_teamSwitchDelay": "0",
             "si_teamForceBalance": "0", "net_allowCheats": "1"}
-    # the player's turn rates for the aircraft's ramps, without the run key's multiplier
-    view = {"com_unlockFPS": "1", "r_swapInterval": "0", "r_vkValidation": "0", "com_maxFPS": str(args.cap),
-            "g_unlock_vehicleSeats": "*", "in_pitchSpeed": "12", "in_yawSpeed": "24", "in_angleSpeedKey": "1"}
+    view = {"com_unlockFPS": "1", "r_swapInterval": "0", "r_vkValidation": "0"}
+    # set from the console once the game runs: on the command line they would take the
+    # listen host past MAX_COMMAND_ARGS. Every seat presented, and the player's turn rates
+    # for the aircraft's ramps, without the run key's multiplier
+    later = {"com_maxFPS": str(args.cap), "g_unlock_vehicleSeats": "*", "in_pitchSpeed": "12",
+             "in_yawSpeed": "24", "in_angleSpeedKey": "1"}
     if args.mode == "join":
         srv = h.DedicatedServer(ded, data, "valley", args.port, log_path=log("server"), cvars={**game, **schedule})
         srv.name = "SERVER"
         cl = VulkanClient(vk, data, args.port + 1, connect_to=f"127.0.0.1:{args.port}", log_path=log("client"),
-                          cvars={"si_pure": "0", "ui_name": "Driver", **view})
+                          cvars={"si_pure": "0", "ui_name": "Driver", "net_clientShowSnapshots": "1", **view})
         procs = [cl, srv]
     elif args.mode == "listen":
         cl = VulkanClient(vk, data, args.port, map_name="valley", log_path=log("host"),
@@ -164,6 +167,8 @@ def main(argv: list[str]) -> int:
                 raise Failed("the map never loaded")
             cl.sync(60.0)
             cl.slot = 0
+        for k, v in later.items():
+            cl.send(f"set {k} {v}")
         cl.send("set g_logVehiclePred 1")   # a cheat: once in the game
         spawn(srv, cl, "gdf", timeout=60.0)
         start = srv.wait_for(lambda s: re.search(r"LEAD_START: tick=(\d+) client=(\d+)", s), 30.0)
@@ -192,7 +197,7 @@ def main(argv: list[str]) -> int:
         lines = [ln.text for ln in srv.snapshot()]
         if not any(DONE_RE.search(t) for t in lines):
             failures.append("C2 the schedule did not finish (no LEAD_DONE)")
-        spawned = {m[1] for t in lines if (m := SEGMENT_RE.search(t)) and int(m[2]) >= 0}
+        spawned = {m[2] for t in lines if (m := SEGMENT_RE.search(t)) and int(m[3]) >= 0}
         for cls in CLASSES:
             if cls in spawned and cls not in entered:
                 failures.append(f"C1 {cls}: spawned, never entered")
