@@ -33,8 +33,13 @@ is expected; compare the PR with main on the same machine.
 The views (VIEWS) are offsets from a per-map eye position: fixed for valley and canyon
 (ANCHORS), else where the player spawned in the first capture, reused with --anchors. They
 cover the weapon, terrain near and from the air in two directions, the horizon and the sky in
-two directions. The heuristics only warn (a near-black viewmodel corner, a sky band of one
-flat colour, an all-black or one-colour frame); the decision is made by looking at the sheets.
+two directions. A map can add views at fixed positions (EXTRA_VIEWS: canyon's hangar), which
+--anchors does not move. A capture with --anchors takes the other capture's positions, the
+old canyon anchor included when that capture predates the outdoor one. compare lists an extra
+view only one side took as "missing in base" or "not taken by head", neither a problem; a
+standard view, map or mode the head lacks is "missing in head", a problem. The heuristics only
+warn (a near-black viewmodel corner, a sky band of one flat colour, an all-black or one-colour
+frame); the decision is made by looking at the sheets.
 
 capture needs only the standard library; the sheets, compare and the heuristics need Pillow
 (pip install pillow). The data root comes from --data or $ETQW_DATA_PATH; tests/ must be
@@ -70,15 +75,23 @@ MAPS = [
 
 # Fixed eye positions (x, y, z, yaw) the views are taken from, so two captures (main and the
 # PR, or ray tracing on and off) show the same frames: spawns are random. Valley's is the GDF
-# spawn area the sky reports used (#121), canyon's the Strogg spawn (indoors: its ground
-# views show the hangar). A map without one uses where the player spawned and records it
+# spawn area the sky reports used (#121), canyon's the GDF spawn area (the MCP, a shelter, the
+# canyon walls and open sky). A map without one uses where the player spawned and records it
 # (screenshot_set.json); pass that file to the other capture with --anchors.
 # Positions are eye positions as getviewpos prints them: a spot even slightly below the floor
 # drops the player out of the world, and the "view" is then the map from underneath. Aerial
 # views use noclip; ground views do not (in noclip the player's own model shows overhead).
 ANCHORS = {
     "valley": (10600.0, -10824.0, 1480.5, 90.0),
-    "canyon": (-1271.86, 4348.12, 472.0, 225.0),
+    "canyon": (-9710.0, -9379.0, 1057.0, 315.0),
+}
+
+# Views at fixed eye positions (x, y, z, yaw), not offsets from the anchor, so --anchors does
+# not move them: name, position, pitch, noclip. Taken after the standard views. Canyon's anchor
+# was the Strogg spawn, in a hangar, until 2026-10-20; its forward view stays as "hangar", so
+# indoor lighting and shadows are still in the set.
+EXTRA_VIEWS = {
+    "canyon": [("hangar", (-1271.86, 4348.12, 472.0, 225.0), 0, False)],
 }
 
 # name, (forward, right, up) offset in units relative to the anchor, yaw delta, pitch
@@ -231,12 +244,15 @@ def capture_map(client_bin: Path, workdir: Path, data: Path, out: Path, map_name
                 raise RuntimeError(f"{tag}: no getviewpos answer")
             spawn = tuple(float(found.group(i)) for i in range(1, 6))
             anchors[map_name] = spawn[:4]   # the other ray tracing mode and --anchors reuse it
+        targets = [(name, *view_target(spawn, offset, yaw_delta, pitch), needs_noclip)
+                   for name, offset, yaw_delta, pitch, needs_noclip in VIEWS]
+        targets += [(name, *at, pitch, needs_noclip)
+                    for name, at, pitch, needs_noclip in EXTRA_VIEWS.get(map_name, [])]
         noclip = False
-        for name, offset, yaw_delta, pitch, needs_noclip in VIEWS:
+        for name, x, y, z, yaw, pitch, needs_noclip in targets:
             if needs_noclip != noclip:
                 client.send("noclip")
                 noclip = needs_noclip
-            x, y, z, yaw, pitch = view_target(spawn, offset, yaw_delta, pitch)
             # setviewpos takes the eye position; it subtracts the view height itself
             client.send(f"setviewpos {x:.2f} {y:.2f} {z:.2f} {yaw:.2f} {pitch:.2f} 0")
             time.sleep(settle)
@@ -322,6 +338,8 @@ def contact_sheet(entries: list[tuple[str, Path | None]], out: Path, cols: int, 
     draw = ImageDraw.Draw(sheet)
     draw.text((4, 2), title, fill=(255, 255, 255))
     for i, (label, path) in enumerate(entries):
+        if label is None:   # padding to the end of a row
+            continue
         x, y = (i % cols) * thumb_w, label_h + (i // cols) * (thumb_h + label_h)
         draw.text((x + 4, y + 2), label, fill=(255, 220, 120))
         img = _open(path) if path is not None and path.exists() else None
@@ -382,10 +400,16 @@ def cmd_capture(a) -> int:
         for w in shot["warnings"] or []:
             print(f"  WARNING {shot['map']} rt{shot['rt']} {shot['view']}: {w}")
     (out / "screenshot_set.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    # one row per map, so each view sits under the same view of the map above it
+    cols = len(VIEWS) + max((len(EXTRA_VIEWS.get(m[0], [])) for m in maps), default=0)
     for rt in modes:
-        entries = [(f"{s['map']} {s['view']}", out / s["file"] if s["file"] else None)
-                   for s in meta["shots"] if s["rt"] == rt]
-        contact_sheet(entries, out / f"sheet_rt{rt}.png", len(VIEWS),
+        entries = []
+        for map_name, _, _ in maps:
+            row = [(f"{s['map']} {s['view']}", out / s["file"] if s["file"] else None)
+                   for s in meta["shots"] if s["rt"] == rt and s["map"] == map_name]
+            if row:
+                entries += row + [(None, None)] * (cols - len(row))
+        contact_sheet(entries, out / f"sheet_rt{rt}.png", cols,
                       f"{a.label or 'screenshot set'}  {meta['platform']}  r_rayTracing {rt}")
     missing = sum(1 for s in meta["shots"] if not s["file"])
     written = len(meta["shots"]) - missing
@@ -406,7 +430,7 @@ def cmd_compare(a) -> int:
         meta = json.loads((d / "screenshot_set.json").read_text(encoding="utf-8"))
         table = {(s["map"], s["rt"], s["view"]): s for s in meta["shots"]}
         for f in meta.get("failed", []):   # a failed map run has no shots: list each view as missing
-            for v in VIEWS:
+            for v in VIEWS + EXTRA_VIEWS.get(f["map"], []):
                 table.setdefault((f["map"], f["rt"], v[0]), {"file": None})
         return table
 
@@ -414,7 +438,8 @@ def cmd_compare(a) -> int:
     order = {m[0]: i for i, m in enumerate(MAPS)}
     vorder = {v[0]: i for i, v in enumerate(VIEWS)}
     keys = sorted(set(b_shots) | set(h_shots),
-                  key=lambda k: (k[1] != "1", order.get(k[0], 99), vorder.get(k[2], 99)))
+                  key=lambda k: (k[1] != "1", order.get(k[0], 99), vorder.get(k[2], 99), k[2]))
+    head_runs = {k[:2] for k in h_shots}
     report = ["| map | rt | view | mean diff | max | pixels > 16 | warnings on head |", "|---|---|---|---|---|---|---|"]
     entries, problems = [], 0
     for key in keys:
@@ -423,7 +448,13 @@ def cmd_compare(a) -> int:
         hp = head / hs["file"] if hs.get("file") else None
         warns = heuristics(hp, key[2]) if hp else None
         ib, ih = (_open(bp) if bp else None), (_open(hp) if hp else None)
-        if ih is None:
+        if key not in h_shots and key[2] not in vorder and key[:2] in head_runs:
+            # an extra view the head's capture does not take, in a map and mode it did capture
+            # (its script has an older view list, e.g. without canyon's hangar, added
+            # 2026-10-20): listed, not a problem. A standard view, a map or a mode the head
+            # lacks is missing
+            cells = ["not taken by head", "", ""]
+        elif ih is None:
             cells = ["**missing in head**" if hp is None else "**unreadable in head**", "", ""]
             problems += 1
         elif ib is None:
