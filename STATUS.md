@@ -97,12 +97,12 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 
 Every merge went through `docs/coordination.md` §8 on antec: `validate pr` plus the retail suite on the merge head. When CodeRabbit was rate-limited, a no-context review agent reviewed instead, and its findings were fixed or answered on the PR.
 
-**Filed:** #151 and #154 (`seat-poses`, by `openETQW-win`), #159 (`all-stock-maps` salvage AAS dip), #160 (`seat-poses-listen` H3). Each is a flake or a missing test case, and none loosens a bound.
+**Filed:** #151 and #154 (`seat-poses`, by `openETQW-win`), #159 (`all-stock-maps` salvage AAS dip), #160 (`seat-poses-listen` H3), #162 (`seat-poses-listen` L3 on macOS). Each is a flake or a missing test case, and none loosens a bound.
 
 **Parked items, with where each stopped:**
 - **#141** (`openETQW-mac`): branch `fix/mouse-subpixel-deltas` at 42de177, no PR. It waits on the owner's Retina check (commands on #141).
 - **#144**, M3 arm64 cross-OS (`openETQW-linux-arm64`): Linux arm64 with Linux x64 and with Windows x64 pass. The macOS arm64 pair is not run; the steps are on #144.
-- **#134** (`openETQW-win-arm64`): needs a retail 1.5 reference. `openETQW-win-arm64` reports that the owner allowed it to download the 1.5 installer. Not recorded as an owner decision here; not started.
+- **#134** (`openETQW-win-arm64`): needs a retail 1.5 reference. The owner confirmed on 2026-10-20 that `openETQW-win-arm64` may download the retail 1.5 installer; not started because of the park.
 
 ### Merged on 2026-09-25
 | Repo | PR (merge) | What |
