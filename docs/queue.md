@@ -39,16 +39,9 @@ Each item names its acceptance test. Details are in the linked plan.
 1. **M5 step 14b, the hull lead** (`docs/hull-lead.md`). The code is in, off by default
    (ledger 067). Left: a network client's `VEH_PRED` numbers per class, then the owner's
    review on a high-refresh display (owner-gated, §4).
-2. **M5 step 14, what is left** (owner: `openETQW-win`, branches `feat/late-look-freepivot-damped`):
-   late mouse look for `freepivot` views (the badger, desecrator, hog and platypus gunners
-   and the titan passenger) and for the presented seat with a hull-relative `clampDamped*`
-   clamp: the husky driver (ledger 064). From valley's `listSeatViews`, the desecrator
-   driver's standard view is rate-limited, not damped, so it has late look since
-   2026-10-08's rate tier; the titan driver's damped view is third person. The `pivot` and
-   `freepivot` views themselves have been presentable since 2026-10-07 (joint blending,
-   ledger 070), and `pivot` has late look since 2026-10-08. Acceptance: `seat-poses`
-   late-look phases for those seats. Then the owner decides which seats join the default
-   list (§4).
+2. **M5 step 14, what is left** (owner: `openETQW-win`): late look for `freepivot` views and the damped
+   first-person `clampDamped*` view is merged (#152 with game #54). Left: the owner decides
+   which seats join the default list (§4).
 3. **M4, what is left** (`STATUS.md` § Milestones, M4). Done: classes, damage and kills,
    deployable delivery, both match endings, stopwatch and campaign transitions (meson
    `m4-*`, #104 and #107). Left: a match played out by bots (they play no objectives), and

@@ -29,6 +29,8 @@ import etqw_harness as h
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = h.env_data_path()
 CLIENT_BIN = h.build_binary("client")
+# archived cvars this test sets (com_maxFPS, g_tooltipTimeScale, ...) must not reach other runs
+SAVEPATH = h.private_savepath("etqw-pacing-adversarial-")
 DED_BIN = h.build_binary("ded")
 
 TEST_PROCS: list[subprocess.Popen] = []
@@ -90,10 +92,15 @@ def launch_client(extra_args: list[str]) -> tuple[subprocess.Popen, queue.Queue[
     args = [
         str(CLIENT_BIN),
         "+set", "fs_basepath", str(DATA_PATH),
+        "+set", "fs_savepath", str(SAVEPATH),
         "+set", "fs_game", "base",
         "+set", "si_rules", "sdGameRulesObjective",
         "+set", "r_swapInterval", "0",
         "+set", "g_simHash", "1",
+        # no tooltips: retail drops any tooltip spawned in the first 10 s of process uptime
+        # (sys->Milliseconds()), and map scripts wait on isToolTipPlaying(), so a slower start
+        # services other script events and SIM_HASH's event count differs (#150)
+        "+set", "g_tooltipTimeScale", "0",
         "+set", "com_showTics", "1",
         "+devmap", "valley",
         "+clientTeam", "gdf",

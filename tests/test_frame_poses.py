@@ -191,7 +191,9 @@ def parse_pose(line):
             "lead": (lambda g: None if g is None else (float(g.group(1)), [float(g.group(i)) for i in (2, 3, 4)]))(
                 LEAD_RE.search(m.group(14))),
             "jnt": (lambda g: None if g is None else [float(g.group(1))])(JNT_RE.search(m.group(14))),
-            "ckp": (lambda g: None if g is None else [float(v) for v in g.group(1).split(",")])(CKP_RE.search(m.group(14)))}
+            # ckp=- : a seated draw without a cockpit (a few draws as the husky's seat is entered)
+            "ckp": (lambda g: None if g is None or g.group(1) == "-" else [float(v) for v in g.group(1).split(",")])(
+                CKP_RE.search(m.group(14)))}
 
 
 def spectate_round(poses, host_slot, peer_slot):
