@@ -509,11 +509,11 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
 - Bots / navigation row: partial. Retail AAS is on all 12 maps and bots traverse in warmup. Bots play no objectives.
 
 **M5 (high-refresh multiplayer): not met.**
-- **State (2026-10-18), by `docs/m5-plan.md` step:**
+- **State (2026-10-19), by `docs/m5-plan.md` step:**
   - **Done:**
     - 1: the frame-path doc;
     - 2: frame timing;
-    - 3: frame poses on foot;
+    - 3: frame poses on foot and, since 2026-10-19, in a vehicle seat (`seat-poses-*`, with S5 for the cockpit);
     - 5 and 5a: the replay hash, in single player and on the listen host, and the vehicle physics guard;
     - 6: no presentation values in tick state;
     - 7: the listen host's per-frame view;
@@ -528,9 +528,8 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
   - **Step 14's seat presentation:** built for the `standard`, chase, `pivot`/`freepivot` and jetpack views. `pivot`/`freepivot` use the transport's joints blended per draw. Late look covers the `standard`, chase, rate-limited and `pivot` seats. Ledgers: 062, 063, 066 and 070 for the presentation, 064 and 065 for late look.
   - **Step 14b's hull lead:** built, off by default (ledger 067).
   - **Left:**
-    - late look for `freepivot` and the `clampDamped*` seats (the desecrator and husky drivers);
-    - the default seat list and the hull-lead bounds (the owner, after a review on a high-refresh display);
-    - step 3's check of the seat capture.
+    - late look for `freepivot` and the `clampDamped*` seat (the husky driver; the desecrator driver is rate-limited and has late look);
+    - the default seat list and the hull-lead bounds (the owner, after a review on a high-refresh display).
 
     The default seat list is empty, so by default seats still draw at the tick rate. Step 4's ~120 fps ceiling is the display's, accepted as evidence (D3). `docs/queue.md` §3 has the order.
 - The replay runs offline in single player (`high-refresh-determinism`) and, since 2026-10-01, on a listen host (`high-refresh-determinism-listen`: the Vulkan client with `+spawnServer`, the same schedules; plan step 5's listen variant): `SIM_HASH`, `SIM_VIEW` and `VEH_TRACE` identical to cap 30's and to `com_unlockFPS 0`'s on every tick (`antec`, 5 runs). Before plan step 7 the host drew between ticks but never called `ClientUpdateView` there, so none of those draws was an unlocked draw; since step 7 every one is (asserted), and both replays check that tick code never starts on a render frame's view (`TICK_VIEW`, owner decision E3). `SIM_HASH` leaves out view angles, other players and projectiles; since PR #14 the replay also compares `SIM_VIEW` each tick at full precision (view angles, the logged view origin and weapon pose, the vehicle's pose and its view's last returned axis). Other players and projectiles are still not compared.
@@ -617,12 +616,11 @@ The shared, owner-ordered list is `docs/queue.md`; this table follows its milest
 | # | Step | Host / OS needed | Depends on | Acceptance test |
 |---|---|---|---|---|
 | 1 | M5 step 14b, the hull lead (`docs/hull-lead.md`; ledger 067, off by default): a network client's `VEH_PRED` numbers per class, then the owner's review on a high-refresh display | any; owner | owner review | The owner's per-class bound and default seat list |
-| 2 | M5 step 3's last part: frame-pose capture in vehicle seats. First check whether `seat-poses-join`/`-listen` already cover it | any | none | `docs/m5-plan.md` step 3 marked done with its checks, or `frame-poses-*` seat checks with a negative control |
-| 3 | M5 step 14, what is left: late mouse look for `freepivot` views and the `clampDamped*` seats (the desecrator and husky drivers); `pivot`/`freepivot` are presentable since 2026-10-07 (ledger 070) | any | none | `seat-poses` late-look phases for them; then the owner picks the default seats |
-| 4 | M4, what is left: a match played out by bots (they play no objectives), and a started match on maps beyond the campaign's three | any | none | New meson tests pass on the retail 1.5 data on two platforms |
-| 5 | Retail data discovery: the Linux folder picker; a person tries the macOS and Windows pickers | Linux; owner | none | A package started from its own directory finds a configured ET:QW install |
-| 6 | Provenance labels: the minizip relabel and the other label questions (`docs/provenance.md` §6) | any | none | `provenance_post_split.py` no gap; game `check_spdx.py` passes; §6 rows resolved |
-| 7 | `docs/platform-matrix.md` (release gate, M7) | any | none | Every platform's verified items with evidence level, host and commit |
+| 2 | M5 step 14, what is left: late mouse look for `freepivot` views and the `clampDamped*` seat (the husky driver; the desecrator driver is rate-limited and has late look); `pivot`/`freepivot` are presentable since 2026-10-07 (ledger 070) | any | none | `seat-poses` late-look phases for them; then the owner picks the default seats |
+| 3 | M4, what is left: a match played out by bots (they play no objectives), and a started match on maps beyond the campaign's three | any | none | New meson tests pass on the retail 1.5 data on two platforms |
+| 4 | Retail data discovery: the Linux folder picker; a person tries the macOS and Windows pickers | Linux; owner | none | A package started from its own directory finds a configured ET:QW install |
+| 5 | Provenance labels: the minizip relabel and the other label questions (`docs/provenance.md` §6) | any | none | `provenance_post_split.py` no gap; game `check_spdx.py` passes; §6 rows resolved |
+| 6 | `docs/platform-matrix.md` (release gate, M7) | any | none | Every platform's verified items with evidence level, host and commit |
 
 The open issues (`docs/queue.md` §2) run beside these, the shadow follow-ups first: #128 (casters outside the view) and #134 (retail's shadow distance limits), both raster-path graphics changes that need the screenshot set.
 

@@ -40,15 +40,7 @@ public:
 	}
 
 	virtual void InitContext( const glimpParms_t& parms ) override {
-#if defined( __APPLE__ )
-		SDL_SetHint( SDL_HINT_VIDEO_DRIVER, "cocoa" );
-		SDL_SetHint( SDL_HINT_RENDER_DRIVER, "metal,gpu,software" );
-		SDL_SetHint( SDL_HINT_VIDEO_METAL_AUTO_RESIZE_DRAWABLE, "1" );
-#endif
-
-		if ( !SDL_InitSubSystem( SDL_INIT_VIDEO ) ) {
-			common->FatalError( "SDL3: failed to initialize video subsystem: %s", SDL_GetError() );
-		}
+		InitVideo();
 		// The OpenGL path (explicit or the Vulkan fallback) draws stencil shadows
 		// and assumes 24/8 (glConfig, as win_opengl.cpp requests); SDL's defaults
 		// are a 16-bit depth buffer and no stencil. Set before any window exists.
@@ -291,8 +283,15 @@ public:
 	}
 
 	virtual void EnumerateMonitors() override {
+		// Common.cpp asks for the display (ConstrainToPrimaryMonitor) before InitContext.
+		// Windows starts SDL video in SystemBootstrap; Linux and macOS do not, and without it
+		// SDL reports no display, so every window used to be capped at the 1920x1080 below.
+		InitVideo();
 		SDL_DisplayID displayID = SDL_GetPrimaryDisplay();
 		const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode( displayID );
+		if ( mode == NULL ) {
+			common->Printf( "SDL3: no mode for the primary display (%s); assuming 1920x1080\n", SDL_GetError() );
+		}
 		int w = mode != NULL ? mode->w : 1920;
 		int h = mode != NULL ? mode->h : 1080;
 		primaryMonitor.monitor.x = 0;
@@ -301,9 +300,36 @@ public:
 		primaryMonitor.monitor.h = h;
 		primaryMonitor.workArea = primaryMonitor.monitor;
 		primaryMonitor.primary = true;
+		// SDL's headless drivers (the Linux tests and screenshot sets run on offscreen) report
+		// a made-up 1024x768 display; a window there is not on any screen, so it is not capped.
+		const char *driver = SDL_GetCurrentVideoDriver();
+		if ( driver != NULL && ( SDL_strcmp( driver, "offscreen" ) == 0 || SDL_strcmp( driver, "dummy" ) == 0 ) ) {
+			primaryMonitor.workArea.w = 0;
+			primaryMonitor.workArea.h = 0;
+			static bool logged = false;
+			if ( !logged ) {
+				logged = true;
+				common->Printf( "SDL3: the '%s' video driver has no real display; the window size is not capped\n", driver );
+			}
+		}
 	}
 
 private:
+	// Starts the video subsystem once; nothing quits it before SDL_Quit. The macOS hints are
+	// set on every call, as InitContext always did, so they are set even when video is
+	// already running (Sys_PromptForRetailData starts it without them).
+	static void InitVideo() {
+#if defined( __APPLE__ )
+		SDL_SetHint( SDL_HINT_VIDEO_DRIVER, "cocoa" );
+		SDL_SetHint( SDL_HINT_RENDER_DRIVER, "metal,gpu,software" );
+		SDL_SetHint( SDL_HINT_VIDEO_METAL_AUTO_RESIZE_DRAWABLE, "1" );
+#endif
+
+		if ( SDL_WasInit( SDL_INIT_VIDEO ) == 0 && !SDL_InitSubSystem( SDL_INIT_VIDEO ) ) {
+			common->FatalError( "SDL3: failed to initialize video subsystem: %s", SDL_GetError() );
+		}
+	}
+
 	SDL_Window*				window;
 	SDL_GLContext			glContext;
 	idRenderContextSDL3		renderContext;
