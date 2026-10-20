@@ -16,7 +16,7 @@ added the M3 row. It also closed two re-check items with evidence (§5).
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
 | [#149](https://github.com/jm2/openETQW/pull/149) | #128: off-view static casters cast stencil shadows. | `openETQW-win-arm64` | 66e86b3 | The retail suite; every platform's screenshot set; an independent review. |
-| [#156](https://github.com/jm2/openETQW/pull/156) | `screenshot_set.py`: canyon's anchor is outdoors (the GDF spawn area); the hangar stays as an extra view. Tooling only. | `openETQW-win` | 5e47d0a | An independent review; CodeRabbit. |
+| [#156](https://github.com/jm2/openETQW/pull/156) | `screenshot_set.py`: canyon's anchor is outdoors (the GDF spawn area); the hangar stays as an extra view. Tooling only. | `openETQW-win` | 46ffc03 | CodeRabbit; the independent review is answered. |
 
 ## 2. Open issues, in priority order
 
