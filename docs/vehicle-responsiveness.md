@@ -294,7 +294,7 @@ Engine step 10 (tick frames drawn at their real fraction) is needed for full cov
 - Camera motion caused by the hull is drawn at a fixed age of 33 ms, which is +16.5 ms on average against today. That is the trade on-foot drawing already makes.
 - Mouse look also gets +16.5 ms until stage 5 lands. Angle-driven seats must therefore not be switched on before stage 5.
 
-**Measurement.** This is the seat variant of the `frame-poses` capture that m5-plan step 3 lists as to-do: devmap, and join with a headless peer. It checks:
+**Measurement.** This is the seat variant of the `frame-poses` capture, and since 2026-10-19 it closes m5-plan step 3's seat part (with S5, the cockpit): devmap, and join with a headless peer. It checks:
 - the view origin, view yaw, the `veh=` hull pose and the rider poses change on at least 99% of draw pairs while driving;
 - nothing steps backwards along the velocity;
 - the step across a tick is at most 2.5× the median step within a tick;

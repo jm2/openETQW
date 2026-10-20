@@ -11,15 +11,13 @@ M5 is done when:
 
 **State (2026-10-18).**
 - **Done:**
-  - steps 1, 2, 5, 5a, 6–13, 14a and 15–18;
-  - step 3 on foot.
+  - steps 1, 2, 3, 5, 5a, 6–13, 14a and 15–18 (step 3's seat part since 2026-10-19).
 - **Step 14:**
   - Built: the seat presentation for the `standard`, chase, `pivot`/`freepivot` (joint blending) and jetpack views.
   - Late look: built for `standard`, chase, rate-limited and `pivot` seats.
-  - Left: late look for `freepivot` and the `clampDamped*` seats (the desecrator and husky drivers).
+  - Left: late look for `freepivot` and the `clampDamped*` seat (the husky driver; the desecrator driver is rate-limited and has late look).
 - **Step 14b:** the hull lead is built, off by default.
 - **Owner's choice, after a review on a high-refresh display:** the default seat list, which is still empty, and the hull-lead bounds.
-- **Step 3:** the seat capture still needs checking against `seat-poses-*`.
 - **Step 4:** the ceiling is the display's (D3).
 
 The queue (`docs/queue.md` §3) has the order. The steps below keep their own records.
@@ -41,12 +39,19 @@ The queue (`docs/queue.md` §3) has the order. The steps below keep their own re
        - The trade-off: a host never judges those two parts at a cap it cannot reach. This Mac (ceiling ~120) may report them at caps above 0.9 × the measured ceiling (120, 144 and 240; in `mixed-caps`, whose ceiling is measured while the other client draws, possibly 90 too), and only where they would have failed. antec (~372) and antec-win (~305) judge them at every cap, A8's 8 ms bound at 240 included.
        - The pass lines of `frame-poses` and `mixed-caps` name each host-limited item, A1's included.
 
-3. **Per-frame pose capture (game + engine tests).** On foot done (2026-09-25): `g_logFramePoses` and `frame-poses-join`/`-listen` at caps 60/120/240, with a negative control. The first run confirmed every predicted gap and found one more, since fixed: the network client's viewmodel repeated on about a fifth of draws, because `Present()` returned early while `isNewFrame` was false after a snapshot re-ran prediction (`docs/frame-path.md` §9, criterion 3; `PresentUnlocked`, 2026-09-25). Each known gap is checked against its predicted shape. Still to do: vehicle seats (D2) and a devmap variant.
+3. **Per-frame pose capture (game + engine tests).** On foot done (2026-09-25): `g_logFramePoses` and `frame-poses-join`/`-listen` at caps 60/120/240, with a negative control. The first run confirmed every predicted gap and found one more, since fixed: the network client's viewmodel repeated on about a fifth of draws, because `Present()` returned early while `isNewFrame` was false after a snapshot re-ran prediction (`docs/frame-path.md` §9, criterion 3; `PresentUnlocked`, 2026-09-25). Each known gap is checked against its predicted shape. Vehicle seats (D2) and the devmap variant are done too (below).
    - Also found, and fixed (2026-09-25): right after a snapshot the client's prediction-clock correction stepped the presented time back by a millisecond or two (about 1 draw in 500–700). The game now holds the fraction within a tick; A8 requires no backward step.
    - Done (2026-09-25): `ClientUpdateView` presents the weapon and the `interpolateEntities` consumer through `PresentUnlocked` even when `isNewFrame` is false. `frame-poses-join` A6 passes (100% at caps 60/120/240).
    - Done: the CVar `g_logFramePoses` (game; a cheat, since it logs other players' positions) prints one `FRAME_POSE` line per main-view draw, just before `RenderScene` in `idPlayerView::SingleView`: the view, the viewmodel, the seat and up to 8 other players' render-world poses, and the unlock state and fraction.
    - Done: `frame-poses-join` and `frame-poses-listen` (the Vulkan client with a headless peer that walks). Known gaps were written from the code before the first run (plus the one it found), each with the shape its failure must keep. A negative control makes the camera detectors fail.
-   - To do: vehicle seats (D2). The devmap variant is done (below).
+   - **Vehicle seats (D2), done 2026-10-19.** `seat-poses-devmap`/`-join`/`-listen` (step 14) are the seat capture, in the badger's seats (listed in `g_unlock_vehicleSeats`); S1–S5 run at caps 60/120/240, and L, G and R at 120:
+     - the camera: S1 (the view origin changes on >= 99% of draw pairs while driving), and L2 (the yaw under a held turn);
+     - the vehicle: S2–S4 (the hull's drawn pose, on one path, with no step at the ticks), and G1 (the drawn joints in the gunner's view);
+     - the cockpit: S5. `FRAME_POSE` logs the cockpit model's drawn pose (`ckp=`, game `src/game/PlayerView.cpp`). Every draw of the drive phase in the badger's driver seat carries it and none a viewmodel (`wpn=-`; other seats are not checked for a viewmodel), and it changes on >= 99% of draw pairs. In a seat it stands where the viewmodel does on foot;
+     - remote entities: R1/R2 (a walking peer, join and listen).
+
+     The negative control (the seat unlisted) requires the view, the hull and the cockpit to change only across ticks. The first run on `antec` (2026-10-19) passed in all three modes: the cockpit was in every draw and changed on 100% of pairs at each cap, and with the seat unlisted it changed within a tick on 0 of 56 pairs.
+   - The devmap variant is done (below).
    - **The devmap variant (design, 2026-10-01, the Mac session).**
      - **Why no bot.** The plan asked for a devmap variant with a bot, but a `+devmap` game cannot have one:
        - `addbot` gets no client slot without an active async server. The engine refuses at `NetworkSystem.cpp:261-266`, before `AsyncServer.cpp:367-370` would. The game's `DWarning` "Can't find open client slot" (`AdminSystem.cpp:1326-1329`) prints because devmap sets `developer 1`. The spike saw it even with `si_maxPlayers 8`.
