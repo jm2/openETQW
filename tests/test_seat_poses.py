@@ -86,10 +86,10 @@ The jetpack (icarus, its own recipe since M5 step 14), every seat listed: I1 its
 first-person view changes between consecutive draws (>= 99%) while it flies, every draw
 from one seat (I0); I2 the view's
 step across a tick is at most 2.5 x its step within one; I1c unlisted, the view changes only
-across ticks (at most one pair within). A flight that stalled (#151: the jetpack's view moved
-on fewer than STALL_MOVED_MIN of the draw pairs that cross a tick, which the presentation
-does not draw differently) is reported and flown again from a fresh entry; a second stall
-fails the test, as a disturbed drive phase does.
+across ticks (at most one pair within). A flight that stalled (#151: the jetpack's view did
+not move across some tick, as when it hits a wall) is reported and flown once more from a
+fresh entry; a second stall fails the test, as a disturbed drive phase does. The jetpack's
+start can sit between walls closer than a drive leg, so the second flight can stall too.
 
 Hull lead (M5 step 14b, docs/hull-lead.md), at caps 60 and 120 in the driver's standard view
 with g_unlock_vehicleLead listing the badger at L = 1:
@@ -228,19 +228,20 @@ LOOK_HOLD_S = 0.6     # L2: the held turn (the vehicle's key turn is faster than
 GUN_HOLD_S = 1.5      # G1-G3: the held turret turn in the gunner's view
 EDGE_HOLD_S = 1.2     # L6: the held turn past the husky driver's yaw limit (60 deg/s)
 EDGE_TOL = 0.25       # L6: degrees the late look may stop from the tick's own edge
-STALL_MOVED_MIN = 0.9  # #151: the share of a flight's tick-crossing pairs whose view must move
 
 
 def jetpack_stalled(poses):
-    """Why the jetpack's flight stalled, or None. Judged only on the draw pairs that cross a
-    tick: the view moves there whether or not the presentation draws between ticks, so a
-    presentation fault (what I1 tests) can't pass for a stall."""
+    """Why the jetpack's flight stalled, or None: its view did not move across some tick
+    (#151). A stalled tick costs I1 about two draw pairs at cap 60, more than I1 allows, so
+    any still pair across a tick counts. Judged only on the pairs that cross a tick, which
+    a stepped presentation still moves; a presentation that held the view across a tick
+    would look like a stall, and is retried once like one, then fails the test.
+    Too few pairs is left to I1's own count."""
     cross = [(a, b) for a, b in zip(poses, poses[1:]) if a["gt"] != b["gt"]]
-    moving = sum(1 for a, b in cross if moved(a["view"], b["view"]))
-    if len(cross) >= MIN_PAIRS and moving >= STALL_MOVED_MIN * len(cross):
+    still = sum(1 for a, b in cross if not moved(a["view"], b["view"]))
+    if len(cross) < MIN_PAIRS or still == 0:
         return None
-    return (f"the jetpack's flight stalled: its view moved on {moving} of {len(cross)} draw pairs across a tick"
-            f" (need {STALL_MOVED_MIN:.0%} of at least {MIN_PAIRS})")
+    return f"the jetpack's flight stalled: its view did not move across {still} of {len(cross)} ticks"
 
 
 def look_response(lines):
@@ -460,9 +461,10 @@ def main(argv):
                    else f"{off} of {len(poses)} draws were not from the driver's seat in view mode {mode}" if off
                    else stall)
             print(f"[seat] phase {name} at cap {cap}: {why}; attempt {attempt + 1}", flush=True)
-            time.sleep(5.0)
-            if reseat is not None:
-                reseat()
+            if attempt == 0:
+                time.sleep(5.0)
+                if reseat is not None:
+                    reseat()
         raise Failed(f"phase {name} at cap {cap}: disturbed in both attempts ({why})")
 
     def peer_walk():
