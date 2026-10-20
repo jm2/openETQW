@@ -615,7 +615,7 @@ The shared, owner-ordered list is `docs/queue.md`; this table follows its milest
 
 | # | Step | Host / OS needed | Depends on | Acceptance test |
 |---|---|---|---|---|
-| 1 | M5 step 14b, the hull lead (`docs/hull-lead.md`; ledger 067, off by default): a network client's `VEH_PRED` numbers per class, then the owner's review on a high-refresh display | any; owner | owner review | The owner's per-class bound and default seat list |
+| 1 | M5 step 14b, the hull lead (`docs/hull-lead.md`; ledger 067, off by default; per-class `VEH_PRED` on a network client and a listen host in §6): the owner's review on a high-refresh display | owner | owner review | The owner's per-class bound and default seat list |
 | 2 | M5 step 14, what is left: late mouse look for `freepivot` views and the `clampDamped*` seat (the husky driver; the desecrator driver is rate-limited and has late look); `pivot`/`freepivot` are presentable since 2026-10-07 (ledger 070) | any | none | `seat-poses` late-look phases for them; then the owner picks the default seats |
 | 3 | M4, what is left: a match played out by bots (they play no objectives), and a started match on maps beyond the campaign's three | any | none | New meson tests pass on the retail 1.5 data on two platforms |
 | 4 | Retail data discovery: the Linux folder picker; a person tries the macOS and Windows pickers | Linux; owner | none | A package started from its own directory finds a configured ET:QW install |
