@@ -11,7 +11,7 @@ in-progress work and is parked: no PRs are open in either repository apart from 
 Each row below names the branch or comment where its work stopped and its exact next step. When
 the owner resumes the sessions, start at §2's top row that has a next step.
 
-Updated: 2026-10-20 by `openETQW-linux` (coordinator): merged since 2026-10-18 are #145, #146,
+Updated: 2026-10-20 evening by `openETQW-linux` (coordinator), after a quota-bounded sprint (§5). Earlier that day: merged since 2026-10-18 are #145, #146,
 #149, #152, #153, #155–#158 and game #53–#56 (§5); filed #159 and #160. Before that,
 2026-10-18, after a pass over every doc.
 
@@ -32,9 +32,8 @@ Updated: 2026-10-20 by `openETQW-linux` (coordinator): merged since 2026-10-18 a
 | [#162](https://github.com/jm2/openETQW/issues/162) | `seat-poses-listen` L3 (held yaw): 2 of 16 cross-tick rates over 2.5x once on macOS (worst 3.53x); 3 of 3 reruns passed. | — | On the next failure, keep the log directory and look at the client's frame times at the stepping pairs. The bound stays. |
 | [#159](https://github.com/jm2/openETQW/issues/159) | `all-stock-maps`: salvage's Strogg `aas_area_validity` fell to 53.8% once (antec, 2026-10-20); two reruns passed. | — | On the next failure, keep the map's log and JSON and list where the area-0 samples were. The bound stays. |
 | [#160](https://github.com/jm2/openETQW/issues/160) | `seat-poses-listen`: H3 once saw no moving draws in the badger's driver seat (antec, 2026-10-20); two reruns passed. | — | Find why the badger sometimes doesn't move in the listen-host leg. The bound stays. |
-| [#151](https://github.com/jm2/openETQW/issues/151) | `seat-poses-listen` I1: the jetpack barely flew once (60.2% of pairs moved); the phase has no retry for a stalled flight. | — | Make the flight start reliable, or detect a stalled flight and retry it; don't lower the 99%. |
-| [#154](https://github.com/jm2/openETQW/issues/154) | `seat-poses`: no test holds a `freepivot` gun at its extent while the hull moves (late look, ledger 064). | — | Add the case (from #152's review). |
-| [#163](https://github.com/jm2/openETQW/issues/163) | §5's PowerShell gate line joined the checks with `;`, so `check_python.py`'s exit 2 without pyflakes was hidden. | — | The line now stops on the first failure (#164). Check other scripts and wrappers for the same `;` chaining, then close. |
+| [#151](https://github.com/jm2/openETQW/issues/151) | `seat-poses` I1: the jetpack's flight can stall between close walls. Since #165 a stall is reported and flown once more, and a second stall fails. | — | The start sits between walls closer than one drive leg, so a retry can stall too: find a start with room, or a shorter leg (options on #151, issuecomment-6304223638). The 99% bound stays. |
+| [#154](https://github.com/jm2/openETQW/issues/154) | `seat-poses`: no test holds a `freepivot` gun at its extent while the hull moves (late look, ledger 064). | `openETQW-win` (parked) | WIP on `tests/seat-poses-moving-edge` at de67612: L7's metric works (0.001° on main against 0.072° with the bug put back), but the peer's drive doesn't turn the hull moderately and repeatably. Next: a repeatable hull rotation (state on #154, issuecomment-6303561689). |
 | [#148](https://github.com/jm2/openETQW/issues/148) | `ANTEC-WIN` drew at about 30 fps for some 15 minutes during a retail suite (2026-10-20 02:16–02:31Z); cause unknown. | — | If it recurs, capture what the issue lists. |
 
 ## 3. Milestone work, in order
@@ -70,10 +69,9 @@ Each item names its acceptance test. Details are in the linked plan.
 
    Each gap gets a test or a recorded decision.
 9. **M3, what is left** (`STATUS.md` § Milestones, M3):
-    - cross-OS pairs that include an arm64 host (#144): Linux arm64 (`macmini-m1`) with
-      Linux x64 and with Windows x64 pass (#144, issuecomment-6281426367 and -6282183468).
-      Left: the macOS arm64 ↔ Linux arm64 pair; the steps and mbp16's built tree are on
-      #144. `macmini-m1` has 8 GB: tell `kisakcod` before using it;
+    - ~~cross-OS pairs that include an arm64 host~~: done (#144). Linux arm64 (`macmini-m1`)
+      passes X1–X4 both ways with Linux x64, Windows x64 and macOS arm64
+      (issuecomment-6281426367, -6282183468, -6303053162, -6303056403);
     - weapon fire seen by the other player (a headless peer can't observe it; needs a
       Vulkan observer or a server-side check).
 
@@ -103,6 +101,12 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   human at the controls", are judged by people on real displays (M5 D3), not by a test.
 
 ## 5. Recently done
+
+2026-10-20, the evening sprint:
+- #165 (#151, in part): a stalled jetpack flight in `seat-poses` I1 is reported and flown once more.
+- #144's last pair, macOS arm64 ↔ Linux arm64: X1–X4 pass both ways at 318b638.
+- #163 closed: no other `;`-chained checks.
+- #164: what the sessions knew but the docs didn't.
 
 2026-10-20:
 - #149 (#128): off-view static casters cast stencil shadows. The review fix scales the caster box about the light, so the cull is conservative. Screenshot sets on all five platforms.
