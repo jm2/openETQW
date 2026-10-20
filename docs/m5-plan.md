@@ -15,7 +15,7 @@ M5 is done when:
 - **Step 14:**
   - Built: the seat presentation for the `standard`, chase, `pivot`/`freepivot` (joint blending) and jetpack views.
   - Late look: built for `standard`, chase, rate-limited and `pivot` seats.
-  - Left: late look for `freepivot` and the `clampDamped*` seats (the desecrator and husky drivers).
+  - Left: late look for `freepivot` and the `clampDamped*` seat (the husky driver; the desecrator driver is rate-limited and has late look).
 - **Step 14b:** the hull lead is built, off by default.
 - **Owner's choice, after a review on a high-refresh display:** the default seat list, which is still empty, and the hull-lead bounds.
 - **Step 4:** the ceiling is the display's (D3).
@@ -47,7 +47,7 @@ The queue (`docs/queue.md` §3) has the order. The steps below keep their own re
    - **Vehicle seats (D2), done 2026-10-19.** `seat-poses-devmap`/`-join`/`-listen` (step 14) are the seat capture, in the badger's seats (listed in `g_unlock_vehicleSeats`); S1–S5 run at caps 60/120/240, and L, G and R at 120:
      - the camera: S1 (the view origin changes on >= 99% of draw pairs while driving), and L2 (the yaw under a held turn);
      - the vehicle: S2–S4 (the hull's drawn pose, on one path, with no step at the ticks), and G1 (the drawn joints in the gunner's view);
-     - the cockpit: S5. `FRAME_POSE` logs the cockpit model's drawn pose (`ckp=`, game `src/game/PlayerView.cpp`). Every seated draw carries it and none a viewmodel (`wpn=-`: no weapon is drawn in a seat), and it changes on >= 99% of draw pairs. In a seat it stands where the viewmodel does on foot;
+     - the cockpit: S5. `FRAME_POSE` logs the cockpit model's drawn pose (`ckp=`, game `src/game/PlayerView.cpp`). Every draw of the drive phase in the badger's driver seat carries it and none a viewmodel (`wpn=-`; other seats are not checked for a viewmodel), and it changes on >= 99% of draw pairs. In a seat it stands where the viewmodel does on foot;
      - remote entities: R1/R2 (a walking peer, join and listen).
 
      The negative control (the seat unlisted) requires the view, the hull and the cockpit to change only across ticks. The first run on `antec` (2026-10-19) passed in all three modes: the cockpit was in every draw and changed on 100% of pairs at each cap, and with the seat unlisted it changed within a tick on 0 of 56 pairs.

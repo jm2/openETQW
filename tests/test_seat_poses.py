@@ -24,7 +24,8 @@ FRAME_POSE line per draw: the drawn view, the seat and the vehicle's render-worl
               one step of a whole tick's motion: 4x at cap 120)
   S5 cockpit  every draw carries the badger's cockpit model (ckp=), and its drawn pose
               changes between consecutive draws (>= 99%, over S2's moving ticks): in a seat
-              it stands where the viewmodel does on foot, and no draw has a viewmodel (wpn=-)
+              it stands where the viewmodel does on foot, and no draw of this phase (the badger's
+              driver seat) has a viewmodel (wpn=-)
 
 Late mouse look (stage 5), first of all, at cap 120 from the parked badger, in the driver's
 standard view, the gunner's chase view (smooth_free, which orbits its focus) and the
