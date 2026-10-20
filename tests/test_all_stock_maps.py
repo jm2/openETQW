@@ -40,7 +40,9 @@ For every stock map a FRESH dedicated server process is started with
               where the player AAS does not apply, and is counted separately.
               So is a sample in a teleporter's transit (PLAYER_POS 'tele=1'):
               the player waits at the teleporter's storage location (on
-              slipgate, below the map at z -4352), outside the AAS (#126).
+              slipgate, below the map at z -4352), outside the AAS (#126);
+              those samples also stay out of the displacement, speed and stuck
+              numbers, since the jumps in and out of storage are not walking.
   f) think    'botThreadStats' at the start and end of the bot window:
               gameHz = dGameFrame / dWall must be within 27..33.5,
               thinkRatio = dBotFrames / dGameFrame is reported (and must be
@@ -218,7 +220,12 @@ class BotTracker:
         if riding:
             self.vehicle_samples += 1
         elif s.get("tele") == 1:
+            # at the teleporter's storage spot: keep it out of the AAS tally and the
+            # movement numbers (the jumps in and out are not walking); restart the speed pair
             self.transit_samples += 1
+            self.prev = None
+            self.stuck_run_start = None
+            return
         elif s["ground"] == 1:
             self.grounded_alive += 1
             if s["area"] is not None:
@@ -586,16 +593,16 @@ def run_map(map_name: str, map_index: int, cfg: argparse.Namespace, ctx: dict) -
             valid = sum(tr.area_valid for tr in trs)
             riding = sum(tr.vehicle_samples for tr in trs)
             transit = sum(tr.transit_samples for tr in trs)
-            riding_note = f"; {riding} samples in a vehicle left out" if riding else ""
+            left_out_note = f"; {riding} samples in a vehicle left out" if riding else ""
             if transit:
-                riding_note += f"; {transit} samples in teleport transit left out"
+                left_out_note += f"; {transit} samples in teleport transit left out"
             if known == 0:
                 res.check(f"bots.{team}.aas_area_validity", FAIL,
-                          f"no grounded+alive on-foot samples with an area value{riding_note}")
+                          f"no grounded+alive on-foot samples with an area value{left_out_note}")
             else:
                 frac = valid / known
                 res.check_bool(f"bots.{team}.aas_area_validity", frac >= AREA_VALID_MIN_FRACTION,
-                               f"area>0 in {valid}/{known} grounded+alive on-foot samples ({frac:.1%}, need >= {AREA_VALID_MIN_FRACTION:.0%}){riding_note}")
+                               f"area>0 in {valid}/{known} grounded+alive on-foot samples ({frac:.1%}, need >= {AREA_VALID_MIN_FRACTION:.0%}){left_out_note}")
 
     # ---------------- f) think rate ----------------
     think: dict = {"start": bts0, "end": bts1, "start_status": bts0_status, "end_status": bts1_status}

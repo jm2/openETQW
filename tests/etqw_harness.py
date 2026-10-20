@@ -446,6 +446,9 @@ PLAYER_POS_RE = re.compile(
     r"(?:\s*yaw=" + _F + r")?"
     r"(?:\s*vehicle=(-?\d+))?"
     r"(?:\s*tele=(\d+))?"
+    # fields a newer game prints that this harness doesn't know yet (the game PR of a
+    # cross-repo pair merges first, so the line can be ahead of the parser)
+    r"(?:\s+\w+=[^\s)]*)*"
     r"\s*\)",
     re.IGNORECASE,
 )
