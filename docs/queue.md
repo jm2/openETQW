@@ -15,7 +15,7 @@ added the M3 row. It also closed two re-check items with evidence (§5).
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
-| — | None open. | | | |
+| [#149](https://github.com/jm2/openETQW/pull/149) | #128: off-view static casters cast stencil shadows. | `openETQW-win-arm64` | 66e86b3 | The retail suite; every platform's screenshot set; an independent review. |
 
 ## 2. Open issues, in priority order
 
@@ -24,7 +24,6 @@ added the M3 row. It also closed two re-check items with evidence (§5).
 | [#128](https://github.com/jm2/openETQW/issues/128) | Raster stencil shadows: casters outside the view cast no shadow. | `openETQW-win-arm64` | #149 is open: the retail suite and every platform's screenshot set are next. #129 is merged. Raster path, so test on win-arm64, Linux arm64 or macOS. A graphics change, so it needs the screenshot set. |
 | [#134](https://github.com/jm2/openETQW/issues/134) | Raster shadows: retail's `shadowVisDistMult` / `shadowProjectDist` limits are not applied, so far props' sun volumes fill the stencil (the jetpack seat on a network client: 84 draw pairs against 113 without entity casters). | — | Read what retail's renderer does with them first; don't guess. A graphics change: screenshot set. |
 | [#122](https://github.com/jm2/openETQW/issues/122) | GDF rifle viewmodel: near-black on raster, tan with ray tracing. | — (parked) | Get a retail reference first: a retail 1.5 screenshot from the owner, or published retail footage. Until then, don't change either path. Escalate to the owner if no reference turns up. |
-| [#127](https://github.com/jm2/openETQW/issues/127) | `+set r_mode N` on the command line is ignored at startup. | — | Any platform. Small. Fixing it lets `screenshot_set.py` capture above 640x480. |
 | [#126](https://github.com/jm2/openETQW/issues/126) | `all-stock-maps`: slipgate's `aas_area_validity` flakes on teleporter transit samples. | `openETQW-linux` | Test-only fix: exclude samples taken in transit, and explain why in the PR. Don't loosen the bound (`AGENTS.md` rule 4). |
 | [#135](https://github.com/jm2/openETQW/issues/135) | `mixed-caps`: B's 240 cap A1 'turn' sits at its threshold on `antec` (233–235.3 fps against 235.2; the test's own ceiling is about 282 with two clients) and fails on `main` too. | — | Find what costs B frames while turning with a second client, or ask the owner about B's high cap on antec. Not a host-load problem (the 2026-10-09 'ceiling drop' note compared different tests). |
 | [#136](https://github.com/jm2/openETQW/issues/136) | `bot-gameplay`: the two bots sometimes never engage in the window. | `openETQW-linux` | Make the encounter deterministic; don't loosen the check. |
@@ -104,7 +103,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 
 ## 5. Recently done
 
-M5 step 3's seat part (2026-10-19): `seat-poses-*` are the seat capture, and the new S5 checks the cockpit (`docs/m5-plan.md` step 3).
+#145 (2026-10-20; #127): `+set r_mode` was never ignored; the window cap now says when it shrinks a window, Linux and macOS cap at the real display, and the headless drivers don't cap. M5 step 3's seat part (2026-10-19, #146): `seat-poses-*` are the seat capture, and the new S5 checks the cockpit (`docs/m5-plan.md` step 3).
 
 Closed on re-check (2026-10-18), with evidence:
 - the mixed-caps producer gap: M5 step 8 removed it (`docs/m5-plan.md` step 8, ledger 059: A7/A7o pass, known gaps removed);
