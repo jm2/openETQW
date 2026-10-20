@@ -936,6 +936,29 @@ if build_engine and build_dedicated
       is_parallel: false,
     )
   endforeach
+  # M5 step 14b: the hull-lead measurement driven by the player's own commands, on a
+  #     network client and a listen host (g_determinismTest 4 with g_leadMeasureDrive 0):
+  #     every class entered and driven, and each presented class's VEH_PRED table
+  lead_measure_ports = {'join': '29840', 'listen': '29844'}
+  foreach mode : ['join', 'listen']
+    test(
+      'lead-measure-' + mode,
+      py,
+      args: [
+        meson.project_source_root() / 'tests' / 'test_lead_measure_client.py',
+        '--mode', mode,
+        '--ded-binary', all_stock_maps_ded,
+        '--client-binary', campaign_client,
+        '--port', lead_measure_ports[mode],
+        '--log-dir', meson.project_build_root() / 'meson-logs' / 'lead-measure',
+      ],
+      workdir: meson.project_source_root(),
+      suite: ['client', 'integration'],
+      protocol: 'exitcode',
+      timeout: 600,
+      is_parallel: false,
+    )
+  endforeach
 endif
 
 # 10. Vehicle views on the network (M5 step 6, owner decision 4): the listen host puts a

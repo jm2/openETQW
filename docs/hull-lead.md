@@ -217,7 +217,7 @@ The questions as asked:
    - A scripted `g_determinismTest 4` (2 is the vehicle replay, 3 the seat-gate schedule) that spawns and drives each valley vehicle class in turn on open ground: straight, turning at speed, braking, one deliberate wall hit, and, for aircraft, lift-off, a turn and a descent.
    - Reuse the anansi's `SpawnEntityDef` pattern from mode 2, and keep it out of mode 2 so that mode 2's golden stays valid.
    - The output is a `veh_pred.py` table per class. **Done 2026-10-06 (§2.1; meson `lead-measure`).**
-   - Then repeat on a join client with `g_logVehiclePred`, to see the decay noise, and on a listen host. That needs a client-side drive (`clientMove`), as `seat-poses` does.
+   - Then repeat on a join client with `g_logVehiclePred`, to see the decay noise, and on a listen host. That needs a client-side drive (`clientMove`), as `seat-poses` does. **Done 2026-10-20 (§6; meson `lead-measure-join` and `lead-measure-listen`, with the game's `g_leadMeasureDrive 0`).**
 3. **Implement (game). Done 2026-10-07 (ledger 067).**
    - The three-sample predictor, the α draw, the fade and the impact guard in `sdPresentation`, plus `g_unlock_vehicleLead` and `VEH_PRED`.
    - It touches `Presentation.{h,cpp}`, which the Linux session is changing for the stage 5 chase-view look (branch `m5/14-stage5-chase-look`). The merge order is agreed with it before this step starts, and this step is rebased on its result.
@@ -272,6 +272,49 @@ On a network client the render entity is the predicted pose after prediction-err
   - P, which applies only the physics delta and never extrapolates the decay, holds its p95 at 2.77 u. Its median is the worse of the two, as on the ground in §2.1.
   - The errors over 5 u (54 of 1146 ticks) are almost all at collisions in the drive phases, in every mode.
   - Loopback has little network jitter, so a real network adds more decay. A badger's driver on a network client is the case question 1's bound must cover: S at k = 1 is the best median, and P the best p95.
+- **Measured per class (2026-10-20, Windows x64, loopback).** Meson `lead-measure-join` and `lead-measure-listen`, and `tests/test_lead_measure_client.py --mode devmap` for single player with the same drive.
+  - **The setup.**
+    - Host: ANTEC-WIN, Windows 11 x64, RX 6400, MSVC 19.51 debugoptimized, retail 1.5 data.
+    - Builds: engine 995d4b6 (the logs' `g995d4b6d`) with game a5f49bd (`g_leadMeasureDrive`).
+    - The player's game: the Vulkan client at `com_maxFPS 120`, every seat presented (`g_unlock_vehicleSeats *`), `g_logVehiclePred 1`.
+  - **The drive.**
+    - The server runs schedule 4 with `g_leadMeasureDrive 0`: it spawns each class on the same open spot, enters the player, then takes them out and removes the vehicle.
+    - The player drives with their own commands: `clientMove` for the throttle, steering, collective and pedals, and `+lookdown`/`+left`/`+lookup` (`in_pitchSpeed 12`, `in_yawSpeed 24`) for an aircraft's nose and roll, timed by the client.
+    - The ground legs are the schedule's (§2.1). The aircraft legs only approximate them, so the aircraft rows compare across the three modes here, not with §2.1:
+      - lift-off comes about 30 ticks later than in the scripted run (not diagnosed);
+      - the nose comes back with a sustained `+lookup`, where the schedule snaps it back in one tick;
+      - the roll isn't returned;
+      - nothing checks that the look keys took effect.
+    - The titan isn't presented (its driver's first view is a third-person `pivot`), so it logs no `VEH_PRED`.
+  - **The numbers** are the error of the one-tick guess against the pose the player's game then draws from, over the ticks that moved at least 0.5 u (154–180 per class and run).
+    - Each cell is the range, over four runs per mode, of the per-run median / p95 (u).
+    - Every mode varies from run to run, because the client times the drive. Single player varies least (the hog repeats exactly; the badger's S p95 is 1.70–2.17), and the network client most.
+
+    | Class | Devmap S | Devmap P | Devmap H | Listen S | Listen P | Listen H | Join S | Join P | Join H |
+    |---|---|---|---|---|---|---|---|---|---|
+    | hog | 0.27 / 5.77 | 0.67 / 2.90 | 0.23 / 4.74 | 0.07–0.13 / 1.88–5.34 | 0.65 / 1.60–2.20 | 0.07–0.13 / 1.75–2.32 | 0.13–0.54 / 4.44–9.02 | 0.65–0.67 / 2.81–8.66 | 0.13–0.54 / 3.08–8.95 |
+    | desecrator | 0.04 / 1.44 | 1.27–1.28 / 1.82–1.87 | 1.27–1.28 / 1.82–1.87 | 0.03–0.04 / 1.26–1.87 | 1.24–1.25 / 1.80–1.83 | 1.24–1.25 / 1.82–1.83 | 0.04–0.05 / 2.08–3.64 | 1.24–1.25 / 1.83–1.96 | 1.25 / 1.90–1.96 |
+    | husky | 0.06 / 1.61 | 0.55 / 1.23 | 0.06 / 1.29 | 0.02 / 1.22 | 0.54 / 1.10 | 0.02 / 1.02 | 0.05–0.09 / 2.66–4.45 | 0.52–0.54 / 1.19–3.16 | 0.05–0.09 / 2.63–4.03 |
+    | badger | 0.08 / 1.70–2.17 | 0.65 / 1.57–1.81 | 0.07–0.08 / 1.58–1.83 | 0.03–0.04 / 1.05 | 0.64–0.65 / 1.18–1.20 | 0.03 / 0.56–0.57 | 0.06–0.12 / 1.36–4.11 | 0.64–0.65 / 1.58–2.42 | 0.06–0.12 / 0.95–4.03 |
+    | trojan | 0.04 / 1.28 | 0.48 / 1.13 | 0.03 / 1.20 | 0.04 / 1.41 | 0.33–0.39 / 1.32 | 0.03–0.04 / 1.32 | 0.06 / 2.05–3.36 | 0.34–0.53 / 1.46–2.50 | 0.06 / 1.91–3.23 |
+    | anansi | 0.005 / 0.03 | 0.000 / 1.13 | 0.000 / 0.01 | 0.005 / 0.03 | 0.000 / 1.13 | 0.000 / 0.01 | 0.02–0.03 / 0.06–0.07 | 0.005–0.007 / 0.03–0.05 | 0.005–0.007 / 0.03 |
+    | bumblebee | 0.005 / 0.41–0.44 | 0.000 / 1.16 | 0.000 / 0.01–0.09 | 0.004–0.005 / 0.42 | 0.000 / 1.16 | 0.000 / 0.06 | 0.02–0.03 / 0.32–0.39 | 0.007–0.010 / 1.16 | 0.007–0.009 / 0.12–0.63 |
+    | hornet | 0.01–0.02 / 0.10–0.12 | 0.006–0.007 / 1.16 | 0.006 / 0.06 | 0.01–0.02 / 0.11 | 0.006 / 1.16 | 0.006 / 0.06 | 0.03 / 0.14–0.27 | 0.01 / 1.16 | 0.01 / 0.06–0.08 |
+
+  - **Ground classes on the network client.**
+    - S's p95 is 0.6–2.8× its single-player value.
+      - The husky and the trojan are 1.6–2.8× in every run.
+      - The hog and the badger are 0.6–2.4×; some runs come in below single player.
+      - An earlier run of the same drive gave the hog 14.86 u: that drive launched or flipped it, and it was grounded on only 59 of 171 ticks.
+    - This is less than the 5× the badger showed on macOS above. That run used `seat-poses`' drive phases, with their collisions, at caps 60–240, on another display, so the two compare per class, not number for number.
+    - P has the best p95 on the client in 15 of the 16 run × class cells (H in the other), and in 14 of 16 in single player. Its median is 1.2–11× S's on the client: 0.34–0.67 u against 0.05–0.54.
+  - **The listen host** is an authoritative game: there H has the best p95 in 12 of the 16 cells.
+  - **The desecrator** takes S in every mode (median 0.03–0.05 u). H uses P there, with a median of 1.24–1.28 u, because the hover tank is airborne to its contacts (§2.1's finding again).
+  - **Aircraft: H is near-exact.**
+    - Its median is 0.012 u or less in every mode.
+    - Its p95 is 0.09 u or less in single player and on the listen host, and 0.63 u or less on the client.
+    - P alone has a p95 of 1.13–1.16 u everywhere except the anansi on the client (0.03–0.05).
+  - **Logs:** on ANTEC-WIN in `C:\Users\jmulesa\openetqw-evidence\lead-client-2026-10-20\final\` (`devmap-N/`, `listen-N/`, `join-N/`, `aggregate.txt`).
 - Whether to keep the decay on your own vehicle at all: kept, by the owner's 2026-10-07 decision (§4).
 - **An option for question 1 (suggested by the Linux session):** choose the predictor by role.
   - On a network client (`gameLocal.isClient`), use P, or H with P on the ground too, for every class, since the decay inflates S there.

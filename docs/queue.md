@@ -23,19 +23,18 @@ added the M3 row. It also closed two re-check items with evidence (§5).
 | [#134](https://github.com/jm2/openETQW/issues/134) | Raster shadows: retail's `shadowVisDistMult` / `shadowProjectDist` limits are not applied, so far props' sun volumes fill the stencil (the jetpack seat on a network client: 84 draw pairs against 113 without entity casters). | — | Read what retail's renderer does with them first; don't guess. A graphics change: screenshot set. |
 | [#122](https://github.com/jm2/openETQW/issues/122) | GDF rifle viewmodel: near-black on raster, tan with ray tracing. | — (parked) | Get a retail reference first: a retail 1.5 screenshot from the owner, or published retail footage. Until then, don't change either path. Escalate to the owner if no reference turns up. |
 | [#135](https://github.com/jm2/openETQW/issues/135) | `mixed-caps`: B's 240 cap A1 'turn' sits at its threshold on `antec` (233–235.3 fps against 235.2; the test's own ceiling is about 282 with two clients) and fails on `main` too. | — | Find what costs B frames while turning with a second client, or ask the owner about B's high cap on antec. Not a host-load problem (the 2026-10-09 'ceiling drop' note compared different tests). |
-| [#136](https://github.com/jm2/openETQW/issues/136) | `bot-gameplay`: the two bots sometimes never engage in the window. | `openETQW-linux` | Make the encounter deterministic; don't loosen the check. |
 | [#141](https://github.com/jm2/openETQW/issues/141) | Mouse motion: SDL's sub-pixel `xrel`/`yrel` is truncated per event (`src/sys/sdl/sdl_events.cpp:238`), so slow motion is lost on high-DPI displays. From code, not reproduced. | `openETQW-mac` | Code is ready; waits on the owner's hands-on check on a Retina Mac, then the PR. Input path only. |
 | [#147](https://github.com/jm2/openETQW/issues/147) | High-density displays: should `r_mode` / `r_custom*` mean pixels or points (SDL sizes on macOS are points)? | — | An owner question with three options; not urgent. |
 | [#148](https://github.com/jm2/openETQW/issues/148) | `ANTEC-WIN` drew at about 30 fps for some 15 minutes during a retail suite (2026-10-20 02:16–02:31Z); cause unknown. | — | If it recurs, capture what the issue lists. |
-| — | `screenshot_set.py`: the canyon anchor is indoors. | — | Add an outdoor canyon anchor; take eye positions from `getviewpos`. |
 
 ## 3. Milestone work, in order
 
 Each item names its acceptance test. Details are in the linked plan.
 
 1. **M5 step 14b, the hull lead** (`docs/hull-lead.md`). The code is in, off by default
-   (ledger 067). Left: a network client's `VEH_PRED` numbers per class, then the owner's
-   review on a high-refresh display (owner-gated, §4).
+   (ledger 067). A network client's and a listen host's `VEH_PRED` numbers per class are in
+   §6 (owner: `openETQW-win`; merged as #157 with game #56). Left: the owner's review on a
+   high-refresh display (owner-gated, §4).
 2. **M5 step 14, what is left** (owner: `openETQW-win`): late look for `freepivot` views and the damped
    first-person `clampDamped*` view is merged (#152 with game #54). Left: the owner decides
    which seats join the default list (§4).

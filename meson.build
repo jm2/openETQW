@@ -572,7 +572,7 @@ if build_tests
     env: {'OPENETQW_DED_BINARY': bot_test_ded},
     workdir: meson.project_source_root(),
     suite: 'integration',
-    timeout: 120,
+    timeout: 180,  # the script's own worst case is ~160 s (test_bot_gameplay.py)
   )
   test(
     'valley-match',
