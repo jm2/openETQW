@@ -16,6 +16,7 @@ added the M3 row. It also closed two re-check items with evidence (§5).
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
 | [#149](https://github.com/jm2/openETQW/pull/149) | #128: off-view static casters cast stencil shadows. | `openETQW-win-arm64` | 66e86b3 | The retail suite; every platform's screenshot set; an independent review. |
+| [#157](https://github.com/jm2/openETQW/pull/157) + [game #56](https://github.com/jm2/openETQW-game/pull/56) | M5 step 14b: the hull lead's `VEH_PRED` per class on a network client and a listen host (`lead-measure-join`/`-listen`, game `g_leadMeasureDrive`). | `openETQW-win` | dbd9f5a / game b0b3bf8 | Game #56 merges first, then the engine pins it. The full suite on ANTEC-WIN; an independent review; CodeRabbit. |
 
 ## 2. Open issues, in priority order
 
@@ -37,7 +38,7 @@ Each item names its acceptance test. Details are in the linked plan.
 
 1. **M5 step 14b, the hull lead** (`docs/hull-lead.md`). The code is in, off by default
    (ledger 067). A network client's and a listen host's `VEH_PRED` numbers per class are in
-   §6 (owner: `openETQW-win`; this PR with game #56). Left: the owner's review on a
+   §6 (owner: `openETQW-win`; #157 with game #56). Left: the owner's review on a
    high-refresh display (owner-gated, §4).
 2. **M5 step 14, what is left** (owner: `openETQW-win`): late look for `freepivot` views and the damped
    first-person `clampDamped*` view is merged (#152 with game #54). Left: the owner decides
