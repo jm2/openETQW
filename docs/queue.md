@@ -16,7 +16,7 @@ added the M3 row. It also closed two re-check items with evidence (§5).
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
 | [#149](https://github.com/jm2/openETQW/pull/149) | #128: off-view static casters cast stencil shadows. | `openETQW-win-arm64` | 66e86b3 | The retail suite; every platform's screenshot set; an independent review. |
-| [#152](https://github.com/jm2/openETQW/pull/152) + [game #54](https://github.com/jm2/openETQW-game/pull/54) | M5 step 14's last late-look tier: `freepivot` views and the damped first-person `clampDamped*` view (on valley, the husky driver); seat-poses L0–L6. | `openETQW-win` | da1c90a / game 32fcae8 | Game #54 merges first, then the engine pins it. Windows x64: the full suite and `seat-poses` at the merged head pass (apart from #151, a jetpack flight flake). Left: CodeRabbit, and a run on another OS family. |
+| [#152](https://github.com/jm2/openETQW/pull/152) + [game #54](https://github.com/jm2/openETQW-game/pull/54) | M5 step 14's last late-look tier: `freepivot` views and the damped first-person `clampDamped*` view (on valley, the husky driver); seat-poses L0–L6. | `openETQW-win` | 58453f9 / game b589449 | Game #54 merges first, then the engine pins it. Windows x64: the full suite passes (apart from #151, a jetpack flight flake), and `seat-poses` and `seat-gate` pass after the review's field-of-view fix. Linux x64 (antec): `validate pr` and the suite pass (apart from #150). The reviews are answered. Left: the merge. |
 
 ## 2. Open issues, in priority order
 

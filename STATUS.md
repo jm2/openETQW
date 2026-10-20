@@ -525,7 +525,7 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
     - 16: GUI updates;
     - 17: a cap change during play;
     - 18: the default cap of 240 (ledger 069).
-  - **Step 14's seat presentation:** built for the `standard`, chase, `pivot`/`freepivot` and jetpack views. `pivot`/`freepivot` use the transport's joints blended per draw. Late look covers the `standard`, chase, rate-limited, `pivot` and `freepivot` seats and, since 2026-10-20, the damped first-person `clampDamped*` view (on valley, the husky driver). Ledgers: 062, 063, 066 and 070 for the presentation, 064 and 065 for late look.
+  - **Step 14's seat presentation:** built for the `standard`, chase, `pivot`/`freepivot` and jetpack views. `pivot`/`freepivot` use the transport's joints blended per draw. Late look covers the `standard`, chase, rate-limited, `pivot` and `freepivot` seats and, since 2026-10-20, the damped first-person `clampDamped*` view (on valley, the husky driver). The `freepivot` and `clampDamped*` tier is map-loaded (valley, `seat-poses` devmap, join and listen) on ANTEC-WIN (Windows 11 x64) at game b589449 and on antec (Fedora 44, Linux x64) at game 32fcae8, both with engine 58453f9's tests (ledger 064). Ledgers: 062, 063, 066 and 070 for the presentation, 064 and 065 for late look.
   - **Step 14b's hull lead:** built, off by default (ledger 067).
   - **Left:**
     - the default seat list and the hull-lead bounds (the owner, after a review on a high-refresh display).
