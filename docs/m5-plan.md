@@ -14,7 +14,7 @@ M5 is done when:
   - steps 1, 2, 3, 5, 5a, 6–13, 14a and 15–18 (step 3's seat part since 2026-10-19).
 - **Step 14:**
   - Built: the seat presentation for the `standard`, chase, `pivot`/`freepivot` (joint blending) and jetpack views.
-  - Late look: built for `standard`, chase, rate-limited, `pivot` and `freepivot` seats and the `clampDamped*` seat (the husky driver; since 2026-10-20, ledger 064).
+  - Late look: built for `standard`, chase, rate-limited, `pivot` and `freepivot` seats and the damped first-person `clampDamped*` view (on valley, the husky driver; since 2026-10-20, ledger 064).
 - **Step 14b:** the hull lead is built, off by default.
 - **Owner's choice, after a review on a high-refresh display:** the default seat list, which is still empty, and the hull-lead bounds.
 - **Step 4:** the ceiling is the display's (D3).
