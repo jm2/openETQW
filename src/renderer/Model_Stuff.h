@@ -22,4 +22,7 @@ void R_FreeStuffModel( idRenderModel* model );
 bool R_GetStuffModelSnapshot( idRenderModel* sourceModel, const renderEntity_t* entity,
 	const viewDef_s* view, idRenderModel*& drawModel );
 
+// Returns true when model is a stuff model (drawn only through its view snapshots).
+bool R_IsStuffModel( const idRenderModel* model );
+
 #endif // __MODEL_STUFF_H__
