@@ -15,7 +15,7 @@ added the M3 row. It also closed two re-check items with evidence (§5).
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
-| [#145](https://github.com/jm2/openETQW/pull/145) | #127: `+set r_mode` was never ignored. `ConstrainToPrimaryMonitor` caps a windowed size at the display SDL reports. On Linux and macOS, SDL video was not started yet, so the cap was always 1920x1080; this PR starts it first. The cap is now logged, and `screenshot_set.py` sets `r_mode 12` and checks the frame size. | `openETQW-win` | 324dd62 | The independent review is answered (fixes in 324dd62). Windows x64 at 6feff69: `validate pr` passed, retail suite running. To rerun at 324dd62: Windows `validate pr` plus client starts. Linux x64 and macOS: client starts above 1920x1080 at 324dd62, the leg the SDL fix changes (asked of `openETQW-linux` and `openETQW-mac`). |
+| [#145](https://github.com/jm2/openETQW/pull/145) | #127: `+set r_mode` was never ignored. `ConstrainToPrimaryMonitor` caps a windowed size at the display SDL reports. On Linux and macOS, SDL video was not started yet, so the cap was always 1920x1080; this PR starts it first, and doesn't cap on SDL's headless drivers (`offscreen`, `dummy`). The cap is now logged, and `screenshot_set.py` sets `r_mode 12` and checks the frame size. | `openETQW-win` | (branch head) | Reviewed by a no-context agent and by `openETQW-linux-arm64`; findings answered on the PR. Windows x64 at 6feff69: `validate pr` passed, retail suite running. At the head: Windows `validate pr` plus client starts; Linux arm64 offscreen starts (`openETQW-linux-arm64`); a client start above 1920x1080 on a real display (`openETQW-linux` on `antec`, or `openETQW-mac`). |
 
 ## 2. Open issues, in priority order
 

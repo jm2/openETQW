@@ -286,9 +286,7 @@ public:
 		// Common.cpp asks for the display (ConstrainToPrimaryMonitor) before InitContext.
 		// Windows starts SDL video in SystemBootstrap; Linux and macOS do not, and without it
 		// SDL reports no display, so every window used to be capped at the 1920x1080 below.
-		if ( SDL_WasInit( SDL_INIT_VIDEO ) == 0 ) {
-			InitVideo();
-		}
+		InitVideo();
 		SDL_DisplayID displayID = SDL_GetPrimaryDisplay();
 		const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode( displayID );
 		if ( mode == NULL ) {
@@ -302,10 +300,24 @@ public:
 		primaryMonitor.monitor.h = h;
 		primaryMonitor.workArea = primaryMonitor.monitor;
 		primaryMonitor.primary = true;
+		// SDL's headless drivers (the Linux tests and screenshot sets run on offscreen) report
+		// a made-up 1024x768 display; a window there is not on any screen, so it is not capped.
+		const char *driver = SDL_GetCurrentVideoDriver();
+		if ( driver != NULL && ( SDL_strcmp( driver, "offscreen" ) == 0 || SDL_strcmp( driver, "dummy" ) == 0 ) ) {
+			primaryMonitor.workArea.w = 0;
+			primaryMonitor.workArea.h = 0;
+			static bool logged = false;
+			if ( !logged ) {
+				logged = true;
+				common->Printf( "SDL3: the '%s' video driver has no real display; the window size is not capped\n", driver );
+			}
+		}
 	}
 
 private:
-	// The macOS hints must be set before the video subsystem starts.
+	// Starts the video subsystem once; nothing quits it before SDL_Quit. The macOS hints are
+	// set on every call, as InitContext always did, so they are set even when video is
+	// already running (Sys_PromptForRetailData starts it without them).
 	static void InitVideo() {
 #if defined( __APPLE__ )
 		SDL_SetHint( SDL_HINT_VIDEO_DRIVER, "cocoa" );
@@ -313,7 +325,7 @@ private:
 		SDL_SetHint( SDL_HINT_VIDEO_METAL_AUTO_RESIZE_DRAWABLE, "1" );
 #endif
 
-		if ( !SDL_InitSubSystem( SDL_INIT_VIDEO ) ) {
+		if ( SDL_WasInit( SDL_INIT_VIDEO ) == 0 && !SDL_InitSubSystem( SDL_INIT_VIDEO ) ) {
 			common->FatalError( "SDL3: failed to initialize video subsystem: %s", SDL_GetError() );
 		}
 	}
