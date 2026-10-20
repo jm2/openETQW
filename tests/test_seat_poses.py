@@ -50,11 +50,14 @@ its arm, so L4 checks the camera origin too). The same L0-L4 in the badger gunne
 view (its axis is the view angles in the world with the hull's up axis, the eye swinging
 with it), and L0-L3 in the husky driver's standard view, whose final axis is held by the
 hull-relative clampDamped* clamp (ClampFinalAxis); its yaw range is +-30 deg, so the held
-turn there is 30 deg/s and stays inside it, and the edge has its own check:
+turn there is 30 deg/s and stays inside it. The limits have their own check:
 
-  L6 edge     (husky driver, parked) a turn held far past the yaw limit: with the late look
-              the drawn yaw relative to the hull stops within EDGE_TOL of where it stops
-              without it (the tick's own clamps), and never turns back on the way
+  L6 edge     a turn held past the view's limit: with the late look the drawn angle relative
+              to the hull stops within EDGE_TOL of where it stops without it (the tick's own
+              clamps), and never turns back on the way. The freepivot gunner's pitch (its
+              owner-space clamp, -50..17), and the husky driver's yaw at r_aspectRatio 0 (4:3,
+              where its final clamp, 75 deg less half the field of view, coincides with the 30
+              deg angle clamp) and 1 (16:9, where the final clamp binds first, at about 22 deg)
 
 Gunner views (vehicle-responsiveness 3.6), parked, at cap 120: the gunner's freepivot view
 with the turret held turning (in_yawSpeed):
@@ -582,6 +585,50 @@ def main(argv):
                 if not ok:
                     failures.append(f"late look, {label}, {check}: {detail}")
 
+        def edge_check(label, want_seat, key, back_key, index, sign, note=""):
+            """L6: a turn held past the view's limit (key, at 60 deg/s; back_key undoes it). index
+            is the view angle (4 yaw, 3 pitch) and sign the way key turns it. With the late look
+            the drawn angle relative to the hull stops within EDGE_TOL of where it stops without
+            it (the tick's own clamps), and never turns back on the way."""
+            speed = "in_yawSpeed" if index == 4 else "in_pitchSpeed"
+            rel = lambda p: (p["view"][index] - p["veh"][index] + 180.0) % 360.0 - 180.0
+
+            def hold(setting):
+                obs.send(f"set g_unlock_vehicleLook {setting}")
+                obs.send(f"set {speed} 60")
+                time.sleep(0.5)
+                obs.send(f"+{key}")
+                mark = obs.mark()
+                time.sleep(EDGE_HOLD_S)
+                end = obs.mark()
+                obs.send(f"-{key}")
+                obs.send(f"+{back_key}")
+                time.sleep(EDGE_HOLD_S / 2)
+                obs.send(f"-{back_key}")
+                time.sleep(0.5)
+                return [p for ln in obs.snapshot(mark, end) if (p := parse_pose(ln.text)) and p["veh"] is not None]
+
+            edges = {s: hold(s) for s in ("0", "1")}
+            obs.send("set g_unlock_vehicleLook 1")
+            obs.send("set in_yawSpeed 60")
+            obs.send("set in_pitchSpeed 140")
+            on = edges["1"]
+            seats = {p["seat"] for s in edges for p in edges[s]}
+            moving = [sign * (rel(b) - rel(a)) for a, b in zip(on, on[1:]) if abs(rel(b) - rel(a)) > 0.01]
+            back = sum(1 for d in moving if d < 0)
+            e0 = max((sign * rel(p) for p in edges["0"]), default=float("nan"))
+            e1 = max((sign * rel(p) for p in on), default=float("nan"))
+            at_edge = sum(1 for p in on if sign * rel(p) > e0 - EDGE_TOL)
+            ok = (len(seats) == 1 and None not in seats and seat_fields(next(iter(seats)))[1:] == want_seat
+                  and len(on) >= MIN_PAIRS and abs(e1 - e0) <= EDGE_TOL and back == 0 and at_edge >= 10)
+            what = "yaw" if index == 4 else "pitch"
+            detail = (f"{note}held past the limit: drawn {what} to the hull stops at {sign * e1:.2f} deg with the late"
+                      f" look, {sign * e0:.2f} without (need within {EDGE_TOL}); {back} of {len(moving)} moving pairs"
+                      f" turn back; {at_edge} draws at the edge (seats {sorted(x or '-' for x in seats)})")
+            print(f"  {cap:3} {label} L6  {'pass' if ok else 'FAIL'}  {detail}")
+            if not ok:
+                failures.append(f"late look, {label}, L6: {detail}")
+
         obs.send(f"set g_unlock_vehicleSeats {LISTED}")
         seat_up()
         # where the drive phases start from: the badger parked where it spawned (#84)
@@ -656,6 +703,8 @@ def main(argv):
         # stage 5, freepivot: the gunner's late look (the turret turns with the taps and the hold)
         obs.send(f"set g_unlock_vehicleSeats {LISTED},badger:*:freepivot")
         late_look("freepivot gunner", (1, 0), orbit=True)
+        # its pitch limit (-50..17 in the hull's frame): freepivot's owner-space clamp
+        edge_check("freepivot gunner", (1, 0), "lookup", "lookdown", 3, -1.0)
         results_gun = {}
         for listed, key in ((True, "+left"), (False, "+right")):
             obs.send(f"set g_unlock_vehicleSeats {LISTED + ',badger:*:freepivot' if listed else LISTED}")
@@ -733,44 +782,14 @@ def main(argv):
             time.sleep(1.5)
         late_look("husky driver", (0, 0), hold_speed=30)
 
-        # L6: the edge. A turn held past the yaw limit stops where the tick's clamps stop it
-        # (the angle clamp and the final axis's clampDamped* clamp, less half the field of
-        # view); the late look must not draw past it and step back at the next tick. Parked, at
-        # the husky's own field of view (the vehicle's, not g_fov) the two limits coincide at
-        # 30 deg, so this does not single out the final clamp
-        def edge_hold(setting):
-            obs.send(f"set g_unlock_vehicleLook {setting}")
-            obs.send("set in_yawSpeed 60")
+        # L6 at both aspect ratios: at 16:9 the field of view is wider (CalcFov), so the final
+        # axis's clampDamped* clamp binds before the angle clamp and only the draw's
+        # ClampFinalAxisPure holds the late turn there
+        for ar in ("0", "1"):
+            obs.send(f"set r_aspectRatio {ar}")
             time.sleep(0.5)
-            obs.send("+left")
-            mark = obs.mark()
-            time.sleep(EDGE_HOLD_S)
-            end = obs.mark()
-            obs.send("-left")
-            obs.send("+right")
-            time.sleep(EDGE_HOLD_S / 2)
-            obs.send("-right")
-            time.sleep(0.5)
-            return [p for ln in obs.snapshot(mark, end) if (p := parse_pose(ln.text)) and p["veh"] is not None]
-
-        rel = lambda p: (p["view"][4] - p["veh"][4] + 180.0) % 360.0 - 180.0
-        edges = {s: edge_hold(s) for s in ("0", "1")}
-        obs.send("set g_unlock_vehicleLook 1")
-        on = edges["1"]
-        edge_seats = {p["seat"] for s in edges for p in edges[s]}
-        moving = [(rel(b) - rel(a)) for a, b in zip(on, on[1:]) if abs(rel(b) - rel(a)) > 0.01]
-        back = sum(1 for d in moving if d < 0)
-        e0 = max((rel(p) for p in edges["0"]), default=float("nan"))
-        e1 = max((rel(p) for p in on), default=float("nan"))
-        at_edge = sum(1 for p in on if rel(p) > e0 - EDGE_TOL)
-        l6 = (len(edge_seats) == 1 and None not in edge_seats and seat_fields(next(iter(edge_seats)))[1:] == (0, 0)
-              and len(on) >= MIN_PAIRS and abs(e1 - e0) <= EDGE_TOL and back == 0 and at_edge >= 10)
-        detail = (f"held past the limit: drawn yaw to the hull stops at {e1:.2f} deg with the late look,"
-                  f" {e0:.2f} without (need within {EDGE_TOL}); {back} of {len(moving)} moving pairs turn back;"
-                  f" {at_edge} draws at the edge (seats {sorted(x or '-' for x in edge_seats)})")
-        print(f"  {cap:3} husky driver L6  {'pass' if l6 else 'FAIL'}  {detail}")
-        if not l6:
-            failures.append(f"late look, husky driver, L6: {detail}")
+            edge_check("husky driver", (0, 0), "left", "right", 4, 1.0, f"r_aspectRatio {ar}, ")
+        obs.send("set r_aspectRatio 0")
         obs.send(f"set g_unlock_vehicleSeats {LISTED}")
 
         # back on foot: the next phase seats the player in the driver's seat again
