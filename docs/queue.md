@@ -16,7 +16,6 @@ added the M3 row. It also closed two re-check items with evidence (§5).
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
 | [#149](https://github.com/jm2/openETQW/pull/149) | #128: off-view static casters cast stencil shadows. | `openETQW-win-arm64` | 060c7b7 | Answer or fix the should-fix finding that `ShadowMayReachView` isn't conservative (a fix is suggested on the PR), plus CodeRabbit's two doc threads. Screenshot sets (all four platforms) and the merge-head suite at 060c7b7 are done. |
-| [#157](https://github.com/jm2/openETQW/pull/157) + [game #56](https://github.com/jm2/openETQW-game/pull/56) | M5 step 14b: the hull lead's `VEH_PRED` per class on a network client and a listen host (`lead-measure-join`/`-listen`, game `g_leadMeasureDrive`). | `openETQW-win` | 28f8723 / game a5f49bd | Game #56 merges first, then the engine pins it. Windows x64: `validate pr` and the full suite pass, and the independent review is answered. Left: CodeRabbit; the merge. |
 
 ## 2. Open issues, in priority order
 
