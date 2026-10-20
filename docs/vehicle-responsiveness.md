@@ -78,7 +78,7 @@ The vehicle simulation and control code is the 1.5 SDK code, unchanged. VehicleC
 10. **Entering and exiting were not clean: fixed in M5 step 6.**
     - The render frames of the tick you entered on still ran the on-foot path and the OpenETQW proxy path, because the gate was latched when the tick started. That was the source of `KNOWN_VIEW_LEAK` in the replay (traced in step 6). Since step 6 those frames hold the tick's vehicle view: the proxy path is gone and the on-foot blocks run only without a proxy at draw time (ledger 056).
     - After an exit between ticks (the console, script events, every network client's exit), nothing reset `originlog`, so the first on-foot tick's base draws rewound to the vehicle camera (`vehicle-view-net` measured 270 u on a listen host). Since step 6 the origin log is reset at the pose log when the view player's seat changes (ledger 057).
-11. **Input is late or lossy in every mode.** Input waits up to one frame before any usercmd sees it. SDL's fractional mouse motion is truncated for each event (engine `src/sys/sdl/sdl_events.cpp:233-236`). *[inspected]* This is not specific to vehicles.
+11. **Input is late or lossy in every mode.** Input waits up to one frame before any usercmd sees it. SDL's fractional mouse motion was truncated for each event; since #141 (2026-10-19) the remainder is carried between events (`src/sys/sdl/MouseDelta.h`, meson `mouse-delta`). *[inspected]* This is not specific to vehicles.
 
 ### 1.3 A client-prediction bug that probably hurts network pilots
 

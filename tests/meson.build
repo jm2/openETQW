@@ -114,6 +114,16 @@ strbuilder_test = executable(
 )
 test('strbuilder', strbuilder_test, suite: 'unit', timeout: 30)
 
+# 5a. Sub-unit mouse motion (#141): SDL3's float deltas are carried, so slow motion
+#     made of sub-unit events (a Retina Mac) is not truncated away
+mouse_delta_test = executable(
+  'openetqw-mouse-delta-test',
+  files('MouseDeltaTest.cpp'),
+  include_directories: include_directories('../src/sys/sdl'),
+  install: false,
+)
+test('mouse-delta', mouse_delta_test, suite: 'unit', timeout: 30)
+
 # 5b. idMsgChannel fragmentation: a message whose encoded length is an exact multiple
 #     of FRAGMENT_SIZE ends with an empty fragment, which idBitMsg::WriteData is fatal
 #     on (the server died on it mid-session); the real channel, compressor and
