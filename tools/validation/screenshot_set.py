@@ -26,7 +26,9 @@ holds base/vkprogs (an installed tree, or the checkout the binary was built in),
 shaders are that build's. It gets a private fs_savepath (no saved config is read or written)
 and a 1280x720 window (r_mode 12) without multisampling, so captures are comparable. The
 engine shrinks a window that does not fit the primary display; capture then warns, because
-such frames do not compare with frames at the full size.
+such frames do not compare with frames at the full size. On a high-density display the frames
+are larger than the window (a 1280x720 window gives 2560x1440 frames on a Retina Mac), which
+is expected; compare the PR with main on the same machine.
 
 The views (VIEWS) are offsets from a per-map eye position: fixed for valley and canyon
 (ANCHORS), else where the player spawned in the first capture, reused with --anchors. They
@@ -97,6 +99,7 @@ VIEWPOS_RE = re.compile(r"\(\s*(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s*\)\s+(-?[\
 SPAWNED_RE = re.compile(r"PLAYER_POS:.*spectating 0")
 SHOT_RE = re.compile(r"r_vkScreenshot: (wrote|could not|the swapchain|swapchain format)")
 SIZE_RE = re.compile(r"r_vkScreenshot: wrote (\d+)x(\d+)")
+SHRUNK_RE = re.compile(r"window: \d+x\d+ does not fit the primary display; using \d+x\d+")
 
 
 def find_client(explicit: str | None) -> Path:
@@ -349,7 +352,7 @@ def cmd_capture(a) -> int:
         anchors.update({k: tuple(v) for k, v in
                         json.loads(Path(a.anchors).read_text(encoding="utf-8")).get("anchors", {}).items()})
     meta = {"platform": f"{platform.system()} {platform.machine()}", "client": str(client_bin),
-            "workdir": str(workdir), "label": a.label, "size": [WIDTH, HEIGHT],
+            "workdir": str(workdir), "label": a.label, "requested_size": [WIDTH, HEIGHT],
             "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "shots": [], "failed": [], "anchors": anchors}
     print(f"client {client_bin}\nshaders from {workdir / 'base' / 'vkprogs'}", flush=True)
     for rt in modes:
@@ -361,13 +364,19 @@ def cmd_capture(a) -> int:
             except RuntimeError as e:
                 print(f"  FAILED: {e}", flush=True)
                 meta["failed"].append({"map": map_name, "rt": rt, "reason": str(e)})
+            log = out / f"{map_name}_rt{rt}.log"
+            shrunk = SHRUNK_RE.search(log.read_text(encoding="utf-8", errors="replace")) if log.exists() else None
+            if shrunk:
+                print(f"  WARNING: {shrunk.group(0)}; these frames do not compare with full-size ones", flush=True)
     if _pil() is None:
         print("Pillow not installed: no heuristics or contact sheets (pip install pillow)")
-    sizes = sorted({tuple(s["size"]) for s in meta["shots"] if s.get("size")} - {(WIDTH, HEIGHT)})
-    if sizes:
-        print(f"WARNING: frames of {', '.join(f'{w}x{h}' for w, h in sizes)}, not {WIDTH}x{HEIGHT}; they do"
-              " not compare with full-size frames. The engine shrinks a window that does not fit the"
-              " primary display: look for 'does not fit the primary display' in the map logs")
+    # a --set of the window size makes WIDTH x HEIGHT the wrong expectation
+    sized = set((a.set or [])[0::2]) & {"r_mode", "r_customWidth", "r_customHeight"}
+    odd = sorted({tuple(s["size"]) for s in meta["shots"] if s.get("size")
+                  if s["size"][0] < WIDTH or s["size"][1] < HEIGHT or s["size"][0] * HEIGHT != s["size"][1] * WIDTH})
+    if odd and not sized:
+        print(f"WARNING: frames of {', '.join(f'{w}x{h}' for w, h in odd)}: smaller than {WIDTH}x{HEIGHT} or"
+              " another shape, so they do not compare with frames from a full-size window")
     for shot in meta["shots"]:
         shot["warnings"] = heuristics(out / shot["file"], shot["view"]) if shot["file"] else None
         for w in shot["warnings"] or []:
