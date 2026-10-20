@@ -224,7 +224,7 @@ The same commands in PowerShell, on Windows:
 ```powershell
 python tools/validation/openetqw_validate.py pr
 $env:ETQW_DATA_PATH = "$env:USERPROFILE\etqw_data"; meson test -C builddir-validate-pr -j 1 --no-suite soak
-python tools/ci/check_python.py; python tools/ci/check_integration_skips.py; python tools/ci/check_include_case.py
+foreach ($c in "check_python", "check_integration_skips", "check_include_case") { python "tools/ci/$c.py"; if ($LASTEXITCODE) { throw "$c failed" } }
 ```
 
 `openetqw_validate.py pr` refuses to run on a dirty tree. Use `--no-fail-on-dirty` only to
@@ -240,8 +240,10 @@ try something locally; never quote that run as evidence. For a single test, use
 - **Record the game commit with every run.** The game module prints no commit, and
   `validate`'s log names only the game path: note `git -C <game checkout> log --oneline -1`.
 - **Gate 1 needs pyflakes.** Without it, `check_python.py` prints "pyflakes is not
-  installed", only compiles, and still exits 0, so the lint passes silently. Use a scratch
-  venv with `pyflakes==4.0.0` if the host has none (#156, #163).
+  installed" and exits 2 (only `--allow-missing-pyflakes` makes it a warning). Chaining the
+  checks with `;` in PowerShell hides that exit code, so the PowerShell line above stops on
+  the first failure instead (#163). Use a scratch venv with `pyflakes==4.0.0` if the host has
+  none (#156).
 - **Save a failing test's logs before you rerun it.** A rerun overwrites
   `meson-logs/testlog.txt` and the test's own log directory (`meson-logs/<test>/`), so the
   failing run's evidence is lost (#159). Copy them aside first.
@@ -250,7 +252,8 @@ try something locally; never quote that run as evidence. For a single test, use
 - **Testing a merge head with `validate pr`'s build:**
   `openetqw_validate.py pr --game-repo <game worktree at the pin> --build-dir <wt>/build-val`
   builds and installs into `<wt>/build-val/install/`. For `meson test`, link the game
-  module beside the binaries first (`ln -sfn install/game_<arch>.so build-val/game_<arch>.so`),
+  module beside the binaries first (on Linux,
+  `ln -sfn install/game_<arch>.so build-val/game_<arch>.so`; the module is `.dylib` on macOS and `.dll` on Windows),
   then `meson test -C <wt>/build-val --no-rebuild -j 1`.
 - **The standalone scripts** (`tests/test_determinism_adversarial.py`,
   `tests/test_frame_pacing_adversarial.py`, `tests/test_valley_objective_adversarial.py`)
@@ -258,10 +261,14 @@ try something locally; never quote that run as evidence. For a single test, use
   `OPENETQW_DED_BINARY` point at the binaries. Without them they skip with exit 77, which
   is not a pass.
 - **Writing tests:**
-  - The engine tokenizes at most 64 command-line arguments (`MAX_COMMAND_ARGS`). Too many
-    `+set`s silently drop the rest, `+spawnServer`/`+devmap` included, and the map never
-    loads. The only sign is "idCmdArgs::TokenizeString : MAX_COMMAND_ARGS hit" near the top
-    of the log. Set cvars that aren't needed at startup from the console afterwards (#157).
+  - The command line has a cap, and what's past it is dropped without a message from the
+    engine, `+spawnServer`/`+devmap` included, so the map never loads:
+    - Windows: 64 tokens (`MAX_COMMAND_ARGS`, `src/idlib/CmdArgs.h`), because the command
+      line is tokenized as one string;
+    - Linux and macOS: 32 `+` commands (`MAX_CONSOLE_LINES`, `src/framework/Common.cpp`).
+
+    On Windows, the game module's idlib may log "MAX_COMMAND_ARGS hit". Set cvars that
+    aren't needed at startup from the console afterwards (#157).
   - `test_reconnect_restart.connect()` waits for snapshot lines, so a joining client needs
     `net_clientShowSnapshots 1`. Without it: "DRIVER received 0 snapshots".
   - A game change to a line the harness parses (`PLAYER_POS`, `FRAME_POSE`, …) breaks

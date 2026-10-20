@@ -102,7 +102,7 @@ Every merge went through `docs/coordination.md` §8 on antec: `validate pr` plus
 **Parked items, with where each stopped:**
 - **#141** (`openETQW-mac`): branch `fix/mouse-subpixel-deltas` at 42de177, no PR. It waits on the owner's Retina check (commands on #141).
 - **#144**, M3 arm64 cross-OS (`openETQW-linux-arm64`): Linux arm64 with Linux x64 and with Windows x64 pass. The macOS arm64 pair is not run; the steps are on #144.
-- **#134** (`openETQW-win-arm64`): needs a retail 1.5 reference. The owner confirmed on 2026-10-20 that `openETQW-win-arm64` may download the retail 1.5 installer; not started because of the park.
+- **#134** (`openETQW-win-arm64`): needs a retail 1.5 reference. The owner said in the coordinator's session on 2026-10-20 that `openETQW-win-arm64` may download the retail 1.5 installer. It isn't an owner-decision line yet, so confirm before starting. Not started because of the park.
 
 ### Merged on 2026-09-25
 | Repo | PR (merge) | What |
