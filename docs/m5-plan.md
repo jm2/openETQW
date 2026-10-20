@@ -14,8 +14,7 @@ M5 is done when:
   - steps 1, 2, 3, 5, 5a, 6–13, 14a and 15–18 (step 3's seat part since 2026-10-19).
 - **Step 14:**
   - Built: the seat presentation for the `standard`, chase, `pivot`/`freepivot` (joint blending) and jetpack views.
-  - Late look: built for `standard`, chase, rate-limited and `pivot` seats.
-  - Left: late look for `freepivot` and the `clampDamped*` seat (the husky driver; the desecrator driver is rate-limited and has late look).
+  - Late look: built for `standard`, chase, rate-limited, `pivot` and `freepivot` seats and the damped first-person `clampDamped*` view (on valley, the husky driver; since 2026-10-20, ledger 064).
 - **Step 14b:** the hull lead is built, off by default.
 - **Owner's choice, after a review on a high-refresh display:** the default seat list, which is still empty, and the hull-lead bounds.
 - **Step 4:** the ceiling is the display's (D3).
@@ -212,7 +211,7 @@ The queue (`docs/queue.md` §3) has the order. The steps below keep their own re
     - **First part done 2026-10-05** (game and engine PRs, ledger row 062): `sdPresentation` samples the transport and the tick camera on new ticks and draws the blended hull, camera, riders and cockpit for seats the gate allows; a built-in presentable recipe for the first-person `standard` view (`pivot` and `freepivot` wait for joint blending and stage 5); the default seat list stays empty. Meson `seat-poses` (view and hull change on 100% of draw pairs at caps 60/120/240, one path, cross-tick step ≤ 1.34× the in-tick step; negative control and guards), `seat-gate` run B as the A/B safety proof, and a static contract check in the game repo. Later parts are listed below.
     - **Stage 4 done 2026-10-05** (ledger row 063): remote entities interpolate while a seat's presentation is allowed, riders of remote vehicles by the carrier rule; `seat-poses-join`/`-listen` show a walking peer drawn on every frame (100% at cap 120, on one path) from a listed seat.
     - **Chase views done 2026-10-05** (ledger row 062): `smooth`, `smooth_free` and `smooth_locked` are blended in the world.
-    - **Stage 5, first tier, done 2026-10-05** (ledger row 064): late mouse look in `standard` seats (`g_unlock_vehicleLook`, default 1); `seat-poses` L0–L3 show a `+left` tap on the next draw and a held turn that never steps back (mean 1.00 draws, 2.89 with the CVar off). Remaining: late look for `freepivot` and the damped-clamp classes; then seats join the default list as they meet §3.3.
+    - **Stage 5, first tier, done 2026-10-05** (ledger row 064): late mouse look in `standard` seats (`g_unlock_vehicleLook`, default 1); `seat-poses` L0–L3 show a `+left` tap on the next draw and a held turn that never steps back (mean 1.00 draws, 2.89 with the CVar off). Remaining: late look for `freepivot` and the damped-clamp classes (done 2026-10-20, ledger 064); then seats join the default list as they meet §3.3.
     - **Stage 5, chase views, done 2026-10-06** (ledger row 065): `smooth` and `smooth_free` seats orbit the blended camera about its focus by the late turn; `seat-poses` L0–L4 for the badger gunner's chase view.
     - **Stage 5, `smooth_locked`, done 2026-10-07** (ledger rows 065, 066): the drivers' chase view in tophat mode; single player now applies user info changes during play.
     - **Gunner views done 2026-10-07** (ledger row 070; owner-approved joint blending): the transport's joints are captured at the tick and blended per draw; `pivot` and `freepivot` seats are presentable (`seat-poses` G0–G1c).

@@ -205,6 +205,10 @@ static void Usercmd_PlusLeft_f( const idCmdArgs& args ) { localUsercmdGen.SetBut
 static void Usercmd_MinusLeft_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_LEFT, false ); }
 static void Usercmd_PlusRight_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_RIGHT, true ); }
 static void Usercmd_MinusRight_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_RIGHT, false ); }
+static void Usercmd_PlusLookUp_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_LOOKUP, true ); }
+static void Usercmd_MinusLookUp_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_LOOKUP, false ); }
+static void Usercmd_PlusLookDown_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_LOOKDOWN, true ); }
+static void Usercmd_MinusLookDown_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_LOOKDOWN, false ); }
 static void Usercmd_MinusForward_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_FORWARD, false ); }
 static void Usercmd_PlusBack_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_BACK, true ); }
 static void Usercmd_MinusBack_f( const idCmdArgs& args ) { localUsercmdGen.SetButton( UB_BACK, false ); }
@@ -275,6 +279,10 @@ void idUsercmdGenLocal::Init() {
 	cmdSystem->AddCommand( "-left", Usercmd_MinusLeft_f, CMD_FL_SYSTEM, "stop turning left" );
 	cmdSystem->AddCommand( "+right", Usercmd_PlusRight_f, CMD_FL_SYSTEM, "turn right (in_yawSpeed degrees a second)" );
 	cmdSystem->AddCommand( "-right", Usercmd_MinusRight_f, CMD_FL_SYSTEM, "stop turning right" );
+	cmdSystem->AddCommand( "+lookup", Usercmd_PlusLookUp_f, CMD_FL_SYSTEM, "look up (in_pitchSpeed degrees a second)" );
+	cmdSystem->AddCommand( "-lookup", Usercmd_MinusLookUp_f, CMD_FL_SYSTEM, "stop looking up" );
+	cmdSystem->AddCommand( "+lookdown", Usercmd_PlusLookDown_f, CMD_FL_SYSTEM, "look down (in_pitchSpeed degrees a second)" );
+	cmdSystem->AddCommand( "-lookdown", Usercmd_MinusLookDown_f, CMD_FL_SYSTEM, "stop looking down" );
 	cmdSystem->AddCommand( "clientMove", Usercmd_ClientMove_f, CMD_FL_SYSTEM, "direct client movement: <fwd> <side> <up>" );
 }
 
@@ -311,6 +319,10 @@ void idUsercmdGenLocal::Shutdown() {
 	cmdSystem->RemoveCommand( "-left" );
 	cmdSystem->RemoveCommand( "+right" );
 	cmdSystem->RemoveCommand( "-right" );
+	cmdSystem->RemoveCommand( "+lookup" );
+	cmdSystem->RemoveCommand( "-lookup" );
+	cmdSystem->RemoveCommand( "+lookdown" );
+	cmdSystem->RemoveCommand( "-lookdown" );
 	cmdSystem->RemoveCommand( "clientMove" );
 
 	initialized = false;
