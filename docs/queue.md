@@ -36,7 +36,7 @@ Each item names its acceptance test. Details are in the linked plan.
 
 1. **M5 step 14b, the hull lead** (`docs/hull-lead.md`). The code is in, off by default
    (ledger 067). A network client's and a listen host's `VEH_PRED` numbers per class are in
-   §6 (owner: `openETQW-win`; #157 with game #56). Left: the owner's review on a
+   §6 (owner: `openETQW-win`; merged as #157 with game #56). Left: the owner's review on a
    high-refresh display (owner-gated, §4).
 2. **M5 step 14, what is left** (owner: `openETQW-win`): late look for `freepivot` views and the damped
    first-person `clampDamped*` view is merged (#152 with game #54). Left: the owner decides
