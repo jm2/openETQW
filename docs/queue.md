@@ -15,19 +15,16 @@ added the M3 row. It also closed two re-check items with evidence (§5).
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
-| [#149](https://github.com/jm2/openETQW/pull/149) | #128: off-view static casters cast stencil shadows. | `openETQW-win-arm64` | 66e86b3 | The retail suite; every platform's screenshot set; an independent review. |
 
 ## 2. Open issues, in priority order
 
 | # | What | Owner | Next step |
 |---|---|---|---|
-| [#128](https://github.com/jm2/openETQW/issues/128) | Raster stencil shadows: casters outside the view cast no shadow. | `openETQW-win-arm64` | #149 is open: the retail suite and every platform's screenshot set are next. #129 is merged. Raster path, so test on win-arm64, Linux arm64 or macOS. A graphics change, so it needs the screenshot set. |
 | [#134](https://github.com/jm2/openETQW/issues/134) | Raster shadows: retail's `shadowVisDistMult` / `shadowProjectDist` limits are not applied, so far props' sun volumes fill the stencil (the jetpack seat on a network client: 84 draw pairs against 113 without entity casters). | — | Read what retail's renderer does with them first; don't guess. A graphics change: screenshot set. |
 | [#122](https://github.com/jm2/openETQW/issues/122) | GDF rifle viewmodel: near-black on raster, tan with ray tracing. | — (parked) | Get a retail reference first: a retail 1.5 screenshot from the owner, or published retail footage. Until then, don't change either path. Escalate to the owner if no reference turns up. |
-| [#126](https://github.com/jm2/openETQW/issues/126) | `all-stock-maps`: slipgate's `aas_area_validity` flakes on teleporter transit samples. | `openETQW-linux` | Test-only fix: exclude samples taken in transit, and explain why in the PR. Don't loosen the bound (`AGENTS.md` rule 4). |
 | [#135](https://github.com/jm2/openETQW/issues/135) | `mixed-caps`: B's 240 cap A1 'turn' sits at its threshold on `antec` (233–235.3 fps against 235.2; the test's own ceiling is about 282 with two clients) and fails on `main` too. | — | Find what costs B frames while turning with a second client, or ask the owner about B's high cap on antec. Not a host-load problem (the 2026-10-09 'ceiling drop' note compared different tests). |
 | [#136](https://github.com/jm2/openETQW/issues/136) | `bot-gameplay`: the two bots sometimes never engage in the window. | `openETQW-linux` | Make the encounter deterministic; don't loosen the check. |
-| [#141](https://github.com/jm2/openETQW/issues/141) | Mouse motion: SDL's sub-pixel `xrel`/`yrel` is truncated per event (`src/sys/sdl/sdl_events.cpp:238`), so slow motion is lost on high-DPI displays. From code, not reproduced. | — | Port openQ4's remainder-keeping `SDL3_ConsumeMouseDelta`, with a test that feeds fractional deltas. Check it on a Retina Mac. Input path only. |
+| [#141](https://github.com/jm2/openETQW/issues/141) | Mouse motion: SDL's sub-pixel `xrel`/`yrel` is truncated per event (`src/sys/sdl/sdl_events.cpp:238`), so slow motion is lost on high-DPI displays. From code, not reproduced. | `openETQW-mac` | Code is ready; waits on the owner's hands-on check on a Retina Mac, then the PR. Input path only. |
 | [#147](https://github.com/jm2/openETQW/issues/147) | High-density displays: should `r_mode` / `r_custom*` mean pixels or points (SDL sizes on macOS are points)? | — | An owner question with three options; not urgent. |
 | [#148](https://github.com/jm2/openETQW/issues/148) | `ANTEC-WIN` drew at about 30 fps for some 15 minutes during a retail suite (2026-10-20 02:16–02:31Z); cause unknown. | — | If it recurs, capture what the issue lists. |
 | — | `screenshot_set.py`: the canyon anchor is indoors. | — | Add an outdoor canyon anchor; take eye positions from `getviewpos`. |
@@ -39,16 +36,9 @@ Each item names its acceptance test. Details are in the linked plan.
 1. **M5 step 14b, the hull lead** (`docs/hull-lead.md`). The code is in, off by default
    (ledger 067). Left: a network client's `VEH_PRED` numbers per class, then the owner's
    review on a high-refresh display (owner-gated, §4).
-2. **M5 step 14, what is left** (owner: `openETQW-win`, branches `feat/late-look-freepivot-damped`):
-   late mouse look for `freepivot` views (the badger, desecrator, hog and platypus gunners
-   and the titan passenger) and for the presented seat with a hull-relative `clampDamped*`
-   clamp: the husky driver (ledger 064). From valley's `listSeatViews`, the desecrator
-   driver's standard view is rate-limited, not damped, so it has late look since
-   2026-10-08's rate tier; the titan driver's damped view is third person. The `pivot` and
-   `freepivot` views themselves have been presentable since 2026-10-07 (joint blending,
-   ledger 070), and `pivot` has late look since 2026-10-08. Acceptance: `seat-poses`
-   late-look phases for those seats. Then the owner decides which seats join the default
-   list (§4).
+2. **M5 step 14, what is left** (owner: `openETQW-win`): late look for `freepivot` views and the damped
+   first-person `clampDamped*` view is merged (#152 with game #54). Left: the owner decides
+   which seats join the default list (§4).
 3. **M4, what is left** (`STATUS.md` § Milestones, M4). Done: classes, damage and kills,
    deployable delivery, both match endings, stopwatch and campaign transitions (meson
    `m4-*`, #104 and #107). Left: a match played out by bots (they play no objectives), and
