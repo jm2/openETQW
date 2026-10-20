@@ -6,7 +6,7 @@ in order, and every PR that changes an item's state updates its row. `owner` nam
 session that holds the item; `—` means nobody does. Before taking an item, check its PR or
 issue for anything newer than this file.
 
-Updated: 2026-10-18 by `openETQW-linux` (coordinator), after a pass over every doc. Since
+Updated: 2026-10-19 by `openETQW-linux` (coordinator): M5 step 3 done (#146); owners after the Claude Code sessions resumed (#133). Before that, 2026-10-18, after a pass over every doc. Since
 2026-10-15: the old PRs are all merged, and cross-OS pairs among Linux, Windows and macOS
 passed both ways (#139, #140). This pass rewrote §3's M5 rows to match what has landed and
 added the M3 row. It also closed two re-check items with evidence (§5).
@@ -15,19 +15,21 @@ added the M3 row. It also closed two re-check items with evidence (§5).
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
-| [#145](https://github.com/jm2/openETQW/pull/145) | #127: `+set r_mode` was never ignored. `ConstrainToPrimaryMonitor` caps a windowed size at the display SDL reports. On Linux and macOS, SDL video was not started yet, so the cap was always 1920x1080; this PR starts it first, and doesn't cap on SDL's headless drivers (`offscreen`, `dummy`). The cap is now logged, and `screenshot_set.py` sets `r_mode 12` and checks the frame size. | `openETQW-win` | ab63ac0 | Ready for the merge role. Reviews: a no-context agent and `openETQW-linux-arm64` (approved at ab63ac0), all findings answered; CodeRabbit had none. At ab63ac0: `validate pr` passed on Windows x64, Linux x64 (`antec`) and macOS; client starts on Windows, Linux x64 (Wayland and offscreen), Linux arm64 (offscreen) and macOS. Windows retail suite at 6feff69: 57 OK, 2 expected skips; its 6 failures came from a 30 fps period on the host and pass at ab63ac0. Results: PR comments. A follow-up question for an issue: should `r_mode` mean pixels on high-density displays? |
+| [#149](https://github.com/jm2/openETQW/pull/149) | #128: off-view static casters cast stencil shadows. | `openETQW-win-arm64` | 66e86b3 | The retail suite; every platform's screenshot set; an independent review. |
 
 ## 2. Open issues, in priority order
 
 | # | What | Owner | Next step |
 |---|---|---|---|
-| [#128](https://github.com/jm2/openETQW/issues/128) | Raster stencil shadows: casters outside the view cast no shadow. | — | #129 is merged. Raster path, so test on win-arm64, Linux arm64 or macOS. A graphics change, so it needs the screenshot set. |
+| [#128](https://github.com/jm2/openETQW/issues/128) | Raster stencil shadows: casters outside the view cast no shadow. | `openETQW-win-arm64` | #149 is open: the retail suite and every platform's screenshot set are next. #129 is merged. Raster path, so test on win-arm64, Linux arm64 or macOS. A graphics change, so it needs the screenshot set. |
 | [#134](https://github.com/jm2/openETQW/issues/134) | Raster shadows: retail's `shadowVisDistMult` / `shadowProjectDist` limits are not applied, so far props' sun volumes fill the stencil (the jetpack seat on a network client: 84 draw pairs against 113 without entity casters). | — | Read what retail's renderer does with them first; don't guess. A graphics change: screenshot set. |
-| [#122](https://github.com/jm2/openETQW/issues/122) | GDF rifle viewmodel: near-black on raster, tan with ray tracing. | `openETQW-win` | Get a retail reference first: a retail 1.5 screenshot from the owner, or published retail footage. Until then, don't change either path. Escalate to the owner if no reference turns up. |
-| [#126](https://github.com/jm2/openETQW/issues/126) | `all-stock-maps`: slipgate's `aas_area_validity` flakes on teleporter transit samples. | — | Test-only fix: exclude samples taken in transit, and explain why in the PR. Don't loosen the bound (`AGENTS.md` rule 4). |
+| [#122](https://github.com/jm2/openETQW/issues/122) | GDF rifle viewmodel: near-black on raster, tan with ray tracing. | — (parked) | Get a retail reference first: a retail 1.5 screenshot from the owner, or published retail footage. Until then, don't change either path. Escalate to the owner if no reference turns up. |
+| [#126](https://github.com/jm2/openETQW/issues/126) | `all-stock-maps`: slipgate's `aas_area_validity` flakes on teleporter transit samples. | `openETQW-linux` | Test-only fix: exclude samples taken in transit, and explain why in the PR. Don't loosen the bound (`AGENTS.md` rule 4). |
 | [#135](https://github.com/jm2/openETQW/issues/135) | `mixed-caps`: B's 240 cap A1 'turn' sits at its threshold on `antec` (233–235.3 fps against 235.2; the test's own ceiling is about 282 with two clients) and fails on `main` too. | — | Find what costs B frames while turning with a second client, or ask the owner about B's high cap on antec. Not a host-load problem (the 2026-10-09 'ceiling drop' note compared different tests). |
-| [#136](https://github.com/jm2/openETQW/issues/136) | `bot-gameplay`: the two bots sometimes never engage in the window. | — | Make the encounter deterministic; don't loosen the check. |
+| [#136](https://github.com/jm2/openETQW/issues/136) | `bot-gameplay`: the two bots sometimes never engage in the window. | `openETQW-linux` | Make the encounter deterministic; don't loosen the check. |
 | [#141](https://github.com/jm2/openETQW/issues/141) | Mouse motion: SDL's sub-pixel `xrel`/`yrel` is truncated per event (`src/sys/sdl/sdl_events.cpp:238`), so slow motion is lost on high-DPI displays. From code, not reproduced. | — | Port openQ4's remainder-keeping `SDL3_ConsumeMouseDelta`, with a test that feeds fractional deltas. Check it on a Retina Mac. Input path only. |
+| [#147](https://github.com/jm2/openETQW/issues/147) | High-density displays: should `r_mode` / `r_custom*` mean pixels or points (SDL sizes on macOS are points)? | — | An owner question with three options; not urgent. |
+| [#148](https://github.com/jm2/openETQW/issues/148) | `ANTEC-WIN` drew at about 30 fps for some 15 minutes during a retail suite (2026-10-20 02:16–02:31Z); cause unknown. | — | If it recurs, capture what the issue lists. |
 | — | `screenshot_set.py`: the canyon anchor is indoors. | — | Add an outdoor canyon anchor; take eye positions from `getviewpos`. |
 
 ## 3. Milestone work, in order
@@ -37,41 +39,38 @@ Each item names its acceptance test. Details are in the linked plan.
 1. **M5 step 14b, the hull lead** (`docs/hull-lead.md`). The code is in, off by default
    (ledger 067). Left: a network client's `VEH_PRED` numbers per class, then the owner's
    review on a high-refresh display (owner-gated, §4).
-2. **M5 step 3, the last part:** frame-pose capture in vehicle seats (D2). The devmap
-   variant is done. First check whether `seat-poses-join`/`-listen` (step 14) already
-   cover it. They log `FRAME_POSE` in listed seats and check the camera on every draw (the
-   late-look phases), the drawn turret joints and view yaw (gunner phase G1–G2), and a
-   walking peer drawn on every frame (stage 4). Check the viewmodel/cockpit as well. If
-   they do, mark step 3 done in `docs/m5-plan.md` and cite their checks. If they don't,
-   `frame-poses-*` gain seat checks, with a negative control.
-3. **M5 step 14, what is left:** late mouse look for `freepivot` views and for the seats
-   with hull-relative `clampDamped*` clamps (the desecrator and husky drivers; ledger 064). The `pivot` and
+2. **M5 step 14, what is left** (owner: `openETQW-win`, branches `feat/late-look-freepivot-damped`):
+   late mouse look for `freepivot` views (the badger, desecrator, hog and platypus gunners
+   and the titan passenger) and for the presented seat with a hull-relative `clampDamped*`
+   clamp: the husky driver (ledger 064). From valley's `listSeatViews`, the desecrator
+   driver's standard view is rate-limited, not damped, so it has late look since
+   2026-10-08's rate tier; the titan driver's damped view is third person. The `pivot` and
    `freepivot` views themselves have been presentable since 2026-10-07 (joint blending,
    ledger 070), and `pivot` has late look since 2026-10-08. Acceptance: `seat-poses`
    late-look phases for those seats. Then the owner decides which seats join the default
    list (§4).
-4. **M4, what is left** (`STATUS.md` § Milestones, M4). Done: classes, damage and kills,
+3. **M4, what is left** (`STATUS.md` § Milestones, M4). Done: classes, damage and kills,
    deployable delivery, both match endings, stopwatch and campaign transitions (meson
    `m4-*`, #104 and #107). Left: a match played out by bots (they play no objectives), and
    a started match on maps beyond the campaign's three. Acceptance: new meson tests pass on
    the retail 1.5 data on two platforms.
-5. **Retail data discovery** (`STATUS.md` § Next steps, item 7): the Linux folder picker,
+4. **Retail data discovery** (`STATUS.md` § Next steps, item 7): the Linux folder picker,
    and a person trying the macOS and Windows pickers (owner).
-6. **Provenance labels** (`docs/provenance.md` §6): the minizip relabel and the other
+5. **Provenance labels** (`docs/provenance.md` §6): the minizip relabel and the other
    open label questions. Acceptance: `provenance_post_split.py` reports no gap, the game's
    `check_spdx.py` passes, and the §6 rows are resolved.
-7. **`docs/platform-matrix.md`** (release gate, M7): what is verified per platform, with
+6. **`docs/platform-matrix.md`** (release gate, M7): what is verified per platform, with
    the evidence level, host and commit.
-8. **Release gate 5, third-party binaries:** review `src/openal/lib/openal32.lib`, both
+7. **Release gate 5, third-party binaries:** review `src/openal/lib/openal32.lib`, both
    copies of `eaxguid.lib` and zlib contrib's `.obj` files. Replace each, or record why it
    stays (`STATUS.md` § Release gate, item 5).
-9. **The M1 and M2 gaps** (`STATUS.md` § Milestones):
+8. **The M1 and M2 gaps** (`STATUS.md` § Milestones):
    - M1: the `false` defaults of `build_engine` and `build_dedicated`;
    - M2: collision in the graphical client is never asserted;
    - M2: the headless render world is still stubbed.
 
    Each gap gets a test or a recorded decision.
-10. **M3, what is left** (`STATUS.md` § Milestones, M3):
+9. **M3, what is left** (`STATUS.md` § Milestones, M3):
     - cross-OS pairs that include an arm64 host. `openETQW-linux-arm64` offered
       `macmini-m1`; ask `kisakcod` first, since it's the 8 GB host;
     - weapon fire seen by the other player (a headless peer can't observe it; needs a
@@ -103,6 +102,8 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   human at the controls", are judged by people on real displays (M5 D3), not by a test.
 
 ## 5. Recently done
+
+#145 (2026-10-20; #127): `+set r_mode` was never ignored; the window cap now says when it shrinks a window, Linux and macOS cap at the real display, and the headless drivers don't cap. M5 step 3's seat part (2026-10-19, #146): `seat-poses-*` are the seat capture, and the new S5 checks the cockpit (`docs/m5-plan.md` step 3).
 
 Closed on re-check (2026-10-18), with evidence:
 - the mixed-caps producer gap: M5 step 8 removed it (`docs/m5-plan.md` step 8, ledger 059: A7/A7o pass, known gaps removed);
