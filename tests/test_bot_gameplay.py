@@ -47,9 +47,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = h.env_data_path()
 SERVER_PORT = int(os.environ.get("OPENETQW_BOT_GAMEPLAY_PORT", "27760"))
 
-# The whole script must finish inside the meson timeout (120 s, meson.build);
+# The whole script must finish inside the meson timeout (180 s, meson.build);
 # the waits below are sized so the worst case stays under it:
-# 45 load + 2 + 10 spawn + (40 + 4.5 loop overrun) + 10 quit ~= 112 s.
+# 45 load + 10 spawn + (90 + 4.5 loop overrun) + 10 quit ~= 160 s.
 SERVER_READY_TIMEOUT = 45.0
 SPAWN_CONFIRM_TIMEOUT = 10.0
 QUERY_TIMEOUT = 2.0
@@ -89,7 +89,18 @@ SERVER_ARGS = [
     # SIM_HASH lines carry the server frame number every tick; the game
     # default is changing to 0, so request them explicitly.
     "+set", "g_simHash", "1",
-    "+spawnServer", "valley"
+    # The encounter is made repeatable, not easier (#136): the bot AI thinks inline
+    # rather than on its own thread, and both bots join right after the map loads,
+    # from the command line, rather than whenever the script's stdin reaches the
+    # server. With the thread and a stdin join, the bots took one of a few routes
+    # chosen by timing; first combat came 17-80 s into monitoring, and once never
+    # within the window. Inline with a fixed join, 10 runs on antec all met at
+    # 19.8-22.3 s. The checks below are unchanged. Threaded bot AI stays covered by
+    # bot-combat-stress, all-stock-maps (botThreadStats), the m4 tests and others.
+    "+set", "bot_threading", "0",
+    "+spawnServer", "valley",
+    "+addbot", "gdf", "soldier",
+    "+addbot", "strogg", "soldier",
 ]
 
 SIM_HASH_TICK_RE = re.compile(r"SIM_HASH:\s+tick=(\d+)")
@@ -253,19 +264,9 @@ def run_bot_gameplay_test():
         server_proc.kill()
         raise TimeoutError(f"Server failed to load Valley within {SERVER_READY_TIMEOUT:.0f}s")
 
-    print("\n[2] Dedicated server active on Valley! Spawning GDF Soldier and Strogg Soldier bots...")
+    print("\n[2] Dedicated server active on Valley! GDF Soldier and Strogg Soldier bots join (+addbot)...")
 
-    # Spawn GDF Soldier (Bot 0)
-    server_proc.stdin.write("addbot gdf soldier\n")
-    server_proc.stdin.flush()
-    time.sleep(1.0)
-
-    # Spawn Strogg Soldier (Bot 1)
-    server_proc.stdin.write("addbot strogg soldier\n")
-    server_proc.stdin.flush()
-    time.sleep(1.0)
-
-    # Wait for bot spawn confirmations in stdout
+    # Wait for bot spawn confirmations in stdout (the bots were added on the command line)
     spawn_gdf_confirmed = False
     spawn_strogg_confirmed = False
     confirm_start = time.time()
@@ -298,9 +299,9 @@ def run_bot_gameplay_test():
 
     test_start_time = time.time()
     monitor_start_mono = time.monotonic()
-    # Two bots on Valley find each other at random; within 40 s they failed to meet in
-    # about one run in four (FOLLOWUPS), so allow 90 s. The loop stops as soon as every
-    # criterion is met.
+    # Before #136's setup (above), two bots on Valley found each other at random and
+    # within 40 s failed to meet in about one run in four (FOLLOWUPS), so the window is
+    # 90 s. The loop stops as soon as every criterion is met.
     MAX_TEST_DURATION = 90.0  # seconds
 
     while time.time() - test_start_time < MAX_TEST_DURATION:
