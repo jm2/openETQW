@@ -224,12 +224,73 @@ The same commands in PowerShell, on Windows:
 ```powershell
 python tools/validation/openetqw_validate.py pr
 $env:ETQW_DATA_PATH = "$env:USERPROFILE\etqw_data"; meson test -C builddir-validate-pr -j 1 --no-suite soak
-python tools/ci/check_python.py; python tools/ci/check_integration_skips.py; python tools/ci/check_include_case.py
+foreach ($c in "check_python", "check_integration_skips", "check_include_case") { python "tools/ci/$c.py"; if ($LASTEXITCODE) { throw "$c failed" } }
 ```
 
 `openetqw_validate.py pr` refuses to run on a dirty tree. Use `--no-fail-on-dirty` only to
 try something locally; never quote that run as evidence. For a single test, use
 `meson test -C <builddir> -j 1 <name>`. List the tests with `meson test -C <builddir> --list`.
+
+**All platforms, notes from the sessions (2026-10-20):**
+- **The raw log carries the test environment, tokens included.** Each entry in
+  `meson-logs/testlog.txt` starts with "Inherited environment:", the session's whole
+  environment. Under Claude Code that includes its messaging token. Never upload, paste or
+  attach `testlog.txt` or its environment lines (`AGENTS.md` rule 5). Post meson's console
+  output or the test's own lines, and point at the file by path.
+- **Record the game commit with every run.** The game module prints no commit, and
+  `validate`'s log names only the game path: note `git -C <game checkout> log --oneline -1`.
+- **Gate 1 needs pyflakes.** Without it, `check_python.py` prints "pyflakes is not
+  installed" and exits 2 (only `--allow-missing-pyflakes` makes it a warning). Chaining the
+  checks with `;` in PowerShell hides that exit code, so the PowerShell line above stops on
+  the first failure instead (#163). Use a scratch venv with `pyflakes==4.0.0` if the host has
+  none (#156).
+- **Save a failing test's logs before you rerun it.** A rerun overwrites
+  `meson-logs/testlog.txt` and the test's own log directory (`meson-logs/<test>/`), so the
+  failing run's evidence is lost (#159). Copy them aside first.
+- **Flake rates:** `meson test -C <builddir> --no-rebuild -j 1 --repeat <N> <name>` runs one
+  test N times. Report the pass count and the spread of the number that matters.
+- **Testing a merge head with `validate pr`'s build:**
+  `openetqw_validate.py pr --game-repo <game worktree at the pin> --build-dir <wt>/build-val`
+  builds and installs into `<wt>/build-val/install/`. For `meson test`, link the game
+  module beside the binaries first (on Linux,
+  `ln -sfn install/game_<arch>.so build-val/game_<arch>.so`; the module is `.dylib` on macOS and `.dll` on Windows),
+  then `meson test -C <wt>/build-val --no-rebuild -j 1`.
+- **The standalone scripts** (`tests/test_determinism_adversarial.py`,
+  `tests/test_frame_pacing_adversarial.py`, `tests/test_valley_objective_adversarial.py`)
+  aren't meson tests. They look for `build/openETQW-*` unless `OPENETQW_CLIENT_BINARY` and
+  `OPENETQW_DED_BINARY` point at the binaries. Without them they skip with exit 77, which
+  is not a pass.
+- **Writing tests:**
+  - The command line has a cap, and what's past it is dropped without a message from the
+    engine, `+spawnServer`/`+devmap` included, so the map never loads:
+    - Windows: 64 tokens (`MAX_COMMAND_ARGS`, `src/idlib/CmdArgs.h`), because the command
+      line is tokenized as one string;
+    - Linux and macOS: 32 `+` commands (`MAX_CONSOLE_LINES`, `src/framework/Common.cpp`).
+
+    On Windows, the game module's idlib may log "MAX_COMMAND_ARGS hit". Set cvars that
+    aren't needed at startup from the console afterwards (#157).
+  - `test_reconnect_restart.connect()` waits for snapshot lines, so a joining client needs
+    `net_clientShowSnapshots 1`. Without it: "DRIVER received 0 snapshots".
+  - A game change to a line the harness parses (`PLAYER_POS`, `FRAME_POSE`, …) breaks
+    engine-`main` tests until the parser change lands. Test the game branch with an engine
+    branch that has `main` merged in, and merge the pair back to back (#155).
+- **A failure on a merge head that predates a fix on `main`** is that fix's bug, not the PR's:
+  merge `main` in and rerun the test (#152's merge head hit #150's tick-94 mismatch).
+- **Pinning the game in a worktree.** The engine's meson finds `../openETQW-game`. A plain
+  `git worktree add ~/<dir>` therefore builds against whatever `~/openETQW-game` is at, not the
+  PR's `companion.ref`. Use the linked recipe below (a game worktree at the pin plus the
+  symlink), or check the shared checkout's commit first.
+- **Cross-OS pairs (any two hosts).** Game addresses on the LAN:
+  - `antec` 192.168.1.10. Its other address, 192.168.1.194, doesn't answer the game port.
+  - ANTEC-WIN 192.168.1.6.
+  - `macmini-m1` 192.168.0.45, on a /23, so it reaches the 192.168.1.x hosts directly.
+  - `mbp16-m1max` 192.168.0.229.
+
+  The client side must relay `CROSS_OS_CHANGE_MAP` at once. Run `tests/test_cross_os.py` in
+  the background with `--log-dir`, block on
+  `until grep -q CROSS_OS_CHANGE_MAP <out>; do sleep 1; done`, then message the server side
+  "CHANGE MAP NOW". Noticing the line a turn later was late enough to fail X4 once, even
+  though the test waits 600 s (#144).
 
 **Windows (x64 and arm64), PowerShell, before you build.** Set the vcpkg environment as
 the CI prepare action does. Set `$triplet` to `x64-windows` on ANTEC-WIN or `arm64-windows`
@@ -283,12 +344,54 @@ without a desktop. On `macmini-m1`, add `--timeout-multiplier 3` to `meson test`
   because it kills the agent's shell. Find the PID with `ps -eo pid,args | grep <name> | grep -v grep`,
   then `kill <pid>`.
 - `cross-os` skips (exit 77) on antec. A full run is "N OK, 0 fail, 1 skip".
+- **Screenshot sets need a display.** antec has no desktop session. Start a private
+  headless Wayland compositor and point the capture at it:
+  ```sh
+  XDG_RUNTIME_DIR=/run/user/$(id -u) nohup setsid mutter --headless --wayland --no-x11 \
+    --wayland-display=oe-hl --virtual-monitor 2560x1440 > /var/tmp/oe-hl.log 2>&1 < /dev/null &
+  WAYLAND_DISPLAY=oe-hl XDG_RUNTIME_DIR=/run/user/$(id -u) ETQW_DATA_PATH=~/etqw_data \
+    python3 tools/validation/screenshot_set.py capture --client <build>/install/openETQW-client_x64 ...
+  ```
+  Without it the client stops with "SDL3: failed to initialize video subsystem: No available
+  video device". The compositor doesn't survive a reboot, so check with `pgrep -a mutter`.
+  Kill only your own: `kisakcod-linux` runs its own (`kisak-hl`).
+- **`client-lifecycle` needs a working audio output.** "Missing SDL3 audio initialization
+  message (… Could not connect PulseAudio stream)" means the host's default PipeWire sink
+  failed. After the 2026-10-20 reboot, PipeWire logged RAOP-sink errors. It passed on rerun.
+  It's the host's audio, not the change; the sink is the owner's to fix.
 - `mixed-caps` and `high-refresh-*` A1 measure frame throughput and read low under host
   load. Compare a test's `ceiling N` only with the same test's earlier runs: on a quiet
   antec the single-client tests read 324–329 fps, and `mixed-caps` (two clients) about 282.
   `mixed-caps` B's 240 cap sits at its A1 threshold there and flakes (#135). Before blaming
   a change, rerun the test on `main` on the same host; if `main` fails too, it is not the
   change.
+
+**ANTEC-WIN specifics** (`openETQW-win`; Windows 11 x64, RX 6400):
+- The tool shell is Git Bash, so yoga's traps below apply here too: heredocs eat
+  backslashes, and Python's `write_text` writes CRLF.
+- **The staged game module.** Engine builds build the game in `$env:OPENETQW_GAME_REPO\build`.
+  Each engine build directory then runs its own staged copy, `<builddir>\compiledscript_x64.dll`.
+  After a game change, `meson test --no-rebuild` still runs the old module until the engine
+  build re-stages it (`validate pr`, or `meson compile`). Two engine worktrees on different
+  game commits overwrite each other's game build.
+- **The display.** Agent sessions run in a disconnected console session. SDL sees one
+  display, "WinDisc", 3840x2400 at 60 Hz. Vulkan works on the RX 6400, but D3D9 apps get no
+  device there.
+- **The ~30 fps spells (#148).**
+  - Signature: only draw-count checks fail, for example seat-poses L1c/L2/L4 with 14–17
+    draw pairs under a held turn against about 62, or frame-poses "uncapped: 31 fps".
+  - Confirm: `FRAME_POSE` `us=` deltas of 25–45 ms, with present mode 0 (immediate, so
+    not vsync).
+  - Then rerun the failed tests, and add the times to #148.
+- **Python output encoding.** The console code page is cp1252. Redirected output with
+  – × − raises UnicodeEncodeError or comes out in cp1252. Use
+  `$env:PYTHONIOENCODING='utf-8'` or `python -X utf8`.
+- **PowerShell traps.**
+  - `"$var:"` parses as a drive-qualified variable; write `"${var}:"`.
+  - `& .\openETQW-client_x64.exe …` from a tool shell neither waits nor captures output.
+    Use `Start-Process -Wait -RedirectStandardOutput`, or Git Bash.
+- **A script that checks claims must skip its own claim file,** or it waits on itself. Go
+  from heavy to timing by releasing the heavy claim, then taking the timing one.
 
 **`yoga-slim7x` specifics** (`openETQW-win-arm64`; Windows 11 arm64, Snapdragon X, Adreno X1-85):
 - The tool shell is Git Bash. Build and test through a `.bat` wrapper so MSVC's environment
@@ -327,6 +430,16 @@ without a desktop. On `macmini-m1`, add `--timeout-multiplier 3` to `meson test`
   on the same build).
 - Screenshots: `r_vkScreenshot "<path>.tga"` writes the next frame. `screenshot_set.py`
   needs Pillow (`python -m pip install --user pillow`) for sheets and compare.
+  `r_vkScreenshot` captures before the ImGui overlay, so `r_showmetrics` never shows in a
+  screenshot.
+- **Vulkan quietly falls back to OpenGL without glslang.** If `glslangValidator` isn't on
+  `PATH`, the client logs "runtime SPIR-V compiler unavailable … Vulkan initialization
+  failed; falling back to OpenGL for this run" and keeps going. `screenshot_set.py` then
+  writes no shots, and `FRAME_TIMING` shows `vk_frames=0`. Outside the wrapper (Python from
+  Git Bash), put `%USERPROFILE%\tools\glslang` on `PATH` and set `ETQW_DATA_PATH` yourself.
+  Grep the client log for "Vulkan initialization failed" before trusting a run.
+- MSVC: `far` and `near` are macros (`windef.h`, through `windows.h`). A local named `far`
+  fails with C2513, so don't name variables `far` or `near` in engine code (#149).
 - Traps:
   - Bash heredocs eat backslashes: `\\` becomes `\` and `"\n"` in a heredoc'd Python or C++
     string becomes a real newline. Write code with backslashes through a file editor or a
@@ -370,6 +483,12 @@ SDL_VIDEO_DRIVER=offscreen ETQW_DATA_PATH=~/etqw_data meson test -C build <name>
 - The host auto-updates (dnf, kernel and SDL3). When results shift on plain `main`, check
   `rpm -qa --last | head -30` and A/B on `main` before blaming a branch.
 - Push over HTTPS with `gh` credentials, as on Windows; SSH to GitHub fails here.
+- UDP ports are split with `kisakcod-linux-arm64` (agreed 2026-10-19). kisakcod uses 28960.
+  openETQW uses 29960 for cross-OS servers, plus the meson tests' 2996x/2997x ports. Neither
+  project uses the other's.
+- The active firewalld zone (FedoraWorkstation) allows inbound UDP 1025-65535, so a
+  dedicated server here is reachable from the LAN without a firewall change. If a zone
+  change closes it, the fix is the owner's (`AGENTS.md` rule 5).
 - Screenshot sets work offscreen under Honeykrisp
   (`SDL_VIDEO_DRIVER=offscreen python3 tools/validation/screenshot_set.py capture ...`).
   Upload the sheets as JPEG with `gh release upload screenshots-prNNN <files>`, or use
@@ -396,6 +515,14 @@ ETQW_DATA_PATH=~/etqw_data meson test -C ~/openETQW/build --no-rebuild -j 1 <nam
 ```
 
 - Both game client windows open on one display. Don't move them during a timing test.
+- macOS has no `timeout` command (no coreutils). Scripts copied from Linux that use
+  `timeout N cmd` fail with "command not found".
+- **Pillow:** none of the Pythons here has it, and Homebrew's refuses `pip install --user`
+  (PEP 668, "externally-managed-environment"). Use a venv
+  (`python3 -m venv <dir> && <dir>/bin/pip install pillow`) and run `screenshot_set.py`
+  through it. `screenshot_set.py` makes sheets only during `capture`, so a capture without
+  Pillow leaves none. To rebuild them, import `heuristics()` and `contact_sheet()` from the
+  module over the saved TGAs (#149).
 - The engine loads the game module from its own directory first:
   `build/game_arm64.dylib` is a symlink to `~/openETQW-game/build/game_arm64.dylib`. To
   test another game build, re-point the symlink for the run and restore it. A module in
@@ -435,6 +562,18 @@ ETQW_DATA_PATH=~/etqw_data meson test -C ~/openETQW/build --no-rebuild -j 1 <nam
 
 **Screenshot set (graphics PRs).** See `CONTRIBUTING.md` § Merge gates, item 2. On ANTEC-WIN,
 capture with `--rt both`. On the other hosts, capture with `--rt 0`.
+- Frames aren't deterministic. Rain and lightning on outskirts, the view weapon's bob and
+  moving vehicles change pixels between back-to-back shots. Judge a difference against a
+  main-against-main recapture on the same host, not the raw percentage.
+  - On `antec`, outskirts main against main reaches about 2.7%.
+  - On `mbp16-m1max`, outskirts' ground views reach 5–17%: the ground camera lands a few
+    pixels off between runs, and there's rain on top (#149, `macos_outskirts_main_vs_main`).
+- For a small or cvar-gated change, shoot A, B, A in one client with `ui_showGun 0` and
+  `g_showHud 0`. Count only pixels where B differs from both A shots by more than A differs
+  from A. On valley that left 0.00% noise (#149's sweep).
+- Since #156 canyon's views are outdoors, with the hangar as an extra `hangar` view.
+  Recapture main with the current script; with an older main capture, `compare` lists
+  `hangar` as missing on one side.
 
 ## 6. Host claims
 
@@ -448,6 +587,13 @@ and its `README.md` has the format and the PowerShell commands.
   `seat-poses-*`), wait for live `heavy` claims to end.
 - Hold your own claim while you run either one, and delete it when you are done. A claim
   whose `pid` is dead or whose `until` has passed may be deleted by anyone.
+- **After any aborted run,** clean up by hand. That covers a run you stopped and a background
+  shell the harness killed for memory. The script's exit trap never runs, so its python
+  child, the game client and the claim file all stay behind.
+  - List the `openETQW-client`, `openETQW-ded` and python processes, and kill your own.
+  - Delete your claim.
+
+  On `yoga-slim7x`, an orphaned OpenGL-fallback client once grew to 6.6 GB (2026-10-19).
 
 **`antec` has no `~/.host-coordination/` (2026-10-15).** Other projects share it:
 `kisakcod-linux`, and Q3A, which builds under `/var/tmp/q3-*`. Coordinate by message:
