@@ -6,10 +6,14 @@ in order, and every PR that changes an item's state updates its row. `owner` nam
 session that holds the item; `—` means nobody does. Before taking an item, check its PR or
 issue for anything newer than this file.
 
-Updated: 2026-10-19 by `openETQW-linux` (coordinator): M5 step 3 done (#146); owners after the Claude Code sessions resumed (#133). Before that, 2026-10-18, after a pass over every doc. Since
-2026-10-15: the old PRs are all merged, and cross-OS pairs among Linux, Windows and macOS
-passed both ways (#139, #140). This pass rewrote §3's M5 rows to match what has landed and
-added the M3 row. It also closed two re-check items with evidence (§5).
+**Parked (2026-10-20, the owner's wrap-up).** Every openETQW session finished or pushed its
+in-progress work and is parked: no PRs are open in either repository, and no host claims are held.
+Each row below names the branch or comment where its work stopped and its exact next step. When
+the owner resumes the sessions, start at §2's top row that has a next step.
+
+Updated: 2026-10-20 by `openETQW-linux` (coordinator): merged since 2026-10-18 are #145, #146,
+#149, #152, #153, #155–#158 and game #53–#56 (§5); filed #159 and #160. Before that,
+2026-10-18, after a pass over every doc.
 
 ## 1. Open PRs, in merge order
 
@@ -20,11 +24,15 @@ added the M3 row. It also closed two re-check items with evidence (§5).
 
 | # | What | Owner | Next step |
 |---|---|---|---|
-| [#134](https://github.com/jm2/openETQW/issues/134) | Raster shadows: retail's `shadowVisDistMult` / `shadowProjectDist` limits are not applied, so far props' sun volumes fill the stencil (the jetpack seat on a network client: 84 draw pairs against 113 without entity casters). | — | Read what retail's renderer does with them first; don't guess. A graphics change: screenshot set. |
+| [#134](https://github.com/jm2/openETQW/issues/134) | Raster shadows: retail's `shadowVisDistMult` / `shadowProjectDist` limits are not applied, so far props' sun volumes fill the stencil (the jetpack seat on a network client: 84 draw pairs against 113 without entity casters). | `openETQW-win-arm64` (parked) | Read what retail's renderer does with them first; don't guess. No host has a retail 1.5 install to compare against. `openETQW-win-arm64` reports that the owner allowed it to download the 1.5 installer; not started because of the park. A graphics change: screenshot set. |
 | [#122](https://github.com/jm2/openETQW/issues/122) | GDF rifle viewmodel: near-black on raster, tan with ray tracing. | — (parked) | Get a retail reference first: a retail 1.5 screenshot from the owner, or published retail footage. Until then, don't change either path. Escalate to the owner if no reference turns up. |
 | [#135](https://github.com/jm2/openETQW/issues/135) | `mixed-caps`: B's 240 cap A1 'turn' sits at its threshold on `antec` (233–235.3 fps against 235.2; the test's own ceiling is about 282 with two clients) and fails on `main` too. | — | Find what costs B frames while turning with a second client, or ask the owner about B's high cap on antec. Not a host-load problem (the 2026-10-09 'ceiling drop' note compared different tests). |
-| [#141](https://github.com/jm2/openETQW/issues/141) | Mouse motion: SDL's sub-pixel `xrel`/`yrel` is truncated per event (`src/sys/sdl/sdl_events.cpp:238`), so slow motion is lost on high-DPI displays. From code, not reproduced. | `openETQW-mac` | Code is ready; waits on the owner's hands-on check on a Retina Mac, then the PR. Input path only. |
+| [#141](https://github.com/jm2/openETQW/issues/141) | Mouse motion: SDL's sub-pixel `xrel`/`yrel` is truncated per event (`src/sys/sdl/sdl_events.cpp:238`), so slow motion is lost on high-DPI displays. From code, not reproduced. | `openETQW-mac` (parked) | Branch `fix/mouse-subpixel-deltas` at 42de177, no PR yet: the fix and its unit test pass, local checks are clean, and the full suite passed on macOS apart from the #160 flake. Next: the owner's Retina check, old build against new (commands on #141, issuecomment-6290237448), then the PR. Input path only. |
 | [#147](https://github.com/jm2/openETQW/issues/147) | High-density displays: should `r_mode` / `r_custom*` mean pixels or points (SDL sizes on macOS are points)? | — | An owner question with three options; not urgent. |
+| [#159](https://github.com/jm2/openETQW/issues/159) | `all-stock-maps`: salvage's Strogg `aas_area_validity` fell to 53.8% once (antec, 2026-10-20); two reruns passed. | — | On the next failure, keep the map's log and JSON and list where the area-0 samples were. The bound stays. |
+| [#160](https://github.com/jm2/openETQW/issues/160) | `seat-poses-listen`: H3 sometimes sees no moving draws in the badger's driver seat (antec and macOS, once each); reruns pass. | — | Find why the badger sometimes doesn't move in the listen-host leg. The bound stays. |
+| [#151](https://github.com/jm2/openETQW/issues/151) | `seat-poses-listen` I1: the jetpack barely flew once (60.2% of pairs moved); the phase has no retry for a stalled flight. | — | Make the flight start reliable, or detect a stalled flight and retry it; don't lower the 99%. |
+| [#154](https://github.com/jm2/openETQW/issues/154) | `seat-poses`: no test holds a `freepivot` gun at its extent while the hull moves (late look, ledger 064). | — | Add the case (from #152's review). |
 | [#148](https://github.com/jm2/openETQW/issues/148) | `ANTEC-WIN` drew at about 30 fps for some 15 minutes during a retail suite (2026-10-20 02:16–02:31Z); cause unknown. | — | If it recurs, capture what the issue lists. |
 
 ## 3. Milestone work, in order
@@ -60,8 +68,10 @@ Each item names its acceptance test. Details are in the linked plan.
 
    Each gap gets a test or a recorded decision.
 9. **M3, what is left** (`STATUS.md` § Milestones, M3):
-    - cross-OS pairs that include an arm64 host. `openETQW-linux-arm64` offered
-      `macmini-m1`; ask `kisakcod` first, since it's the 8 GB host;
+    - cross-OS pairs that include an arm64 host (#144): Linux arm64 (`macmini-m1`) with
+      Linux x64 and with Windows x64 pass (#144, issuecomment-6281426367 and -6282183468).
+      Left: the macOS arm64 ↔ Linux arm64 pair; the steps and mbp16's built tree are on
+      #144. `macmini-m1` has 8 GB: tell `kisakcod` before using it;
     - weapon fire seen by the other player (a headless peer can't observe it; needs a
       Vulkan observer or a server-side check).
 
@@ -91,6 +101,15 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   human at the controls", are judged by people on real displays (M5 D3), not by a test.
 
 ## 5. Recently done
+
+2026-10-20:
+- #149 (#128): off-view static casters cast stencil shadows. The review fix scales the caster box about the light, so the cull is conservative. Screenshot sets on all four platforms.
+- #157 with game #56: the hull lead's `VEH_PRED` per class on a network client and a listen host (`lead-measure-join`, `-listen`).
+- #158 (#136): `bot-gameplay`'s encounter is repeatable (inline bot AI, command-line join).
+- #156: `screenshot_set.py`'s canyon anchor is outdoors, and the hangar is an extra view.
+- #155 with game #55 (#126): samples in teleport transit leave the AAS tally.
+- #153 (#150): the determinism replays turn tooltips off.
+- #152 with game #54: late look for `freepivot` and the damped view.
 
 #145 (2026-10-20; #127): `+set r_mode` was never ignored; the window cap now says when it shrinks a window, Linux and macOS cap at the real display, and the headless drivers don't cap. M5 step 3's seat part (2026-10-19, #146): `seat-poses-*` are the seat capture, and the new S5 checks the cockpit (`docs/m5-plan.md` step 3).
 
