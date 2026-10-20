@@ -40,7 +40,7 @@ Each item names its acceptance test. Details are in the linked plan.
    (ledger 067). Left: a network client's `VEH_PRED` numbers per class, then the owner's
    review on a high-refresh display (owner-gated, §4).
 2. **M5 step 14, what is left** (owner: `openETQW-win`): late look for `freepivot` views and the damped
-   first-person `clampDamped*` view is in review, #152 with game #54 (§1). Then the owner decides
+   first-person `clampDamped*` view is merged (#152 with game #54). Left: the owner decides
    which seats join the default list (§4).
 3. **M4, what is left** (`STATUS.md` § Milestones, M4). Done: classes, damage and kills,
    deployable delivery, both match endings, stopwatch and campaign transitions (meson
