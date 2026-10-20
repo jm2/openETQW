@@ -1726,7 +1726,8 @@ namespace {
 		unsigned long long depthFail;
 		unsigned long long volumes;
 		unsigned long long indexes;
-	} shadowVolumeStats = { 0, 0, 0, 0, 0, 0 };
+		unsigned long long offView;		// volumes of casters the view culled (#128)
+	} shadowVolumeStats = { 0, 0, 0, 0, 0, 0, 0 };
 	idList< idRenderModel* > frontEndDynamicModels;
 	struct ambientSurfaceCandidate_t {
 		viewEntity_s*			space;
@@ -2466,6 +2467,260 @@ namespace {
 		}
 		return true;
 	}
+
+	// Off-view shadow casters (#128).  The view's draw surfaces are only the casters it
+	// sees.  Doom 3 takes a light's casters from the light's side, so a surface the view
+	// culled still casts when its shadow may fall in view.  Static geometry gets that here:
+	// the world's surfaces and static entity models the view culled, each entity on a
+	// shadow-only space that is not linked into the view's entities, so nothing else
+	// draws it.  Left out: dynamic models (built only for a view that sees them; animated
+	// ones are GPU-skinned and cast no volume yet), stuff models, entities with a render
+	// callback, and entities whose surfaces this view suppresses or only another allows.
+	idCVar r_offViewShadows( "r_offViewShadows", "1", CVAR_RENDERER | CVAR_BOOL,
+		"raster stencil shadows: static casters outside the view cast when their shadow may reach it" );
+	struct offViewCasterGroup_t {
+		viewEntity_s*	space;
+		idBounds		bounds;			// local; cleared when unknown
+		int				firstCaster;
+		int				numCasters;
+	};
+	struct offViewCaster_t {
+		const modelSurface_t*	surface;
+		const idMaterial*		material;
+	};
+	idList< offViewCasterGroup_t > offViewGroups;
+	idList< offViewCaster_t > offViewCasters;
+	idList< int > offViewEntityViewed;	// per entity index, 1 when it has a view space
+
+	viewEntity_s* AllocShadowOnlySpace( renderEntity_t* entity, idRenderModel* model, int entityIndex ) {
+		const viewDef_s* view = RB_GetViewDef();
+		viewEntity_s* space = frontEndViewEntityAllocator.Alloc();
+		memset( space, 0, sizeof( *space ) );
+		space->entityDef = entity;
+		space->entityIndex = entityIndex;
+		space->model = model;
+		space->coverage = 1.0f;
+		SetEntityMatrix( entity, space->modelMatrix );
+		MultiplyModelView( view->worldSpace.modelViewMatrix, space->modelMatrix, space->modelViewMatrix );
+		space->scissorRect = view->scissor;
+		frontEndViewEntities.Append( space );	// freed with the view's spaces
+		return space;
+	}
+
+	void BeginOffViewGroup( viewEntity_s* space, const idBounds& bounds ) {
+		offViewCasterGroup_t group;
+		group.space = space;
+		group.bounds = bounds;
+		group.firstCaster = offViewCasters.Num();
+		group.numCasters = 0;
+		offViewGroups.Append( group );
+	}
+
+	void AddOffViewCaster( const renderEntity_t* entity, const modelSurface_t* modelSurface ) {
+		offViewCasterGroup_t& group = offViewGroups[ offViewGroups.Num() - 1 ];
+		if ( modelSurface == NULL || modelSurface->geometry == NULL ) return;
+		if ( entity != NULL && modelSurface->id >= 0 && modelSurface->id < MAX_SURFACE_BITS - 1 &&
+				entity->hideSurfaceMask.Get( modelSurface->id ) != 0 ) {
+			return;
+		}
+		const idMaterial* material = modelSurface->material;
+		if ( entity != NULL ) {
+			material = R_RemapShaderBySkin( material, entity->customSkin, entity->customShader );
+		}
+		R_GlobalShaderOverride( &material );
+		// as a drawn caster: R_AddDrawSurf takes only drawn materials
+		if ( material == NULL || !material->IsDrawn() || !material->SurfaceCastsShadow() ) return;
+		offViewCaster_t caster;
+		caster.surface = modelSurface;
+		caster.material = material;
+		offViewCasters.Append( caster );
+		group.numCasters++;
+	}
+
+	void EndOffViewGroup() {
+		if ( offViewGroups[ offViewGroups.Num() - 1 ].numCasters == 0 ) {
+			offViewGroups.SetNum( offViewGroups.Num() - 1, false );
+		}
+	}
+
+	// R_AddLightSurfaces' suppression for a whole entity; instanced entities are always in view
+	bool OffViewEntityCasts( const renderEntity_t* entity ) {
+		return entity == NULL || ( !entity->flags.noShadow && !entity->flags.weaponDepthHack &&
+			entity->modelDepthHack == 0.0f && entity->numInsts <= 0 );
+	}
+
+	// The casters the view culled, from R_AddModelSurfaces' spaces and candidates, the
+	// world models it culled whole, and the static entities it culled.
+	void GatherOffViewCasters( const viewDef_s* view, idRenderWorldLocal* world ) {
+		offViewGroups.SetNum( 0, false );
+		offViewCasters.SetNum( 0, false );
+		// surfaces of spaces in view that the view culled
+		viewEntity_s* runSpace = NULL;
+		for ( int index = 0; index < frontEndSurfaceCandidates.Num(); ++index ) {
+			const ambientSurfaceCandidate_t& candidate = frontEndSurfaceCandidates[ index ];
+			if ( candidate.space != runSpace ) {
+				if ( runSpace != NULL ) EndOffViewGroup();
+				runSpace = candidate.space;
+				BeginOffViewGroup( runSpace, runSpace->model->Bounds( runSpace->entityDef ) );
+			}
+			if ( !candidate.visible && OffViewEntityCasts( runSpace->entityDef ) ) {
+				AddOffViewCaster( runSpace->entityDef, candidate.modelSurface );
+			}
+		}
+		if ( runSpace != NULL ) EndOffViewGroup();
+
+		// spaces culled whole by their scissor, and world models culled whole
+		idList< const idRenderModel* > worldModelsInView;
+		for ( int index = 0; index < frontEndModelSpaces.Num(); ++index ) {
+			viewEntity_s* space = frontEndModelSpaces[ index ];
+			if ( space == NULL || space->model == NULL ) continue;
+			if ( space->entityDef == NULL ) worldModelsInView.Append( space->model );
+			if ( !space->culled || space->numInsts > 0 ) continue;
+			if ( !OffViewEntityCasts( space->entityDef ) ) continue;
+			BeginOffViewGroup( space, space->model->Bounds( space->entityDef ) );
+			for ( int surfaceIndex = 0; surfaceIndex < space->model->NumSurfaces(); ++surfaceIndex ) {
+				AddOffViewCaster( space->entityDef, space->model->Surface( surfaceIndex ) );
+			}
+			EndOffViewGroup();
+		}
+		for ( int modelIndex = 0; modelIndex < world->BackendNumLocalModels(); ++modelIndex ) {
+			idRenderModel* model = world->BackendLocalModel( modelIndex );
+			if ( model == NULL || !model->IsStaticWorldModel() || worldModelsInView.FindIndex( model ) >= 0 ) continue;
+			BeginOffViewGroup( NULL, model->Bounds() );
+			for ( int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex ) {
+				AddOffViewCaster( NULL, model->Surface( surfaceIndex ) );
+			}
+			if ( offViewGroups[ offViewGroups.Num() - 1 ].numCasters > 0 ) {
+				offViewGroups[ offViewGroups.Num() - 1 ].space = AllocShadowOnlySpace( NULL, model, -1 );
+			}
+			EndOffViewGroup();
+		}
+
+		// static entities the view culled (R_BuildDrawView made no space for them)
+		offViewEntityViewed.SetNum( world->BackendNumEntityDefs(), false );
+		memset( offViewEntityViewed.Begin(), 0, offViewEntityViewed.Num() * sizeof( int ) );
+		for ( int index = 0; index < frontEndViewEntities.Num(); ++index ) {
+			const viewEntity_s* space = frontEndViewEntities[ index ];
+			if ( space->entityDef != NULL && space->entityIndex >= 0 && space->entityIndex < offViewEntityViewed.Num() ) {
+				offViewEntityViewed[ space->entityIndex ] = 1;
+			}
+		}
+		for ( int entityIndex = 0; entityIndex < world->BackendNumEntityDefs(); ++entityIndex ) {
+			if ( offViewEntityViewed[ entityIndex ] != 0 ) continue;
+			renderEntity_t* entity = world->BackendEntityDef( entityIndex );
+			if ( entity == NULL || entity->hModel == NULL || entity->callback != NULL ) continue;
+			if ( entity->suppressSurfaceInViewID != 0 && entity->suppressSurfaceInViewID == view->renderView.viewID ) continue;
+			if ( entity->allowSurfaceInViewID != 0 && entity->allowSurfaceInViewID != view->renderView.viewID ) continue;
+			if ( entity->drawSpec > com_gpuSpec.GetInteger() || !OffViewEntityCasts( entity ) ) continue;
+			idRenderModel* model = entity->hModel;
+			if ( model->IsDynamicModel() != DM_STATIC || R_IsStuffModel( model ) ) continue;
+			const idBounds bounds = !entity->bounds.IsCleared() ? entity->bounds : model->Bounds( entity );
+			if ( entity->maxVisDist > 0 && r_useMaxVisDist.GetInteger() > 0 ) {
+				// not drawn at this distance, as EntityVisibleBeforeSnapshot
+				const int maxVisDist = r_useMaxVisDist.GetInteger() > 1 ? r_useMaxVisDist.GetInteger() : entity->maxVisDist;
+				const idVec3 center = bounds.IsCleared() ? vec3_origin : bounds.GetCenter();
+				if ( !R_DistanceVisibility( entity->origin + center, maxVisDist, entity->minVisDist, view ) ) continue;
+			}
+			BeginOffViewGroup( NULL, bounds );
+			for ( int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex ) {
+				AddOffViewCaster( entity, model->Surface( surfaceIndex ) );
+			}
+			if ( offViewGroups[ offViewGroups.Num() - 1 ].numCasters > 0 ) {
+				offViewGroups[ offViewGroups.Num() - 1 ].space = AllocShadowOnlySpace( entity, model, entityIndex );
+			}
+			EndOffViewGroup();
+		}
+	}
+
+	// Whether the shadow of local bounds can reach the view: the box and its extrusion
+	// away from the light, to where it leaves the light's bounds, are not all outside one
+	// view frustum plane.  Conservative, as R_CullLocalBox.
+	bool ShadowMayReachView( const idBounds& localBounds, const float modelMatrix[ 16 ],
+			const viewLight_s* light, const viewDef_s* view ) {
+		if ( localBounds.IsCleared() || light->frustumTris == NULL || light->frustumTris->bounds.IsCleared() ) return true;
+		const idBounds& lightBounds = light->frustumTris->bounds;
+		idVec3 points[ 16 ];
+		for ( int corner = 0; corner < 8; ++corner ) {
+			const idVec3 local( localBounds[ ( corner >> 0 ) & 1 ].x, localBounds[ ( corner >> 1 ) & 1 ].y,
+				localBounds[ ( corner >> 2 ) & 1 ].z );
+			const idVec3 point = MatrixTransformPoint( modelMatrix, local );
+			const idVec3 dir = point - light->globalLightOrigin;
+			// the ray's exit from the light's box: the nearest far slab
+			float exit = idMath::INFINITY;
+			for ( int axis = 0; axis < 3; ++axis ) {
+				if ( dir[ axis ] > 1e-6f ) {
+					exit = Min( exit, ( lightBounds[ 1 ][ axis ] - point[ axis ] ) / dir[ axis ] );
+				} else if ( dir[ axis ] < -1e-6f ) {
+					exit = Min( exit, ( lightBounds[ 0 ][ axis ] - point[ axis ] ) / dir[ axis ] );
+				}
+			}
+			if ( exit == idMath::INFINITY || exit < 0.0f ) exit = 0.0f;
+			points[ corner ] = point;
+			points[ 8 + corner ] = point + dir * exit;
+		}
+		for ( int planeIndex = 0; planeIndex < view->numPlanes; ++planeIndex ) {
+			int outside = 0;
+			for ( ; outside < 16; ++outside ) {
+				if ( view->frustum[ planeIndex ].Distance( points[ outside ] ) <= 0.0f ) break;
+			}
+			if ( outside == 16 ) return false;
+		}
+		return true;
+	}
+
+	// Volumes for the light's off-view casters whose shadow may reach the view, linked
+	// as R_AddLightSurfaces links a drawn caster's; true if any was added.
+	bool AddOffViewShadows( viewLight_s* light, const viewDef_s* view ) {
+		bool added = false;
+		for ( int groupIndex = 0; groupIndex < offViewGroups.Num(); ++groupIndex ) {
+			const offViewCasterGroup_t& group = offViewGroups[ groupIndex ];
+			const viewEntity_s* space = group.space;
+			const renderEntity_t* entity = space->entityDef;
+			if ( entity != NULL && ( ( entity->suppressShadowInViewID != 0 &&
+					entity->suppressShadowInViewID == view->renderView.viewID ) ||
+					( entity->suppressShadowInLightID != 0 &&
+					entity->suppressShadowInLightID == light->lightDef->lightId ) ) ) {
+				continue;
+			}
+			if ( !group.bounds.IsCleared() && ( R_CullLocalBox( group.bounds, space->modelMatrix, 6, light->frustum ) ||
+					!ShadowMayReachView( group.bounds, space->modelMatrix, light, view ) ) ) {
+				continue;
+			}
+			drawSurf_s caster;
+			memset( &caster, 0, sizeof( caster ) );
+			caster.space = space;
+			caster.scissorRect = light->scissorRect;
+			for ( int casterIndex = group.firstCaster; casterIndex < group.firstCaster + group.numCasters; ++casterIndex ) {
+				const offViewCaster_t& source = offViewCasters[ casterIndex ];
+				caster.geo = source.surface->geometry;
+				caster.material = source.material;
+				caster.sort = source.material->GetSort();
+				caster.surfID = source.surface->id;
+				caster.dsFlags = caster.geo->dsFlags;
+				if ( casterIndex == group.firstCaster && !SurfaceSharesLightArea( &caster, light ) ) break;	// per space
+				if ( !SurfaceIntersectsLight( &caster, light ) ) continue;
+				if ( !ShadowMayReachView( caster.geo->bounds, space->modelMatrix, light, view ) ) continue;
+				const srfTriangles_t* volume = CreateShadowVolumeGeometry( &caster, light );
+				if ( volume == NULL ) continue;
+				drawSurf_s* shadow = AllocInteractionSurface( &caster );
+				shadow->geo = volume;
+				shadow->dsFlags = ViewPotentiallyInsideShadow( &caster, light, view ) ? DSF_VIEW_INSIDE_SHADOW : 0;
+				if ( shadow->dsFlags != 0 ) {
+					shadowVolumeStats.depthFail++;
+				}
+				shadowVolumeStats.offView++;
+				added = true;
+				if ( entity != NULL ) {
+					shadow->nextOnLight = light->localShadows;
+					light->localShadows = shadow;
+				} else {
+					shadow->nextOnLight = light->globalShadows;
+					light->globalShadows = shadow;
+				}
+			}
+		}
+		return added;
+	}
 }
 
 viewEntity_s* R_SetEntityDefViewEntity( renderEntity_t* entity, idRenderModel* model,
@@ -2873,6 +3128,7 @@ void R_AddLightSurfaces() {
 			}
 		}
 	}
+	bool offViewGathered = false;
 	for ( viewLight_s* light = view->viewLights; light != NULL; light = light->next ) {
 		if ( light->culled || light->material == NULL || IsSkippedWaterFog( light->material ) ) continue;
 		const bool shadowLight = !light->lightDef->flags.noShadows && light->material->LightCastsShadows();
@@ -2952,6 +3208,16 @@ void R_AddLightSurfaces() {
 				light->globalInteractions = interaction;
 			}
 		}
+		if ( shadowLight && R_UseVulkanBackend() && r_offViewShadows.GetBool() ) {
+			if ( !offViewGathered ) {
+				RENDER_METRIC_SCOPE( "Gather off-view shadow casters" );
+				GatherOffViewCasters( view, RB_GetDrawWorld() );
+				offViewGathered = true;
+			}
+			if ( AddOffViewShadows( light, view ) ) {
+				hadCaster = true;
+			}
+		}
 		if ( shadowLight && hadCaster ) {
 			r_shadowLightViewsWithCasters++;
 		}
@@ -2972,8 +3238,8 @@ void R_PrintInteractionCacheMetrics() {
 		interactionCacheStats.hits, interactionCacheStats.misses,
 		cached > 0 ? 100.0 * interactionCacheStats.hits / cached : 0.0,
 		interactionCacheStats.uncached, static_cast< unsigned int >( interactionCache.size() ) );
-	common->Printf( "Vulkan shadow volumes: %llu drawn (%llu depth-fail), %llu reused, %llu built, %llu silhouette builds, %.0f indexes per volume, %u cached\n",
-		shadowVolumeStats.volumes, shadowVolumeStats.depthFail, shadowVolumeStats.hits, shadowVolumeStats.built,
+	common->Printf( "Vulkan shadow volumes: %llu drawn (%llu depth-fail, %llu off-view casters), %llu reused, %llu built, %llu silhouette builds, %.0f indexes per volume, %u cached\n",
+		shadowVolumeStats.volumes, shadowVolumeStats.depthFail, shadowVolumeStats.offView, shadowVolumeStats.hits, shadowVolumeStats.built,
 		shadowVolumeStats.silBuilds, shadowVolumeStats.volumes > 0 ? static_cast< double >( shadowVolumeStats.indexes ) / shadowVolumeStats.volumes : 0.0,
 		static_cast< unsigned int >( shadowVolumeCache.size() ) );
 }

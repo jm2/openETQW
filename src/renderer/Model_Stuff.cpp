@@ -583,6 +583,10 @@ void R_FreeStuffModel( idRenderModel* model ) {
 	}
 }
 
+bool R_IsStuffModel( const idRenderModel* model ) {
+	return model != NULL && FindStuffModel( model ) != NULL;
+}
+
 bool R_GetStuffModelSnapshot( idRenderModel* sourceModel, const renderEntity_t* entity,
 	const viewDef_s* view, idRenderModel*& drawModel ) {
 	stuffModelData_t* data = FindStuffModel( sourceModel );
