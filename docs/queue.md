@@ -7,7 +7,7 @@ session that holds the item; `—` means nobody does. Before taking an item, che
 issue for anything newer than this file.
 
 **Parked (2026-10-20, the owner's wrap-up).** Every openETQW session finished or pushed its
-in-progress work and is parked: no PRs are open in either repository, and no host claims are held.
+in-progress work and is parked: no PRs are open in either repository apart from this docs pass, and no host claims are held.
 Each row below names the branch or comment where its work stopped and its exact next step. When
 the owner resumes the sessions, start at §2's top row that has a next step.
 
@@ -27,10 +27,10 @@ Updated: 2026-10-20 by `openETQW-linux` (coordinator): merged since 2026-10-18 a
 | [#134](https://github.com/jm2/openETQW/issues/134) | Raster shadows: retail's `shadowVisDistMult` / `shadowProjectDist` limits are not applied, so far props' sun volumes fill the stencil (the jetpack seat on a network client: 84 draw pairs against 113 without entity casters). | `openETQW-win-arm64` (parked) | Read what retail's renderer does with them first; don't guess. No host has a retail 1.5 install to compare against. `openETQW-win-arm64` reports that the owner allowed it to download the 1.5 installer; not started because of the park. A graphics change: screenshot set. |
 | [#122](https://github.com/jm2/openETQW/issues/122) | GDF rifle viewmodel: near-black on raster, tan with ray tracing. | — (parked) | Get a retail reference first: a retail 1.5 screenshot from the owner, or published retail footage. Until then, don't change either path. Escalate to the owner if no reference turns up. |
 | [#135](https://github.com/jm2/openETQW/issues/135) | `mixed-caps`: B's 240 cap A1 'turn' sits at its threshold on `antec` (233–235.3 fps against 235.2; the test's own ceiling is about 282 with two clients) and fails on `main` too. | — | Find what costs B frames while turning with a second client, or ask the owner about B's high cap on antec. Not a host-load problem (the 2026-10-09 'ceiling drop' note compared different tests). |
-| [#141](https://github.com/jm2/openETQW/issues/141) | Mouse motion: SDL's sub-pixel `xrel`/`yrel` is truncated per event (`src/sys/sdl/sdl_events.cpp:238`), so slow motion is lost on high-DPI displays. From code, not reproduced. | `openETQW-mac` (parked) | Branch `fix/mouse-subpixel-deltas` at 42de177, no PR yet: the fix and its unit test pass, local checks are clean, and the full suite passed on macOS apart from the #160 flake. Next: the owner's Retina check, old build against new (commands on #141, issuecomment-6290237448), then the PR. Input path only. |
+| [#141](https://github.com/jm2/openETQW/issues/141) | Mouse motion: SDL's sub-pixel `xrel`/`yrel` is truncated per event (`src/sys/sdl/sdl_events.cpp:238`), so slow motion is lost on high-DPI displays. From code, not reproduced. | `openETQW-mac` (parked) | Branch `fix/mouse-subpixel-deltas` at 42de177, no PR yet: the fix and its unit test pass, local checks are clean, and the full suite passed on macOS apart from a `seat-poses-listen` L3 flake (3/3 reruns pass). Next: the owner's Retina check, old build against new (commands on #141, issuecomment-6290237448), then the PR. Input path only. |
 | [#147](https://github.com/jm2/openETQW/issues/147) | High-density displays: should `r_mode` / `r_custom*` mean pixels or points (SDL sizes on macOS are points)? | — | An owner question with three options; not urgent. |
 | [#159](https://github.com/jm2/openETQW/issues/159) | `all-stock-maps`: salvage's Strogg `aas_area_validity` fell to 53.8% once (antec, 2026-10-20); two reruns passed. | — | On the next failure, keep the map's log and JSON and list where the area-0 samples were. The bound stays. |
-| [#160](https://github.com/jm2/openETQW/issues/160) | `seat-poses-listen`: H3 sometimes sees no moving draws in the badger's driver seat (antec and macOS, once each); reruns pass. | — | Find why the badger sometimes doesn't move in the listen-host leg. The bound stays. |
+| [#160](https://github.com/jm2/openETQW/issues/160) | `seat-poses-listen`: H3 once saw no moving draws in the badger's driver seat (antec, 2026-10-20); two reruns passed. | — | Find why the badger sometimes doesn't move in the listen-host leg. The bound stays. |
 | [#151](https://github.com/jm2/openETQW/issues/151) | `seat-poses-listen` I1: the jetpack barely flew once (60.2% of pairs moved); the phase has no retry for a stalled flight. | — | Make the flight start reliable, or detect a stalled flight and retry it; don't lower the 99%. |
 | [#154](https://github.com/jm2/openETQW/issues/154) | `seat-poses`: no test holds a `freepivot` gun at its extent while the hull moves (late look, ledger 064). | — | Add the case (from #152's review). |
 | [#148](https://github.com/jm2/openETQW/issues/148) | `ANTEC-WIN` drew at about 30 fps for some 15 minutes during a retail suite (2026-10-20 02:16–02:31Z); cause unknown. | — | If it recurs, capture what the issue lists. |
@@ -103,7 +103,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-20:
-- #149 (#128): off-view static casters cast stencil shadows. The review fix scales the caster box about the light, so the cull is conservative. Screenshot sets on all four platforms.
+- #149 (#128): off-view static casters cast stencil shadows. The review fix scales the caster box about the light, so the cull is conservative. Screenshot sets on all five platforms.
 - #157 with game #56: the hull lead's `VEH_PRED` per class on a network client and a listen host (`lead-measure-join`, `-listen`).
 - #158 (#136): `bot-gameplay`'s encounter is repeatable (inline bot AI, command-line join).
 - #156: `screenshot_set.py`'s canyon anchor is outdoors, and the hangar is an extra view.

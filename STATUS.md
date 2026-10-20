@@ -82,7 +82,7 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 
 ## This session
 
-2026-10-19 to 10-20, `openETQW-linux` on `antec`, as coordinator and merge role. The owner first delayed the switch to Switchworks and had every Claude session implement at full speed from the current state. Then, on 2026-10-20, the owner asked every session to finish or push its in-progress work, bring the docs up to date and park. **Every openETQW session is now parked.** No PRs are open in either repository and no host claims are held. `docs/queue.md` names where each item stopped and its next step.
+2026-10-19 to 10-20, `openETQW-linux` on `antec`, as coordinator and merge role. The owner first delayed the switch to Switchworks and had every Claude session implement at full speed from the current state. Then, on 2026-10-20, the owner asked every session to finish or push its in-progress work, bring the docs up to date and park. **Every openETQW session is now parked.** No PRs are open in either repository apart from this docs pass, and no host claims are held. `docs/queue.md` names where each item stopped and its next step.
 
 **Merged (2026-10-19/20), engine and game:**
 - **#146** with game #53: M5 step 3's seat part. `seat-poses-*` S5 checks the cockpit on every seated draw.
@@ -93,7 +93,7 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 - **#156** (`openETQW-win`): `screenshot_set.py`'s canyon anchor is outdoors at the GDF spawn, and the hangar is an extra `hangar` view. Recapture main before the next comparison.
 - **#157** with game #56 (`openETQW-win`): the hull lead's `VEH_PRED` per class on a network client and a listen host (`lead-measure-join`, `-listen`, game `g_leadMeasureDrive`; `docs/hull-lead.md` §6). What's left of 14b is the owner's review on a high-refresh display.
 - **#158** (#136): `bot-gameplay`'s encounter is repeatable: `bot_threading 0` and a command-line join. First combat came 17–80 s in, or never; it's now 21–24 s. The checks are unchanged.
-- **#149** (#128, `openETQW-win-arm64`): static casters outside the view cast stencil shadows into it. The review fix scales the caster box about the light by farthest/nearest, so the cull is conservative. Screenshot sets on Linux x64, Linux arm64, Windows x64 and macOS arm64. The merge-head suite on antec: 67 OK, 0 FAIL.
+- **#149** (#128, `openETQW-win-arm64`): static casters outside the view cast stencil shadows into it. The review fix scales the caster box about the light by farthest/nearest, so the cull is conservative. Screenshot sets on all five platforms (Linux x64 and arm64, Windows x64 and arm64, macOS arm64). The merge-head suite on antec at 84693be: 67 OK, 0 FAIL, 1 SKIP (cross-os, exit 77).
 
 Every merge went through `docs/coordination.md` §8 on antec: `validate pr` plus the retail suite on the merge head. When CodeRabbit was rate-limited, a no-context review agent reviewed instead, and its findings were fixed or answered on the PR.
 
@@ -145,7 +145,7 @@ Every merge went through `docs/coordination.md` §8 on antec: `validate pr` plus
 | game | #14 2485998 (`ci/refresh-engine-pin-and-blockers`) | CI facts: engine contract pin 84a224b -> cba54bb (engine main after #25); the contract legs' blocker reasons as they stand (the engine builds on Linux and with MSVC); Windows x64 legs on `windows-2025-vs2026`; zlib from vcpkg on the Windows contract leg |
 
 ### Open and pending
-- **Open PRs (2026-10-20):** none in either repository. Every session is parked.
+- **Open PRs (2026-10-20):** none in either repository apart from this docs pass. Every session is parked.
 - **Open issues to work, in `docs/queue.md` order:** #134 (retail shadow distance limits), #122 (GDF rifle viewmodel; needs a retail reference), #135 (`mixed-caps` on antec), #141 (mouse sub-pixel deltas; parked on the owner's check), #147 (an owner question), #159, #160 and #151 (test flakes), #154 (a missing seat-poses case), #148 (ANTEC-WIN's slow spell), #144 (M3 arm64 cross-OS).
 - **M5 step 14b, the hull lead: plan (2026-10-06, the Mac session; `docs/hull-lead.md`).**
   - A first measurement (`tools/analysis/veh_pred.py` over `g_determinismTest 2`'s `VEH_TRACE`, on this Mac):
