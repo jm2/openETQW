@@ -156,7 +156,7 @@ The owner's Switchworks address is `user:owner` (`docs/coordination.md` §3; Swi
     - the desecrator (a hover tank): the samples only;
     - wheeled and tracked vehicles: the samples have the best median (0.07–0.27 u), and launching collisions give 28–43 u maxima.
   - Built 2026-10-07 (ledger 067), off by default (`g_unlock_vehicleLead`; built-in list empty): at L = 1 the drawn hull's median error against the true path falls from 7–16 u to 0.01–0.26 u (`docs/hull-lead.md` §7).
-  - A network client's and a listen host's `VEH_PRED` per class (2026-10-20, meson `lead-measure-join` and `-listen`; `docs/hull-lead.md` §6). Map-loaded (valley) on ANTEC-WIN (Windows 11 x64) at engine 4b9c46a's tests and game b0b3bf8, with the client at cap 120. On the client the decay raises S's p95 for ground classes 0.8–2.8× over single player; P keeps the best p95 there, with a median up to 10× worse. The desecrator takes S. Aircraft: H is near-exact.
+  - A network client's and a listen host's `VEH_PRED` per class (2026-10-20, meson `lead-measure-join` and `-listen`; `docs/hull-lead.md` §6), four runs per mode. Map-loaded (valley) on ANTEC-WIN (Windows 11 x64) at engine 995d4b6 and game a5f49bd, with the client at cap 120. On the client, S's p95 for ground classes is 0.6–2.8× its single-player value; P has the best p95 there in 15 of 16 run × class cells, with a median 1.2–11× S's. The desecrator takes S. Aircraft: H is near-exact.
   - Next: the human review on a high-refresh display, and the owner's per-class bound.
   - Owner questions: three are below, and the fourth is the existing decay question (`vehicle-responsiveness.md` §5.1 item 7).
 ### Done, formerly listed as open (2026-09-26 to 2026-10-01; kept for the record)
