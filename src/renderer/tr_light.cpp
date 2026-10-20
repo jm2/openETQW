@@ -2638,31 +2638,44 @@ namespace {
 		}
 	}
 
-	// Whether the shadow of local bounds can reach the view: the box and its extrusion
-	// away from the light, to where it leaves the light's bounds, are not all outside one
-	// view frustum plane.  Conservative, as R_CullLocalBox.
+	// Whether the shadow of local bounds can reach the view: the box and its copy scaled
+	// about the light's origin until it holds every shadow point within the light's
+	// bounds are not all outside one view frustum plane.  A shadow point within those
+	// bounds is at most `farthest` (the bounds' farthest corner) from the light, and the box
+	// is at least `nearest` from it, so scaling by farthest / nearest covers it; the hull of
+	// the box and its scaled copy holds every point between them.  Conservative, as
+	// R_CullLocalBox (per-corner exits were not: rays leaving through different faces
+	// miss the light box's edges, #149 review).
 	bool ShadowMayReachView( const idBounds& localBounds, const float modelMatrix[ 16 ],
 			const viewLight_s* light, const viewDef_s* view ) {
 		if ( localBounds.IsCleared() || light->frustumTris == NULL || light->frustumTris->bounds.IsCleared() ) return true;
 		const idBounds& lightBounds = light->frustumTris->bounds;
+		const idVec3& origin = light->globalLightOrigin;
 		idVec3 points[ 16 ];
+		idBounds world;
+		world.Clear();
 		for ( int corner = 0; corner < 8; ++corner ) {
 			const idVec3 local( localBounds[ ( corner >> 0 ) & 1 ].x, localBounds[ ( corner >> 1 ) & 1 ].y,
 				localBounds[ ( corner >> 2 ) & 1 ].z );
-			const idVec3 point = MatrixTransformPoint( modelMatrix, local );
-			const idVec3 dir = point - light->globalLightOrigin;
-			// the ray's exit from the light's box: the nearest far slab
-			float exit = idMath::INFINITY;
-			for ( int axis = 0; axis < 3; ++axis ) {
-				if ( dir[ axis ] > 1e-6f ) {
-					exit = Min( exit, ( lightBounds[ 1 ][ axis ] - point[ axis ] ) / dir[ axis ] );
-				} else if ( dir[ axis ] < -1e-6f ) {
-					exit = Min( exit, ( lightBounds[ 0 ][ axis ] - point[ axis ] ) / dir[ axis ] );
-				}
-			}
-			if ( exit == idMath::INFINITY || exit < 0.0f ) exit = 0.0f;
-			points[ corner ] = point;
-			points[ 8 + corner ] = point + dir * exit;
+			points[ corner ] = MatrixTransformPoint( modelMatrix, local );
+			world.AddPoint( points[ corner ] );
+		}
+		// the world box holds the transformed box, so its nearest point is no farther
+		idVec3 closest;
+		for ( int axis = 0; axis < 3; ++axis ) {
+			closest[ axis ] = idMath::ClampFloat( world[ 0 ][ axis ], world[ 1 ][ axis ], origin[ axis ] );
+		}
+		const float nearest = ( closest - origin ).Length();
+		if ( nearest < 1.0f ) return true;	// the light is in the box: its shadow goes every way
+		float farthest = 0.0f;
+		for ( int corner = 0; corner < 8; ++corner ) {
+			const idVec3 lightCorner( lightBounds[ ( corner >> 0 ) & 1 ].x, lightBounds[ ( corner >> 1 ) & 1 ].y,
+				lightBounds[ ( corner >> 2 ) & 1 ].z );
+			farthest = Max( farthest, ( lightCorner - origin ).Length() );
+		}
+		const float scale = Max( farthest / nearest, 1.0f );
+		for ( int corner = 0; corner < 8; ++corner ) {
+			points[ 8 + corner ] = origin + ( points[ corner ] - origin ) * scale;
 		}
 		for ( int planeIndex = 0; planeIndex < view->numPlanes; ++planeIndex ) {
 			int outside = 0;
