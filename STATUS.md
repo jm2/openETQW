@@ -5,7 +5,7 @@
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
 Updated: 2026-10-20 · session/agent: `openETQW-linux` (Claude Code), coordinator · host: `antec`, Fedora 44 x86_64 (Linux 7.2.11), RX 6400 / RADV · **all openETQW sessions parked (owner's wrap-up, 2026-10-20)**
-Engine repo `~/openETQW`: `main` faf21f2 (#149; `tools/ci/companion.ref` pins game a5fdfaf) · game repo `~/openETQW-game`: `main` a5fdfaf (game #56) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (upstream last checked 2026-09-24)
+Engine repo `~/openETQW`: `main` f14cf48 (#165; `tools/ci/companion.ref` pins game a5fdfaf) · game repo `~/openETQW-game`: `main` a5fdfaf (game #56) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (upstream last checked 2026-09-24)
 
 Engine SHAs quoted in older docs (`CHECKPOINT_STOCK_MAPS_PHASE.md`, ledger rows, earlier STATUS text) may not resolve in the current history, and neither do some of the game's historical `tools/ci/engine.ref` pins.
 
@@ -97,6 +97,15 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 
 Every merge went through `docs/coordination.md` §8 on antec: `validate pr` plus the retail suite on the merge head. When CodeRabbit was rate-limited, a no-context review agent reviewed instead, and its findings were fixed or answered on the PR.
 
+**Evening sprint (2026-10-20, about 14% of the weekly quota):**
+- #165 merged: a stalled jetpack flight is retried once, and the bound is unchanged.
+- #144's last pair passed, macOS arm64 ↔ Linux arm64, so every arm64 cross-OS pair passes.
+- #154's WIP is parked at de67612: its drive can't turn the hull repeatably.
+- #163 closed.
+- #164 put the sessions' undocumented knowledge in coordination §5/§6.
+
+Then every session parked again. `main` is f14cf48.
+
 **Filed:** #151 and #154 (`seat-poses`, by `openETQW-win`), #159 (`all-stock-maps` salvage AAS dip), #160 (`seat-poses-listen` H3), #162 (`seat-poses-listen` L3 on macOS). Each is a flake or a missing test case, and none loosens a bound.
 
 **Parked items, with where each stopped:**
@@ -146,7 +155,7 @@ Every merge went through `docs/coordination.md` §8 on antec: `validate pr` plus
 
 ### Open and pending
 - **Open PRs (2026-10-20):** none in either repository apart from this docs pass. Every session is parked.
-- **Open issues to work, in `docs/queue.md` order:** #134 (retail shadow distance limits), #122 (GDF rifle viewmodel; needs a retail reference), #135 (`mixed-caps` on antec), #141 (mouse sub-pixel deltas; parked on the owner's check), #147 (an owner question), #159, #160 and #151 (test flakes), #154 (a missing seat-poses case), #148 (ANTEC-WIN's slow spell), #144 (M3 arm64 cross-OS).
+- **Open issues to work, in `docs/queue.md` order:** #134 (retail shadow distance limits), #122 (GDF rifle viewmodel; needs a retail reference), #135 (`mixed-caps` on antec), #141 (mouse sub-pixel deltas; parked on the owner's check), #147 (an owner question), #159, #160, #162 and #151 (test flakes), #154 (a missing seat-poses case; WIP parked), #148 (ANTEC-WIN's slow spell). #144's arm64 pairs all pass.
 - **M5 step 14b, the hull lead: plan (2026-10-06, the Mac session; `docs/hull-lead.md`).**
   - A first measurement (`tools/analysis/veh_pred.py` over `g_determinismTest 2`'s `VEH_TRACE`, on this Mac):
     - stage 7's physics step about the centre of mass is essentially exact in free flight (anansi median 0.005 u);
