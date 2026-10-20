@@ -24,7 +24,11 @@ viewmodel or a sky drawn as a box; looking at the frames does not.
 The client is the build under test: it runs from the nearest folder above the binary that
 holds base/vkprogs (an installed tree, or the checkout the binary was built in), so the
 shaders are that build's. It gets a private fs_savepath (no saved config is read or written)
-and the same window as any fresh profile, without multisampling, so captures are comparable.
+and a 1280x720 window (r_mode 12) without multisampling, so captures are comparable. The
+engine shrinks a window that does not fit the primary display; capture then warns, because
+such frames do not compare with frames at the full size. On a high-density display the frames
+are larger than the window (a 1280x720 window gives 2560x1440 frames on a Retina Mac), which
+is expected; compare the PR with main on the same machine.
 
 The views (VIEWS) are offsets from a per-map eye position: fixed for valley and canyon
 (ANCHORS), else where the player spawned in the first capture, reused with --anchors. They
@@ -89,11 +93,13 @@ VIEWS = [
     ("sky_back", (0, 0, 0), 180, -60, False),
 ]
 
-WIDTH, HEIGHT = 640, 480   # a fresh profile's window; only the thumbnails' aspect uses it
+WIDTH, HEIGHT = 1280, 720   # r_mode 12, which capture sets
 ACTIVE_RE = re.compile(r"FRAME_TIMING: window_ms=[\d.]+ frames=\d+ ticks=(\d+)")
 VIEWPOS_RE = re.compile(r"\(\s*(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s*\)\s+(-?[\d.]+)\s+(-?[\d.]+)")
 SPAWNED_RE = re.compile(r"PLAYER_POS:.*spectating 0")
 SHOT_RE = re.compile(r"r_vkScreenshot: (wrote|could not|the swapchain|swapchain format)")
+SIZE_RE = re.compile(r"r_vkScreenshot: wrote (\d+)x(\d+)")
+SHRUNK_RE = re.compile(r"window: \d+x\d+ does not fit the primary display; using \d+x\d+")
 
 
 def find_client(explicit: str | None) -> Path:
@@ -193,9 +199,9 @@ def capture_map(client_bin: Path, workdir: Path, data: Path, out: Path, map_name
     savepath = Path(tempfile.mkdtemp(prefix="etqw-shots-"))
     args = [str(client_bin), "+set", "fs_basepath", str(data), "+set", "fs_savepath", str(savepath),
             "+set", "fs_game", "base", "+set", "si_rules", "sdGameRulesObjective",
-            # the window is what a fresh profile gets (the private save path holds no config):
-            # 640x480 today; "+set r_mode" does not take effect at startup (issue filed)
-            "+set", "r_renderAPI", "vulkan", "+set", "r_fullscreen", "0",
+            # mode 12 is WIDTH x HEIGHT (Common.cpp's mode table) and r_mode's default; set here so a
+            # changed default cannot change the captures
+            "+set", "r_renderAPI", "vulkan", "+set", "r_fullscreen", "0", "+set", "r_mode", "12",
             "+set", "r_multiSamples", "0", "+set", "r_vkValidation", "0", "+set", "r_rayTracing", rt,
             "+set", "com_logFrameTiming", "1", "+set", "g_logFramePoses", "0"]
     for i in range(0, len(extra), 2):
@@ -241,7 +247,9 @@ def capture_map(client_bin: Path, workdir: Path, data: Path, out: Path, map_name
             # the engine prints "wrote" after it closed the file, or why it could not
             answer = client.wait_for(lambda s: SHOT_RE.search(s), 20.0)
             ok = bool(answer) and answer.group(1) == "wrote" and path.exists()
+            size = SIZE_RE.search(answer.string) if ok else None
             results.append({"map": map_name, "rt": rt, "view": name, "file": path.name if ok else None,
+                            "size": [int(size.group(1)), int(size.group(2))] if size else None,
                             "at": [round(x, 1), round(y, 1), round(z, 1), round(yaw, 1), pitch]})
             print(f"  {tag}_{name}: {'ok' if ok else 'NOT WRITTEN'}", flush=True)
             if client.proc.poll() is not None:
@@ -344,7 +352,7 @@ def cmd_capture(a) -> int:
         anchors.update({k: tuple(v) for k, v in
                         json.loads(Path(a.anchors).read_text(encoding="utf-8")).get("anchors", {}).items()})
     meta = {"platform": f"{platform.system()} {platform.machine()}", "client": str(client_bin),
-            "workdir": str(workdir), "label": a.label, "size": [WIDTH, HEIGHT],
+            "workdir": str(workdir), "label": a.label, "requested_size": [WIDTH, HEIGHT],
             "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "shots": [], "failed": [], "anchors": anchors}
     print(f"client {client_bin}\nshaders from {workdir / 'base' / 'vkprogs'}", flush=True)
     for rt in modes:
@@ -356,8 +364,19 @@ def cmd_capture(a) -> int:
             except RuntimeError as e:
                 print(f"  FAILED: {e}", flush=True)
                 meta["failed"].append({"map": map_name, "rt": rt, "reason": str(e)})
+            log = out / f"{map_name}_rt{rt}.log"
+            shrunk = SHRUNK_RE.search(log.read_text(encoding="utf-8", errors="replace")) if log.exists() else None
+            if shrunk:
+                print(f"  WARNING: {shrunk.group(0)}; these frames do not compare with full-size ones", flush=True)
     if _pil() is None:
         print("Pillow not installed: no heuristics or contact sheets (pip install pillow)")
+    # a --set of the window size makes WIDTH x HEIGHT the wrong expectation
+    sized = set((a.set or [])[0::2]) & {"r_mode", "r_customWidth", "r_customHeight"}
+    odd = sorted({tuple(s["size"]) for s in meta["shots"] if s.get("size")
+                  if s["size"][0] < WIDTH or s["size"][1] < HEIGHT or s["size"][0] * HEIGHT != s["size"][1] * WIDTH})
+    if odd and not sized:
+        print(f"WARNING: frames of {', '.join(f'{w}x{h}' for w, h in odd)}: smaller than {WIDTH}x{HEIGHT} or"
+              " another shape, so they do not compare with frames from a full-size window")
     for shot in meta["shots"]:
         shot["warnings"] = heuristics(out / shot["file"], shot["view"]) if shot["file"] else None
         for w in shot["warnings"] or []:

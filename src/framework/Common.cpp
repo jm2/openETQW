@@ -1511,7 +1511,15 @@ void idCommonLocal::InitGame( bool resetConfigs ) {
 		parms.pixelAspect = 1.0f;
 		parms.fullscreenAvail = true;
 		if ( !parms.fullScreen ) {
+			// A primary display that reports a small mode shrinks every window, whatever r_mode
+			// asks for, so say so: on 2026-10-09 this made "+set r_mode" look ignored (#127).
+			const int askedWidth = parms.width;
+			const int askedHeight = parms.height;
 			sys3D->ConstrainToPrimaryMonitor( parms.width, parms.height );
+			if ( parms.width != askedWidth || parms.height != askedHeight ) {
+				Printf( "window: %dx%d does not fit the primary display; using %dx%d\n",
+					askedWidth, askedHeight, parms.width, parms.height );
+			}
 		}
 		sys3D->InitContext( parms );
 		if ( sys3D->GetGameRenderContext() == NULL || sys3D->GetGameWindowHandle() == NULL ) {
