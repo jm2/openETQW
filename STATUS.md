@@ -525,10 +525,9 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
     - 16: GUI updates;
     - 17: a cap change during play;
     - 18: the default cap of 240 (ledger 069).
-  - **Step 14's seat presentation:** built for the `standard`, chase, `pivot`/`freepivot` and jetpack views. `pivot`/`freepivot` use the transport's joints blended per draw. Late look covers the `standard`, chase, rate-limited and `pivot` seats. Ledgers: 062, 063, 066 and 070 for the presentation, 064 and 065 for late look.
+  - **Step 14's seat presentation:** built for the `standard`, chase, `pivot`/`freepivot` and jetpack views. `pivot`/`freepivot` use the transport's joints blended per draw. Late look covers the `standard`, chase, rate-limited, `pivot` and `freepivot` seats and, since 2026-10-20, the `clampDamped*` seat (the husky driver). Ledgers: 062, 063, 066 and 070 for the presentation, 064 and 065 for late look.
   - **Step 14b's hull lead:** built, off by default (ledger 067).
   - **Left:**
-    - late look for `freepivot` and the `clampDamped*` seat (the husky driver; the desecrator driver is rate-limited and has late look);
     - the default seat list and the hull-lead bounds (the owner, after a review on a high-refresh display).
 
     The default seat list is empty, so by default seats still draw at the tick rate. Step 4's ~120 fps ceiling is the display's, accepted as evidence (D3). `docs/queue.md` §3 has the order.
