@@ -38,6 +38,9 @@ For every stock map a FRESH dedicated server process is started with
               sample from a bot that still rides a vehicle (PLAYER_POS
               'vehicle=' >= 0) reports the vehicle's position and ground state,
               where the player AAS does not apply, and is counted separately.
+              So is a sample in a teleporter's transit (PLAYER_POS 'tele=1'):
+              the player waits at the teleporter's storage location (on
+              slipgate, below the map at z -4352), outside the AAS (#126).
   f) think    'botThreadStats' at the start and end of the bot window:
               gameHz = dGameFrame / dWall must be within 27..33.5,
               thinkRatio = dBotFrames / dGameFrame is reported (and must be
@@ -152,6 +155,7 @@ class BotTracker:
         self.alive_samples = 0
         self.grounded_alive = 0
         self.vehicle_samples = 0
+        self.transit_samples = 0
         self.area_known = 0
         self.area_valid = 0
         self.nonfinite = 0
@@ -213,6 +217,8 @@ class BotTracker:
         riding = s.get("vehicle") is not None and s["vehicle"] >= 0
         if riding:
             self.vehicle_samples += 1
+        elif s.get("tele") == 1:
+            self.transit_samples += 1
         elif s["ground"] == 1:
             self.grounded_alive += 1
             if s["area"] is not None:
@@ -261,6 +267,7 @@ class BotTracker:
             "samples": self.samples, "alive_samples": self.alive_samples,
             "grounded_alive_samples": self.grounded_alive,
             "vehicle_samples": self.vehicle_samples,
+            "transit_samples": self.transit_samples,
             "area_samples": self.area_known, "area_valid_samples": self.area_valid,
             "area_valid_fraction": round(frac, 4) if frac is not None else None,
             "stuck_longest_s": round(self.stuck_longest, 2),
@@ -578,7 +585,10 @@ def run_map(map_name: str, map_index: int, cfg: argparse.Namespace, ctx: dict) -
             known = sum(tr.area_known for tr in trs)
             valid = sum(tr.area_valid for tr in trs)
             riding = sum(tr.vehicle_samples for tr in trs)
+            transit = sum(tr.transit_samples for tr in trs)
             riding_note = f"; {riding} samples in a vehicle left out" if riding else ""
+            if transit:
+                riding_note += f"; {transit} samples in teleport transit left out"
             if known == 0:
                 res.check(f"bots.{team}.aas_area_validity", FAIL,
                           f"no grounded+alive on-foot samples with an area value{riding_note}")
