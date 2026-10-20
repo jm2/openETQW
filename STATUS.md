@@ -4,8 +4,8 @@
 >
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
-Updated: 2026-10-18 · session/agent: `openETQW-linux` (Claude Code), coordinator · host: `antec`, Fedora 44 x86_64 (Linux 7.2.11), RX 6400 / RADV
-Engine repo `~/openETQW`: `main` 3403362 (#142; `tools/ci/companion.ref` pins game 28be6b6) · game repo `~/openETQW-game`: `main` 281f76d (game #52, README only; the engine pins 28be6b6, game #50) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (upstream last checked 2026-09-24)
+Updated: 2026-10-20 · session/agent: `openETQW-linux` (Claude Code), coordinator · host: `antec`, Fedora 44 x86_64 (Linux 7.2.11), RX 6400 / RADV · **all openETQW sessions parked (owner's wrap-up, 2026-10-20)**
+Engine repo `~/openETQW`: `main` faf21f2 (#149; `tools/ci/companion.ref` pins game a5fdfaf) · game repo `~/openETQW-game`: `main` a5fdfaf (game #56) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (upstream last checked 2026-09-24)
 
 Engine SHAs quoted in older docs (`CHECKPOINT_STOCK_MAPS_PHASE.md`, ledger rows, earlier STATUS text) may not resolve in the current history, and neither do some of the game's historical `tools/ci/engine.ref` pins.
 
@@ -82,25 +82,27 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 
 ## This session
 
-2026-10-15 to 10-18, `openETQW-linux` on `antec`, as coordinator. The owner asked for three things: burn down the PRs opened before 2026-10-15, run the macOS cross-OS legs once the Local Network question was settled, and bring every repository doc up to date. Other sessions did platform runs and reviews (`openETQW-win`, `-mac`, `-win-arm64`, `-linux-arm64`). Earlier sessions' plans are in git history and their PR descriptions; the tables below keep their merges.
+2026-10-19 to 10-20, `openETQW-linux` on `antec`, as coordinator and merge role. The owner first delayed the switch to Switchworks and had every Claude session implement at full speed from the current state. Then, on 2026-10-20, the owner asked every session to finish or push its in-progress work, bring the docs up to date and park. **Every openETQW session is now parked.** No PRs are open in either repository apart from this docs pass, and no host claims are held. `docs/queue.md` names where each item stopped and its next step.
 
-**Merged:**
-- **#130** (2bd4501, 2026-10-16): the server tells a dropped client (kick, its timeout of the client, its shutdown), and the client unloads its map; `disconnect` on a listen host ends its server (#119, #120; ledger 075). meson `client-server-kick`, `client-server-timeout`, `listen-host-disconnect`. Reviewed by `openETQW-linux-arm64` (one finding) and CodeRabbit (two findings); all fixed. Runs: Linux x64 full suite on `antec`, Windows x64 and macOS (the 9 network tests), Linux arm64.
-- **#129** (667db63, 2026-10-16, `openETQW-win-arm64`): raster stencil shadows build real shadow volumes, so #124's black shards over terrain are gone (ledger 074); GPU-skinned casters cast no stencil volume. Reviewed by `openETQW-mac`; screenshot sets approved on all five platforms, four GPU models (Windows x64 RT on/off, win-arm64, Linux x64, Linux arm64, macOS); full suite on win-arm64 62/0/1.
-- **#137** and **#132** (2026-10-16): this file brought current, and the agent runbook (`AGENTS.md`, `docs/coordination.md`, `docs/queue.md`), approved and merged by the owner.
-- **#138** (2026-10-16): why macOS blocked LAN traffic from the Mac session. The session's tmux server isn't Terminal-run, so Apple's TN3179 exemption for Terminal and SSH tools doesn't reach it. The owner confirmed it the same day: a separate Terminal window works.
-- **#139** and **#140** (2026-10-16/17): **M3 cross-OS with the Mac, all four directions, X1–X4 pass** (engine 33d2018, game 28be6b6): Mac clients on `antec`'s server, `antec`'s clients on a Mac server, Mac clients on ANTEC-WIN, and ANTEC-WIN's clients on a Mac server. In the last two the server polled `playerPos` every 0.25 s, and its own start-to-far-rest distance for every walk matches the clients' within 0.1 u. With the Linux ↔ Windows pair (2026-10-08), every pair of the three desktop OSes has passed both ways (evidence rows above).
+**Merged (2026-10-19/20), engine and game:**
+- **#146** with game #53: M5 step 3's seat part. `seat-poses-*` S5 checks the cockpit on every seated draw.
+- **#145** (#127): `+set r_mode` was never ignored at startup. The window cap now says when it shrinks a window, Linux and macOS cap at the real display, and `screenshot_set.py` checks the frame size.
+- **#152** with game #54 (`openETQW-win`): late look for `freepivot` views and the damped first-person `clampDamped*` view (seat-poses L0–L6, ledger 064). What's left of M5 step 14 is the owner's default seat list.
+- **#153** (#150): the determinism replays run with `g_tooltipTimeScale 0`. Retail drops any tooltip spawned in the first 10 s of process uptime, map scripts wait on `isToolTipPlaying()`, so a cold-cache start serviced one more script event and `SIM_HASH` diverged (`docs/frame-path.md` §9).
+- **#155** with game #55 (#126): `playerPos` prints `tele=` during a teleporter's transit. `all-stock-maps` leaves those samples out of the AAS tally and the movement numbers. `PLAYER_POS_RE` accepts trailing fields it doesn't know.
+- **#156** (`openETQW-win`): `screenshot_set.py`'s canyon anchor is outdoors at the GDF spawn, and the hangar is an extra `hangar` view. Recapture main before the next comparison.
+- **#157** with game #56 (`openETQW-win`): the hull lead's `VEH_PRED` per class on a network client and a listen host (`lead-measure-join`, `-listen`, game `g_leadMeasureDrive`; `docs/hull-lead.md` §6). What's left of 14b is the owner's review on a high-refresh display.
+- **#158** (#136): `bot-gameplay`'s encounter is repeatable: `bot_threading 0` and a command-line join. First combat came 17–80 s in, or never; it's now 21–24 s. The checks are unchanged.
+- **#149** (#128, `openETQW-win-arm64`): static casters outside the view cast stencil shadows into it. The review fix scales the caster box about the light by farthest/nearest, so the cull is conservative. Screenshot sets on all five platforms (Linux x64 and arm64, Windows x64 and arm64, macOS arm64). The merge-head suite on antec at 84693be: 67 OK, 0 FAIL, 1 SKIP (cross-os, exit 77).
 
-**Filed:** #134 (retail shadow distance limits not applied, by `openETQW-win-arm64`), #135 (`mixed-caps` B 240 A1 sits at its threshold on antec), #136 (`bot-gameplay`: the bots sometimes never engage), #141 (mouse motion: SDL's sub-pixel deltas are truncated per event, found by `openETQW-mac` from code); earlier, on 2026-10-09, #126 (all-stock-maps: slipgate teleporter samples). None loosens a test.
+Every merge went through `docs/coordination.md` §8 on antec: `validate pr` plus the retail suite on the merge head. When CodeRabbit was rate-limited, a no-context review agent reviewed instead, and its findings were fixed or answered on the PR.
 
-**Docs pass (2026-10-18).** Every doc in both repositories was checked against `main`. This PR updates the stale ones:
-- the readmes' platform status (five platforms; cross-OS LAN play; the game README in game PR #52);
-- the M5 state in `docs/m5-plan.md`, `docs/vehicle-responsiveness.md`, `docs/frame-path.md` §9 and § Milestones below;
-- the queue's M5 and M3 rows, and two items closed on re-check (queue §5);
-- the provenance count;
-- the Mac's LAN-test steps in `docs/coordination.md` §5.
+**Filed:** #151 and #154 (`seat-poses`, by `openETQW-win`), #159 (`all-stock-maps` salvage AAS dip), #160 (`seat-poses-listen` H3). Each is a flake or a missing test case, and none loosens a bound.
 
-The owner's Switchworks address is `user:owner` (`docs/coordination.md` §3; Switchyard was renamed Switchworks, PR #143).
+**Parked items, with where each stopped:**
+- **#141** (`openETQW-mac`): branch `fix/mouse-subpixel-deltas` at 42de177, no PR. It waits on the owner's Retina check (commands on #141).
+- **#144**, M3 arm64 cross-OS (`openETQW-linux-arm64`): Linux arm64 with Linux x64 and with Windows x64 pass. The macOS arm64 pair is not run; the steps are on #144.
+- **#134** (`openETQW-win-arm64`): needs a retail 1.5 reference. `openETQW-win-arm64` reports that the owner allowed it to download the 1.5 installer. Not recorded as an owner decision here; not started.
 
 ### Merged on 2026-09-25
 | Repo | PR (merge) | What |
@@ -143,8 +145,8 @@ The owner's Switchworks address is `user:owner` (`docs/coordination.md` §3; Swi
 | game | #14 2485998 (`ci/refresh-engine-pin-and-blockers`) | CI facts: engine contract pin 84a224b -> cba54bb (engine main after #25); the contract legs' blocker reasons as they stand (the engine builds on Linux and with MSVC); Windows x64 legs on `windows-2025-vs2026`; zlib from vcpkg on the Windows contract leg |
 
 ### Open and pending
-- **Open PRs (2026-10-18):** none in either repository apart from this docs pass.
-- **Open issues to work, in `docs/queue.md` order:** #128 (raster shadows: casters outside the view), #134 (retail shadow distance limits), #122 (GDF rifle viewmodel dark on raster; needs a retail reference), #127 (`+set r_mode` ignored at startup), #126, #135 and #136 (test flakes: slipgate teleporter samples, `mixed-caps` on antec, `bot-gameplay` engagement).
+- **Open PRs (2026-10-20):** none in either repository apart from this docs pass. Every session is parked.
+- **Open issues to work, in `docs/queue.md` order:** #134 (retail shadow distance limits), #122 (GDF rifle viewmodel; needs a retail reference), #135 (`mixed-caps` on antec), #141 (mouse sub-pixel deltas; parked on the owner's check), #147 (an owner question), #159, #160 and #151 (test flakes), #154 (a missing seat-poses case), #148 (ANTEC-WIN's slow spell), #144 (M3 arm64 cross-OS).
 - **M5 step 14b, the hull lead: plan (2026-10-06, the Mac session; `docs/hull-lead.md`).**
   - A first measurement (`tools/analysis/veh_pred.py` over `g_determinismTest 2`'s `VEH_TRACE`, on this Mac):
     - stage 7's physics step about the centre of mass is essentially exact in free flight (anansi median 0.005 u);
@@ -622,7 +624,7 @@ The shared, owner-ordered list is `docs/queue.md`; this table follows its milest
 | 5 | Provenance labels: the minizip relabel and the other label questions (`docs/provenance.md` §6) | any | none | `provenance_post_split.py` no gap; game `check_spdx.py` passes; §6 rows resolved |
 | 6 | `docs/platform-matrix.md` (release gate, M7) | any | none | Every platform's verified items with evidence level, host and commit |
 
-The open issues (`docs/queue.md` §2) run beside these, the shadow follow-ups first: #128 (casters outside the view) and #134 (retail's shadow distance limits), both raster-path graphics changes that need the screenshot set.
+The open issues (`docs/queue.md` §2) run beside these, the shadow follow-up first: #134 (retail's shadow distance limits), a raster-path graphics change that needs the screenshot set (#128, casters outside the view, merged as #149 on 2026-10-20).
 
 ## Inputs needed from the owner
 - Optional: `Loaded pk4 ... with checksum` lines from other-language editions (`pak000`–`pak004`), so the retail-install check can accept them.
