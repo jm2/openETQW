@@ -156,7 +156,8 @@ The owner's Switchworks address is `user:owner` (`docs/coordination.md` §3; Swi
     - the desecrator (a hover tank): the samples only;
     - wheeled and tracked vehicles: the samples have the best median (0.07–0.27 u), and launching collisions give 28–43 u maxima.
   - Built 2026-10-07 (ledger 067), off by default (`g_unlock_vehicleLead`; built-in list empty): at L = 1 the drawn hull's median error against the true path falls from 7–16 u to 0.01–0.26 u (`docs/hull-lead.md` §7).
-  - Next: a network client's `VEH_PRED` numbers, the human review on a high-refresh display, and the owner's per-class bound.
+  - A network client's and a listen host's `VEH_PRED` per class (2026-10-20, meson `lead-measure-join` and `-listen`; `docs/hull-lead.md` §6), four runs per mode. Map-loaded (valley) on ANTEC-WIN (Windows 11 x64) at engine 995d4b6 and game a5f49bd, with the client at cap 120. On the client, S's p95 for ground classes is 0.6–2.8× its single-player value; P has the best p95 there in 15 of 16 run × class cells, with a median 1.2–11× S's. The desecrator takes S. Aircraft: H is near-exact.
+  - Next: the human review on a high-refresh display, and the owner's per-class bound.
   - Owner questions: three are below, and the fourth is the existing decay question (`vehicle-responsiveness.md` §5.1 item 7).
 ### Done, formerly listed as open (2026-09-26 to 2026-10-01; kept for the record)
 - **M5 step 6, no presentation values in tick, snapshot or AoR state** (2026-09-30).
@@ -614,7 +615,7 @@ The shared, owner-ordered list is `docs/queue.md`; this table follows its milest
 
 | # | Step | Host / OS needed | Depends on | Acceptance test |
 |---|---|---|---|---|
-| 1 | M5 step 14b, the hull lead (`docs/hull-lead.md`; ledger 067, off by default): a network client's `VEH_PRED` numbers per class, then the owner's review on a high-refresh display | any; owner | owner review | The owner's per-class bound and default seat list |
+| 1 | M5 step 14b, the hull lead (`docs/hull-lead.md`; ledger 067, off by default; per-class `VEH_PRED` on a network client and a listen host in §6): the owner's review on a high-refresh display | owner | owner review | The owner's per-class bound and default seat list |
 | 2 | M5 step 14, what is left: late mouse look for `freepivot` views and the `clampDamped*` seat (the husky driver; the desecrator driver is rate-limited and has late look); `pivot`/`freepivot` are presentable since 2026-10-07 (ledger 070) | any | none | `seat-poses` late-look phases for them; then the owner picks the default seats |
 | 3 | M4, what is left: a match played out by bots (they play no objectives), and a started match on maps beyond the campaign's three | any | none | New meson tests pass on the retail 1.5 data on two platforms |
 | 4 | Retail data discovery: the Linux folder picker; a person tries the macOS and Windows pickers | Linux; owner | none | A package started from its own directory finds a configured ET:QW install |
