@@ -201,6 +201,10 @@ def run_tour(client: Path, data: Path, savepath: Path, name: str, seats: str, re
         "+set", "com_maxFPS", str(CAP),
         "+set", "g_determinismTest", "3",
         "+set", "g_simHash", "1",
+        # no tooltips: retail drops any tooltip spawned in the first 10 s of process uptime
+        # (sys->Milliseconds()), and map scripts wait on isToolTipPlaying(), so a slower start
+        # services other script events and SIM_HASH's event count differs (#150)
+        "+set", "g_tooltipTimeScale", "0",
         "+set", "g_unlock_vehicleSeats", seats,
         "+set", "g_seatGateTestRecipe", recipe,
         "+set", "g_unlock_vehicleLead", lead,
