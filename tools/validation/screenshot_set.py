@@ -35,10 +35,11 @@ The views (VIEWS) are offsets from a per-map eye position: fixed for valley and 
 cover the weapon, terrain near and from the air in two directions, the horizon and the sky in
 two directions. A map can add views at fixed positions (EXTRA_VIEWS: canyon's hangar), which
 --anchors does not move. A capture with --anchors takes the other capture's positions, the
-old canyon anchor included when that capture predates the outdoor one; a view only one side
-has is listed as missing. The heuristics only warn (a near-black viewmodel corner, a sky band
-of one flat colour, an all-black or one-colour frame); the decision is made by looking at the
-sheets.
+old canyon anchor included when that capture predates the outdoor one. compare lists an extra
+view only one side took as "missing in base" or "not taken by head", neither a problem; a
+standard view, map or mode the head lacks is "missing in head", a problem. The heuristics only
+warn (a near-black viewmodel corner, a sky band of one flat colour, an all-black or one-colour
+frame); the decision is made by looking at the sheets.
 
 capture needs only the standard library; the sheets, compare and the heuristics need Pillow
 (pip install pillow). The data root comes from --data or $ETQW_DATA_PATH; tests/ must be
@@ -337,6 +338,8 @@ def contact_sheet(entries: list[tuple[str, Path | None]], out: Path, cols: int, 
     draw = ImageDraw.Draw(sheet)
     draw.text((4, 2), title, fill=(255, 255, 255))
     for i, (label, path) in enumerate(entries):
+        if label is None:   # padding to the end of a row
+            continue
         x, y = (i % cols) * thumb_w, label_h + (i // cols) * (thumb_h + label_h)
         draw.text((x + 4, y + 2), label, fill=(255, 220, 120))
         img = _open(path) if path is not None and path.exists() else None
@@ -397,10 +400,16 @@ def cmd_capture(a) -> int:
         for w in shot["warnings"] or []:
             print(f"  WARNING {shot['map']} rt{shot['rt']} {shot['view']}: {w}")
     (out / "screenshot_set.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    # one row per map, so each view sits under the same view of the map above it
+    cols = len(VIEWS) + max((len(EXTRA_VIEWS.get(m[0], [])) for m in maps), default=0)
     for rt in modes:
-        entries = [(f"{s['map']} {s['view']}", out / s["file"] if s["file"] else None)
-                   for s in meta["shots"] if s["rt"] == rt]
-        contact_sheet(entries, out / f"sheet_rt{rt}.png", len(VIEWS),
+        entries = []
+        for map_name, _, _ in maps:
+            row = [(f"{s['map']} {s['view']}", out / s["file"] if s["file"] else None)
+                   for s in meta["shots"] if s["rt"] == rt and s["map"] == map_name]
+            if row:
+                entries += row + [(None, None)] * (cols - len(row))
+        contact_sheet(entries, out / f"sheet_rt{rt}.png", cols,
                       f"{a.label or 'screenshot set'}  {meta['platform']}  r_rayTracing {rt}")
     missing = sum(1 for s in meta["shots"] if not s["file"])
     written = len(meta["shots"]) - missing
@@ -429,7 +438,8 @@ def cmd_compare(a) -> int:
     order = {m[0]: i for i, m in enumerate(MAPS)}
     vorder = {v[0]: i for i, v in enumerate(VIEWS)}
     keys = sorted(set(b_shots) | set(h_shots),
-                  key=lambda k: (k[1] != "1", order.get(k[0], 99), vorder.get(k[2], 99)))
+                  key=lambda k: (k[1] != "1", order.get(k[0], 99), vorder.get(k[2], 99), k[2]))
+    head_runs = {k[:2] for k in h_shots}
     report = ["| map | rt | view | mean diff | max | pixels > 16 | warnings on head |", "|---|---|---|---|---|---|---|"]
     entries, problems = [], 0
     for key in keys:
@@ -438,9 +448,11 @@ def cmd_compare(a) -> int:
         hp = head / hs["file"] if hs.get("file") else None
         warns = heuristics(hp, key[2]) if hp else None
         ib, ih = (_open(bp) if bp else None), (_open(hp) if hp else None)
-        if key not in h_shots:
-            # a view the head's capture does not take (its script has an older or newer view
-            # list, e.g. canyon's hangar, added 2026-10-20): listed, not a problem
+        if key not in h_shots and key[2] not in vorder and key[:2] in head_runs:
+            # an extra view the head's capture does not take, in a map and mode it did capture
+            # (its script has an older view list, e.g. without canyon's hangar, added
+            # 2026-10-20): listed, not a problem. A standard view, a map or a mode the head
+            # lacks is missing
             cells = ["not taken by head", "", ""]
         elif ih is None:
             cells = ["**missing in head**" if hp is None else "**unreadable in head**", "", ""]
