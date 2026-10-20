@@ -38,41 +38,34 @@ Each item names its acceptance test. Details are in the linked plan.
 1. **M5 step 14b, the hull lead** (`docs/hull-lead.md`). The code is in, off by default
    (ledger 067). Left: a network client's `VEH_PRED` numbers per class, then the owner's
    review on a high-refresh display (owner-gated, §4).
-2. **M5 step 3, the last part:** frame-pose capture in vehicle seats (D2). The devmap
-   variant is done. First check whether `seat-poses-join`/`-listen` (step 14) already
-   cover it. They log `FRAME_POSE` in listed seats and check the camera on every draw (the
-   late-look phases), the drawn turret joints and view yaw (gunner phase G1–G2), and a
-   walking peer drawn on every frame (stage 4). Check the viewmodel/cockpit as well. If
-   they do, mark step 3 done in `docs/m5-plan.md` and cite their checks. If they don't,
-   `frame-poses-*` gain seat checks, with a negative control.
-3. **M5 step 14, what is left:** late mouse look for `freepivot` views and for the seats
+2. **M5 step 14, what is left:** late mouse look for `freepivot` views and for the seats
    with hull-relative `clampDamped*` clamps (the desecrator and husky drivers; ledger 064). The `pivot` and
    `freepivot` views themselves have been presentable since 2026-10-07 (joint blending,
    ledger 070), and `pivot` has late look since 2026-10-08. Acceptance: `seat-poses`
    late-look phases for those seats. Then the owner decides which seats join the default
    list (§4).
-4. **M4, what is left** (`STATUS.md` § Milestones, M4). Done: classes, damage and kills,
+3. **M4, what is left** (`STATUS.md` § Milestones, M4). Done: classes, damage and kills,
    deployable delivery, both match endings, stopwatch and campaign transitions (meson
    `m4-*`, #104 and #107). Left: a match played out by bots (they play no objectives), and
    a started match on maps beyond the campaign's three. Acceptance: new meson tests pass on
    the retail 1.5 data on two platforms.
-5. **Retail data discovery** (`STATUS.md` § Next steps, item 7): the Linux folder picker,
+4. **Retail data discovery** (`STATUS.md` § Next steps, item 7): the Linux folder picker,
    and a person trying the macOS and Windows pickers (owner).
-6. **Provenance labels** (`docs/provenance.md` §6): the minizip relabel and the other
+5. **Provenance labels** (`docs/provenance.md` §6): the minizip relabel and the other
    open label questions. Acceptance: `provenance_post_split.py` reports no gap, the game's
    `check_spdx.py` passes, and the §6 rows are resolved.
-7. **`docs/platform-matrix.md`** (release gate, M7): what is verified per platform, with
+6. **`docs/platform-matrix.md`** (release gate, M7): what is verified per platform, with
    the evidence level, host and commit.
-8. **Release gate 5, third-party binaries:** review `src/openal/lib/openal32.lib`, both
+7. **Release gate 5, third-party binaries:** review `src/openal/lib/openal32.lib`, both
    copies of `eaxguid.lib` and zlib contrib's `.obj` files. Replace each, or record why it
    stays (`STATUS.md` § Release gate, item 5).
-9. **The M1 and M2 gaps** (`STATUS.md` § Milestones):
+8. **The M1 and M2 gaps** (`STATUS.md` § Milestones):
    - M1: the `false` defaults of `build_engine` and `build_dedicated`;
    - M2: collision in the graphical client is never asserted;
    - M2: the headless render world is still stubbed.
 
    Each gap gets a test or a recorded decision.
-10. **M3, what is left** (`STATUS.md` § Milestones, M3):
+9. **M3, what is left** (`STATUS.md` § Milestones, M3):
     - cross-OS pairs that include an arm64 host. `openETQW-linux-arm64` offered
       `macmini-m1`; ask `kisakcod` first, since it's the 8 GB host;
     - weapon fire seen by the other player (a headless peer can't observe it; needs a
@@ -104,6 +97,8 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   human at the controls", are judged by people on real displays (M5 D3), not by a test.
 
 ## 5. Recently done
+
+M5 step 3's seat part (2026-10-19): `seat-poses-*` are the seat capture, and the new S5 checks the cockpit (`docs/m5-plan.md` step 3).
 
 Closed on re-check (2026-10-18), with evidence:
 - the mixed-caps producer gap: M5 step 8 removed it (`docs/m5-plan.md` step 8, ledger 059: A7/A7o pass, known gaps removed);

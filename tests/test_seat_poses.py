@@ -22,6 +22,9 @@ FRAME_POSE line per draw: the drawn view, the seat and the vehicle's render-worl
   S4 steps    the hull's step across a tick is at most 2.5 x the median step within one
               (the presentation draws a fixed age; a stepped hull would cross a tick in
               one step of a whole tick's motion: 4x at cap 120)
+  S5 cockpit  every draw carries the badger's cockpit model (ckp=), and its drawn pose
+              changes between consecutive draws (>= 99%, over S2's moving ticks): in a seat
+              it stands where the viewmodel does on foot, and no draw has a viewmodel (wpn=-)
 
 Late mouse look (stage 5), first of all, at cap 120 from the parked badger, in the driver's
 standard view, the gunner's chase view (smooth_free, which orbits its focus) and the
@@ -63,8 +66,8 @@ cap 120, with the driver parked in the listed seat, the peer walks forward, then
 and with the seat unlisted the peer's pose never changes within a tick while it walks.
 
 Negative control (the lowest cap): with g_unlock_vehicleSeats empty the seat is not
-listed, and the view and hull never change within a tick (at most one pair) while they
-move (a stationary tick would break an exact per-tick count). The chase camera (every seat listed; the driver's second view, smooth_locked, cycled
+listed, and the view, hull and cockpit never change within a tick (at most one pair)
+while they move (a stationary tick would break an exact per-tick count). The chase camera (every seat listed; the driver's second view, smooth_locked, cycled
 with cycleVehicleCamera): C1/C2 the view and the hull change on >= 99% of draw pairs,
 C3/C4 both lie on one interpolation path (its own tick cameras are blended in the world).
 The jetpack (icarus, its own recipe since M5 step 14), every seat listed: I1 its
@@ -288,6 +291,17 @@ def orbit_consistency(held, k=1.5):
     allowed = max(1, len(across) // 10)
     return over <= allowed, (f"camera origin: median speed {median:.0f} u/s within a tick; {over} of {len(across)}"
                              f" tick crossings over {k}x (allowed {allowed}; worst {worst:.2f}x)")
+
+
+def cockpit_check(poses):
+    """S5: every draw carries the cockpit model (FRAME_POSE ckp=) and none a viewmodel, and
+    the cockpit's drawn pose changes between consecutive draws over the ticks in which the
+    hull moved, as S2's hull does."""
+    have = sum(1 for p in poses if p["ckp"] is not None)
+    weapon = sum(1 for p in poses if p["wpn"] is not None)
+    res = fraction_check(moving_poses(poses), lambda a, b: moved(a["ckp"], b["ckp"]), "cockpit's drawn pose")
+    ok = res["ok"] and have == len(poses) and weapon == 0
+    return {"ok": ok, "detail": f"cockpit in {have}/{len(poses)} draws, a viewmodel in {weapon}; {res['detail']}"}
 
 
 def per_tick(res):
@@ -769,8 +783,9 @@ def main(argv):
             path = onpath_check(poses, lambda p: p["veh"], "vehicle's drawn pose")
             steps = step_check(poses)
             led = sum(1 for p in poses if p["lead"] is not None)
+            cockpit = cockpit_check(poses)
             results = {"S0": {"ok": ok0, "detail": f"{len(poses) - 1} draw pairs, seats {sorted(s or '-' for s in seats)}"},
-                       "S1": view, "S2": hull, "S3": path, "S4": steps,
+                       "S1": view, "S2": hull, "S3": path, "S4": steps, "S5": cockpit,
                        "H3": {"ok": led == 0, "detail": f"{led} draws with a lead under the built-in (empty) lead list"}}
             print(f"[seat] cap {cap}: {rate(poses):.1f} fps")
             for check, res in results.items():
@@ -822,7 +837,7 @@ def main(argv):
         obs.send("set g_unlock_vehicleSeats \"\"")
         seat_up()
         poses = phase("controldrive", cap, drive)
-        for key, what in (("view", "view"), ("veh", "hull")):
+        for key, what in (("view", "view"), ("veh", "hull"), ("ckp", "cockpit")):
             changed, n = within_tick_changes(poses, key)
             moving = sum(1 for a, b in zip(poses, poses[1:]) if moved(a[key], b[key]))
             print(f"[seat] negative control (not listed) at cap {cap}: the {what} changed within a tick on {changed}"
