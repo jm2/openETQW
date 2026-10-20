@@ -24,7 +24,9 @@ viewmodel or a sky drawn as a box; looking at the frames does not.
 The client is the build under test: it runs from the nearest folder above the binary that
 holds base/vkprogs (an installed tree, or the checkout the binary was built in), so the
 shaders are that build's. It gets a private fs_savepath (no saved config is read or written)
-and the same window as any fresh profile, without multisampling, so captures are comparable.
+and a 1280x720 window (r_mode 12) without multisampling, so captures are comparable. The
+engine shrinks a window that does not fit the primary display; capture then warns, because
+such frames do not compare with frames at the full size.
 
 The views (VIEWS) are offsets from a per-map eye position: fixed for valley and canyon
 (ANCHORS), else where the player spawned in the first capture, reused with --anchors. They
@@ -89,11 +91,12 @@ VIEWS = [
     ("sky_back", (0, 0, 0), 180, -60, False),
 ]
 
-WIDTH, HEIGHT = 640, 480   # a fresh profile's window; only the thumbnails' aspect uses it
+WIDTH, HEIGHT = 1280, 720   # r_mode 12, which capture sets
 ACTIVE_RE = re.compile(r"FRAME_TIMING: window_ms=[\d.]+ frames=\d+ ticks=(\d+)")
 VIEWPOS_RE = re.compile(r"\(\s*(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s*\)\s+(-?[\d.]+)\s+(-?[\d.]+)")
 SPAWNED_RE = re.compile(r"PLAYER_POS:.*spectating 0")
 SHOT_RE = re.compile(r"r_vkScreenshot: (wrote|could not|the swapchain|swapchain format)")
+SIZE_RE = re.compile(r"r_vkScreenshot: wrote (\d+)x(\d+)")
 
 
 def find_client(explicit: str | None) -> Path:
@@ -193,9 +196,9 @@ def capture_map(client_bin: Path, workdir: Path, data: Path, out: Path, map_name
     savepath = Path(tempfile.mkdtemp(prefix="etqw-shots-"))
     args = [str(client_bin), "+set", "fs_basepath", str(data), "+set", "fs_savepath", str(savepath),
             "+set", "fs_game", "base", "+set", "si_rules", "sdGameRulesObjective",
-            # the window is what a fresh profile gets (the private save path holds no config):
-            # 640x480 today; "+set r_mode" does not take effect at startup (issue filed)
-            "+set", "r_renderAPI", "vulkan", "+set", "r_fullscreen", "0",
+            # mode 12 is WIDTH x HEIGHT (Common.cpp's mode table) and r_mode's default; set here so a
+            # changed default cannot change the captures
+            "+set", "r_renderAPI", "vulkan", "+set", "r_fullscreen", "0", "+set", "r_mode", "12",
             "+set", "r_multiSamples", "0", "+set", "r_vkValidation", "0", "+set", "r_rayTracing", rt,
             "+set", "com_logFrameTiming", "1", "+set", "g_logFramePoses", "0"]
     for i in range(0, len(extra), 2):
@@ -241,7 +244,9 @@ def capture_map(client_bin: Path, workdir: Path, data: Path, out: Path, map_name
             # the engine prints "wrote" after it closed the file, or why it could not
             answer = client.wait_for(lambda s: SHOT_RE.search(s), 20.0)
             ok = bool(answer) and answer.group(1) == "wrote" and path.exists()
+            size = SIZE_RE.search(answer.string) if ok else None
             results.append({"map": map_name, "rt": rt, "view": name, "file": path.name if ok else None,
+                            "size": [int(size.group(1)), int(size.group(2))] if size else None,
                             "at": [round(x, 1), round(y, 1), round(z, 1), round(yaw, 1), pitch]})
             print(f"  {tag}_{name}: {'ok' if ok else 'NOT WRITTEN'}", flush=True)
             if client.proc.poll() is not None:
@@ -358,6 +363,11 @@ def cmd_capture(a) -> int:
                 meta["failed"].append({"map": map_name, "rt": rt, "reason": str(e)})
     if _pil() is None:
         print("Pillow not installed: no heuristics or contact sheets (pip install pillow)")
+    sizes = sorted({tuple(s["size"]) for s in meta["shots"] if s.get("size")} - {(WIDTH, HEIGHT)})
+    if sizes:
+        print(f"WARNING: frames of {', '.join(f'{w}x{h}' for w, h in sizes)}, not {WIDTH}x{HEIGHT}; they do"
+              " not compare with full-size frames. The engine shrinks a window that does not fit the"
+              " primary display: look for 'does not fit the primary display' in the map logs")
     for shot in meta["shots"]:
         shot["warnings"] = heuristics(out / shot["file"], shot["view"]) if shot["file"] else None
         for w in shot["warnings"] or []:
