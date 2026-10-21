@@ -78,12 +78,12 @@ Each item names its acceptance test. Details are in the linked plan.
       second headless client to receive every broadcast with the same start and end.
       `clientClass covertops 1` selects the sniper through the class data, so no game
       diagnostic command is needed. openETQW-linux (Switchworks), branch
-      `feat/m3-weapon-fire-observer` at 4557cad (base a38e311; unpublished because antec
-      has no push), game bb8e0c5. Host antec, Linux x86_64, valley, retail 1.5: two runs,
-      each 6 broadcasts, 6/6 received by both clients, 48 `playerPos` samples at 0.25 s,
-      the shooter at rest (0.00 u drift), every process exit 0; logs
-      `/var/tmp/oe-m3-test-logs/` and `/var/tmp/oe-m3-test-logs2/` on antec. Second-OS leg
-      owed (`openETQW-linux-arm64`).
+      `feat/m3-weapon-fire-observer` at 6abdcd5 (base a38e311; unpublished because antec
+      has no push), game bb8e0c5. Host antec, Linux x86_64, valley, retail 1.5: three
+      runs, each 6 broadcasts, 6/6 received by both clients, 48 `playerPos` samples at
+      0.25 s, the shooter at rest (0.00 u drift), every process exit 0 (the third with
+      bots off); logs `/var/tmp/oe-m3-test-logs/`, `-logs2/` and `-logs3/` on antec.
+      Second-OS leg: macOS arm64 (openETQW-mac); Linux arm64 optional.
 
     Acceptance: `cross-os` X1–X4 each way per pair, recorded like the evidence rows of
     2026-10-16, with the server's `playerPos` polled every 0.25 s (coordination §5).
