@@ -235,7 +235,8 @@ GUN_HOLD_S = 1.5      # G1-G3: the held turret turn in the gunner's view
 EDGE_HOLD_S = 1.2     # L6: the held turn past the husky driver's yaw limit (60 deg/s)
 EDGE_TOL = 0.25       # L6: degrees the late look may stop from the tick's own edge
 EDGE_MOVE_TOL = 0.1   # L7: degrees any draw may be off the edge without the late look
-MOVE_PITCH_MIN = 1.0  # L7: degrees the hull's drawn pitch must range over during the drive
+MOVE_PITCH_MIN = 1.0  # L7: degrees the hull's drawn pitch must range over while it rocks
+MOVE_HOLD_SPEED = 180  # L7: deg/s of the held +lookup, well above the rocking hull's ~58 deg/s
 ROCK_RATE = 90        # L7: deg/s of each rockVehicle pulse (game test command), alternating
 ROCK_PULSES = (1, -1, 1)
 ROCK_PULSE_S = 0.5
@@ -671,9 +672,10 @@ def main(argv):
                 srv.send(f"resetVehicle {BADGER}")
                 time.sleep(1.0)
                 obs.send(f"set g_unlock_vehicleLook {setting}")
-                obs.send("set in_pitchSpeed 60")
+                # faster than the hull pitches up, or the tick's gun would leave the edge too
+                obs.send(f"set in_pitchSpeed {MOVE_HOLD_SPEED}")
                 obs.send("+lookup")
-                time.sleep(EDGE_HOLD_S)     # at 60 deg/s the gun is at its -50 limit within it
+                time.sleep(EDGE_HOLD_S)     # the gun is at its -50 limit well within it
                 mark = obs.mark()
                 rock()
                 end = obs.mark()
