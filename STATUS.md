@@ -71,7 +71,7 @@ ninja -C build
 ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 ```
 - Notes on those commands:
-  - The engine `meson setup` options are the ones recorded in `build/meson-private/cmd_line.txt`. `build_engine` and `build_dedicated` default to `false`, so a plain `meson setup build` builds no engine binary.
+  - The engine `meson setup` options are the ones recorded in `build/meson-private/cmd_line.txt`. `build_engine` and `build_dedicated` default to `true` since 2026-10-20 (M1 gap closed, as openQ4 does), so a plain `meson setup build` builds the client and the dedicated server; pass `false` for a game- or test-only tree.
   - The game build directory was configured with plain `meson setup build` (default options, per its `meson-private/cmd_line.txt`).
   - Engine configure fails unless `../openETQW-game/build/libidLib.a` already exists, so a fresh checkout builds the game first. Configure also runs `stage_game.py` itself.
   - `ETQW_DATA_PATH` is the retail install root holding `base/`. Here it holds the retail data patched to 1.5: `pak000`–`pak004` and `zpak_english000` (their MD5s match the DVD list in the official ETQW 1.5 Linux README) plus `pak005`–`pak008` and `zpak_english001`–`003`, added on 2026-09-25 from the official Linux 1.5 client installer (byte-identical). Results recorded before 2026-09-25 14:49 come from the DVD paks alone. Without it every retail-data test exits 77 (skip).
@@ -482,7 +482,7 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
   - Client, dedicated server and game module compile.
   - The dedicated server mounts retail data through `fs_basepath`, initializes decls and the game, loads maps, accepts stdin console commands and exits 0.
 - Linux x86_64 (2026-09-26) and Windows 11 x64 (2026-09-28, MSVC): client, dedicated server and game module compile, and the dedicated server runs every stock map (the full retail suite passes on both; evidence rows above).
-- Gaps: the missing scripts under "Not done", retail data discovery, and the `false` defaults of `build_engine` and `build_dedicated`.
+- Gaps: the missing scripts under "Not done" and retail data discovery. (The `false` defaults of `build_engine` and `build_dedicated` became `true` on 2026-10-20.)
 
 **M2 (stock map): server side met on macOS arm64; client side partial.**
 - Server: all 11 stock maps and Valley load on the dedicated server with map scripts and retail AAS, and bots move (map-loaded, warmup only).
