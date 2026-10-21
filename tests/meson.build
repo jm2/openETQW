@@ -357,6 +357,23 @@ if build_engine
     timeout: 600,
     is_parallel: false,
   )
+  # game #51: a GUI owned by a HUD module is freed by MapShutdown while its
+  # Load is still on the stack; the catch must not read through the freed this
+  test(
+    'gui-hud-reload-error',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_gui_hud_reload_error.py',
+      '--client-binary', campaign_client,
+      '--port', '29989',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'gui-hud-reload-error',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
 endif
 
 
