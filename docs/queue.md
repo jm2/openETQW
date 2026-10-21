@@ -11,7 +11,8 @@ in-progress work and is parked: no PRs are open in either repository apart from 
 Each row below names the branch or comment where its work stopped and its exact next step. When
 the owner resumes the sessions, start at §2's top row that has a next step.
 
-Updated: 2026-10-21 by `openETQW-linux` (coordinator), after the overnight work (§5). Earlier that day: merged since 2026-10-18 are #145, #146,
+Updated: 2026-10-21 by `openETQW-linux` (Switchworks, coordinator), after the overnight work (§5) and
+with the M2 parity measurement (§3 item 8, §4). Earlier that day: merged since 2026-10-18 are #145, #146,
 #149, #152, #153, #155–#158 and game #53–#56 (§5); filed #159 and #160. Before that,
 2026-10-18, after a pass over every doc.
 
@@ -58,14 +59,21 @@ Each item names its acceptance test. Details are in the linked plan.
    copies of `eaxguid.lib` and zlib contrib's `.obj` files. Replace each, or record why it
    stays (`STATUS.md` § Release gate, item 5).
 8. **The M1 and M2 gaps** (`STATUS.md` § Milestones):
-   - ~~M1: the `false` defaults of `build_engine` and `build_dedicated`~~: both default to `true` (this PR);
-   - M2: collision in the graphical client is never asserted;
-   - M2: the headless render world is still stubbed.
-     Its effects are recorded in ledger 013 and are not measured. Next: a test-only parity
-     test that runs the same short scripted scenes on a listen server (real render world)
-     and on a dedicated server (`idRenderWorldHeadless`) and compares the outcomes: a hit
-     on a prone bot (render-model combat model), `RadiusPush` behind a wall, and a vehicle
-     exit near the map edge. Its result is the evidence for the owner question in §4.
+   - ~~M1: the `false` defaults of `build_engine` and `build_dedicated`~~: both default to `true` (#173);
+   - M2: collision in the graphical client is never asserted. The listen-host half of the
+     parity test now asserts the game collision world's hit and that the hit entity is the
+     prone bot (the same `clipHit`, `clipEntity` and `clipFraction=0.8708` as the dedicated
+     server). `clipHit`/`clipFraction` come from `gameLocal.clip.TracePoint`, not the render
+     world: both render worlds' `ModelTrace` answer false, the real renderer's too, not just
+     the headless one. The test encodes that answer, so render-model collision stays open
+     until one is implemented;
+   - M2: the headless render world is still stubbed. Its effects are recorded in ledger
+     013 and are now measured by `tests/test_m2_render_world_parity.py` (meson
+     `m2-render-world-parity`): the same scripted prone hit, `RadiusPush` behind a wall
+     and vehicle exit outside the map on a Vulkan listen host and a dedicated server.
+     Branch `fix/m2-render-world-parity`, with game branch
+     `test/m2-render-world-parity`; the numbers are in §4. Next: a second-OS run, the game
+     PR (it supplies the `m2Parity` diagnostic), then this engine PR and the companion pin.
 
    Each gap gets a test or a recorded decision.
 9. **M3, what is left** (`STATUS.md` § Milestones, M3):
@@ -105,6 +113,25 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   moderate), with render-model traces still out (they need render models; heavy).
   Recommended by `openETQW-linux-arm64` (2026-10-20): keep the stub for M2 as a recorded
   decision (ledger 013) until the §3 item 8 parity test measures the effects.
+  Measured 2026-10-21 by `openETQW-linux (Switchworks)` on antec (Linux x86_64, engine
+  `fix/m2-render-world-parity` on a38e311, game bb8e0c5 plus the test-only `m2Parity`
+  command, retail 1.5, `valley`). The listen host is a Vulkan client on SDL's offscreen
+  driver with llvmpipe (software Vulkan, Mesa 26.2.4), so it exercises the client's real
+  `idRenderWorldLocal` but no GPU raster path. Raw logs
+  `/var/tmp/oe-swk-linux/handoff/m2-parity-final`, reproducible with meson
+  `m2-render-world-parity`:
+  - `probe`: dedicated `numAreas=1`, `PointInArea` 0 inside and 0 outside; listen
+    `numAreas=54`, 0 inside and -1 outside;
+  - `prone`: both `modelHit=0`, `modelFraction=1.0`; both `clipHit=1`,
+    `clipFraction=0.8708`. The combat model has real bounds on both (about
+    96x54x86 dedicated, 94x49x86 listen; the pose varies a little);
+  - `RadiusPush` behind a wall: identical on both (`wallFound=1`,
+    `wallDistance=281.78`, `listed=8`, `pushed=1`, `speed=68.5902`,
+    `velocity=(59.3801 34.2830 1.8150)`), because `FastWorldTrace` answers false on
+    both;
+  - vehicle exit outside the map: dedicated accepts (`exitAccepted=1`,
+    `stillInVehicle=0`, `vehicleArea=0`); listen rejects (`exitAccepted=0`,
+    `stillInVehicle=1`, `vehicleArea=-1`). This is ledger 013's effect, now measured.
 - **A person at the controls.** Smooth motion at high caps, and M3's "Vulkan client with a
   human at the controls", are judged by people on real displays (M5 D3), not by a test.
 
