@@ -5,7 +5,7 @@
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
 Updated: 2026-10-20 · session/agent: `openETQW-linux` (Claude Code), coordinator · host: `antec`, Fedora 44 x86_64 (Linux 7.2.11), RX 6400 / RADV · **all openETQW sessions parked (owner's wrap-up, 2026-10-20)**
-Engine repo `~/openETQW`: `main` f14cf48 (#165; `tools/ci/companion.ref` pins game a5fdfaf) · game repo `~/openETQW-game`: `main` a5fdfaf (game #56) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (upstream last checked 2026-09-24)
+Engine repo `~/openETQW`: `main` 0055ed7 (#174; `tools/ci/companion.ref` pins game bb8e0c5) · game repo `~/openETQW-game`: `main` bb8e0c5 (game #58) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (upstream last checked 2026-09-24)
 
 Engine SHAs quoted in older docs (`CHECKPOINT_STOCK_MAPS_PHASE.md`, ledger rows, earlier STATUS text) may not resolve in the current history, and neither do some of the game's historical `tools/ci/engine.ref` pins.
 
@@ -105,7 +105,19 @@ Every merge went through `docs/coordination.md` §8 on antec: `validate pr` plus
 - #163 closed.
 - #164 put the sessions' undocumented knowledge in coordination §5/§6.
 
-Then every session parked again. `main` is f14cf48.
+Then every session parked again. `main` was f14cf48.
+
+**Overnight (2026-10-20/21, the remaining quota):** open issues and test flakes, then the M1/M2 gaps.
+- Merged:
+  - #169 (#134) and #174 (#170): retail's entity and light shadow limits. Each had all five platforms' screenshot sets.
+  - #171 with game #57 (#154) and #175 with game #58 (#151): new test-only cheat commands `rockVehicle` and `placeVehicle`.
+  - #172 (#160) and #173 (M1 build defaults).
+  - #168: ledger 013's vehicle-exit effect.
+- Closed: #135, not reproduced.
+- Causes found:
+  - #159: a gap in retail's AAS data; owner question in §4.
+  - #162: listen-host CPU spikes.
+- `main` is 0055ed7. Every session is parked.
 
 **Filed:** #151 and #154 (`seat-poses`, by `openETQW-win`), #159 (`all-stock-maps` salvage AAS dip), #160 (`seat-poses-listen` H3), #162 (`seat-poses-listen` L3 on macOS). Each is a flake or a missing test case, and none loosens a bound.
 
@@ -156,7 +168,7 @@ Then every session parked again. `main` is f14cf48.
 
 ### Open and pending
 - **Open PRs (2026-10-20):** none in either repository apart from this docs pass. Every session is parked.
-- **Open issues to work, in `docs/queue.md` order:** #134 (retail shadow distance limits), #122 (GDF rifle viewmodel; needs a retail reference), #135 (`mixed-caps` on antec), #141 (mouse sub-pixel deltas; parked on the owner's check), #147 (an owner question), #159, #160, #162 and #151 (test flakes), #154 (a missing seat-poses case; WIP parked), #148 (ANTEC-WIN's slow spell). #144's arm64 pairs all pass.
+- **Open issues to work, in `docs/queue.md` order:** #122 (GDF rifle viewmodel; needs a retail reference), #141 (mouse sub-pixel deltas; parked on the owner's check), #147 (an owner question), #162 (seat-poses L3 on macOS; cause found), #159 (a retail AAS gap; owner question), #148 (ANTEC-WIN's slow spells).
 - **M5 step 14b, the hull lead: plan (2026-10-06, the Mac session; `docs/hull-lead.md`).**
   - A first measurement (`tools/analysis/veh_pred.py` over `g_determinismTest 2`'s `VEH_TRACE`, on this Mac):
     - stage 7's physics step about the centre of mass is essentially exact in free flight (anansi median 0.005 u);

@@ -25,11 +25,10 @@ Updated: 2026-10-20 evening by `openETQW-linux` (coordinator), after a quota-bou
 | # | What | Owner | Next step |
 |---|---|---|---|
 | [#122](https://github.com/jm2/openETQW/issues/122) | GDF rifle viewmodel: near-black on raster, tan with ray tracing. | — (parked) | Get a retail reference first: a retail 1.5 screenshot from the owner, or published retail footage. Until then, don't change either path. Escalate to the owner if no reference turns up. |
-| [#135](https://github.com/jm2/openETQW/issues/135) | `mixed-caps`: B's 240 cap A1 'turn' sits at its threshold on `antec` (233–235.3 fps against 235.2; the test's own ceiling is about 282 with two clients) and fails on `main` too. | `openETQW-linux` | Not reproduced on 2026-10-20: 5 of 5 quiet runs on antec at main 24b2edf read B 240 'turn' 240.0 fps (ceiling 276–278), and every full suite since 2026-10-15 passed it. Closing on that evidence; reopen if it recurs. |
 | [#141](https://github.com/jm2/openETQW/issues/141) | Mouse motion: SDL's sub-pixel `xrel`/`yrel` is truncated per event (`src/sys/sdl/sdl_events.cpp:238`), so slow motion is lost on high-DPI displays. From code, not reproduced. | `openETQW-mac` (parked) | Branch `fix/mouse-subpixel-deltas` at 42de177, no PR yet: the fix and its unit test pass, local checks are clean, and the full suite passed on macOS apart from a `seat-poses-listen` L3 flake (#162; 3/3 reruns pass). Next: the owner's Retina check, old build against new (commands on #141, issuecomment-6290237448), then the PR. Input path only. |
 | [#147](https://github.com/jm2/openETQW/issues/147) | High-density displays: should `r_mode` / `r_custom*` mean pixels or points (SDL sizes on macOS are points)? | — | An owner question with three options; not urgent. |
-| [#162](https://github.com/jm2/openETQW/issues/162) | `seat-poses-listen` L3 (held yaw): 2 of 16 cross-tick rates over 2.5x once on macOS (worst 3.53x); 3 of 3 reruns passed. | — | On the next failure, keep the log directory and look at the client's frame times at the stepping pairs. The bound stays. |
-| [#159](https://github.com/jm2/openETQW/issues/159) | `all-stock-maps`: salvage's Strogg `aas_area_validity` fell to 53.8% once (antec, 2026-10-20); two reruns passed. | — | Cause found on `macmini-m1` (issuecomment-6305469953): the Strogg bot jumps from AAS area 3297 into an off-mesh pocket at (-768, 3215, 2991) and stays stuck there (`stuck_longest` 35.6 s; 20.9% with `--bot-seconds 120`). The check is right and the bound stays. Next: look at the spot in a client with `aas_showAreas 1` to tell a retail pocket from a port bug (AAS load or bot jump reachability). |
+| [#162](https://github.com/jm2/openETQW/issues/162) | `seat-poses-listen` L3 (held yaw): cross-tick rates over 2.5x on macOS. | — | Reproduced 6 of 10 on mbp16 in the cap-120 driver phase; the cause is CPU work spikes on the listen host, not GPU waits (issuecomment-6306063943). Next: find what the listen host does in those spikes. The bound stays. |
+| [#159](https://github.com/jm2/openETQW/issues/159) | `all-stock-maps`: salvage's Strogg `aas_area_validity` dips when a bot lands in a gap in retail's own AAS (no area or reachability in a 64 u strip between areas 3297 and 2747). | — (owner-gated, §4) | The cause is retail data, not a port bug (issuecomment-6306739573). Whether to exclude recorded retail AAS gaps from the check is the owner's call (§4). |
 | [#148](https://github.com/jm2/openETQW/issues/148) | `ANTEC-WIN` drew at about 30 fps for some 15 minutes during a retail suite (2026-10-20 02:16–02:31Z); cause unknown. | — | If it recurs, capture what the issue lists. |
 
 ## 3. Milestone work, in order
@@ -98,6 +97,9 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   host is in the fleet; the owner would have to provide one.
 - **Hosted CI:** comes back only with Actions minutes. Until then, local checks replace it.
 - **#122's retail reference** if none can be found.
+- **#159, retail AAS gaps:** salvage's AAS has a 64 u strip with no area that bots can land
+  in, so `all-stock-maps` sometimes fails. Exclude a recorded list of retail AAS gaps from
+  `aas_area_validity`, or keep it as a known flake (#159).
 - **The headless render world (M2):** keep `idRenderWorldHeadless` as it is, or load the
   `.procb` areas and nodes on the dedicated server (`PointInArea`, `BoundsInAreas`;
   moderate), with render-model traces still out (they need render models; heavy).
@@ -107,6 +109,16 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   human at the controls", are judged by people on real displays (M5 D3), not by a test.
 
 ## 5. Recently done
+
+2026-10-20/21, overnight:
+- #169 (#134): retail's per-entity shadow limits.
+- #174 (#170): a light's `shadowSpec` and `dontCastFromAtmosLight`.
+- #171 with game #57 (#154): L7, a gun at its limit while the hull rocks.
+- #175 with game #58 (#151): the jetpack flies from open ground.
+- #172 (#160): a stalled H3 phase is driven once more.
+- #173: `build_engine` and `build_dedicated` default to true, closing the M1 gap.
+- #168: ledger 013's vehicle-exit effect, and the M2 render-world question.
+- #135 closed, not reproduced.
 
 2026-10-20, the evening sprint:
 - #165 (#151, in part): a stalled jetpack flight in `seat-poses` I1 is reported and flown once more.
