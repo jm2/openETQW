@@ -5,7 +5,7 @@
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
 Updated: 2026-10-20 · session/agent: `openETQW-linux` (Claude Code), coordinator · host: `antec`, Fedora 44 x86_64 (Linux 7.2.11), RX 6400 / RADV · **all openETQW sessions parked (owner's wrap-up, 2026-10-20)**
-Engine repo `~/openETQW`: `main` faf21f2 (#149; `tools/ci/companion.ref` pins game a5fdfaf) · game repo `~/openETQW-game`: `main` a5fdfaf (game #56) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (upstream last checked 2026-09-24)
+Engine repo `~/openETQW`: `main` f14cf48 (#165; `tools/ci/companion.ref` pins game a5fdfaf) · game repo `~/openETQW-game`: `main` a5fdfaf (game #56) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (upstream last checked 2026-09-24)
 
 Engine SHAs quoted in older docs (`CHECKPOINT_STOCK_MAPS_PHASE.md`, ledger rows, earlier STATUS text) may not resolve in the current history, and neither do some of the game's historical `tools/ci/engine.ref` pins.
 
@@ -56,6 +56,7 @@ From the owner, 2026-10-01, on M5 step 7 (the listen host updates its view on ev
 Not from the owner: the integrator settled step 7's other escalation items without escalation, as recommended (`docs/m5-plan.md` step 7): **E1**, the input model: as single player and the client, the host consumes a usercmd on each render-only frame (openQ4 has no late look; a non-consuming peek would be a separate step across all modes); **E2**, the fraction source: D7's engine `timeLeft` (`idAsyncServer::GetGameTimeLeft`), not openQ4's game-side clock; **E4**: the render-only sample's side effects (frame-path §5) now reach the host, accepted for parity, and documented; **E5**: whether retail's listen host did this is unknown, and it is not reverse-engineered now.
 
 From the owner, 2026-09-30, on the `game->Init()` proposal ("go with your recommendations"): a failed `game->Init()` stops the engine, as openQ4's does. `idCommonLocal::LoadGameDLL` prints the failure and rethrows it, and `idCommonLocal::Init` exits through `Sys_Error( "Error during initialization" )` with status 1 (engine #42). It used to log a warning and carry on, which turned the Clang `sdPropertyValue` bug (openETQW-game #16, fixed by #17) into a crash in `idTypeInfo::RespondsTo` at map load, far from its cause. The assetless smoke's `bare` and `empty` variants now assert that clean fatal error instead of a console and a clean quit.
+From the owner, 2026-10-20, typed in the coordinator's session (`openETQW-linux`), and approved for this line the same day: `openETQW-win-arm64` may download the retail 1.5 installer to get a retail reference for #134 (retail's sun shadow distance limits). Retail executables, disassembly and screenshots of retail still never enter either repository (`AGENTS.md` rule 3).
 Environment corrections vs. SESSION_BRIEF: the macOS arm64 host is joined by `antec` (Fedora 44, x86_64, GCC 16.2.1, AMD RX 6400 / RADV NAVI24) since 2026-09-26 and by a Windows 11 26H2 x64 host (VS 2026 MSVC 19.51.36260, AMD RX 6400 / Adrenalin 26.8.1) since 2026-09-28; the Linux engine and game module build and run the full retail suite on `antec`, and on the Windows host the engine, dedicated server and game module build with MSVC, debug and optimized (debugoptimized), and run the full retail suite (rows below; the Windows leg is engine PR #23 with game PR #13). VS 2026 is the Windows toolchain baseline everywhere, including CI. GitHub Actions minutes for private repositories ran out on 2026-09-24, so hosted CI does not run. Local checks, local independent reviews and CodeRabbit (about one review an hour) replace it (`CONTRIBUTING.md`). Merge gates are a convention; the free plan has no branch protection.
 
 ## Toolchain and commands (this session)
@@ -70,7 +71,7 @@ ninja -C build
 ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 ```
 - Notes on those commands:
-  - The engine `meson setup` options are the ones recorded in `build/meson-private/cmd_line.txt`. `build_engine` and `build_dedicated` default to `false`, so a plain `meson setup build` builds no engine binary.
+  - The engine `meson setup` options are the ones recorded in `build/meson-private/cmd_line.txt`. `build_engine` and `build_dedicated` default to `true` since 2026-10-20 (M1 gap closed, as openQ4 does), so a plain `meson setup build` builds the client and the dedicated server; pass `false` for a game- or test-only tree.
   - The game build directory was configured with plain `meson setup build` (default options, per its `meson-private/cmd_line.txt`).
   - Engine configure fails unless `../openETQW-game/build/libidLib.a` already exists, so a fresh checkout builds the game first. Configure also runs `stage_game.py` itself.
   - `ETQW_DATA_PATH` is the retail install root holding `base/`. Here it holds the retail data patched to 1.5: `pak000`–`pak004` and `zpak_english000` (their MD5s match the DVD list in the official ETQW 1.5 Linux README) plus `pak005`–`pak008` and `zpak_english001`–`003`, added on 2026-09-25 from the official Linux 1.5 client installer (byte-identical). Results recorded before 2026-09-25 14:49 come from the DVD paks alone. Without it every retail-data test exits 77 (skip).
@@ -97,12 +98,21 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 
 Every merge went through `docs/coordination.md` §8 on antec: `validate pr` plus the retail suite on the merge head. When CodeRabbit was rate-limited, a no-context review agent reviewed instead, and its findings were fixed or answered on the PR.
 
+**Evening sprint (2026-10-20, about 14% of the weekly quota):**
+- #165 merged: a stalled jetpack flight is retried once, and the bound is unchanged.
+- #144's last pair passed, macOS arm64 ↔ Linux arm64, so every arm64 cross-OS pair passes.
+- #154's WIP is parked at de67612: its drive can't turn the hull repeatably.
+- #163 closed.
+- #164 put the sessions' undocumented knowledge in coordination §5/§6.
+
+Then every session parked again. `main` is f14cf48.
+
 **Filed:** #151 and #154 (`seat-poses`, by `openETQW-win`), #159 (`all-stock-maps` salvage AAS dip), #160 (`seat-poses-listen` H3), #162 (`seat-poses-listen` L3 on macOS). Each is a flake or a missing test case, and none loosens a bound.
 
 **Parked items, with where each stopped:**
 - **#141** (`openETQW-mac`): branch `fix/mouse-subpixel-deltas` at 42de177, no PR. It waits on the owner's Retina check (commands on #141).
 - **#144**, M3 arm64 cross-OS (`openETQW-linux-arm64`): Linux arm64 with Linux x64 and with Windows x64 pass. The macOS arm64 pair is not run; the steps are on #144.
-- **#134** (`openETQW-win-arm64`): needs a retail 1.5 reference. The owner said in the coordinator's session on 2026-10-20 that `openETQW-win-arm64` may download the retail 1.5 installer. It isn't an owner-decision line yet, so confirm before starting. Not started because of the park.
+- **#134** (`openETQW-win-arm64`): needs a retail 1.5 reference. The owner allowed `openETQW-win-arm64` to download the retail 1.5 installer (§ Owner decisions, 2026-10-20). Not started because of the park.
 
 ### Merged on 2026-09-25
 | Repo | PR (merge) | What |
@@ -146,7 +156,7 @@ Every merge went through `docs/coordination.md` §8 on antec: `validate pr` plus
 
 ### Open and pending
 - **Open PRs (2026-10-20):** none in either repository apart from this docs pass. Every session is parked.
-- **Open issues to work, in `docs/queue.md` order:** #134 (retail shadow distance limits), #122 (GDF rifle viewmodel; needs a retail reference), #135 (`mixed-caps` on antec), #141 (mouse sub-pixel deltas; parked on the owner's check), #147 (an owner question), #159, #160 and #151 (test flakes), #154 (a missing seat-poses case), #148 (ANTEC-WIN's slow spell), #144 (M3 arm64 cross-OS).
+- **Open issues to work, in `docs/queue.md` order:** #134 (retail shadow distance limits), #122 (GDF rifle viewmodel; needs a retail reference), #135 (`mixed-caps` on antec), #141 (mouse sub-pixel deltas; parked on the owner's check), #147 (an owner question), #159, #160, #162 and #151 (test flakes), #154 (a missing seat-poses case; WIP parked), #148 (ANTEC-WIN's slow spell). #144's arm64 pairs all pass.
 - **M5 step 14b, the hull lead: plan (2026-10-06, the Mac session; `docs/hull-lead.md`).**
   - A first measurement (`tools/analysis/veh_pred.py` over `g_determinismTest 2`'s `VEH_TRACE`, on this Mac):
     - stage 7's physics step about the centre of mass is essentially exact in free flight (anansi median 0.005 u);
@@ -472,7 +482,7 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
   - Client, dedicated server and game module compile.
   - The dedicated server mounts retail data through `fs_basepath`, initializes decls and the game, loads maps, accepts stdin console commands and exits 0.
 - Linux x86_64 (2026-09-26) and Windows 11 x64 (2026-09-28, MSVC): client, dedicated server and game module compile, and the dedicated server runs every stock map (the full retail suite passes on both; evidence rows above).
-- Gaps: the missing scripts under "Not done", retail data discovery, and the `false` defaults of `build_engine` and `build_dedicated`.
+- Gaps: the missing scripts under "Not done" and retail data discovery. (The `false` defaults of `build_engine` and `build_dedicated` became `true` on 2026-10-20.)
 
 **M2 (stock map): server side met on macOS arm64; client side partial.**
 - Server: all 11 stock maps and Valley load on the dedicated server with map scripts and retail AAS, and bots move (map-loaded, warmup only).
