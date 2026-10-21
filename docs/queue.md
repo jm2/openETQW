@@ -24,7 +24,6 @@ Updated: 2026-10-20 evening by `openETQW-linux` (coordinator), after a quota-bou
 
 | # | What | Owner | Next step |
 |---|---|---|---|
-| [#134](https://github.com/jm2/openETQW/issues/134) | Raster shadows: retail's `shadowVisDistMult` / `shadowProjectDist` limits are not applied, so far props' sun volumes fill the stencil (the jetpack seat on a network client: 84 draw pairs against 113 without entity casters). | `openETQW-win-arm64` (parked) | Read what retail's renderer does with them first; don't guess. No host has a retail 1.5 install to compare against. The owner allowed `openETQW-win-arm64` to download the retail 1.5 installer (`STATUS.md` § Owner decisions, 2026-10-20); nothing retail enters the repositories (rule 3). Not started because of the park. A graphics change: screenshot set. |
 | [#122](https://github.com/jm2/openETQW/issues/122) | GDF rifle viewmodel: near-black on raster, tan with ray tracing. | — (parked) | Get a retail reference first: a retail 1.5 screenshot from the owner, or published retail footage. Until then, don't change either path. Escalate to the owner if no reference turns up. |
 | [#135](https://github.com/jm2/openETQW/issues/135) | `mixed-caps`: B's 240 cap A1 'turn' sits at its threshold on `antec` (233–235.3 fps against 235.2; the test's own ceiling is about 282 with two clients) and fails on `main` too. | `openETQW-linux` | Not reproduced on 2026-10-20: 5 of 5 quiet runs on antec at main 24b2edf read B 240 'turn' 240.0 fps (ceiling 276–278), and every full suite since 2026-10-15 passed it. Closing on that evidence; reopen if it recurs. |
 | [#141](https://github.com/jm2/openETQW/issues/141) | Mouse motion: SDL's sub-pixel `xrel`/`yrel` is truncated per event (`src/sys/sdl/sdl_events.cpp:238`), so slow motion is lost on high-DPI displays. From code, not reproduced. | `openETQW-mac` (parked) | Branch `fix/mouse-subpixel-deltas` at 42de177, no PR yet: the fix and its unit test pass, local checks are clean, and the full suite passed on macOS apart from a `seat-poses-listen` L3 flake (#162; 3/3 reruns pass). Next: the owner's Retina check, old build against new (commands on #141, issuecomment-6290237448), then the PR. Input path only. |
@@ -61,7 +60,7 @@ Each item names its acceptance test. Details are in the linked plan.
    copies of `eaxguid.lib` and zlib contrib's `.obj` files. Replace each, or record why it
    stays (`STATUS.md` § Release gate, item 5).
 8. **The M1 and M2 gaps** (`STATUS.md` § Milestones):
-   - M1: the `false` defaults of `build_engine` and `build_dedicated`;
+   - ~~M1: the `false` defaults of `build_engine` and `build_dedicated`~~: both default to `true` (this PR);
    - M2: collision in the graphical client is never asserted;
    - M2: the headless render world is still stubbed.
      Its effects are recorded in ledger 013 and are not measured. Next: a test-only parity
