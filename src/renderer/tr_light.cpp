@@ -2468,6 +2468,30 @@ namespace {
 		return true;
 	}
 
+	// An entity's shadow limits, as retail 1.5 applies them to each of a light's
+	// interactions (#134): no shadow when com_gpuSpec is below the entity's shadowSpec, or
+	// beyond its shadow distance, maxVisDist × shadowVisDistMult (r_useMaxVisDist > 1
+	// replaces the distance), with the fov, r_visDistMult and r_visDistOfs scaling of its
+	// visibility distance.  A multiplier of 0 or less (the game's default) sets no limit.
+	// r_useShadowVisDistMult below 1 replaces every entity's multiplier (0 lifts the limits).
+	// Retail measures from the centre of the entity's world bounds and keeps the shadow
+	// while its distance fade is above 0.001; this tests the range itself.
+	idCVar r_useShadowVisDistMult( "r_useShadowVisDistMult", "1.0", CVAR_RENDERER | CVAR_FLOAT,
+		"below 1, replaces every entity's shadow distance multiplier (shadowVisDistMult); 0 lifts the shadow distance limits" );
+
+	bool EntityShadowInRange( const renderEntity_t* entity, const float modelMatrix[ 16 ], const viewDef_s* view ) {
+		if ( entity->shadowSpec > com_gpuSpec.GetInteger() ) return false;
+		const float override = r_useShadowVisDistMult.GetFloat();
+		const float mult = override < 1.0f ? override : entity->shadowVisDistMult;
+		if ( mult <= 0.0f ) return true;
+		const int maxDist = r_useMaxVisDist.GetInteger() > 1 ? r_useMaxVisDist.GetInteger() :
+			static_cast< int >( entity->maxVisDist * mult );
+		const idBounds& bounds = entity->bounds;
+		const idVec3 center = bounds.IsCleared() ? idVec3( modelMatrix[ 12 ], modelMatrix[ 13 ], modelMatrix[ 14 ] ) :
+			MatrixTransformPoint( modelMatrix, bounds.GetCenter() );
+		return R_DistanceVisibility( center, maxDist, entity->minVisDist, view );
+	}
+
 	// Off-view shadow casters (#128).  The view's draw surfaces are only the casters it
 	// sees.  Doom 3 takes a light's casters from the light's side, so a surface the view
 	// culled still casts when its shadow may fall in view.  Static geometry gets that here:
@@ -2699,7 +2723,8 @@ namespace {
 			if ( entity != NULL && ( ( entity->suppressShadowInViewID != 0 &&
 					entity->suppressShadowInViewID == view->renderView.viewID ) ||
 					( entity->suppressShadowInLightID != 0 &&
-					entity->suppressShadowInLightID == light->lightDef->lightId ) ) ) {
+					entity->suppressShadowInLightID == light->lightDef->lightId ) ||
+					!EntityShadowInRange( entity, space->modelMatrix, view ) ) ) {
 				continue;
 			}
 			if ( !group.bounds.IsCleared() && ( R_CullLocalBox( group.bounds, space->modelMatrix, 6, light->frustum ) ||
@@ -3170,7 +3195,8 @@ void R_AddLightSurfaces() {
 				( casterEntity->suppressShadowInViewID != 0 &&
 					casterEntity->suppressShadowInViewID == view->renderView.viewID ) ||
 				  ( casterEntity->suppressShadowInLightID != 0 &&
-					casterEntity->suppressShadowInLightID == light->lightDef->lightId ) );
+					casterEntity->suppressShadowInLightID == light->lightDef->lightId ) ||
+				  !EntityShadowInRange( casterEntity, surface->space->modelMatrix, view ) );
 			const srfTriangles_t* volume = NULL;
 			if ( !light->lightDef->flags.noShadows && light->material->LightCastsShadows() &&
 					surface->material->SurfaceCastsShadow() && surface->geo != NULL && !suppressed ) {
