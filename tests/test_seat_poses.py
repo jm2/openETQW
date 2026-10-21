@@ -100,7 +100,9 @@ with g_unlock_vehicleLead listing the badger at L = 1:
   H2 steps    with the fade on (the default), S4's rule: the hull's median step across a tick
               is at most 2.5 x its median step within one, and the drawn view's too (H2v)
   H3 off      the seat-drive phases (the built-in lead list, empty) and a phase listing only
-              the titan (moving in the badger's driver seat) draw no lead= at all
+              the titan (moving in the badger's driver seat) draw no lead= at all; a titan
+              phase where the badger barely moved (#160) is reported and driven once more,
+              and a second stall fails the test
 
 Safety (nothing presented reaches tick state) is shown by meson seat-gate: its run B lists
 every seat and leads every class, so the presentation runs during the seat tour, and SIM_HASH, VEH_TRACE and
@@ -937,9 +939,18 @@ def main(argv):
         # H3: a lead listed for another class only
         obs.send("set g_unlock_vehicleLead titan:1")
         seated_up()
-        poses = phase("leadcontrol", caps[0], drive)
+
+        def driver_seated_moving(poses):
+            return [p for p in moving_poses(poses) if p["seat"] is not None and seat_fields(p["seat"])[1:] == (0, 0)]
+
+        def badger_stalled(poses):
+            # the badger never moved (#160: 0 moving draws once on antec): driven once more, as a
+            # stalled jetpack is; a second stall fails H3 below
+            n = len(driver_seated_moving(poses))
+            return None if n >= MIN_PAIRS else f"the badger barely moved: {n} moving draws in its driver's seat"
+        poses = phase("leadcontrol", caps[0], drive, stalled=badger_stalled, reseat=seated_up)
         led = sum(1 for p in poses if p["lead"] is not None)
-        seated = [p for p in moving_poses(poses) if p["seat"] is not None and seat_fields(p["seat"])[1:] == (0, 0)]
+        seated = driver_seated_moving(poses)
         ok3 = led == 0 and len(seated) >= MIN_PAIRS
         print(f"  {caps[0]:3} H3  {'pass' if ok3 else 'FAIL'}  {led} draws led with only the titan listed"
               f" ({len(seated)} moving draws in the badger's driver seat, need {MIN_PAIRS})")
