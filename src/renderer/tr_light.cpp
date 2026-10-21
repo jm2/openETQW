@@ -2479,8 +2479,11 @@ namespace {
 	idCVar r_useShadowVisDistMult( "r_useShadowVisDistMult", "1.0", CVAR_RENDERER | CVAR_FLOAT,
 		"below 1, replaces every entity's shadow distance multiplier (shadowVisDistMult); 0 lifts the shadow distance limits" );
 
-	bool EntityShadowInRange( const renderEntity_t* entity, const float modelMatrix[ 16 ], const viewDef_s* view ) {
+	bool EntityShadowInRange( const renderEntity_t* entity, const viewLight_s* light, const float modelMatrix[ 16 ],
+			const viewDef_s* view ) {
 		if ( entity->shadowSpec > com_gpuSpec.GetInteger() ) return false;
+		// retail 1.5: an entity flagged dontCastFromAtmosLight casts nothing from the atmosphere light (#170)
+		if ( entity->flags.dontCastFromAtmosLight && light->lightDef->flags.atmosphereLight ) return false;
 		const float override = r_useShadowVisDistMult.GetFloat();
 		const float mult = override < 1.0f ? override : entity->shadowVisDistMult;
 		if ( mult <= 0.0f ) return true;
@@ -2724,7 +2727,7 @@ namespace {
 					entity->suppressShadowInViewID == view->renderView.viewID ) ||
 					( entity->suppressShadowInLightID != 0 &&
 					entity->suppressShadowInLightID == light->lightDef->lightId ) ||
-					!EntityShadowInRange( entity, space->modelMatrix, view ) ) ) {
+					!EntityShadowInRange( entity, light, space->modelMatrix, view ) ) ) {
 				continue;
 			}
 			if ( !group.bounds.IsCleared() && ( R_CullLocalBox( group.bounds, space->modelMatrix, 6, light->frustum ) ||
@@ -3176,7 +3179,9 @@ void R_AddLightSurfaces() {
 	bool offViewGathered = false;
 	for ( viewLight_s* light = view->viewLights; light != NULL; light = light->next ) {
 		if ( light->culled || light->material == NULL || IsSkippedWaterFog( light->material ) ) continue;
-		const bool shadowLight = !light->lightDef->flags.noShadows && light->material->LightCastsShadows();
+		// retail 1.5 also makes no volumes for a light whose shadowSpec is above com_gpuSpec (#170)
+		const bool shadowLight = !light->lightDef->flags.noShadows && light->material->LightCastsShadows() &&
+			light->lightDef->shadowSpec <= com_gpuSpec.GetInteger();
 		if ( shadowLight ) {
 			r_shadowLightViews++;
 		}
@@ -3196,10 +3201,9 @@ void R_AddLightSurfaces() {
 					casterEntity->suppressShadowInViewID == view->renderView.viewID ) ||
 				  ( casterEntity->suppressShadowInLightID != 0 &&
 					casterEntity->suppressShadowInLightID == light->lightDef->lightId ) ||
-				  !EntityShadowInRange( casterEntity, surface->space->modelMatrix, view ) );
+				  !EntityShadowInRange( casterEntity, light, surface->space->modelMatrix, view ) );
 			const srfTriangles_t* volume = NULL;
-			if ( !light->lightDef->flags.noShadows && light->material->LightCastsShadows() &&
-					surface->material->SurfaceCastsShadow() && surface->geo != NULL && !suppressed ) {
+			if ( shadowLight && surface->material->SurfaceCastsShadow() && surface->geo != NULL && !suppressed ) {
 				volume = CreateShadowVolumeGeometry( surface, light );
 			}
 			if ( volume != NULL ) {
