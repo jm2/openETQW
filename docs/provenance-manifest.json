@@ -16,7 +16,7 @@
   },
   "postSplitAsOf": {
     "openETQW": "the commit that last changed this manifest",
-    "openETQW-game": "d714dea06897076debe923b6e0008c391571cf49"
+    "openETQW-game": "bb8e0c53c8a35a885805fc44d191aceb8a7a4d81"
   },
   "files": [
     {
@@ -49152,9 +49152,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "b9d8fbcc625d0175e6b99617777a99caf348a84d9173cc9b8667bd82af67b782",
-      "canonicalSha256": "b9d8fbcc625d0175e6b99617777a99caf348a84d9173cc9b8667bd82af67b782",
-      "bytes": 67652,
+      "rawSha256": "56c11922dd781ebad57b243f6f6bb6c89cdc9b88fc735b9f607a8e7865470c2b",
+      "canonicalSha256": "56c11922dd781ebad57b243f6f6bb6c89cdc9b88fc735b9f607a8e7865470c2b",
+      "bytes": 68456,
       "addedAfterSplit": true,
       "addedIn": "5e56939595b582b3f036e54467a4b4c55a5acda3",
       "spdx": "GPL-3.0-or-later"
@@ -49704,8 +49704,8 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "ea5fad59b87480e9833dd86141757f0b67087da2121a7d7635754b0f0cbb5289",
-      "canonicalSha256": "ea5fad59b87480e9833dd86141757f0b67087da2121a7d7635754b0f0cbb5289",
+      "rawSha256": "50b39f966197297a1f59d59c633c9d53763968125162453414c3957217ef4204",
+      "canonicalSha256": "50b39f966197297a1f59d59c633c9d53763968125162453414c3957217ef4204",
       "bytes": 41,
       "addedAfterSplit": true,
       "addedIn": "96be8171ffa1e6299cb40d4423a3e10c3a54cd81",

@@ -97,8 +97,9 @@ from one seat (I0); I2 the view's
 step across a tick is at most 2.5 x its step within one; I1c unlisted, the view changes only
 across ticks (at most one pair within). A flight that stalled (#151: the jetpack's view did
 not move across some tick, as when it hits a wall) is reported and flown once more from a
-fresh entry; a second stall fails the test, as a disturbed drive phase does. The jetpack's
-start can sit between walls closer than a drive leg, so the second flight can stall too.
+fresh entry; a second stall fails the test, as a disturbed drive phase does. Each flight
+starts on open ground (JETPACK_SPOT, the game's placeVehicle), forward then back: where the
+jetpack is entered, walls can sit closer than a drive leg.
 
 Hull lead (M5 step 14b, docs/hull-lead.md), at caps 60 and 120 in the driver's standard view
 with g_unlock_vehicleLead listing the badger at L = 1:
@@ -260,6 +261,12 @@ def pitch_in_hull(p):
             (cr * sp * cy + sr * sy, cr * sp * sy - sr * cy, cr * cp))
     x, y, z = (sum(f * a for f, a in zip(fwd, row)) for row in axis)
     return -math.degrees(math.atan2(z, math.hypot(x, y)))
+
+
+# where each jetpack flight starts (placeVehicle, game): open ground 500 u left of the badger's
+# mark, facing 67 deg. Where the jetpack is entered, walls can sit closer than one drive leg
+# (#151); from here a forward-then-back flight had no still tick (probe, 2026-10-20)
+JETPACK_SPOT = (8505, -10154, 1500, 67)
 
 
 def jetpack_stalled(poses):
@@ -1098,9 +1105,21 @@ def main(argv):
             failures.append(f"the chase phase drew view modes {sorted(modes)}, not only the chase view (1)")
         # the jetpack (icarus, its own recipe since M5 step 14): listed, its first-person view is
         # drawn on every frame while it flies; unlisted, only across ticks
-        seat_up("vehicle_icarus")
-        poses = phase("icarus", cap, drive, check_launch=False, mode=None,   # a jetpack flies
-                      stalled=jetpack_stalled, reseat=lambda: seat_up("vehicle_icarus"))
+        def jetpack_up():
+            seat_up("vehicle_icarus")
+            srv.send("placeVehicle vehicle_icarus {} {} {} {}".format(*JETPACK_SPOT))
+            time.sleep(3.0)
+
+        def fly():
+            # forward, then back: the legs the open spot was checked with (drive() alternates)
+            for sign in (1, -1):
+                obs.send(f"clientMove {sign * THROTTLE} 0 0")
+                time.sleep(DRIVE_LEG_S)
+            obs.send("clientMove 0 0 0")
+
+        jetpack_up()
+        poses = phase("icarus", cap, fly, check_launch=False, mode=None,   # a jetpack flies
+                      stalled=jetpack_stalled, reseat=jetpack_up)
         # I0: every draw from a seat (the jetpack's; on foot, I1 would pass on the unlocked view)
         seats_i = {p["seat"] for p in poses}
         i0 = len(seats_i) == 1 and None not in seats_i
@@ -1108,8 +1127,9 @@ def main(argv):
         i2 = step_check(poses, "view", "jetpack view step")
         obs.send(f"set g_unlock_vehicleSeats {LISTED}")
         time.sleep(1.0)
-        control = phase("icaruscontrol", cap, drive, check_launch=False, mode=None,
-                        stalled=jetpack_stalled, reseat=lambda: seat_up("vehicle_icarus"))
+        jetpack_up()
+        control = phase("icaruscontrol", cap, fly, check_launch=False, mode=None,
+                        stalled=jetpack_stalled, reseat=jetpack_up)
         changed, n = within_tick_changes(control, "view")
         moving = sum(1 for a, b in zip(control, control[1:]) if moved(a["view"], b["view"]))
         i1c = n >= MIN_PAIRS and changed <= 1 and moving >= MIN_PAIRS
