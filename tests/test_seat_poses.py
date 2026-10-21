@@ -95,7 +95,10 @@ The jetpack (icarus, its own recipe since M5 step 14), every seat listed: I1 its
 first-person view changes between consecutive draws (>= 99%) while it flies, every draw
 from one seat (I0); I2 the view's
 step across a tick is at most 2.5 x its step within one; I1c unlisted, the view changes only
-across ticks (at most one pair within).
+across ticks (at most one pair within). A flight that stalled (#151: the jetpack's view did
+not move across some tick, as when it hits a wall) is reported and flown once more from a
+fresh entry; a second stall fails the test, as a disturbed drive phase does. The jetpack's
+start can sit between walls closer than a drive leg, so the second flight can stall too.
 
 Hull lead (M5 step 14b, docs/hull-lead.md), at caps 60 and 120 in the driver's standard view
 with g_unlock_vehicleLead listing the badger at L = 1:
@@ -106,7 +109,9 @@ with g_unlock_vehicleLead listing the badger at L = 1:
   H2 steps    with the fade on (the default), S4's rule: the hull's median step across a tick
               is at most 2.5 x its median step within one, and the drawn view's too (H2v)
   H3 off      the seat-drive phases (the built-in lead list, empty) and a phase listing only
-              the titan (moving in the badger's driver seat) draw no lead= at all
+              the titan (moving in the badger's driver seat) draw no lead= at all; a titan
+              phase where the badger barely moved (#160) is reported and driven once more,
+              and a second stall fails the test
 
 Safety (nothing presented reaches tick state) is shown by meson seat-gate: its run B lists
 every seat and leads every class, so the presentation runs during the seat tour, and SIM_HASH, VEH_TRACE and
@@ -255,6 +260,20 @@ def pitch_in_hull(p):
             (cr * sp * cy + sr * sy, cr * sp * sy - sr * cy, cr * cp))
     x, y, z = (sum(f * a for f, a in zip(fwd, row)) for row in axis)
     return -math.degrees(math.atan2(z, math.hypot(x, y)))
+
+
+def jetpack_stalled(poses):
+    """Why the jetpack's flight stalled, or None: its view did not move across some tick
+    (#151). A stalled tick costs I1 about two draw pairs at cap 60, more than I1 allows, so
+    any still pair across a tick counts. Judged only on the pairs that cross a tick, which
+    a stepped presentation still moves; a presentation that held the view across a tick
+    would look like a stall, and is retried once like one, then fails the test.
+    Too few pairs is left to I1's own count."""
+    cross = [(a, b) for a, b in zip(poses, poses[1:]) if a["gt"] != b["gt"]]
+    still = sum(1 for a, b in cross if not moved(a["view"], b["view"]))
+    if len(cross) < MIN_PAIRS or still == 0:
+        return None
+    return f"the jetpack's flight stalled: its view did not move across {still} of {len(cross)} ticks"
 
 
 def look_response(lines):
@@ -437,13 +456,15 @@ def main(argv):
             time.sleep(1.5)
         return False
 
-    def phase(name, cap, drive, check_launch=True, mode=0):
+    def phase(name, cap, drive, check_launch=True, mode=0, stalled=None, reseat=None):
         """One drive phase's draws, from the driver's seat in view mode `mode` (None: whatever
         seat the caller set up, unchecked). A disturbed phase is driven again once the badger
         has settled: the hull launched or fell (issue #84: a collision can throw the badger
         thousands of units up, and then the guards rightly refuse some ticks), or some draws
-        were not from that seat and mode (the player thrown out, or respawned on foot). A
-        second disturbed attempt fails the test with that reason."""
+        were not from that seat and mode (the player thrown out, or respawned on foot), or
+        stalled(poses) gives a reason (the jetpack's flight stalled, #151); reseat() then seats
+        the player afresh before the second attempt. A second disturbed attempt fails the test
+        with that reason."""
         for attempt in range(2):
             if mode is not None:
                 # the badger back where the test marked it, at rest: the drive legs leave it further
@@ -465,12 +486,17 @@ def main(argv):
             jump = launched(poses) if check_launch else None
             off = 0 if mode is None else sum(1 for p in poses if p["seat"] is None
                                               or seat_fields(p["seat"])[1:] != (0, mode))
-            if jump is None and off == 0:
+            stall = stalled(poses) if stalled is not None and jump is None and off == 0 else None
+            if jump is None and off == 0 and stall is None:
                 return poses
             why = (f"the hull moved {jump:.0f} u vertically in one tick (launched or falling)" if jump is not None
-                   else f"{off} of {len(poses)} draws were not from the driver's seat in view mode {mode}")
+                   else f"{off} of {len(poses)} draws were not from the driver's seat in view mode {mode}" if off
+                   else stall)
             print(f"[seat] phase {name} at cap {cap}: {why}; attempt {attempt + 1}", flush=True)
-            time.sleep(5.0)
+            if attempt == 0:
+                time.sleep(5.0)
+                if reseat is not None:
+                    reseat()
         raise Failed(f"phase {name} at cap {cap}: disturbed in both attempts ({why})")
 
     def peer_walk():
@@ -994,9 +1020,18 @@ def main(argv):
         # H3: a lead listed for another class only
         obs.send("set g_unlock_vehicleLead titan:1")
         seated_up()
-        poses = phase("leadcontrol", caps[0], drive)
+
+        def driver_seated_moving(poses):
+            return [p for p in moving_poses(poses) if p["seat"] is not None and seat_fields(p["seat"])[1:] == (0, 0)]
+
+        def badger_stalled(poses):
+            # the badger never moved (#160: 0 moving draws once on antec): driven once more, as a
+            # stalled jetpack is; a second stall fails H3 below
+            n = len(driver_seated_moving(poses))
+            return None if n >= MIN_PAIRS else f"the badger barely moved: {n} moving draws in its driver's seat"
+        poses = phase("leadcontrol", caps[0], drive, stalled=badger_stalled, reseat=seated_up)
         led = sum(1 for p in poses if p["lead"] is not None)
-        seated = [p for p in moving_poses(poses) if p["seat"] is not None and seat_fields(p["seat"])[1:] == (0, 0)]
+        seated = driver_seated_moving(poses)
         ok3 = led == 0 and len(seated) >= MIN_PAIRS
         print(f"  {caps[0]:3} H3  {'pass' if ok3 else 'FAIL'}  {led} draws led with only the titan listed"
               f" ({len(seated)} moving draws in the badger's driver seat, need {MIN_PAIRS})")
@@ -1064,7 +1099,8 @@ def main(argv):
         # the jetpack (icarus, its own recipe since M5 step 14): listed, its first-person view is
         # drawn on every frame while it flies; unlisted, only across ticks
         seat_up("vehicle_icarus")
-        poses = phase("icarus", cap, drive, check_launch=False, mode=None)   # a jetpack flies
+        poses = phase("icarus", cap, drive, check_launch=False, mode=None,   # a jetpack flies
+                      stalled=jetpack_stalled, reseat=lambda: seat_up("vehicle_icarus"))
         # I0: every draw from a seat (the jetpack's; on foot, I1 would pass on the unlocked view)
         seats_i = {p["seat"] for p in poses}
         i0 = len(seats_i) == 1 and None not in seats_i
@@ -1072,7 +1108,8 @@ def main(argv):
         i2 = step_check(poses, "view", "jetpack view step")
         obs.send(f"set g_unlock_vehicleSeats {LISTED}")
         time.sleep(1.0)
-        control = phase("icaruscontrol", cap, drive, check_launch=False, mode=None)
+        control = phase("icaruscontrol", cap, drive, check_launch=False, mode=None,
+                        stalled=jetpack_stalled, reseat=lambda: seat_up("vehicle_icarus"))
         changed, n = within_tick_changes(control, "view")
         moving = sum(1 for a, b in zip(control, control[1:]) if moved(a["view"], b["view"]))
         i1c = n >= MIN_PAIRS and changed <= 1 and moving >= MIN_PAIRS
