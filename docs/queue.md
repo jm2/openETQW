@@ -58,7 +58,7 @@ Each item names its acceptance test. Details are in the linked plan.
    copies of `eaxguid.lib` and zlib contrib's `.obj` files. Replace each, or record why it
    stays (`STATUS.md` § Release gate, item 5).
 8. **The M1 and M2 gaps** (`STATUS.md` § Milestones):
-   - ~~M1: the `false` defaults of `build_engine` and `build_dedicated`~~: both default to `true` (this PR);
+   - ~~M1: the `false` defaults of `build_engine` and `build_dedicated`~~: both default to `true` (#173);
    - M2: collision in the graphical client is never asserted;
    - M2: the headless render world is still stubbed.
      Its effects are recorded in ledger 013 and are not measured. Next: a test-only parity
@@ -72,8 +72,18 @@ Each item names its acceptance test. Details are in the linked plan.
     - ~~cross-OS pairs that include an arm64 host~~: done (#144). Linux arm64 (`macmini-m1`)
       passes X1–X4 both ways with Linux x64, Windows x64 and macOS arm64
       (issuecomment-6281426367, -6282183468, -6303053162, -6303056403);
-    - weapon fire seen by the other player (a headless peer can't observe it; needs a
-      Vulkan observer or a server-side check).
+    - ~~weapon fire seen by the other player~~: a headless client does receive it. Game
+      main prints `EVENT_TRACER: server broadcast` on the server and `client received`
+      on each client, and the new `weapon-fire-observer` test requires the shooter and a
+      second headless client to receive every broadcast with the same start and end.
+      `clientClass covertops 1` selects the sniper through the class data, so no game
+      diagnostic command is needed. openETQW-linux (Switchworks), branch
+      `feat/m3-weapon-fire-observer` at 4557cad (base a38e311; unpublished because antec
+      has no push), game bb8e0c5. Host antec, Linux x86_64, valley, retail 1.5: two runs,
+      each 6 broadcasts, 6/6 received by both clients, 48 `playerPos` samples at 0.25 s,
+      the shooter at rest (0.00 u drift), every process exit 0; logs
+      `/var/tmp/oe-m3-test-logs/` and `/var/tmp/oe-m3-test-logs2/` on antec. Second-OS leg
+      owed (`openETQW-linux-arm64`).
 
     Acceptance: `cross-os` X1–X4 each way per pair, recorded like the evidence rows of
     2026-10-16, with the server's `playerPos` polled every 0.25 s (coordination §5).
