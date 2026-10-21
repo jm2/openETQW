@@ -11,7 +11,8 @@ in-progress work and is parked: no PRs are open in either repository apart from 
 Each row below names the branch or comment where its work stopped and its exact next step. When
 the owner resumes the sessions, start at §2's top row that has a next step.
 
-Updated: 2026-10-21 by `openETQW-linux` (coordinator), after the overnight work (§5). Earlier that day: merged since 2026-10-18 are #145, #146,
+Updated: 2026-10-21 by `openETQW-linux` (Switchworks, coordinator), after the overnight work (§5) and
+the release-gate-5 binary review (§3 item 7). Earlier that day: merged since 2026-10-18 are #145, #146,
 #149, #152, #153, #155–#158 and game #53–#56 (§5); filed #159 and #160. Before that,
 2026-10-18, after a pass over every doc.
 
@@ -54,9 +55,12 @@ Each item names its acceptance test. Details are in the linked plan.
    `check_spdx.py` passes, and the §6 rows are resolved.
 6. **`docs/platform-matrix.md`** (release gate, M7): what is verified per platform, with
    the evidence level, host and commit.
-7. **Release gate 5, third-party binaries:** review `src/openal/lib/openal32.lib`, both
-   copies of `eaxguid.lib` and zlib contrib's `.obj` files. Replace each, or record why it
-   stays (`STATUS.md` § Release gate, item 5).
+7. **Release gate 5, third-party binaries:** done 2026-10-21 (`openETQW-linux`): all seven
+   were reviewed and removed — `src/openal/lib/openal32.lib`, both `eaxguid.lib` copies
+   and the four zlib contrib `.obj` outputs. No current Meson target, install rule or test
+   references any of them (OpenAL is loaded by name; zlib is `dependency('zlib')`), so no
+   build change was needed. `STATUS.md` § Release gate item 5 records it and the manifest
+   entries are gone.
 8. **The M1 and M2 gaps** (`STATUS.md` § Milestones):
    - ~~M1: the `false` defaults of `build_engine` and `build_dedicated`~~: both default to `true` (this PR);
    - M2: collision in the graphical client is never asserted;
