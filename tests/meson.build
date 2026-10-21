@@ -738,6 +738,24 @@ if build_dedicated
     timeout: 600,
     is_parallel: false,
   )
+  # a weapon's tracer reaches another client, not just the shooter (M3): the
+  # server broadcasts EVENT_TRACER, and the shooter and a headless observer
+  # receive the same start and end; playerPos is polled every 0.25 s
+  test(
+    'weapon-fire-observer',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_m3_weapon_fire.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--port', '29974',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'weapon-fire-observer',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
   # a remote client whose GUI fails to parse in a map (engine #116): the drop
   # disconnects it from the server, it reads no more snapshots, and it can reconnect
   test(
