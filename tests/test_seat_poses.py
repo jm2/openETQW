@@ -58,6 +58,15 @@ turn there is 30 deg/s and stays inside it. The limits have their own check:
               owner-space clamp, -50..17), and the husky driver's yaw at r_aspectRatio 0 (4:3,
               where its final clamp, 75 deg less half the field of view, coincides with the 30
               deg angle clamp) and 1 (16:9, where the final clamp binds first, at about 22 deg)
+  L7 moving   #154: the freepivot gunner's pitch held at its limit while the server rocks the
+              parked badger on its suspension (the game's rockVehicle test command: alternating
+              pitch-rate pulses from its mark at rest), so the hull pitches under the gun. The
+              draw clamps in the drawn hull's frame, so the drawn view's pitch in the drawn
+              hull's frame stays at the limit: with the late look every draw is within
+              EDGE_MOVE_TOL of the edge without it (which draws the tick's view on the drawn
+              hull). A clamp in tick n's hull would hold the gun a tick's hull
+              motion off and step at each tick. The hull's own pitch must move at least
+              MOVE_PITCH_MIN with the late look, or the phase didn't test anything
 
 Gunner views (vehicle-responsiveness 3.6), parked, at cap 120: the gunner's freepivot view
 with the turret held turning (in_yawSpeed):
@@ -88,8 +97,9 @@ from one seat (I0); I2 the view's
 step across a tick is at most 2.5 x its step within one; I1c unlisted, the view changes only
 across ticks (at most one pair within). A flight that stalled (#151: the jetpack's view did
 not move across some tick, as when it hits a wall) is reported and flown once more from a
-fresh entry; a second stall fails the test, as a disturbed drive phase does. The jetpack's
-start can sit between walls closer than a drive leg, so the second flight can stall too.
+fresh entry; a second stall fails the test, as a disturbed drive phase does. Each flight
+starts on open ground (JETPACK_SPOT, the game's placeVehicle), forward then back: where the
+jetpack is entered, walls can sit closer than a drive leg.
 
 Hull lead (M5 step 14b, docs/hull-lead.md), at caps 60 and 120 in the driver's standard view
 with g_unlock_vehicleLead listing the badger at L = 1:
@@ -100,7 +110,9 @@ with g_unlock_vehicleLead listing the badger at L = 1:
   H2 steps    with the fade on (the default), S4's rule: the hull's median step across a tick
               is at most 2.5 x its median step within one, and the drawn view's too (H2v)
   H3 off      the seat-drive phases (the built-in lead list, empty) and a phase listing only
-              the titan (moving in the badger's driver seat) draw no lead= at all
+              the titan (moving in the badger's driver seat) draw no lead= at all; a titan
+              phase where the badger barely moved (#160) is reported and driven once more,
+              and a second stall fails the test
 
 Safety (nothing presented reaches tick state) is shown by meson seat-gate: its run B lists
 every seat and leads every class, so the presentation runs during the seat tour, and SIM_HASH, VEH_TRACE and
@@ -228,6 +240,33 @@ LOOK_HOLD_S = 0.6     # L2: the held turn (the vehicle's key turn is faster than
 GUN_HOLD_S = 1.5      # G1-G3: the held turret turn in the gunner's view
 EDGE_HOLD_S = 1.2     # L6: the held turn past the husky driver's yaw limit (60 deg/s)
 EDGE_TOL = 0.25       # L6: degrees the late look may stop from the tick's own edge
+EDGE_MOVE_TOL = 0.1   # L7: degrees any draw may be off the edge without the late look
+MOVE_PITCH_MIN = 1.0  # L7: degrees the hull's drawn pitch must range over while it rocks
+MOVE_HOLD_SPEED = 180  # L7: deg/s of the held +lookup, well above the rocking hull's ~58 deg/s
+ROCK_RATE = 90        # L7: deg/s of each rockVehicle pulse (game test command), alternating
+ROCK_PULSES = (1, -1, 1)
+ROCK_PULSE_S = 0.5
+
+
+def pitch_in_hull(p):
+    """The drawn view's pitch in the drawn hull's frame (degrees, positive down, as idAngles):
+    the view's forward vector in the hull's axis (idAngles::ToMat3), as freepivot's
+    owner-space clamp measures it."""
+    vp, vy = math.radians(p["view"][3]), math.radians(p["view"][4])
+    hp, hy, hr = (math.radians(a) for a in p["veh"][3:6])
+    fwd = (math.cos(vp) * math.cos(vy), math.cos(vp) * math.sin(vy), -math.sin(vp))
+    sp, cp, sy, cy, sr, cr = math.sin(hp), math.cos(hp), math.sin(hy), math.cos(hy), math.sin(hr), math.cos(hr)
+    axis = ((cp * cy, cp * sy, -sp),
+            (sr * sp * cy - cr * sy, sr * sp * sy + cr * cy, sr * cp),
+            (cr * sp * cy + sr * sy, cr * sp * sy - sr * cy, cr * cp))
+    x, y, z = (sum(f * a for f, a in zip(fwd, row)) for row in axis)
+    return -math.degrees(math.atan2(z, math.hypot(x, y)))
+
+
+# where each jetpack flight starts (placeVehicle, game): open ground 500 u left of the badger's
+# mark, facing 67 deg. Where the jetpack is entered, walls can sit closer than one drive leg
+# (#151); from here a forward-then-back flight had no still tick (probe, 2026-10-20)
+JETPACK_SPOT = (8505, -10154, 1500, 67)
 
 
 def jetpack_stalled(poses):
@@ -653,6 +692,56 @@ def main(argv):
             if not ok:
                 failures.append(f"late look, {label}, L6: {detail}")
 
+        def moving_edge_check(label, want_seat):
+            """L7 (#154): the gun held at its pitch limit (+lookup) while the server rocks the
+            parked badger on its suspension (rockVehicle, from its mark at rest each time)."""
+
+            def rock():
+                for sign in ROCK_PULSES:
+                    srv.send(f"rockVehicle {BADGER} {sign * ROCK_RATE}")
+                    time.sleep(ROCK_PULSE_S)
+
+            def hold(setting):
+                srv.send(f"resetVehicle {BADGER}")
+                time.sleep(1.0)
+                obs.send(f"set g_unlock_vehicleLook {setting}")
+                # faster than the hull pitches up, or the tick's gun would leave the edge too
+                obs.send(f"set in_pitchSpeed {MOVE_HOLD_SPEED}")
+                obs.send("+lookup")
+                time.sleep(EDGE_HOLD_S)     # the gun is at its -50 limit well within it
+                mark = obs.mark()
+                rock()
+                end = obs.mark()
+                obs.send("-lookup")
+                obs.send("+lookdown")
+                time.sleep(EDGE_HOLD_S / 2)
+                obs.send("-lookdown")
+                time.sleep(1.0)
+                return [p for ln in obs.snapshot(mark, end) if (p := parse_pose(ln.text)) and p["veh"] is not None]
+
+            runs = {s: hold(s) for s in ("0", "1")}
+            srv.send(f"resetVehicle {BADGER}")
+            obs.send("set g_unlock_vehicleLook 1")
+            obs.send("set in_pitchSpeed 140")
+            time.sleep(1.5)
+            seats = {p["seat"] for s in runs for p in runs[s]}
+            rel = {s: [pitch_in_hull(p) for p in runs[s]] for s in runs}
+            hull = {s: (max(p["veh"][3] for p in runs[s]) - min(p["veh"][3] for p in runs[s])) if runs[s] else 0.0
+                    for s in runs}
+            e0 = statistics.median(rel["0"]) if rel["0"] else float("nan")
+            worst = {s: max((abs(r - e0) for r in rel[s]), default=float("nan")) for s in runs}
+            ok = (len(seats) == 1 and None not in seats and seat_fields(next(iter(seats)))[1:] == want_seat
+                  and min(len(rel["0"]), len(rel["1"])) >= MIN_PAIRS and hull["1"] >= MOVE_PITCH_MIN
+                  and worst["1"] <= EDGE_MOVE_TOL)
+            detail = (f"gun held at its pitch limit while the hull rocked: with the late look the worst of"
+                      f" {len(rel['1'])} draws is {worst['1']:.3f} deg off the edge without it ({e0:.2f} deg to the"
+                      f" drawn hull; need {EDGE_MOVE_TOL}), without it {worst['0']:.3f};"
+                      f" the hull's pitch ranged {hull['1']:.2f} deg with the late look, {hull['0']:.2f} without"
+                      f" (need {MOVE_PITCH_MIN}) (seats {sorted(x or '-' for x in seats)})")
+            print(f"  {cap:3} {label} L7  {'pass' if ok else 'FAIL'}  {detail}")
+            if not ok:
+                failures.append(f"late look, {label}, L7: {detail}")
+
         obs.send(f"set g_unlock_vehicleSeats {LISTED}")
         seat_up()
         # where the drive phases start from: the badger parked where it spawned (#84)
@@ -729,6 +818,7 @@ def main(argv):
         late_look("freepivot gunner", (1, 0), orbit=True)
         # its pitch limit (-50..17 in the hull's frame): freepivot's owner-space clamp
         edge_check("freepivot gunner", (1, 0), "lookup", "lookdown", 3, -1.0)
+        moving_edge_check("freepivot gunner", (1, 0))
         results_gun = {}
         for listed, key in ((True, "+left"), (False, "+right")):
             obs.send(f"set g_unlock_vehicleSeats {LISTED + ',badger:*:freepivot' if listed else LISTED}")
@@ -937,9 +1027,18 @@ def main(argv):
         # H3: a lead listed for another class only
         obs.send("set g_unlock_vehicleLead titan:1")
         seated_up()
-        poses = phase("leadcontrol", caps[0], drive)
+
+        def driver_seated_moving(poses):
+            return [p for p in moving_poses(poses) if p["seat"] is not None and seat_fields(p["seat"])[1:] == (0, 0)]
+
+        def badger_stalled(poses):
+            # the badger never moved (#160: 0 moving draws once on antec): driven once more, as a
+            # stalled jetpack is; a second stall fails H3 below
+            n = len(driver_seated_moving(poses))
+            return None if n >= MIN_PAIRS else f"the badger barely moved: {n} moving draws in its driver's seat"
+        poses = phase("leadcontrol", caps[0], drive, stalled=badger_stalled, reseat=seated_up)
         led = sum(1 for p in poses if p["lead"] is not None)
-        seated = [p for p in moving_poses(poses) if p["seat"] is not None and seat_fields(p["seat"])[1:] == (0, 0)]
+        seated = driver_seated_moving(poses)
         ok3 = led == 0 and len(seated) >= MIN_PAIRS
         print(f"  {caps[0]:3} H3  {'pass' if ok3 else 'FAIL'}  {led} draws led with only the titan listed"
               f" ({len(seated)} moving draws in the badger's driver seat, need {MIN_PAIRS})")
@@ -1006,9 +1105,21 @@ def main(argv):
             failures.append(f"the chase phase drew view modes {sorted(modes)}, not only the chase view (1)")
         # the jetpack (icarus, its own recipe since M5 step 14): listed, its first-person view is
         # drawn on every frame while it flies; unlisted, only across ticks
-        seat_up("vehicle_icarus")
-        poses = phase("icarus", cap, drive, check_launch=False, mode=None,   # a jetpack flies
-                      stalled=jetpack_stalled, reseat=lambda: seat_up("vehicle_icarus"))
+        def jetpack_up():
+            seat_up("vehicle_icarus")
+            srv.send("placeVehicle vehicle_icarus {} {} {} {}".format(*JETPACK_SPOT))
+            time.sleep(3.0)
+
+        def fly():
+            # forward, then back: the legs the open spot was checked with (drive() alternates)
+            for sign in (1, -1):
+                obs.send(f"clientMove {sign * THROTTLE} 0 0")
+                time.sleep(DRIVE_LEG_S)
+            obs.send("clientMove 0 0 0")
+
+        jetpack_up()
+        poses = phase("icarus", cap, fly, check_launch=False, mode=None,   # a jetpack flies
+                      stalled=jetpack_stalled, reseat=jetpack_up)
         # I0: every draw from a seat (the jetpack's; on foot, I1 would pass on the unlocked view)
         seats_i = {p["seat"] for p in poses}
         i0 = len(seats_i) == 1 and None not in seats_i
@@ -1016,8 +1127,9 @@ def main(argv):
         i2 = step_check(poses, "view", "jetpack view step")
         obs.send(f"set g_unlock_vehicleSeats {LISTED}")
         time.sleep(1.0)
-        control = phase("icaruscontrol", cap, drive, check_launch=False, mode=None,
-                        stalled=jetpack_stalled, reseat=lambda: seat_up("vehicle_icarus"))
+        jetpack_up()
+        control = phase("icaruscontrol", cap, fly, check_launch=False, mode=None,
+                        stalled=jetpack_stalled, reseat=jetpack_up)
         changed, n = within_tick_changes(control, "view")
         moving = sum(1 for a, b in zip(control, control[1:]) if moved(a["view"], b["view"]))
         i1c = n >= MIN_PAIRS and changed <= 1 and moving >= MIN_PAIRS

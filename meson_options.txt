@@ -3,14 +3,14 @@
 option(
   'build_engine',
   type: 'boolean',
-  value: false,
+  value: true,
   description: 'Build openETQW client and dedicated engine executables (M1 target).',
 )
 
 option(
   'build_dedicated',
   type: 'boolean',
-  value: false,
+  value: true,
   description: 'Build openETQW dedicated server executable.',
 )
 
