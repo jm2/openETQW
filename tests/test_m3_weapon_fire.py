@@ -114,7 +114,7 @@ def main(argv):
         ded, data, args.map, args.port, log_path=log("server.log"),
         cvars={"si_rules": "sdGameRulesObjective", "si_pure": "0",
                "g_teamSwitchDelay": "0", "si_maxPlayers": "16",
-               "bot_enable": "1", "bot_sleepWhenServerEmpty": "0",
+               "bot_enable": "0",
                "net_allowCheats": "1"})
     shooter = RemoteClient(ded, data, args.port, args.port + 1,
                            log_path=log("shooter.log"), net={"ui_name": "GDF_Sniper"})
