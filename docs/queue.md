@@ -30,7 +30,7 @@ Updated: 2026-10-20 evening by `openETQW-linux` (coordinator), after a quota-bou
 | [#141](https://github.com/jm2/openETQW/issues/141) | Mouse motion: SDL's sub-pixel `xrel`/`yrel` is truncated per event (`src/sys/sdl/sdl_events.cpp:238`), so slow motion is lost on high-DPI displays. From code, not reproduced. | `openETQW-mac` (parked) | Branch `fix/mouse-subpixel-deltas` at 42de177, no PR yet: the fix and its unit test pass, local checks are clean, and the full suite passed on macOS apart from a `seat-poses-listen` L3 flake (#162; 3/3 reruns pass). Next: the owner's Retina check, old build against new (commands on #141, issuecomment-6290237448), then the PR. Input path only. |
 | [#147](https://github.com/jm2/openETQW/issues/147) | High-density displays: should `r_mode` / `r_custom*` mean pixels or points (SDL sizes on macOS are points)? | — | An owner question with three options; not urgent. |
 | [#162](https://github.com/jm2/openETQW/issues/162) | `seat-poses-listen` L3 (held yaw): 2 of 16 cross-tick rates over 2.5x once on macOS (worst 3.53x); 3 of 3 reruns passed. | — | On the next failure, keep the log directory and look at the client's frame times at the stepping pairs. The bound stays. |
-| [#159](https://github.com/jm2/openETQW/issues/159) | `all-stock-maps`: salvage's Strogg `aas_area_validity` fell to 53.8% once (antec, 2026-10-20); two reruns passed. | — | On the next failure, keep the map's log and JSON and list where the area-0 samples were. The bound stays. |
+| [#159](https://github.com/jm2/openETQW/issues/159) | `all-stock-maps`: salvage's Strogg `aas_area_validity` fell to 53.8% once (antec, 2026-10-20); two reruns passed. | — | Cause found on `macmini-m1` (issuecomment-6305469953): the Strogg bot jumps from AAS area 3297 into an off-mesh pocket at (-768, 3215, 2991) and stays stuck there (`stuck_longest` 35.6 s; 20.9% with `--bot-seconds 120`). The check is right and the bound stays. Next: look at the spot in a client with `aas_showAreas 1` to tell a retail pocket from a port bug (AAS load or bot jump reachability). |
 | [#160](https://github.com/jm2/openETQW/issues/160) | `seat-poses-listen`: H3 once saw no moving draws in the badger's driver seat (antec, 2026-10-20); two reruns passed. | — | Find why the badger sometimes doesn't move in the listen-host leg. The bound stays. |
 | [#151](https://github.com/jm2/openETQW/issues/151) | `seat-poses` I1: the jetpack's flight can stall between close walls. Since #165 a stall is reported and flown once more, and a second stall fails. | — | The start sits between walls closer than one drive leg, so a retry can stall too: find a start with room, or a shorter leg (options on #151, issuecomment-6304223638). The 99% bound stays. |
 | [#154](https://github.com/jm2/openETQW/issues/154) | `seat-poses`: no test holds a `freepivot` gun at its extent while the hull moves (late look, ledger 064). | `openETQW-win` (parked) | WIP on `tests/seat-poses-moving-edge` at de67612: L7's metric works (0.001° on main against 0.072° with the bug put back), but the peer's drive doesn't turn the hull moderately and repeatably. Next: a repeatable hull rotation (state on #154, issuecomment-6303561689). |
@@ -66,6 +66,11 @@ Each item names its acceptance test. Details are in the linked plan.
    - M1: the `false` defaults of `build_engine` and `build_dedicated`;
    - M2: collision in the graphical client is never asserted;
    - M2: the headless render world is still stubbed.
+     Its effects are recorded in ledger 013 and are not measured. Next: a test-only parity
+     test that runs the same short scripted scenes on a listen server (real render world)
+     and on a dedicated server (`idRenderWorldHeadless`) and compares the outcomes: a hit
+     on a prone bot (render-model combat model), `RadiusPush` behind a wall, and a vehicle
+     exit near the map edge. Its result is the evidence for the owner question in §4.
 
    Each gap gets a test or a recorded decision.
 9. **M3, what is left** (`STATUS.md` § Milestones, M3):
@@ -97,6 +102,11 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   host is in the fleet; the owner would have to provide one.
 - **Hosted CI:** comes back only with Actions minutes. Until then, local checks replace it.
 - **#122's retail reference** if none can be found.
+- **The headless render world (M2):** keep `idRenderWorldHeadless` as it is, or load the
+  `.procb` areas and nodes on the dedicated server (`PointInArea`, `BoundsInAreas`;
+  moderate), with render-model traces still out (they need render models; heavy).
+  Recommended by `openETQW-linux-arm64` (2026-10-20): keep the stub for M2 as a recorded
+  decision (ledger 013) until the §3 item 8 parity test measures the effects.
 - **A person at the controls.** Smooth motion at high caps, and M3's "Vulkan client with a
   human at the controls", are judged by people on real displays (M5 D3), not by a test.
 
