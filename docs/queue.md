@@ -63,7 +63,7 @@ Each item names its acceptance test. Details are in the linked plan.
    copies of `eaxguid.lib` and zlib contrib's `.obj` files. Replace each, or record why it
    stays (`STATUS.md` § Release gate, item 5).
 8. **The M1 and M2 gaps** (`STATUS.md` § Milestones):
-   - M1: the `false` defaults of `build_engine` and `build_dedicated`;
+   - ~~M1: the `false` defaults of `build_engine` and `build_dedicated`~~: both default to `true` (this PR);
    - M2: collision in the graphical client is never asserted;
    - M2: the headless render world is still stubbed.
 
