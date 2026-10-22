@@ -201,8 +201,10 @@ common_main() {
 
   if "$VALIDATE"; then
     "$NO_DEPS" || platform_check_deps
+    # the validator builds whatever checkout it is given; check it against the pin as a build does
+    resolve_game_repo
     cd "$ENGINE_ROOT" || exit 1
-    run python3 tools/validation/openetqw_validate.py pr
+    run python3 tools/validation/openetqw_validate.py pr --game-repo "$GAME_REPO"
     exit 0
   fi
 

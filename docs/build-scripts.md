@@ -86,7 +86,9 @@ Then at most one of:
 Both pass `+set fs_basepath $ETQW_DATA_PATH` when that is set, and otherwise let the
 engine find the retail data itself (readme, Install and packages).
 
-`--validate` runs `tools/validation/openetqw_validate.py pr` instead of a build.
+`--validate` runs `tools/validation/openetqw_validate.py pr` instead of a build, on the game
+checkout a build would use, checked against the pin the same way (the validator builds
+whatever checkout it is given), and with the vcpkg environment on Windows (#183).
 `--dry-run` prints every command without running it. Conflicting options are usage errors
 (exit 2): `--test` with `--run` or `--server`, `--map` without either, `--validate` with
 build options, `--debug` with `--release`, and unknown options.

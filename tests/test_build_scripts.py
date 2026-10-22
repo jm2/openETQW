@@ -143,6 +143,11 @@ def check(helper: Helper, game: Path) -> None:
     last = steps(r.stdout)[-1] if steps(r.stdout) else ""
     expect("openETQW-client_" in last and "+devmap canyon" in last, f"{tag}: --run --map starts a devmap session")
 
+    r = helper.run(*base, "--validate", env=env)
+    last = steps(r.stdout)[-1] if steps(r.stdout) else ""
+    expect(r.returncode == 0 and "openetqw_validate.py" in last and str(game) in last,
+           f"{tag}: --validate runs the validator on the resolved game checkout ({last})")
+
     r = helper.run(*base, env=dict(env, OPENETQW_GAME_REPO=str(game / "missing")))
     expect(r.returncode == 1, f"{tag}: a missing OPENETQW_GAME_REPO fails (exit {r.returncode})")
 

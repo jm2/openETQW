@@ -259,10 +259,12 @@ $env:CMAKE_PREFIX_PATH = $VcpkgInstalled
 
 if ($Validate) {
     if (-not $NoDeps) { Test-Dependencies }
+    # the validator builds whatever checkout it is given; check it against the pin as a build does
+    $GameRepo = Resolve-GameRepo
     $py = Find-Python
     if (-not $py) { $py = "python" }
     Push-Location $EngineRoot
-    try { Invoke-Step $py @("tools\validation\openetqw_validate.py", "pr") } finally { Pop-Location }
+    try { Invoke-Step $py @("tools\validation\openetqw_validate.py", "pr", "--game-repo", $GameRepo) } finally { Pop-Location }
     exit 0
 }
 
