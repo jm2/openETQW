@@ -79,9 +79,10 @@ Each item names its acceptance test. Details are in the linked plan.
      Branch `fix/m2-render-world-parity`, with game branch
      `test/m2-render-world-parity`; the numbers are in §4. Next: the game PR (it
      supplies the `m2Parity` diagnostic), then this engine PR and the companion pin.
-     The second-OS leg is `openETQW-mac`'s reported 1/1 OK at test blob `ff3468d`
-     (macOS arm64); the head here is `afab6d7`, later than that blob by an assertion
-     comment only, so record the second-OS leg as mac-reported, not as an `afab6d7` run.
+     The second-OS leg is `openETQW-mac`'s reported 1/1 OK on macOS arm64 at engine
+     tree `174ed9b` with test blob `ff3468d`; the test here is blob `a7fbbdb`, later
+     than that by an assertion comment only, so record the second-OS leg as
+     mac-reported, not as a run of this head.
 
    Each gap gets a test or a recorded decision.
 9. **M3, what is left** (`STATUS.md` § Milestones, M3):
