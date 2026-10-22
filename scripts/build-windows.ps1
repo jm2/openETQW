@@ -113,7 +113,7 @@ if ($args.Count -gt 0) { Usage-Error "Unknown option: $($args -join ' ')" }
 $after = @($Test, $Run, $Server) | Where-Object { $_ } | Measure-Object | Select-Object -ExpandProperty Count
 if ($after -gt 1) { Usage-Error "Choose at most one of -Test, -Run and -Server" }
 if ($Map -and -not ($Run -or $Server)) { Usage-Error "-Map needs -Run or -Server" }
-if ($Validate -and ($after -gt 0 -or $Clean -or $SyncGame -or $BuildType -or $BuildDir)) {
+if ($Validate -and ($after -gt 0 -or $Clean -or $BuildType -or $BuildDir)) {
     Usage-Error "-Validate cannot be combined with build or launch options"
 }
 if ($NoDeps -and $InstallDeps) { Usage-Error "-NoDeps and -InstallDeps cannot be combined" }
@@ -252,21 +252,23 @@ function Invoke-MesonBuild([string]$Source, [string]$Build, [string[]]$Options) 
 
 Add-PythonUserScripts
 
+# the vcpkg environment, as the CI prepare action sets it (docs/coordination.md §5); -Validate's builds need it too
+$env:PKG_CONFIG = Join-Path $VcpkgInstalled "tools\pkgconf\pkgconf.exe"
+$env:PKG_CONFIG_PATH = "$(Join-Path $VcpkgInstalled 'lib\pkgconfig');$(Join-Path $VcpkgInstalled 'share\pkgconfig')"
+$env:CMAKE_PREFIX_PATH = $VcpkgInstalled
+
 if ($Validate) {
     if (-not $NoDeps) { Test-Dependencies }
+    # the validator builds whatever checkout it is given; check it against the pin as a build does
+    $GameRepo = Resolve-GameRepo
     $py = Find-Python
     if (-not $py) { $py = "python" }
     Push-Location $EngineRoot
-    try { Invoke-Step $py @("tools\validation\openetqw_validate.py", "pr") } finally { Pop-Location }
+    try { Invoke-Step $py @("tools\validation\openetqw_validate.py", "pr", "--game-repo", $GameRepo) } finally { Pop-Location }
     exit 0
 }
 
 if (-not $NoDeps) { Test-Dependencies }
-
-# the vcpkg environment, as the CI prepare action sets it (docs/coordination.md §5)
-$env:PKG_CONFIG = Join-Path $VcpkgInstalled "tools\pkgconf\pkgconf.exe"
-$env:PKG_CONFIG_PATH = "$(Join-Path $VcpkgInstalled 'lib\pkgconfig');$(Join-Path $VcpkgInstalled 'share\pkgconfig')"
-$env:CMAKE_PREFIX_PATH = $VcpkgInstalled
 
 $GameRepo = Resolve-GameRepo
 
