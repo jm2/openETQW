@@ -11,7 +11,8 @@ gameplay scenes on both:
               (ModelTrace, a stub on both worlds today), plus the game collision world's
               hit on that bot for the same segment;
   radiuspush  RadiusPush through a wall the collision world found, whose reach is
-              decided by the render world's FastWorldTrace;
+              decided by the render world's FastWorldTrace (also a stub on both
+              worlds: it answers false, so the wall is ignored);
   exit        a vehicle exit with the vehicle outside the map, decided by
               PointInArea on the exit joints.
 
@@ -29,9 +30,19 @@ m2Parity diagnostic):
   * both render worlds' ModelTrace answer false (both ModelTrace implementations are
     stubs), while the game collision world hits the prone bot itself with the same
     fraction on both hosts;
-  * RadiusPush is identical on both hosts for the same collision-world scene;
+  * RadiusPush is identical on both hosts for the same collision-world scene, and that
+    identity is stub parity, not collision parity: both worlds' FastWorldTrace answer
+    false (idRenderWorldLocal::FastWorldTrace, src/renderer/RenderWorld.cpp:797, and the
+    headless stub), so the wall the collision world found is ignored on both and the
+    push keeps its full reach. A working render-world trace would shorten it;
   * a vehicle exit outside the map is accepted by the dedicated server (every point
     is area 0) and rejected by the listen host (no exit joint is in an area).
+
+In the radiuspush line, `listed` is how many entities the collision-world radius query
+returned and `pushed` how many of those actually move; `wallFound` and `wallDistance`
+describe the first wall the collision world found on the way to the entity. `listed` is
+asserted equal on both hosts, not against a fixed count: it depends on the scene's
+entity set.
 
 Exit 77 when the retail data or either binary is missing. Needs a Vulkan window (on
 headless Linux, SDL_VIDEO_DRIVER=offscreen, which this test sets when DISPLAY is unset).
