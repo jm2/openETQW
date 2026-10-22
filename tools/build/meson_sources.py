@@ -131,7 +131,9 @@ CLIENT_SOUND_SOURCES = (
 
 CLIENT_RENDERER_SOURCES = (
     "src/renderer/DeviceContext.cpp",
+    "src/renderer/GuiFont.cpp",
     "src/renderer/GuiModel.cpp",
+    "src/renderer/GuiTextLayout.cpp",
     "src/renderer/Image_init.cpp",
     "src/renderer/Image_load.cpp",
     "src/renderer/Image_process.cpp",

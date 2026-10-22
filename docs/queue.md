@@ -20,6 +20,7 @@ Updated: 2026-10-21 by `openETQW-linux` (coordinator), after the overnight work 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
 | [#180](https://github.com/jm2/openETQW/pull/180) | Build helpers, one command per platform (`scripts/build-*`, `docs/build-scripts.md`; the owner's request, 2026-10-22). | `openETQW-mac` | `build/helper-scripts` | Full runs of `build-linux.sh` on Linux x64 and arm64 and of `build-windows.ps1` on Windows x64 and arm64; an independent review. |
+| (this PR) | GUI text from the game's fonts on every platform and both renderers ([#181](https://github.com/jm2/openETQW/issues/181), `docs/gui-text.md`; the owner's request, 2026-10-22). | `openETQW-mac` | `fix/gui-text` | Screenshot sets on Windows x64 (ray tracing on and off), Windows arm64 and Linux, and a comparison with retail 1.5's menus on Windows; the OpenGL path run on Windows; an independent review. |
 
 ## 2. Open issues, in priority order
 
