@@ -69,8 +69,13 @@ Each item names its acceptance test. Details are in the linked plan.
      until one is implemented;
    - M2: the headless render world is still stubbed. Its effects are recorded in ledger
      013 and are now measured by `tests/test_m2_render_world_parity.py` (meson
-     `m2-render-world-parity`): the same scripted prone hit, `RadiusPush` behind a wall
-     and vehicle exit outside the map on a Vulkan listen host and a dedicated server.
+     `m2-render-world-parity`): it compares the two render worlds' trace results
+     (`ModelTrace`/`FastWorldTrace`) and `PointInArea`/area counts across the same
+     scripted prone, `RadiusPush` and vehicle-exit scenes on a Vulkan listen host and a
+     dedicated server, and records that both render worlds answer false for traces. That
+     is stub parity, not render-model collision evidence: a real client-collision test
+     has to exercise `collisionModelManager`/client prediction, not render-world traces.
+     The client-collision gap above stays open.
      Branch `fix/m2-render-world-parity`, with game branch
      `test/m2-render-world-parity`; the numbers are in §4. Next: a second-OS run, the game
      PR (it supplies the `m2Parity` diagnostic), then this engine PR and the companion pin.
