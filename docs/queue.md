@@ -77,13 +77,17 @@ Each item names its acceptance test. Details are in the linked plan.
       on each client, and the new `weapon-fire-observer` test requires the shooter and a
       second headless client to receive every broadcast with the same start and end.
       `clientClass covertops 1` selects the sniper through the class data, so no game
-      diagnostic command is needed. openETQW-linux (Switchworks), branch
-      `feat/m3-weapon-fire-observer` at 6abdcd5 (base a38e311; unpublished because antec
-      has no push), game bb8e0c5. Host antec, Linux x86_64, valley, retail 1.5: three
-      runs, each 6 broadcasts, 6/6 received by both clients, 48 `playerPos` samples at
-      0.25 s, the shooter at rest (0.00 u drift), every process exit 0 (the third with
-      bots off); logs `/var/tmp/oe-m3-test-logs/`, `-logs2/` and `-logs3/` on antec.
-      Second-OS leg: macOS arm64 (openETQW-mac); Linux arm64 optional.
+      diagnostic command is needed; the test asserts the GDF SPAWN line's
+      class=covertops and that the shooter's own client number (client 1 on Linux arm64,
+      not always 0) stays within 2 u in 3D. openETQW-linux (Switchworks), branch
+      `feat/m3-weapon-fire-observer` at 8e06d7c (base a38e311; unpublished because antec
+      has no push), game bb8e0c5. Hosts: antec, Linux x86_64, valley, retail 1.5 (four
+      runs: 6-8 broadcasts each, every broadcast received by both clients, 24-48
+      `playerPos` samples at 0.25 s, 3D drift 0.00 u, exits 0;
+      `/var/tmp/oe-m3-test-logs{,2,3,4}/`) and macmini-m1, Linux arm64, engine 99261aa +
+      game e4c6d3f (6/6/6, 24 samples, 0.00 u, exits 0;
+      `/tmp/m3-arm64-review/`), plus two macOS arm64 runs by openETQW-mac (6/6/6, 48
+      samples, 0.00 u).
 
     Acceptance: `cross-os` X1–X4 each way per pair, recorded like the evidence rows of
     2026-10-16, with the server's `playerPos` polled every 0.25 s (coordination §5).
