@@ -77,8 +77,11 @@ Each item names its acceptance test. Details are in the linked plan.
      has to exercise `collisionModelManager`/client prediction, not render-world traces.
      The client-collision gap above stays open.
      Branch `fix/m2-render-world-parity`, with game branch
-     `test/m2-render-world-parity`; the numbers are in §4. Next: a second-OS run, the game
-     PR (it supplies the `m2Parity` diagnostic), then this engine PR and the companion pin.
+     `test/m2-render-world-parity`; the numbers are in §4. Next: the game PR (it
+     supplies the `m2Parity` diagnostic), then this engine PR and the companion pin.
+     The second-OS leg is `openETQW-mac`'s reported 1/1 OK at test blob `ff3468d`
+     (macOS arm64); the head here is `afab6d7`, later than that blob by an assertion
+     comment only, so record the second-OS leg as mac-reported, not as an `afab6d7` run.
 
    Each gap gets a test or a recorded decision.
 9. **M3, what is left** (`STATUS.md` § Milestones, M3):
@@ -123,7 +126,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   command, retail 1.5, `valley`). The listen host is a Vulkan client on SDL's offscreen
   driver with llvmpipe (software Vulkan, Mesa 26.2.4), so it exercises the client's real
   `idRenderWorldLocal` but no GPU raster path. Raw logs
-  `/var/tmp/oe-swk-linux/handoff/m2-parity-final`, reproducible with meson
+  `/var/tmp/oe-swk-linux/handoff/m2-parity-afab6d7`, reproducible with meson
   `m2-render-world-parity`:
   - `probe`: dedicated `numAreas=1`, `PointInArea` 0 inside and 0 outside; listen
     `numAreas=54`, 0 inside and -1 outside;
