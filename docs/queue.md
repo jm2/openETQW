@@ -11,7 +11,7 @@ in-progress work and is parked: no PRs are open in either repository apart from 
 Each row below names the branch or comment where its work stopped and its exact next step. When
 the owner resumes the sessions, start at §2's top row that has a next step.
 
-Updated: 2026-10-21 by `openETQW-linux` (coordinator), after the overnight work (§5). Earlier that day: merged since 2026-10-18 are #145, #146,
+Updated: 2026-10-22 by `openETQW-linux` (coordinator): game #51 row added with the Linux arm64 evidence and the open owner ask. The 2026-10-21 update covered the overnight work (§5); earlier that day, merged since 2026-10-18 are #145, #146,
 #149, #152, #153, #155–#158 and game #53–#56 (§5); filed #159 and #160. Before that,
 2026-10-18, after a pass over every doc.
 
@@ -30,6 +30,7 @@ Updated: 2026-10-21 by `openETQW-linux` (coordinator), after the overnight work 
 | [#162](https://github.com/jm2/openETQW/issues/162) | `seat-poses-listen` L3 (held yaw): cross-tick rates over 2.5x on macOS. | — | Reproduced 6 of 10 on mbp16 in the cap-120 driver phase; the cause is CPU work spikes on the listen host, not GPU waits (issuecomment-6306063943). Next: find what the listen host does in those spikes. The bound stays. |
 | [#159](https://github.com/jm2/openETQW/issues/159) | `all-stock-maps`: salvage's Strogg `aas_area_validity` dips when a bot lands in a gap in retail's own AAS (no area or reachability in a 64 u strip between areas 3297 and 2747). | — (owner-gated, §4) | The cause is retail data, not a port bug (issuecomment-6306739573). Whether to exclude recorded retail AAS gaps from the check is the owner's call (§4). |
 | [#148](https://github.com/jm2/openETQW/issues/148) | `ANTEC-WIN` drew at about 30 fps for some 15 minutes during a retail suite (2026-10-20 02:16–02:31Z); cause unknown. | — | If it recurs, capture what the issue lists. |
+| [game #51](https://github.com/jm2/openETQW-game/issues/51) | `sdUserInterfaceLocal::Load`'s catch may touch a freed `this`: snapshot the GUI name before the load/`try`, clear and restore the previous HUD after a failed load, and drop the redundant `PopTrace()`. The pre-fix code passes both GUI tests, so this is defensive hardening plus an invariant test, not a reproduced use-after-free. | `openETQW-linux-arm64`; `openETQW-mac` reviewed (parked) | Game PR [59](https://github.com/jm2/openETQW-game/pull/59) merges first; engine PR [#177](https://github.com/jm2/openETQW/pull/177) (branch `fix/gui-load-freed-this`) pins game `e4c6d3f` and adds the test. Validate pr PASSED at `bb82aef`; GUI pair 2/2 OK at `fb45cea`; negative control kills the client; provenance 0 missing. Real-GPU suite (`swk-gpu-run`, SDL offscreen, retail 1.5, macmini-m1): 64 OK / 4 FAIL / 1 SKIP of 69. The skip is cross-OS 77, not a pass; the failures are the three `frame-poses` cap-240 A1 turn phases (219.6 / 218.7 / 220.4 fps against the 235.2 minimum, reproduced) and `client-lifecycle` ALSA "Host is down", which passes 1/1 with `SDL_AUDIODRIVER=dummy`. Owner ask `01M5HVC7G32T1KGTW55NWTJ5SE` (keep or close; are the cap-240 A1 failures acceptable gate evidence) is open, so the item is parked, not merged. macmini is free with no game processes; the M2, M3 and M4 reviews were sent. |
 
 ## 3. Milestone work, in order
 
