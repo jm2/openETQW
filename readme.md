@@ -50,6 +50,23 @@ The engine builds and runs on five platforms: macOS arm64 (Apple Clang), Linux x
 
 High-refresh play, drawing above the 30 Hz game tick (default cap 240), works on foot and in the vehicle seats that are turned on. Which seats are on by default is still to be decided. [`STATUS.md`](STATUS.md) has the evidence levels, the exact commands, the known failures and the open items.
 
+## Quick build
+
+One command builds the game module and the engine, with the dependencies checked first
+([`docs/build-scripts.md`](docs/build-scripts.md)):
+
+```sh
+./scripts/build-macos.sh            # macOS arm64; installs missing Homebrew packages
+./scripts/build-linux.sh            # Linux; prints the dnf/apt/pacman command for what is missing
+./scripts/build-macos.sh --run      # build, then start the client
+./scripts/build-linux.sh --server --map valley   # build, then host a dedicated server
+```
+
+On Windows, in PowerShell: `powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1`
+(`-Run`, `-Server`, `-Map`, `-Test`). Each helper takes `--help`. The game repository is
+found at `../openETQW-game` (or `$OPENETQW_GAME_REPO`), or cloned there at the engine's
+pinned commit. The sections below are the same steps by hand.
+
 ## Build on macOS
 
 You need Apple Clang from the Xcode command line tools, Python 3, and these Homebrew packages: `meson`, `ninja`, `pkgconf`, `sdl3`, `vulkan-headers`, `vulkan-loader`, `molten-vk`.
