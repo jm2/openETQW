@@ -44,12 +44,13 @@ With no options:
    - Linux: `c++`, `meson`, `ninja`, `pkg-config`, `glslangValidator`, and the pkg-config
      modules `sdl3`, `vulkan`, `zlib` and `gl` plus the Vulkan headers. It prints the
      `dnf`, `apt-get` or `pacman` command for what is missing; `--install-deps` runs it with
-     `sudo`. On apt it points at `tools/ci/linux_deps.sh` for SDL3, which Ubuntu 24.04 and
+     `sudo`. On apt it leaves out packages the release does not have (apt would refuse the
+     whole command), and points at `tools/ci/linux_deps.sh` for SDL3, which Ubuntu 24.04 and
      Debian 12 do not package.
    - Windows: Visual Studio with the C++ tools for the host's architecture (vswhere),
      Python with meson and ninja, vcpkg (`-VcpkgRoot`, `$env:VCPKG_ROOT` or
      `%USERPROFILE%\vcpkg`) with `sdl3[vulkan] zlib vulkan-headers vulkan-loader pkgconf`
-     for `x64-windows` or `arm64-windows`, and glslangValidator (a warning only).
+     for `x64-windows` or `arm64-windows` (the machine's architecture, read from the registry, so an emulated x64 PowerShell on arm64 still builds arm64), and glslangValidator (a warning only).
      `-InstallDeps` runs `vcpkg install`, which needs no administrator rights. meson and
      ninja from `pip install --user` live in Python's per-user Scripts directory, which is
      not on PATH by default; when `meson` is not found, the helper adds that directory for
@@ -117,4 +118,4 @@ refuses fails the test: with the first version's `[System.IO.Path]::IsPathRooted
 | `mbp16-m1max` | `build-windows.ps1` (pwsh 7, dry run, ConstrainedLanguage) | `build-scripts` | pass |
 | Linux x64, Linux arm64 | `build-linux.sh` | — | to be run |
 | `yoga-slim7x` (Windows 11 arm64 10.0.26200, VS 18, vcpkg `arm64-windows`), by `openETQW-win-arm64` | `build-windows.ps1` at 324de72 | `-Test` in Windows PowerShell 5.1 and in pwsh 7 ConstrainedLanguage; `-Server -Map valley` on retail 1.5 data | built; unit suite 15/15 in both; valley reached `Game Map Init` and kept running (#180 issuecomment-6350764667) |
-| Windows x64 | `build-windows.ps1` | — | to be run |
+| `ANTEC-WIN` (Windows 11 Pro 10.0.26300 x64, VS 18, vcpkg `x64-windows`), by `openETQW-win` | `build-windows.ps1` at 1903105 and 324de72 | `-Test` fresh and reconfigured, in Windows PowerShell 5.1 and in ConstrainedLanguage; `-Server -Map valley` on retail 1.5 data | built; unit suite 15/15 in each; valley loaded and `quit` stopped it with exit 0 (#180 issuecomment-6350805119) |

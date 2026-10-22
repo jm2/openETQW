@@ -78,7 +78,20 @@ platform_check_deps() {
     pacman) cmd=(sudo pacman -S --needed "${unique[@]}") ;;
   esac
   if [[ "$pm" == apt ]]; then
-    warn "Ubuntu 24.04 and Debian 12 have no SDL3 package; tools/ci/linux_deps.sh builds it into a private prefix."
+    # apt refuses the whole command over one unknown package, so leave out what this
+    # release lacks: Ubuntu 24.04 and Debian 12 have no libsdl3-dev.
+    local available=()
+    for p in "${unique[@]}"; do
+      if apt-cache show "$p" >/dev/null 2>&1; then
+        available+=("$p")
+      else
+        warn "This release has no package $p."
+        [[ "$p" == libsdl3-dev ]] && warn "tools/ci/linux_deps.sh builds SDL3 into a private prefix; set PKG_CONFIG_PATH to it, then run this again."
+      fi
+    done
+    [[ ${#available[@]} -gt 0 ]] || error "Nothing that is missing can be installed with apt; see the lines above"
+    unique=("${available[@]}")
+    cmd=(sudo apt-get install -y "${unique[@]}")
   fi
   if "$INSTALL_DEPS"; then
     run "${cmd[@]}"

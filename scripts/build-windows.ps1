@@ -124,8 +124,13 @@ $EngineRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $GameUrl = "https://github.com/jm2/openETQW-game.git"
 if (-not (Split-Path -IsAbsolute $BuildDir)) { $BuildDir = Join-Path $EngineRoot $BuildDir }
 
-# PROCESSOR_ARCHITECTURE is set on Windows; elsewhere (the dry-run test) ask uname
-$machine = if ($env:PROCESSOR_ARCHITECTURE) { $env:PROCESSOR_ARCHITECTURE } else { "$(uname -m)" }
+# The machine's architecture, from the system environment in the registry: the
+# process's PROCESSOR_ARCHITECTURE says AMD64 in an x64 PowerShell emulated on an
+# arm64 host. Off Windows (the dry-run test) ask uname.
+$machine = ""
+$sessionEnv = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
+if (Test-Path $sessionEnv) { $machine = (Get-ItemProperty $sessionEnv).PROCESSOR_ARCHITECTURE }
+if (-not $machine) { $machine = if ($env:PROCESSOR_ARCHITECTURE) { $env:PROCESSOR_ARCHITECTURE } else { "$(uname -m)" } }
 switch -Regex ($machine) {
     "^(ARM64|arm64|aarch64)$" { $Arch = "arm64" }
     "^(AMD64|x86_64)$" { $Arch = "x64" }
