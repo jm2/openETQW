@@ -44,9 +44,11 @@ Each item names its acceptance test. Details are in the linked plan.
    which seats join the default list (§4).
 3. **M4, what is left** (`STATUS.md` § Milestones, M4). Done: classes, damage and kills,
    deployable delivery, both match endings, stopwatch and campaign transitions (meson
-   `m4-*`, #104 and #107). Left: a match played out by bots (they play no objectives), and
-   a started match on maps beyond the campaign's three. Acceptance: new meson tests pass on
-   the retail 1.5 data on two platforms.
+   `m4-*`, #104 and #107). Written (`feat/m4-bot-and-offcampaign-matches`): `m4-bot-match`
+   (two live bots play a time-limited match and complete no objective) and
+   `m4-offcampaign-match` (a match starts and runs to its time limit on quarry and island),
+   passed on Linux x64 at engine `a38e311` + game `bb8e0c5`; the second platform's run is
+   still owed. Acceptance: new meson tests pass on the retail 1.5 data on two platforms.
 4. **Retail data discovery** (`STATUS.md` § Next steps, item 7): the Linux folder picker,
    and a person trying the macOS and Windows pickers (owner).
 5. **Provenance labels** (`docs/provenance.md` §6): the minizip relabel and the other
