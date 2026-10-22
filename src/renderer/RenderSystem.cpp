@@ -152,6 +152,43 @@ void idRenderSystemLocal::BeginFrame( int width, int height ) {
 	synced = false;
 }
 
+// r_vkScreenshot under OpenGL: the finished back buffer, GUI included, as the
+// same 32-bit TGA and log line the Vulkan path writes (screenshot_set.py reads it)
+static void WriteOpenGLScreenshot( int width, int height ) {
+	// the cvar lives in VulkanBackend.cpp, file-local
+	const char* requested = cvarSystem->GetCVarString( "r_vkScreenshot" );
+	if ( requested == NULL || requested[ 0 ] == '\0' || width <= 0 || height <= 0 ) {
+		return;
+	}
+	const idStr path = requested;
+	cvarSystem->SetCVarString( "r_vkScreenshot", "" );
+	const size_t pixelBytes = static_cast< size_t >( width ) * height * 4;
+	byte* file = static_cast< byte* >( Mem_Alloc( pixelBytes + 18 ) );
+	memset( file, 0, 18 );
+	file[ 2 ] = 2;		// uncompressed true-colour
+	file[ 12 ] = width & 255;
+	file[ 13 ] = ( width >> 8 ) & 255;
+	file[ 14 ] = height & 255;
+	file[ 15 ] = ( height >> 8 ) & 255;
+	file[ 16 ] = 32;
+	file[ 17 ] = 0x08;	// 8 alpha bits, bottom-left origin, as glReadPixels returns rows
+	glPixelStorei( GL_PACK_ALIGNMENT, 1 );
+	glReadBuffer( GL_BACK );
+	glReadPixels( 0, 0, width, height, GL_BGRA_EXT, GL_UNSIGNED_BYTE, file + 18 );
+	for ( size_t i = 0; i < pixelBytes; i += 4 ) {
+		file[ 18 + i + 3 ] = 255;
+	}
+	FILE* out = fopen( path.c_str(), "wb" );
+	if ( out != NULL ) {
+		fwrite( file, 1, pixelBytes + 18, out );
+		fclose( out );
+		common->Printf( "r_vkScreenshot: wrote %dx%d to %s\n", width, height, path.c_str() );
+	} else {
+		common->Warning( "r_vkScreenshot: could not open '%s'", path.c_str() );
+	}
+	Mem_Free( file );
+}
+
 void idRenderSystemLocal::EndFrame( bool swapBuffers ) {
 	if ( openGLRunning ) {
 		{
@@ -159,6 +196,7 @@ void idRenderSystemLocal::EndFrame( bool swapBuffers ) {
 			guiModel.SubmitFrame( windowWidth, windowHeight );
 		}
 		if ( !vulkanBackend.IsInitialized() ) {
+			WriteOpenGLScreenshot( windowWidth, windowHeight );
 			glFlush();
 			if ( swapBuffers && sys3D != NULL ) {
 				sys3D->SwapBuffers();

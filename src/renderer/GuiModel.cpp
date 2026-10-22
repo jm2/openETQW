@@ -29,6 +29,7 @@
 #endif
 
 extern idCVar r_32ByteVtx;
+extern glconfig_t glConfig;
 
 namespace {
 
@@ -577,7 +578,40 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 			return;
 		}
 		SD_UnbindRenderProgram();
+		// glPopAttrib restores the driver's active unit behind the state cache's
+		// back; selecting through unit 1 makes unit 0 really active
+		GL_SelectTexture( 1 );
 		GL_SelectTexture( 0 );
+		// fixed function also samples every other enabled unit: a material stage
+		// drawn before may have left one on (its white image draws solid boxes)
+		for ( int unit = Min( glConfig.maxTextureUnits, 8 ) - 1; unit >= 1; unit-- ) {
+			qglActiveTextureARB( GL_TEXTURE0_ARB + unit );
+			glDisable( GL_TEXTURE_1D );
+			glDisable( GL_TEXTURE_2D );
+			glDisable( GL_TEXTURE_RECTANGLE_ARB );
+			if ( glConfig.texture3DAvailable ) glDisable( GL_TEXTURE_3D );
+			if ( glConfig.cubeMapAvailable ) glDisable( GL_TEXTURE_CUBE_MAP_ARB );
+		}
+		qglActiveTextureARB( GL_TEXTURE0_ARB );
+		// and on unit 0, the targets that take precedence over 2D
+		glDisable( GL_TEXTURE_1D );
+		glDisable( GL_TEXTURE_RECTANGLE_ARB );
+		if ( glConfig.texture3DAvailable ) glDisable( GL_TEXTURE_3D );
+		if ( glConfig.cubeMapAvailable ) glDisable( GL_TEXTURE_CUBE_MAP_ARB );
+		glDisable( GL_TEXTURE_GEN_S );
+		glDisable( GL_TEXTURE_GEN_T );
+		glDisable( GL_TEXTURE_GEN_R );
+		glDisable( GL_TEXTURE_GEN_Q );
+		glMatrixMode( GL_TEXTURE );
+		glPushMatrix();
+		glLoadIdentity();
+		glMatrixMode( GL_MODELVIEW );
+		// the stage drawn before may have been opaque: without blending every
+		// glyph is a solid box (seen on macOS and Linux under OpenGL)
+		// (GLS bits, as the Vulkan path's 0x65: source alpha, one minus source
+		// alpha; 0x100 no depth writes; 0x10000 depth always)
+		SD_ApplyRenderProgramState( 0x65 | 0x100 | 0x10000, CT_TWO_SIDED );
+		glDisable( GL_ALPHA_TEST );
 		glEnable( GL_TEXTURE_2D );
 		glTexEnvi( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE );
 		idImage* bound = NULL;
@@ -599,6 +633,9 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 			glTexCoord2f( quad.s0, quad.t1 ); glVertex2f( quad.x0, quad.y1 );
 		}
 		glEnd();
+		glMatrixMode( GL_TEXTURE );
+		glPopMatrix();
+		glMatrixMode( GL_MODELVIEW );
 		glDisable( GL_TEXTURE_2D );
 	};
 

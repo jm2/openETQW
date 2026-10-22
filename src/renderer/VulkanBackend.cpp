@@ -108,7 +108,7 @@ idCVar r_vkScreenshot(
 	"r_vkScreenshot",
 	"",
 	CVAR_RENDERER | CVAR_NOCHEAT,
-	"write the next presented Vulkan frame to this path as a 32-bit TGA, then clear itself"
+	"write the next presented frame (Vulkan or OpenGL) to this path as a 32-bit TGA, then clear itself"
 );
 
 idCVar r_vkSkipGui(

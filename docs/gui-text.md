@@ -75,3 +75,8 @@ One module, `src/renderer/GuiFont.{h,cpp}`, used by the device context and both 
 `tests/GuiTextLayoutTest.cpp` (unit suite): the layout on a stand-in face with fixed metrics.
 It covers alignment, wrapping, truncation, escapes and the advances and line breaks that
 `sdTextDimensionHelper` reads. The screenshot sets cover what is drawn.
+
+`r_vkScreenshot` also captures under OpenGL (the back buffer, GUI included, with the same
+log line), so the text can be checked on both renderers without a desktop capture. Under
+OpenGL the text sets its own blend state: the material stage drawn before it may be
+opaque, and then every glyph drew as a solid box (#182, found on Linux and macOS).
