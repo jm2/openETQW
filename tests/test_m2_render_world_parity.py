@@ -22,8 +22,9 @@ owner's headless-render-world question (docs/queue.md §4), not a decision: the 
 relationship is encoded below, so a change - a fix, a regression, or a new stub - fails
 and the expectation and ledger 013 are updated with it.
 
-Current outcome (valley, retail 1.5, engine a38e311 + game bb8e0c5 with the test-only
-m2Parity diagnostic):
+Current outcome (valley, retail 1.5): engine a38e311 is this branch's base and it
+changes no engine source; the game is bb8e0c5 plus the test-only m2Parity diagnostic
+at 8a13028.
   * the dedicated render world has one area and answers 0 for every point, including
     a point outside the map; the listen host has the map's .procb areas and answers
     -1 outside;
@@ -72,9 +73,9 @@ READY_TIMEOUT = 180.0
 COMMAND_TIMEOUT = 60.0
 PRONE_TICKS_SECONDS = 2.0
 
-# The valley map edge: the exit scene puts the vehicle at (worldMaxX + 4096, -10154,
-# 1500) with the player at (8505, -10154, 1500). These are the map's coordinates, not
-# a tolerance.
+# Outside valley's east edge: the exit scene puts the vehicle at (worldMaxX + 4096,
+# -10154, 1500) with the player at (8505, -10154, 1500). These are the map's
+# coordinates, not a tolerance.
 EXIT_REFERENCE = (8505.0, -10154.0, 1500.0)
 EXIT_YAW = 0.0
 
