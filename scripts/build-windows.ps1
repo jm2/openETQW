@@ -113,7 +113,7 @@ if ($args.Count -gt 0) { Usage-Error "Unknown option: $($args -join ' ')" }
 $after = @($Test, $Run, $Server) | Where-Object { $_ } | Measure-Object | Select-Object -ExpandProperty Count
 if ($after -gt 1) { Usage-Error "Choose at most one of -Test, -Run and -Server" }
 if ($Map -and -not ($Run -or $Server)) { Usage-Error "-Map needs -Run or -Server" }
-if ($Validate -and ($after -gt 0 -or $Clean -or $SyncGame -or $BuildType -or $BuildDir)) {
+if ($Validate -and ($after -gt 0 -or $Clean -or $BuildType -or $BuildDir)) {
     Usage-Error "-Validate cannot be combined with build or launch options"
 }
 if ($NoDeps -and $InstallDeps) { Usage-Error "-NoDeps and -InstallDeps cannot be combined" }

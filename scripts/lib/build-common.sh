@@ -112,7 +112,7 @@ common_parse_args() {
   if [[ -n "$MAP" ]] && ! "$RUN" && ! "$SERVER"; then
     usage_error "--map needs --run or --server"
   fi
-  if "$VALIDATE" && { [[ "$after" -gt 0 ]] || "$CLEAN" || "$BUILDTYPE_SET" || "$SYNC_GAME" || [[ "$BUILD_DIR" != build ]]; }; then
+  if "$VALIDATE" && { [[ "$after" -gt 0 ]] || "$CLEAN" || "$BUILDTYPE_SET" || [[ "$BUILD_DIR" != build ]]; }; then
     usage_error "--validate cannot be combined with build or launch options"
   fi
   if "$NO_DEPS" && "$INSTALL_DEPS"; then
