@@ -240,7 +240,9 @@ def compare(ded: dict, listen: dict) -> list[str]:
         fail(f"prone: the game collision world's fraction differs: "
              f"{ded['prone'].get('clipFraction')} vs {listen['prone'].get('clipFraction')}")
 
-    # radiuspush: the collision world finds the same wall and the same push
+    # radiuspush: the collision world finds the same wall on both hosts, and both
+    # take the same FastWorldTrace decision (a stub that answers false), so the push
+    # result is parity of the stub, not of a real collision world
     for key in ("wallFound", "selfListed", "pushed"):
         expect("dedicated", "radiuspush", key, 1)
         expect("listen", "radiuspush", key, 1)
