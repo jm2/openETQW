@@ -11,9 +11,10 @@ in-progress work and is parked: no PRs are open in either repository apart from 
 Each row below names the branch or comment where its work stopped and its exact next step. When
 the owner resumes the sessions, start at §2's top row that has a next step.
 
-Updated: 2026-10-21 by `openETQW-linux` (coordinator), after the overnight work (§5). Earlier that day: merged since 2026-10-18 are #145, #146,
-#149, #152, #153, #155–#158 and game #53–#56 (§5); filed #159 and #160. Before that,
-2026-10-18, after a pass over every doc.
+Updated: 2026-10-22 by `openETQW-linux` (coordinator): the review state of §3 items 3, 8
+and 9 and of #162. Updated 2026-10-21 after the overnight work (§5); earlier that day, merged
+since 2026-10-18 were #145, #146, #149, #152, #153, #155–#158 and game #53–#56 (§5), and
+#159 and #160 were filed. Before that, 2026-10-18, after a pass over every doc.
 
 ## 1. Open PRs, in merge order
 
@@ -27,7 +28,7 @@ Updated: 2026-10-21 by `openETQW-linux` (coordinator), after the overnight work 
 | [#122](https://github.com/jm2/openETQW/issues/122) | GDF rifle viewmodel: near-black on raster, tan with ray tracing. | — (parked) | Get a retail reference first: a retail 1.5 screenshot from the owner, or published retail footage. Until then, don't change either path. Escalate to the owner if no reference turns up. |
 | [#141](https://github.com/jm2/openETQW/issues/141) | Mouse motion: SDL's sub-pixel `xrel`/`yrel` is truncated per event (`src/sys/sdl/sdl_events.cpp:238`), so slow motion is lost on high-DPI displays. From code, not reproduced. | `openETQW-mac` (parked) | Branch `fix/mouse-subpixel-deltas` at 42de177, no PR yet: the fix and its unit test pass, local checks are clean, and the full suite passed on macOS apart from a `seat-poses-listen` L3 failure (#162, since reproduced 6 of 10 on mbp16: listen-host CPU spikes). Next: the owner's Retina check, old build against new (commands on #141, issuecomment-6290237448), then the PR. Input path only. |
 | [#147](https://github.com/jm2/openETQW/issues/147) | High-density displays: should `r_mode` / `r_custom*` mean pixels or points (SDL sizes on macOS are points)? | — | An owner question with three options; not urgent. |
-| [#162](https://github.com/jm2/openETQW/issues/162) | `seat-poses-listen` L3 (held yaw): cross-tick rates over 2.5x on macOS. | — | Reproduced 6 of 10 on mbp16 in the cap-120 driver phase; the cause is CPU work spikes on the listen host, not GPU waits (issuecomment-6306063943). Next: find what the listen host does in those spikes. The bound stays. |
+| [#162](https://github.com/jm2/openETQW/issues/162) | `seat-poses-listen` L3 (held yaw): cross-tick rates over 2.5x on macOS. | `openETQW-mac` | Reproduced 6 of 10 on mbp16 in the cap-120 driver phase; the cause is CPU work spikes on the listen host, not GPU waits (issuecomment-6306063943). Branch `fix/seat-poses-listen-l3` at `1ff001f` (base 2b4a158; patch `208e03b6…cdf`, 10,644 B): one retry after a draw gap of at least 2x the median; the 2.5x L3 bound is unchanged and a second stall still fails. Code-reviewed at Linux arm64 and macOS with no blocker and one nit: 2.0x sits just under a two-vblank gap at the saved 8.511 ms median (1.9x would cover it), while the saved 37.447 ms gap is caught. The retry-pass path is statically reviewed, not run. Next: the listen run needs a display-capable host (mbp16 has no display, so zero listen runs there) or the owner's Retina check. Never apply the superseded a7aa73a/fefa519f. |
 | [#159](https://github.com/jm2/openETQW/issues/159) | `all-stock-maps`: salvage's Strogg `aas_area_validity` dips when a bot lands in a gap in retail's own AAS (no area or reachability in a 64 u strip between areas 3297 and 2747). | — (owner-gated, §4) | The cause is retail data, not a port bug (issuecomment-6306739573). Whether to exclude recorded retail AAS gaps from the check is the owner's call (§4). |
 | [#148](https://github.com/jm2/openETQW/issues/148) | `ANTEC-WIN` drew at about 30 fps for some 15 minutes during a retail suite (2026-10-20 02:16–02:31Z); cause unknown. | — | If it recurs, capture what the issue lists. |
 
@@ -46,7 +47,11 @@ Each item names its acceptance test. Details are in the linked plan.
    deployable delivery, both match endings, stopwatch and campaign transitions (meson
    `m4-*`, #104 and #107). Left: a match played out by bots (they play no objectives), and
    a started match on maps beyond the campaign's three. Acceptance: new meson tests pass on
-   the retail 1.5 data on two platforms.
+   the retail 1.5 data on two platforms. The two tests are written on branch head `8d59718`
+   (patch `m4item3-engine.patch`, 24,047 B, sha256 `7fc78335…1e1d`); independent
+   review found one should-fix, both new tests missing from `docs/provenance-manifest.json`,
+   fixed at that head, and nothing else. **Neither test has been run on any platform yet.**
+   Next: one run on macOS arm64, then one on a second platform.
 4. **Retail data discovery** (`STATUS.md` § Next steps, item 7): the Linux folder picker,
    and a person trying the macOS and Windows pickers (owner).
 5. **Provenance labels** (`docs/provenance.md` §6): the minizip relabel and the other
@@ -58,14 +63,22 @@ Each item names its acceptance test. Details are in the linked plan.
    copies of `eaxguid.lib` and zlib contrib's `.obj` files. Replace each, or record why it
    stays (`STATUS.md` § Release gate, item 5).
 8. **The M1 and M2 gaps** (`STATUS.md` § Milestones):
-   - ~~M1: the `false` defaults of `build_engine` and `build_dedicated`~~: both default to `true` (this PR);
+   - ~~M1: the `false` defaults of `build_engine` and `build_dedicated`~~: both default to `true` (#173);
    - M2: collision in the graphical client is never asserted;
-   - M2: the headless render world is still stubbed.
-     Its effects are recorded in ledger 013 and are not measured. Next: a test-only parity
-     test that runs the same short scripted scenes on a listen server (real render world)
-     and on a dedicated server (`idRenderWorldHeadless`) and compares the outcomes: a hit
-     on a prone bot (render-model combat model), `RadiusPush` behind a wall, and a vehicle
-     exit near the map edge. Its result is the evidence for the owner question in §4.
+   - M2: the headless render world is still stubbed. Its effects are recorded in ledger 013,
+     and the parity test that measures them is PR [#178](https://github.com/jm2/openETQW/pull/178)
+     with game [#60](https://github.com/jm2/openETQW-game/pull/60) (engine `146e44e`, game
+     pin `8a13028`). Evidence at that head: `m2-render-world-parity` 1/1 OK 26.10 s on antec
+     x86_64 (llvmpipe/offscreen, not GPU raster), both processes exit 0, `openetqw_validate.py pr`
+     PASSED, provenance 0 missing. Reviewed at
+     Windows with a full assertion replay against the raw log and at Linux arm64 (no blocker;
+     its one should-fix, the manifest entry, is fixed in `04b2610`).
+     **It does not close the client-collision gap.** Both render worlds' `ModelTrace`/`Trace`/
+     `FastWorldTrace` are stubs that answer false (`src/renderer/RenderWorld.cpp:787-799`,
+     `src/sys/stub/headless_stubs.cpp:120-133`), so the prone-bot and `RadiusPush` scenes are
+     stub parity by construction and only the vehicle-exit `PointInArea` scene can differ today.
+     Render-model collision needs collisionModelManager/client-prediction coverage, not
+     render-world traces. Its result is the evidence for the owner question in §4.
 
    Each gap gets a test or a recorded decision.
 9. **M3, what is left** (`STATUS.md` § Milestones, M3):
@@ -73,7 +86,14 @@ Each item names its acceptance test. Details are in the linked plan.
       passes X1–X4 both ways with Linux x64, Windows x64 and macOS arm64
       (issuecomment-6281426367, -6282183468, -6303053162, -6303056403);
     - weapon fire seen by the other player (a headless peer can't observe it; needs a
-      Vulkan observer or a server-side check).
+      Vulkan observer or a server-side check). The test is written on branch head `be49e04`
+      (after `8e06d7c`). Reviewed from the text diffs `e2070be2` (test) and `534c375c`
+      (engine), not from the `be49e04` object: no blocker, no should-fix, one nit
+      (`set g_debugWeaponState -1` is unconfirmed). macOS arm64 ran the earlier revision
+      `ed6735b7` twice at engine `1ff001f` + game `bb8e0c5` and it passed, but that revision
+      measured client 0 by position (the observer, not the shooter) with 2D drift only, so it
+      is not evidence for the revised test. Next: publish `be49e04` and run the revised test
+      once on each platform.
 
     Acceptance: `cross-os` X1–X4 each way per pair, recorded like the evidence rows of
     2026-10-16, with the server's `playerPos` polled every 0.25 s (coordination §5).
