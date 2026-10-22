@@ -12,8 +12,10 @@ The game prints 'EVENT_TRACER: server broadcast tracer weapon ...' on the
 server when it sends the unreliable event, and 'EVENT_TRACER: client received
 tracer weapon ...' on every client that handles it. The test requires:
 
-  1. the shooter's SPAWN line (g_logGameEvents 1) says class=covertops, and
-     both players are on the ground and at rest before firing;
+  1. the shooter's SPAWN line (g_logGameEvents 1) says class=covertops, the
+     server's weapon-state diagnostic (g_debugWeaponState) names the sniper
+     rifle the class option selects, and both players are on the ground and
+     at rest before firing;
   2. at least three broadcasts, at most one per attack cycle, and all from one
      weapon entity (a single-shot weapon refires slower than the 0.35 s
      attack cycle; this is an observable check, not the item name);
@@ -46,7 +48,9 @@ TRACER_RE = re.compile(
     r"EVENT_TRACER: (server broadcast|client received) tracer weapon '([^']+)' "
     r"start=\(([-\d.]+), ([-\d.]+), ([-\d.]+)\) "
     r"end=\(([-\d.]+), ([-\d.]+), ([-\d.]+)\)")
+EQUIPPED_RE = re.compile(r"Weapon \('([^']+)'\) State for Client (\d+):")
 FATAL = ("FATAL ERROR", "FATAL SIGNAL CAUGHT", "Unhandled exception", "Access violation")
+SNIPER_ITEM = "inventory/weapons/sniperrifle"
 POLL_INTERVAL = 0.25
 EPSILON = 0.011
 DRIFT_TOLERANCE = 2.0
@@ -174,6 +178,10 @@ def main(argv):
             print("FAIL: both players did not settle on the ground")
             return 1
 
+        # the item the class option selected is observable on the server: the
+        # game's weapon-state diagnostic names the item, and a rejected
+        # `clientClass covertops 1` still spawns the class with other weapons.
+        srv.send(f"set g_debugWeaponState {shooter_client}")
         srv_mark = srv.mark()
         shooter_mark = shooter.mark()
         observer_mark = observer.mark()
@@ -188,6 +196,7 @@ def main(argv):
             time.sleep(POLL_INTERVAL)
         shooter.send("-attack")
         time.sleep(4.0)
+        srv.send("set g_debugWeaponState -1")
 
         for line in srv.snapshot(srv_mark):
             pos = h.parse_player_pos(line.text)
@@ -204,6 +213,11 @@ def main(argv):
             failures.append(f"the server broadcast {len(server_tracers)} tracers, "
                             f"not 3..{args.shots}")
         names = {name for name, _, _ in server_tracers}
+        equipped = {m.group(1) for line in srv.snapshot(srv_mark)
+                    if (m := EQUIPPED_RE.search(line.text)) and int(m.group(2)) == shooter_client}
+        print(f"equipped by client {shooter_client}: {sorted(equipped)}")
+        if equipped != {SNIPER_ITEM}:
+            failures.append(f"the shooter held {sorted(equipped)}, not {SNIPER_ITEM}")
         if len(names) > 1:
             failures.append(f"the broadcasts came from {len(names)} weapon entities: {sorted(names)}")
         if len(shooter_tracers) != len(server_tracers):
