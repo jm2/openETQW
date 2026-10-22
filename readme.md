@@ -52,20 +52,114 @@ High-refresh play, drawing above the 30 Hz game tick (default cap 240), works on
 
 ## Quick build
 
-One command builds the game module and the engine, with the dependencies checked first
-([`docs/build-scripts.md`](docs/build-scripts.md)):
+The build helpers in `scripts/` take a fresh checkout to a running game with one command
+([`docs/build-scripts.md`](docs/build-scripts.md) has the details). The sections after this
+one are the same steps by hand.
+
+### 1. Get the two repositories side by side
 
 ```sh
-./scripts/build-macos.sh            # macOS arm64; installs missing Homebrew packages
-./scripts/build-linux.sh            # Linux; prints the dnf/apt/pacman command for what is missing
-./scripts/build-macos.sh --run      # build, then start the client
+git clone https://github.com/jm2/openETQW.git
+git clone https://github.com/jm2/openETQW-game.git   # optional: the helper clones it if missing
+```
+
+The helper looks for the game repository at `../openETQW-game`, or wherever
+`OPENETQW_GAME_REPO` points. If it is missing, the helper clones it there at the commit the
+engine is pinned to (`tools/ci/companion.ref`).
+
+### 2. Install what the helper can't
+
+| Platform | Install first | The helper then |
+|---|---|---|
+| macOS arm64 | Xcode command line tools (`xcode-select --install`), [Homebrew](https://brew.sh) | installs the missing Homebrew packages itself |
+| Linux x64 / arm64 | Python 3, git | prints the `dnf`, `apt-get` or `pacman` command for anything missing; `--install-deps` runs it with `sudo` |
+| Windows x64 / arm64 | Visual Studio 2026 with "Desktop development with C++" (plus the ARM64 build tools on arm64), Python 3 with `pip install meson ninja`, [vcpkg](https://github.com/microsoft/vcpkg), the [Vulkan SDK](https://vulkan.lunarg.com) | checks them; `-InstallDeps` runs `vcpkg install` for the libraries |
+
+On Ubuntu 24.04 and Debian 12 there is no SDL3 package; `tools/ci/linux_deps.sh` builds it
+into a private prefix.
+
+### 3. Build
+
+From the engine repository:
+
+```sh
+./scripts/build-macos.sh          # macOS
+./scripts/build-linux.sh          # Linux
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1    # Windows
+```
+
+This checks the dependencies, builds the game module, then the client, the dedicated
+server and the unit tests (`debugoptimized`), and puts the game module next to them. It
+ends by printing where the binaries are: `build/openETQW-client_<arch>` and
+`build/openETQW-ded_<arch>` (`.exe` on Windows). Running it again rebuilds only what
+changed. The Windows helper also runs in PowerShell's ConstrainedLanguage mode
+(AppLocker, WDAC).
+
+### 4. Play
+
+The game needs the retail 1.5 data (see [Retail game data is
+required](#retail-game-data-is-required)). Set `ETQW_DATA_PATH` to the install root whose
+`base/` holds `pak000.pk4`, or leave it unset and the engine looks for an install itself.
+
+```sh
+export ETQW_DATA_PATH=~/etqw                     # optional
+./scripts/build-macos.sh --run                   # build, then open the main menu
+./scripts/build-macos.sh --run --map valley      # build, then a local devmap session
 ./scripts/build-linux.sh --server --map valley   # build, then host a dedicated server
 ```
 
-On Windows, in PowerShell: `powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1`
-(`-Run`, `-Server`, `-Map`, `-Test`). Each helper takes `--help`. The game repository is
-found at `../openETQW-game` (or `$OPENETQW_GAME_REPO`), or cloned there at the engine's
-pinned commit. The sections below are the same steps by hand.
+```powershell
+$env:ETQW_DATA_PATH = "C:\Games\ETQW"            # optional
+.\scripts\build-windows.ps1 -Run
+.\scripts\build-windows.ps1 -Server -Map valley
+```
+
+**A LAN game:** one machine hosts with `--server --map valley`.
+Players on any platform start the client with `--run`, open the console and type
+`connect <host IP>`. The dedicated server's console reads commands from its terminal;
+`quit` stops it. The host's firewall must let the server's UDP traffic in, and macOS asks
+for Local Network access the first time a client or server uses the LAN.
+
+### Options
+
+| macOS / Linux | Windows | What it does |
+|---|---|---|
+| (none) | (none) | Check dependencies, build the game and the engine |
+| `--run` | `-Run` | Then start the client (main menu, or a devmap session with `--map`) |
+| `--server` | `-Server` | Then start a dedicated server on `--map` (default `valley`) |
+| `--map NAME` | `-Map NAME` | The map for `--run` or `--server` |
+| `--test` | `-Test` | Then run the asset-free unit tests |
+| `--debug`, `--release` | `-BuildType debug`, `-BuildType release` | Build type for both repositories (default `debugoptimized`) |
+| `--clean` | `-Clean` | Wipe both build directories first |
+| `--build-dir DIR` | `-BuildDir DIR` | Engine build directory (default `build`) |
+| `--sync-game` | `-SyncGame` | Move the game repository to the engine's pinned commit first (refuses if it has uncommitted changes) |
+| `--install-deps` (Linux) | `-InstallDeps` | Install missing packages instead of printing the command |
+| `--no-deps` | `-NoDeps` | Skip the dependency check |
+| — | `-VcpkgRoot DIR` | The vcpkg tree (default `$env:VCPKG_ROOT`, else `%USERPROFILE%\vcpkg`) |
+| `--validate` | `-Validate` | Run the merge gate's local check (`openetqw_validate.py pr`) instead of a build |
+| `--dry-run` | `-DryRun` | Print the commands without running them |
+| `--help` | `-Help` | List the options |
+
+`--run`, `--server` and `--test` can't be combined.
+
+### After pulling new changes
+
+Run the helper again; it reconfigures the build, so changed game headers are picked up. If
+the engine's pinned game commit moved, add `--sync-game` (or update the game repository
+yourself). The helper warns when the game repository is not at the pinned commit.
+
+### If something goes wrong
+
+- **A missing dependency:** the helper names it and the command to install it.
+- **A build that behaves strangely after big changes:** `--clean` (Windows `-Clean`)
+  rebuilds both repositories from scratch.
+- **"not the engine's pinned commit":** `--sync-game`, or check out
+  `tools/ci/companion.ref`'s commit in the game repository.
+- **The engine can't find the retail data:** set `ETQW_DATA_PATH`; the startup log lists
+  where it looked.
 
 ## Build on macOS
 
