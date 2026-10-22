@@ -67,9 +67,9 @@
 #>
 param(
     [ValidateSet("debug", "debugoptimized", "release")]
-    [string]$BuildType = "debugoptimized",
+    [string]$BuildType = "",
     [switch]$Clean,
-    [string]$BuildDir = "build",
+    [string]$BuildDir = "",
     [switch]$SyncGame,
     [string]$VcpkgRoot = "",
     [switch]$NoDeps,
@@ -85,6 +85,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+# ConstrainedLanguage mode (AppLocker, WDAC) allows method calls on core types
+# only, so this script uses cmdlets and operators, no .NET static or object
+# methods beyond strings'; tests/test_build_scripts.py runs it in that mode.
 
 function Write-Info([string]$Message) { Write-Host "[openetqw] $Message" -ForegroundColor Green }
 function Write-Warn([string]$Message) { Write-Host "[openetqw] $Message" -ForegroundColor Yellow }
@@ -110,21 +113,22 @@ if ($args.Count -gt 0) { Usage-Error "Unknown option: $($args -join ' ')" }
 $after = @($Test, $Run, $Server) | Where-Object { $_ } | Measure-Object | Select-Object -ExpandProperty Count
 if ($after -gt 1) { Usage-Error "Choose at most one of -Test, -Run and -Server" }
 if ($Map -and -not ($Run -or $Server)) { Usage-Error "-Map needs -Run or -Server" }
-if ($Validate -and ($after -gt 0 -or $Clean -or $SyncGame -or $PSBoundParameters.ContainsKey("BuildType") -or $PSBoundParameters.ContainsKey("BuildDir"))) {
+if ($Validate -and ($after -gt 0 -or $Clean -or $SyncGame -or $BuildType -or $BuildDir)) {
     Usage-Error "-Validate cannot be combined with build or launch options"
 }
 if ($NoDeps -and $InstallDeps) { Usage-Error "-NoDeps and -InstallDeps cannot be combined" }
+if (-not $BuildType) { $BuildType = "debugoptimized" }
+if (-not $BuildDir) { $BuildDir = "build" }
 
 $EngineRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $GameUrl = "https://github.com/jm2/openETQW-game.git"
-if (-not [System.IO.Path]::IsPathRooted($BuildDir)) { $BuildDir = Join-Path $EngineRoot $BuildDir }
+if (-not (Split-Path -IsAbsolute $BuildDir)) { $BuildDir = Join-Path $EngineRoot $BuildDir }
 
-$machine = if ($env:PROCESSOR_ARCHITECTURE) { $env:PROCESSOR_ARCHITECTURE } else {
-    [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
-}
+# PROCESSOR_ARCHITECTURE is set on Windows; elsewhere (the dry-run test) ask uname
+$machine = if ($env:PROCESSOR_ARCHITECTURE) { $env:PROCESSOR_ARCHITECTURE } else { "$(uname -m)" }
 switch -Regex ($machine) {
-    "^(ARM64|Arm64)$" { $Arch = "arm64" }
-    "^(AMD64|X64)$" { $Arch = "x64" }
+    "^(ARM64|arm64|aarch64)$" { $Arch = "arm64" }
+    "^(AMD64|x86_64)$" { $Arch = "x64" }
     default { Fail "Unsupported architecture: $machine" }
 }
 $Triplet = "$Arch-windows"
@@ -279,3 +283,4 @@ if ($Test) {
         Invoke-Step $ded (@("+set", "dedicated", "1") + $data + @("+set", "fs_game", "base", "+set", "si_rules", "sdGameRulesObjective", "+set", "si_pure", "0", "+spawnServer", $Map))
     } finally { Pop-Location }
 }
+exit 0

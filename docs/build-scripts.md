@@ -14,6 +14,12 @@ no options does a full build, and a few flags launch, test or validate. They cal
 the existing tools. Their logic lives here and in the scripts, not in a new build system.
 macOS and Linux share `scripts/lib/build-common.sh`.
 
+The Windows helper runs in PowerShell's ConstrainedLanguage mode, which AppLocker and WDAC
+impose on scripts they don't trust (owner, 2026-10-22: "try to ensure any powershell is
+ConstrainedLanguage mode compatible if possible"). It uses cmdlets and operators, and calls
+methods only on strings. No `[Type]::Method()`, no `Add-Type` and no `New-Object` of .NET
+types. It runs in Windows PowerShell 5.1 and in PowerShell 7.
+
 ## Why (2026-10-22)
 
 The build was a hand-run recipe from `readme.md`:
@@ -88,7 +94,9 @@ with `--dry-run --no-deps` against a stand-in game repository. It checks the usa
 the step order (game, then engine), one build type for both, reconfigure against
 `--clean`, the engine's options, the module link, the launch lines and a missing
 `OPENETQW_GAME_REPO`. On macOS and Linux it also runs the Windows helper when `pwsh` is
-installed. It needs no network, no compiler and no retail data.
+installed. It runs the Windows helper in ConstrainedLanguage mode, so a call that mode
+refuses fails the test: with the first version's `[System.IO.Path]::IsPathRooted` put back,
+9 checks fail. It needs no network, no compiler and no retail data.
 
 ## Not in this step
 
@@ -103,6 +111,6 @@ installed. It needs no network, no compiler and no retail data.
 | Host | Helper | What ran | Result |
 |---|---|---|---|
 | `mbp16-m1max` (macOS 27.0.1 arm64, Apple Clang, Homebrew) | `build-macos.sh` | a fresh game and engine build with `--test`; a second run (reconfigure) with `--server --map valley`, retail 1.5 data | built; unit suite 14/14; valley loaded on the dedicated server, `quit` shut it down |
-| `mbp16-m1max` | `build-windows.ps1` (pwsh 7, dry run) | `build-scripts` | pass |
+| `mbp16-m1max` | `build-windows.ps1` (pwsh 7, dry run, ConstrainedLanguage) | `build-scripts` | pass |
 | Linux x64, Linux arm64 | `build-linux.sh` | — | to be run |
 | Windows x64, Windows arm64 | `build-windows.ps1` | — | to be run |

@@ -9,7 +9,9 @@ an existing build directory is reconfigured and --clean wipes it instead; the en
 gets its -D options; POSIX hosts link the game module; --server and --run pass the
 map and ETQW_DATA_PATH; a missing OPENETQW_GAME_REPO fails. docs/build-scripts.md
 describes the helpers. On POSIX this runs the host's shell helper, and the Windows
-helper too when pwsh is installed; on Windows, the Windows helper.
+helper too when pwsh is installed; on Windows, the Windows helper. The Windows helper
+runs in ConstrainedLanguage mode (as AppLocker or WDAC would run it), so a .NET call
+that mode refuses fails here.
 """
 
 from __future__ import annotations
@@ -56,8 +58,17 @@ class Helper:
         return out
 
     def run(self, *posix: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(self.command + self.args(*posix), cwd=ROOT, env=env, text=True,
-                              capture_output=True, timeout=60)
+        if self.style == "ps":
+            # switches stay bare (a quoted -Flag is a positional string); values are quoted
+            quoted = " ".join(a if a.startswith("-") else "'" + a.replace("'", "''") + "'"
+                              for a in self.args(*posix))
+            script = str(ROOT / "scripts" / "build-windows.ps1").replace("'", "''")
+            command = self.command + [
+                "$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'; "
+                f"& '{script}' {quoted}; exit $LASTEXITCODE"]
+        else:
+            command = self.command + self.args(*posix)
+        return subprocess.run(command, cwd=ROOT, env=env, text=True, capture_output=True, timeout=60)
 
 
 def steps(output: str) -> list[str]:
@@ -142,14 +153,13 @@ def main() -> int:
     if system == "Windows":
         shell = shutil.which("pwsh") or shutil.which("powershell")
         if shell:
-            helpers.append(Helper("build-windows.ps1", [shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-                                                         str(ROOT / "scripts" / "build-windows.ps1")], "ps"))
+            helpers.append(Helper("build-windows.ps1", [shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"], "ps"))
     else:
         script = "build-macos.sh" if system == "Darwin" else "build-linux.sh"
         helpers.append(Helper(script, ["bash", str(ROOT / "scripts" / script)], "posix"))
         pwsh = shutil.which("pwsh")
         if pwsh:
-            helpers.append(Helper("build-windows.ps1", [pwsh, "-NoProfile", "-File", str(ROOT / "scripts" / "build-windows.ps1")], "ps"))
+            helpers.append(Helper("build-windows.ps1", [pwsh, "-NoProfile", "-Command"], "ps"))
     if not helpers:
         print("SKIP: no shell to run the helpers")
         return 77
