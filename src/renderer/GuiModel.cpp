@@ -425,6 +425,19 @@ void sdGuiModel::BuildTextQuads() {
 		}
 	}
 	textQuadStart.Append( textQuads.Num() );
+	// rows to texture coordinates now that this frame's glyphs are all in, so a
+	// quad built before its atlas grew still points at its glyph
+	const idImage* lastImage = NULL;
+	float rowScale = 1.0f;
+	for ( int i = 0; i < textQuads.Num(); i++ ) {
+		guiTextQuad_t& quad = textQuads[ i ];
+		if ( quad.image != lastImage ) {
+			lastImage = quad.image;
+			rowScale = 1.0f / static_cast< float >( guiFonts.AtlasHeight( quad.image ) );
+		}
+		quad.t0 *= rowScale;
+		quad.t1 *= rowScale;
+	}
 	guiFonts.UploadChanged();
 }
 

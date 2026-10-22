@@ -155,6 +155,11 @@ void GuiText_Layout( const sdGuiTextMetrics& metrics, const wchar_t* text, const
 				end--;
 			}
 			const unsigned int dotColor = end > tl.first ? items[ end - 1 ].color : color;
+			// the cut characters go, and three dots take their place
+			const int removed = tl.end - end;
+			for ( int r = 0; r < removed; r++ ) {
+				items.RemoveIndex( end );
+			}
 			for ( int d = 0; d < 3; d++ ) {
 				textItem_t dot;
 				dot.source = -1;
@@ -163,7 +168,7 @@ void GuiText_Layout( const sdGuiTextMetrics& metrics, const wchar_t* text, const
 				dot.lineEnd = false;
 				items.Insert( dot, end + d );
 			}
-			const int added = end + 3 - tl.end;
+			const int added = 3 - removed;
 			tl.end = end + 3;
 			for ( int later = l + 1; later < lines.Num(); later++ ) {
 				lines[ later ].first += added;

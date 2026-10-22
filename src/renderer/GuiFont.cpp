@@ -450,9 +450,18 @@ bool sdGuiFontManager::Glyph( int font, int pointSize, int codepoint, sdGuiGlyph
 	out.height = static_cast< float >( glyph.h );
 	out.s0 = glyph.x / static_cast< float >( ATLAS_WIDTH );
 	out.s1 = ( glyph.x + glyph.w ) / static_cast< float >( ATLAS_WIDTH );
-	out.t0 = glyph.y / static_cast< float >( size->atlasHeight );
-	out.t1 = ( glyph.y + glyph.h ) / static_cast< float >( size->atlasHeight );
+	out.t0 = static_cast< float >( glyph.y );
+	out.t1 = static_cast< float >( glyph.y + glyph.h );
 	return true;
+}
+
+int sdGuiFontManager::AtlasHeight( const idImage* image ) const {
+	for ( int i = 0; i < sizes.Num(); i++ ) {
+		if ( sizes[ i ]->image == image ) {
+			return sizes[ i ]->atlasHeight;
+		}
+	}
+	return 1;
 }
 
 void sdGuiFontManager::UploadChanged() {

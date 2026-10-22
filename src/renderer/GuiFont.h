@@ -12,7 +12,8 @@ class idImage;
 
 struct sdGuiGlyphImage {
 	idImage*		image;		// NULL for a glyph with no pixels (a space)
-	float			s0, t0, s1, t1;
+	float			s0, s1;
+	float			t0, t1;		// atlas rows, in pixels: an atlas may still grow this frame
 	float			left, top;	// from the pen position and baseline, screen pixels
 	float			width, height;	// screen pixels
 };
@@ -33,6 +34,8 @@ public:
 	// UploadChanged before drawing with the returned images.
 	bool					Glyph( int font, int pointSize, int codepoint, sdGuiGlyphImage& out );
 	void					UploadChanged();
+	// an atlas's height in pixels, to turn the rows above into texture coordinates
+	int						AtlasHeight( const idImage* image ) const;
 
 	void					Shutdown();
 };

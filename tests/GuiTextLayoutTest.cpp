@@ -115,6 +115,12 @@ int main() {
 	Lay( L"AAAAAAAAAA", 50, 20, DTF_TRUNCATE, l );
 	Expect( l.glyphs.Num() == 5 && l.glyphs[ 2 ].codepoint == L'.' && l.glyphs[ 4 ].codepoint == L'.', "AA..." );
 	Expect( Near( l.width, 50 ), "the truncated line fits" );
+	// a truncated line before another leaves the next line's characters alone
+	Lay( L"AAAAAAAAAA\nAB", 50, 40, DTF_TRUNCATE, l );
+	Expect( l.glyphs.Num() == 7 && l.glyphs[ 4 ].codepoint == L'.' && l.glyphs[ 5 ].codepoint == L'A' &&
+		l.glyphs[ 6 ].codepoint == L'B', "AA... then AB" );
+	Expect( l.glyphs.Num() == 7 && Near( l.glyphs[ 5 ].x, 0 ) && Near( l.glyphs[ 5 ].baseline, 20 ) &&
+		Near( l.glyphs[ 6 ].x, 10 ), "the second line starts at the left on line 2" );
 	Lay( L"AAA", 50, 20, DTF_TRUNCATE, l );
 	Expect( l.glyphs.Num() == 3 && l.glyphs[ 2 ].codepoint == L'A', "a line that fits is not truncated" );
 
