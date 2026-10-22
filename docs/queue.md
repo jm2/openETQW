@@ -19,6 +19,7 @@ Updated: 2026-10-21 by `openETQW-linux` (coordinator), after the overnight work 
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
+| [#180](https://github.com/jm2/openETQW/pull/180) | Build helpers, one command per platform (`scripts/build-*`, `docs/build-scripts.md`; the owner's request, 2026-10-22). | `openETQW-mac` | `build/helper-scripts` | Full runs of `build-linux.sh` on Linux x64 and arm64 and of `build-windows.ps1` on Windows x64 and arm64; an independent review. |
 
 ## 2. Open issues, in priority order
 
