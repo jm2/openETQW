@@ -152,6 +152,19 @@ function Find-Python {
     return $null
 }
 
+# `pip install --user meson ninja` puts them in Python's per-user Scripts
+# directory, which is not on PATH by default; add it for this run.
+function Add-PythonUserScripts {
+    if (Get-Command meson -ErrorAction SilentlyContinue) { return }
+    $py = Find-Python
+    if (-not $py) { return }
+    $dir = Invoke-Quiet $py @("-c", "import os, sysconfig; print(sysconfig.get_path('scripts', os.name + '_user'))")
+    if ($dir -and (Test-Path (Join-Path "$dir" "meson.exe"))) {
+        Write-Info "Using meson from Python's user Scripts directory: $dir"
+        $env:PATH = "$dir;$env:PATH"
+    }
+}
+
 function Test-Dependencies {
     if ($PSVersionTable.PSEdition -eq "Core" -and -not $IsWindows) { Fail "This is the Windows helper; use scripts/build-macos.sh or scripts/build-linux.sh" }
     $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
@@ -165,7 +178,7 @@ function Test-Dependencies {
 
     if (-not (Find-Python)) { Fail "Python 3 not found. Install it from https://www.python.org or: winget install Python.Python.3.14" }
     foreach ($tool in @("meson", "ninja")) {
-        if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { Fail "$tool not found. Install: python -m pip install meson ninja (and put Python's Scripts directory on PATH)" }
+        if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { Fail "$tool not found. Install: python -m pip install --user meson ninja" }
     }
     $glslang = Get-Command glslangValidator -ErrorAction SilentlyContinue
     if (-not $glslang -and $env:VULKAN_SDK) { $glslang = Test-Path (Join-Path $env:VULKAN_SDK "Bin\glslangValidator.exe") }
@@ -231,6 +244,8 @@ function Invoke-MesonBuild([string]$Source, [string]$Build, [string[]]$Options) 
     Invoke-Step meson $setup
     Invoke-Step meson @("compile", "-C", $Build)
 }
+
+Add-PythonUserScripts
 
 if ($Validate) {
     if (-not $NoDeps) { Test-Dependencies }

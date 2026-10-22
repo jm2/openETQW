@@ -73,7 +73,7 @@ engine is pinned to (`tools/ci/companion.ref`).
 |---|---|---|
 | macOS arm64 | Xcode command line tools (`xcode-select --install`), [Homebrew](https://brew.sh) | installs the missing Homebrew packages itself |
 | Linux x64 / arm64 | Python 3, git | prints the `dnf`, `apt-get` or `pacman` command for anything missing; `--install-deps` runs it with `sudo` |
-| Windows x64 / arm64 | Visual Studio 2026 with "Desktop development with C++" (plus the ARM64 build tools on arm64), Python 3 with `pip install meson ninja`, [vcpkg](https://github.com/microsoft/vcpkg), the [Vulkan SDK](https://vulkan.lunarg.com) | checks them; `-InstallDeps` runs `vcpkg install` for the libraries |
+| Windows x64 / arm64 | Visual Studio 2026 with "Desktop development with C++" (plus the ARM64 build tools on arm64), Python 3 with `python -m pip install --user meson ninja` (the helper finds the user Scripts directory), [vcpkg](https://github.com/microsoft/vcpkg), the [Vulkan SDK](https://vulkan.lunarg.com) | checks them; `-InstallDeps` runs `vcpkg install` for the libraries |
 
 On Ubuntu 24.04 and Debian 12 there is no SDL3 package; `tools/ci/linux_deps.sh` builds it
 into a private prefix.
@@ -158,6 +158,8 @@ yourself). The helper warns when the game repository is not at the pinned commit
   rebuilds both repositories from scratch.
 - **"not the engine's pinned commit":** `--sync-game`, or check out
   `tools/ci/companion.ref`'s commit in the game repository.
+- **Windows prints `'vswhere.exe' is not recognized` during setup:** harmless; it comes
+  from Visual Studio's environment script that meson runs.
 - **The engine can't find the retail data:** set `ETQW_DATA_PATH`; the startup log lists
   where it looked.
 

@@ -50,7 +50,10 @@ With no options:
      Python with meson and ninja, vcpkg (`-VcpkgRoot`, `$env:VCPKG_ROOT` or
      `%USERPROFILE%\vcpkg`) with `sdl3[vulkan] zlib vulkan-headers vulkan-loader pkgconf`
      for `x64-windows` or `arm64-windows`, and glslangValidator (a warning only).
-     `-InstallDeps` runs `vcpkg install`, which needs no administrator rights.
+     `-InstallDeps` runs `vcpkg install`, which needs no administrator rights. meson and
+     ninja from `pip install --user` live in Python's per-user Scripts directory, which is
+     not on PATH by default; when `meson` is not found, the helper adds that directory for
+     the run (found on `yoga-slim7x`, #180).
    - `--no-deps` skips the check, for hosts set up by hand.
 2. **The game repository.** `$OPENETQW_GAME_REPO`, else `../openETQW-game`, the
    engine's own rule (`meson.build`). If it is missing, the helper clones
@@ -113,4 +116,5 @@ refuses fails the test: with the first version's `[System.IO.Path]::IsPathRooted
 | `mbp16-m1max` (macOS 27.0.1 arm64, Apple Clang, Homebrew) | `build-macos.sh` | a fresh game and engine build with `--test`; a second run (reconfigure) with `--server --map valley`, retail 1.5 data | built; unit suite 14/14; valley loaded on the dedicated server, `quit` shut it down |
 | `mbp16-m1max` | `build-windows.ps1` (pwsh 7, dry run, ConstrainedLanguage) | `build-scripts` | pass |
 | Linux x64, Linux arm64 | `build-linux.sh` | — | to be run |
-| Windows x64, Windows arm64 | `build-windows.ps1` | — | to be run |
+| `yoga-slim7x` (Windows 11 arm64 10.0.26200, VS 18, vcpkg `arm64-windows`), by `openETQW-win-arm64` | `build-windows.ps1` at 324de72 | `-Test` in Windows PowerShell 5.1 and in pwsh 7 ConstrainedLanguage; `-Server -Map valley` on retail 1.5 data | built; unit suite 15/15 in both; valley reached `Game Map Init` and kept running (#180 issuecomment-6350764667) |
+| Windows x64 | `build-windows.ps1` | — | to be run |
