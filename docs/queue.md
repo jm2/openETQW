@@ -33,7 +33,6 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 | [#162](https://github.com/jm2/openETQW/issues/162) | `seat-poses-listen` L3 (held yaw): cross-tick rates over 2.5x on macOS. | `openETQW-mac` | Reproduced 6 of 10 on mbp16 in the cap-120 driver phase; the cause is CPU work spikes on the listen host, not GPU waits (issuecomment-6306063943). Branch `fix/seat-poses-listen-l3` at `1ff001f` (base 2b4a158; patch `208e03b6…cdf`, 10,644 B): one retry after a draw gap of at least 2x the median; the 2.5x L3 bound is unchanged and a second stall still fails. Code-reviewed at Linux arm64 and macOS with no blocker and one nit: 2.0x sits just under a two-vblank gap at the saved 8.511 ms median (1.9x would cover it), while the saved 37.447 ms gap is caught. The retry-pass path is statically reviewed, not run. Next: the listen run needs a display-capable host (mbp16 has no display, so zero listen runs there) or the owner's Retina check. Never apply the superseded a7aa73a/fefa519f. |
 | [#159](https://github.com/jm2/openETQW/issues/159) | `all-stock-maps`: salvage's Strogg `aas_area_validity` dips when a bot lands in a gap in retail's own AAS (no area or reachability in a 64 u strip between areas 3297 and 2747). | — (owner-gated, §4) | The cause is retail data, not a port bug (issuecomment-6306739573). Whether to exclude recorded retail AAS gaps from the check is the owner's call (§4). |
 | [#148](https://github.com/jm2/openETQW/issues/148) | `ANTEC-WIN` drew at about 30 fps for some 15 minutes during a retail suite (2026-10-20 02:16–02:31Z); cause unknown. | — | If it recurs, capture what the issue lists. |
-| [game #51](https://github.com/jm2/openETQW-game/issues/51) | `sdUserInterfaceLocal::Load`'s catch may touch a freed `this`: snapshot the GUI name before the load/`try`, clear and restore the previous HUD after a failed load, and drop the redundant `PopTrace()`. The pre-fix code passes both GUI tests, so this is defensive hardening plus an invariant test, not a reproduced use-after-free. | `openETQW-linux-arm64`; `openETQW-mac` reviewed (parked) | Game PR [59](https://github.com/jm2/openETQW-game/pull/59) merges first; engine PR [#177](https://github.com/jm2/openETQW/pull/177) (branch `fix/gui-load-freed-this`) pins game `e4c6d3f` and adds the test. Validate pr PASSED at `bb82aef`; GUI pair 2/2 OK at `fb45cea`; negative control kills the client; provenance 0 missing. Real-GPU suite (`swk-gpu-run`, SDL offscreen, retail 1.5, macmini-m1): 64 OK / 4 FAIL / 1 SKIP of 69. The skip is cross-OS 77, not a pass; the failures are the three `frame-poses` cap-240 A1 turn phases (219.6 / 218.7 / 220.4 fps against the 235.2 minimum, reproduced) and `client-lifecycle` ALSA "Host is down", which passes 1/1 with `SDL_AUDIODRIVER=dummy`. Owner ask `01M5HVC7G32T1KGTW55NWTJ5SE` (keep or close; are the cap-240 A1 failures acceptable gate evidence) is open, so the item is parked, not merged. macmini is free with no game processes; the M2, M3 and M4 reviews were sent. |
 
 ## 3. Milestone work, in order
 
@@ -151,6 +150,10 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   human at the controls", are judged by people on real displays (M5 D3), not by a test.
 
 ## 5. Recently done
+
+2026-10-22/23:
+- #177 with game #59 (game #51): `sdUserInterfaceLocal::Load`'s catch no longer touches `this` after a failed load; the GUI tests cover it. Merge evidence: antec retail suite 70 OK / 0 FAIL / 1 SKIP (cross-os) at the merge head, which settles the macmini cap-240 question.
+- #178 with game #60: the M2 render-world parity test (`m2-render-world-parity`).
 
 2026-10-20/21, overnight:
 - #169 (#134): retail's per-entity shadow limits.
