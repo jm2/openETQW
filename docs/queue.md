@@ -22,6 +22,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
 | [#180](https://github.com/jm2/openETQW/pull/180) | Build helpers, one command per platform (`scripts/build-*`, `docs/build-scripts.md`; the owner's request, 2026-10-22). | `openETQW-mac` | `build/helper-scripts` | Full runs of `build-linux.sh` on Linux x64 and arm64 and of `build-windows.ps1` on Windows x64 and arm64; an independent review. |
+| [#200](https://github.com/jm2/openETQW/pull/200) (fixes [#189](https://github.com/jm2/openETQW/issues/189)) | Vulkan GUI honours retail's `trivialMakeAlpha*` programs (alpha from brightness), so the compass ring no longer covers the minimap and the menu and HUD sheets draw translucent. | `openETQW-linux` | `fix/vk-minimap` | The retail suite on antec, screenshot sets from Windows x64 (RT on and off), Windows arm64 and macOS, and an independent review. |
 
 ## 2. Open issues, in priority order
 
