@@ -6,6 +6,7 @@ layout( location = 1 ) in vec2 inTexCoord;
 layout( push_constant ) uniform GuiPushConstants {
 	vec4 transform;
 	vec4 color;
+	vec4 mode;
 } pc;
 
 layout( location = 0 ) out vec2 fragmentTexCoord;

@@ -10909,7 +10909,7 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 
 bool sdVulkanBackend::DrawGuiFan( const void* imageOwner,
 	const sdVulkanGuiVertex* vertices, int vertexCount, const float* color,
-	int drawStateBits ) {
+	int drawStateBits, bool makeAlpha ) {
 	if ( state == NULL || !state->frameActive || state->guiPipeline == VK_NULL_HANDLE ||
 		imageOwner == NULL || vertices == NULL || vertexCount < 3 ||
 		r_vkSkipGui.GetBool() ) {
@@ -10964,9 +10964,11 @@ bool sdVulkanBackend::DrawGuiFan( const void* imageOwner,
 	state->CmdBindDescriptorSets( frame.commandBuffer,
 		VK_PIPELINE_BIND_POINT_GRAPHICS, state->guiPipelineLayout, 0, 1,
 		&imageResource->descriptorSet, 0, NULL );
-	float pushConstants[ 8 ] = {
+	// the third vec4 selects retail's trivialMakeAlpha* fragment program
+	float pushConstants[ 12 ] = {
 		2.0f / 640.0f, -2.0f / 480.0f, -1.0f, 1.0f,
-		1.0f, 1.0f, 1.0f, 1.0f
+		1.0f, 1.0f, 1.0f, 1.0f,
+		makeAlpha ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f
 	};
 	if ( color != NULL ) {
 		memcpy( pushConstants + 4, color, sizeof( float ) * 4 );

@@ -833,7 +833,12 @@ void sdGuiModel::SubmitFrameVulkan() {
 						evaluated[ matrix[ 1 ][ 2 ] ];
 				}
 			}
-			if ( ( stage->drawStateBits & 0xFF ) == 0x65 ) {
+			// The trivialMakeAlpha* programs turn the texel's brightness into alpha
+			// (the compass ring, the menu sheets); drawn as plain textures, their
+			// black backgrounds cover what lies under them (#189).
+			const bool makeAlpha = stage->renderProgram != NULL &&
+				idStr::Icmpn( stage->renderProgram->GetName(), "trivialMakeAlpha", 16 ) == 0;
+			if ( ( stage->drawStateBits & 0xFF ) == 0x65 && !makeAlpha ) {
 				selectBatchImage( image );
 				for ( int triangle = 1; triangle + 1 < primitive.numVerts; ++triangle ) {
 					const int fanIndexes[ 3 ] = { 0, triangle, triangle + 1 };
@@ -856,7 +861,7 @@ void sdGuiModel::SubmitFrameVulkan() {
 			} else {
 				flushBatch();
 				vulkanBackend.DrawGuiFan( image, vertices, primitive.numVerts,
-					stageColor.ToFloatPtr(), stage->drawStateBits );
+					stageColor.ToFloatPtr(), stage->drawStateBits, makeAlpha );
 			}
 		}
 	};

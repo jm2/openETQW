@@ -72,7 +72,7 @@ public:
 	bool UpdateBuffer( const void* owner, int offset, const void* data, int bytes );
 	void DestroyBuffer( const void* owner );
 	bool DrawGuiFan( const void* imageOwner, const sdVulkanGuiVertex* vertices,
-		int vertexCount, const float* color, int drawStateBits );
+		int vertexCount, const float* color, int drawStateBits, bool makeAlpha = false );
 	bool DrawGuiTriangles( const void* imageOwner,
 		const sdVulkanToolVertex* vertices, int vertexCount );
 	bool DrawOverlayTriangles( const void* imageOwner,
