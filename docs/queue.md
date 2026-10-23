@@ -22,6 +22,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
 | [#180](https://github.com/jm2/openETQW/pull/180) | Build helpers, one command per platform (`scripts/build-*`, `docs/build-scripts.md`; the owner's request, 2026-10-22). | `openETQW-mac` | `build/helper-scripts` | Full runs of `build-linux.sh` on Linux x64 and arm64 and of `build-windows.ps1` on Windows x64 and arm64; an independent review. |
+| fix for [#190](https://github.com/jm2/openETQW/issues/190) | A Bink movie named by a binary sound decl was never found, so the emitter played forever and the first-start intro held the menu on black. The parsed sample path is kept for the bootstrap emitter. | `openETQW-mac` | `fix/bink-binary-decl` | The retail suite, a fresh-profile check on Linux and Windows, and an independent review. |
 
 ## 2. Open issues, in priority order
 
