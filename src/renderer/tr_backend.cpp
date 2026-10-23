@@ -222,6 +222,19 @@ void GL_TexEnv( int env ) {
 	}
 }
 
+// GL state was changed outside the cache (glPushAttrib / glPopAttrib, or direct
+// calls such as the compatibility GUI path's): make the next GL_State apply every
+// bit, and put culling and the active texture unit in a known state.
+void GL_ResyncStateCache() {
+	etqwGLState.forceState = true;
+	glDisable( GL_CULL_FACE );
+	etqwGLState.faceCulling = CT_TWO_SIDED;
+	qglActiveTextureARB( GL_TEXTURE0_ARB );
+	qglClientActiveTextureARB( GL_TEXTURE0_ARB );
+	etqwGLState.currentTextureUnit = 0;
+	memset( etqwGLState.textureEnv, 0, sizeof( etqwGLState.textureEnv ) );
+}
+
 void GL_State( int stateBits ) {
 	if ( !r_useAlphaToCoverage.GetBool() ) stateBits &= ~0x4000;
 	int diff;
