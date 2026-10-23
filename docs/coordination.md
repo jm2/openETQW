@@ -251,10 +251,9 @@ try something locally; never quote that run as evidence. For a single test, use
   test N times. Report the pass count and the spread of the number that matters.
 - **Testing a merge head with `validate pr`'s build:**
   `openetqw_validate.py pr --game-repo <game worktree at the pin> --build-dir <wt>/build-val`
-  builds and installs into `<wt>/build-val/install/`. For `meson test`, link the game
-  module beside the binaries first (on Linux,
-  `ln -sfn install/game_<arch>.so build-val/game_<arch>.so`; the module is `.dylib` on macOS and `.dll` on Windows),
-  then `meson test -C <wt>/build-val --no-rebuild -j 1`.
+  builds and installs into `<wt>/build-val/install/`, then links the installed game module
+  beside the binaries (a copy on Windows; #188), so `meson test -C <wt>/build-val --no-rebuild -j 1`
+  loads the PR's module rather than one in `<data>/base/`.
 - **The standalone scripts** (`tests/test_determinism_adversarial.py`,
   `tests/test_frame_pacing_adversarial.py`, `tests/test_valley_objective_adversarial.py`)
   aren't meson tests. They look for `build/openETQW-*` unless `OPENETQW_CLIENT_BINARY` and
