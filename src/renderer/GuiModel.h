@@ -101,6 +101,8 @@ private:
 	void			QueueWinding( const idWinding2D& winding, const idMaterial* material,
 						idSoundEmitter* referenceSound, bool masked,
 						float minx, float miny, float width, float height );
+	static bool		ClipToMask( idWinding2D& winding, float x, float y, float w, float h,
+						float ms1, float mt1, float ms2, float mt2 );
 	bool			ClipWinding( idWinding2D& winding ) const;
 	void			SubmitFrameVulkan();
 	void			BuildTextQuads();

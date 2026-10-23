@@ -199,6 +199,39 @@ void sdGuiModel::PopClipRect() {
 	writePosition += sizeof( int );
 }
 
+bool sdGuiModel::ClipToMask( idWinding2D& winding, float x, float y, float w, float h,
+	float ms1, float mt1, float ms2, float mt2 ) {
+	// the mask coordinates run from (ms1, mt1) at (x, y) to (ms2, mt2) at
+	// (x + w, y + h); find where they are 0 and 1
+	// an axis whose mask coordinate is constant shows everywhere or nowhere
+	if ( ( ms1 == ms2 && ( ms1 < 0.0f || ms1 > 1.0f ) ) || ( mt1 == mt2 && ( mt1 < 0.0f || mt1 > 1.0f ) ) ) {
+		return false;
+	}
+	const float unbounded = 1.0e6f;
+	float x0 = -unbounded;
+	float x1 = unbounded;
+	float y0 = -unbounded;
+	float y1 = unbounded;
+	if ( ms1 != ms2 ) {
+		x0 = x + ( 0.0f - ms1 ) / ( ms2 - ms1 ) * w;
+		x1 = x + ( 1.0f - ms1 ) / ( ms2 - ms1 ) * w;
+		if ( x0 > x1 ) {
+			Swap( x0, x1 );
+		}
+	}
+	if ( mt1 != mt2 ) {
+		y0 = y + ( 0.0f - mt1 ) / ( mt2 - mt1 ) * h;
+		y1 = y + ( 1.0f - mt1 ) / ( mt2 - mt1 ) * h;
+		if ( y0 > y1 ) {
+			Swap( y0, y1 );
+		}
+	}
+	if ( ms1 == ms2 && mt1 == mt2 ) {
+		return winding.GetNumPoints() >= 3;
+	}
+	return winding.ClipByBounds( sdBounds2D( x0, y0, x1 - x0, y1 - y0 ) ) && winding.GetNumPoints() >= 3;
+}
+
 bool sdGuiModel::ClipWinding( idWinding2D& winding ) const {
 	if ( !clippingEnabled || clipRects.Num() == 0 ) {
 		return winding.GetNumPoints() >= 3;
@@ -227,6 +260,14 @@ void sdGuiModel::QueueRect(
 	if ( angle != 0.0f ) {
 		const idVec2 center( x + w * 0.5f, y + h * 0.5f );
 		winding.Rotation( center, angle * idMath::M_DEG2RAD );
+	}
+
+	// a masked draw shows only where its mask coordinates are within 0..1; the
+	// territory outlines are drawn far larger than the command map they are
+	// masked to, so cut them there (#189). The mask coordinates below come from
+	// the rotated positions, so the cut comes after the rotation
+	if ( masked && !ClipToMask( winding, x, y, w, h, ms1, mt1, ms2, mt2 ) ) {
+		return;
 	}
 
 	if ( clipped && !ClipWinding( winding ) ) {
@@ -264,6 +305,9 @@ void sdGuiModel::QueueWinding(
 	float minx, float miny, float width, float height
 ) {
 	idWinding2D winding = source;
+	if ( masked && !ClipToMask( winding, minx, miny, width, height, 0.0f, 0.0f, 1.0f, 1.0f ) ) {
+		return;
+	}
 	if ( !ClipWinding( winding ) ) {
 		return;
 	}
