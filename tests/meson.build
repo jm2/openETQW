@@ -157,6 +157,23 @@ retail_discovery_test = executable(
 )
 test('retail-discovery', retail_discovery_test, suite: 'unit', timeout: 30)
 
+# 5d. GUI text layout (#181, docs/gui-text.md): alignment, colour escapes, line
+#     ends, word wrap, truncation, kerning, the screen scale, pixel snapping and
+#     the advances and line breaks the game reads, on a stand-in face
+gui_text_layout_test = executable(
+  'openetqw-gui-text-layout-test',
+  files(
+    'GuiTextLayoutTest.cpp',
+    meson.project_source_root() / 'src' / 'renderer' / 'GuiTextLayout.cpp',
+  ),
+  include_directories: engine_include_dirs + [include_directories('../src/renderer')],
+  cpp_args: common_engine_defs + ['-DID_DEDICATED'] + engine_pch_args,
+  dependencies: test_deps + [zlib_dep, threads_dep],
+  link_args: test_link_args,
+  install: false,
+)
+test('gui-text-layout', gui_text_layout_test, suite: 'unit', timeout: 30)
+
 # Every package carries the licence texts (GPL, SDK EULA, third-party notices)
 test(
   'install-licenses',
@@ -191,6 +208,15 @@ test(
   args: [meson.project_source_root() / 'tests' / 'test_packaging_tools.py'],
   suite: 'unit',
   timeout: 60,
+)
+
+# The build helpers (scripts/build-*): option conflicts, step order, one build type
+test(
+  'build-scripts',
+  py,
+  args: [meson.project_source_root() / 'tests' / 'test_build_scripts.py'],
+  suite: 'unit',
+  timeout: 120,
 )
 
 # 6. Client lifecycle & graphics verification test
@@ -350,6 +376,23 @@ if build_engine
       '--client-binary', campaign_client,
       '--port', '29988',
       '--log-dir', meson.project_build_root() / 'meson-logs' / 'gui-load-error',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
+  # game #51: a GUI owned by a HUD module is freed by MapShutdown while its
+  # Load is still on the stack; the catch must not read through the freed this
+  test(
+    'gui-hud-reload-error',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_gui_hud_reload_error.py',
+      '--client-binary', campaign_client,
+      '--port', '29989',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'gui-hud-reload-error',
     ],
     workdir: meson.project_source_root(),
     suite: ['client', 'integration'],
@@ -944,6 +987,30 @@ if build_engine and build_dedicated
       is_parallel: false,
     )
   endforeach
+endif
+
+# 8b. The M2 render-world parity test (queue §3 item 8): the same three scripted scenes
+#    on a Vulkan listen host (the real render world) and a dedicated server
+#    (idRenderWorldHeadless); the outcomes are compared and the numbers are the
+#    evidence for the owner's headless-render-world question (queue §4)
+if build_engine and build_dedicated
+  test(
+    'm2-render-world-parity',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_m2_render_world_parity.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--client-binary', campaign_client,
+      '--ded-port', '29982',
+      '--listen-port', '29984',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'm2-render-world-parity',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration', 'm2'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
 endif
 
 # 9a. What the Vulkan client draws from a vehicle seat the seat gate allows (M5 step 14,

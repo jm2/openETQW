@@ -8,6 +8,7 @@
 
 class idMaterial;
 class idSoundEmitter;
+class idImage;
 
 class sdGuiModel {
 public:
@@ -80,6 +81,18 @@ private:
 		unsigned int		color;
 		int					font;
 		int					pointSize;
+		bool				clipped;
+		sdBounds2D			clip;		// the rectangle and the clip stack, but for the rectangle's top and bottom
+		float				clipTop;	// the rectangle's top
+		float				clipBottom;	// the rectangle's bottom
+	};
+
+	// a glyph of a queued string, in virtual units, ready for either renderer
+	struct guiTextQuad_t {
+		idImage*			image;
+		float				x0, y0, x1, y1;
+		float				s0, t0, s1, t1;
+		unsigned int		color;
 	};
 
 	void			QueueRect( float x, float y, float w, float h,
@@ -90,12 +103,17 @@ private:
 	void			QueueWinding( const idWinding2D& winding, const idMaterial* material,
 						idSoundEmitter* referenceSound, bool masked,
 						float minx, float miny, float width, float height );
+	static bool		ClipToMask( idWinding2D& winding, float x, float y, float w, float h,
+						float ms1, float mt1, float ms2, float mt2 );
 	bool			ClipWinding( idWinding2D& winding ) const;
 	void			SubmitFrameVulkan();
+	void			BuildTextQuads();
 
 	idList< guiPrimitive_t >	primitives;
 	idList< guiText_t >		texts;
 	idList< sdBounds2D >		clipRects;
+	idList< guiTextQuad_t >		textQuads;
+	idList< int >				textQuadStart;	// per string its first quad, then one past the last
 	unsigned int				currentColor;
 	float						materialParms[ MAX_ENTITY_SHADER_PARMS ];
 	bool						clippingEnabled;

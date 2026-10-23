@@ -11,14 +11,17 @@ in-progress work and is parked: no PRs are open in either repository apart from 
 Each row below names the branch or comment where its work stopped and its exact next step. When
 the owner resumes the sessions, start at §2's top row that has a next step.
 
-Updated: 2026-10-21 by `openETQW-linux` (coordinator), after the overnight work (§5). Earlier that day: merged since 2026-10-18 are #145, #146,
-#149, #152, #153, #155–#158 and game #53–#56 (§5); filed #159 and #160. Before that,
-2026-10-18, after a pass over every doc.
+Updated: 2026-10-22 by `openETQW-linux` (coordinator): the game #51 row with the Linux arm64
+evidence and the open owner ask, and the review state of §3 items 3, 8 and 9 and of #162.
+Updated 2026-10-21 after the overnight work (§5); earlier that day, merged since 2026-10-18
+were #145, #146, #149, #152, #153, #155–#158 and game #53–#56 (§5), and #159 and #160 were
+filed. Before that, 2026-10-18, after a pass over every doc.
 
 ## 1. Open PRs, in merge order
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
+| [#180](https://github.com/jm2/openETQW/pull/180) | Build helpers, one command per platform (`scripts/build-*`, `docs/build-scripts.md`; the owner's request, 2026-10-22). | `openETQW-mac` | `build/helper-scripts` | Full runs of `build-linux.sh` on Linux x64 and arm64 and of `build-windows.ps1` on Windows x64 and arm64; an independent review. |
 
 ## 2. Open issues, in priority order
 
@@ -27,7 +30,7 @@ Updated: 2026-10-21 by `openETQW-linux` (coordinator), after the overnight work 
 | [#122](https://github.com/jm2/openETQW/issues/122) | GDF rifle viewmodel: near-black on raster, tan with ray tracing. | — (parked) | Get a retail reference first: a retail 1.5 screenshot from the owner, or published retail footage. Until then, don't change either path. Escalate to the owner if no reference turns up. |
 | [#141](https://github.com/jm2/openETQW/issues/141) | Mouse motion: SDL's sub-pixel `xrel`/`yrel` is truncated per event (`src/sys/sdl/sdl_events.cpp:238`), so slow motion is lost on high-DPI displays. From code, not reproduced. | `openETQW-mac` (parked) | Branch `fix/mouse-subpixel-deltas` at 42de177, no PR yet: the fix and its unit test pass, local checks are clean, and the full suite passed on macOS apart from a `seat-poses-listen` L3 failure (#162, since reproduced 6 of 10 on mbp16: listen-host CPU spikes). Next: the owner's Retina check, old build against new (commands on #141, issuecomment-6290237448), then the PR. Input path only. |
 | [#147](https://github.com/jm2/openETQW/issues/147) | High-density displays: should `r_mode` / `r_custom*` mean pixels or points (SDL sizes on macOS are points)? | — | An owner question with three options; not urgent. |
-| [#162](https://github.com/jm2/openETQW/issues/162) | `seat-poses-listen` L3 (held yaw): cross-tick rates over 2.5x on macOS. | — | Reproduced 6 of 10 on mbp16 in the cap-120 driver phase; the cause is CPU work spikes on the listen host, not GPU waits (issuecomment-6306063943). Next: find what the listen host does in those spikes. The bound stays. |
+| [#162](https://github.com/jm2/openETQW/issues/162) | `seat-poses-listen` L3 (held yaw): cross-tick rates over 2.5x on macOS. | `openETQW-mac` | Reproduced 6 of 10 on mbp16 in the cap-120 driver phase; the cause is CPU work spikes on the listen host, not GPU waits (issuecomment-6306063943). Branch `fix/seat-poses-listen-l3` at `1ff001f` (base 2b4a158; patch `208e03b6…cdf`, 10,644 B): one retry after a draw gap of at least 2x the median; the 2.5x L3 bound is unchanged and a second stall still fails. Code-reviewed at Linux arm64 and macOS with no blocker and one nit: 2.0x sits just under a two-vblank gap at the saved 8.511 ms median (1.9x would cover it), while the saved 37.447 ms gap is caught. The retry-pass path is statically reviewed, not run. Next: the listen run needs a display-capable host (mbp16 has no display, so zero listen runs there) or the owner's Retina check. Never apply the superseded a7aa73a/fefa519f. |
 | [#159](https://github.com/jm2/openETQW/issues/159) | `all-stock-maps`: salvage's Strogg `aas_area_validity` dips when a bot lands in a gap in retail's own AAS (no area or reachability in a 64 u strip between areas 3297 and 2747). | — (owner-gated, §4) | The cause is retail data, not a port bug (issuecomment-6306739573). Whether to exclude recorded retail AAS gaps from the check is the owner's call (§4). |
 | [#148](https://github.com/jm2/openETQW/issues/148) | `ANTEC-WIN` drew at about 30 fps for some 15 minutes during a retail suite (2026-10-20 02:16–02:31Z); cause unknown. | — | If it recurs, capture what the issue lists. |
 
@@ -60,14 +63,22 @@ Each item names its acceptance test. Details are in the linked plan.
    copies of `eaxguid.lib` and zlib contrib's `.obj` files. Replace each, or record why it
    stays (`STATUS.md` § Release gate, item 5).
 8. **The M1 and M2 gaps** (`STATUS.md` § Milestones):
-   - ~~M1: the `false` defaults of `build_engine` and `build_dedicated`~~: both default to `true` (this PR);
+   - ~~M1: the `false` defaults of `build_engine` and `build_dedicated`~~: both default to `true` (#173);
    - M2: collision in the graphical client is never asserted;
-   - M2: the headless render world is still stubbed.
-     Its effects are recorded in ledger 013 and are not measured. Next: a test-only parity
-     test that runs the same short scripted scenes on a listen server (real render world)
-     and on a dedicated server (`idRenderWorldHeadless`) and compares the outcomes: a hit
-     on a prone bot (render-model combat model), `RadiusPush` behind a wall, and a vehicle
-     exit near the map edge. Its result is the evidence for the owner question in §4.
+   - M2: the headless render world is still stubbed. Its effects are recorded in ledger 013,
+     and the parity test that measures them is merged: [#178](https://github.com/jm2/openETQW/pull/178)
+     with game [#60](https://github.com/jm2/openETQW-game/pull/60) (2026-10-22; meson `m2-render-world-parity`,
+     OK in 22 s in a 69/70 retail suite on antec's RX 6400). Earlier evidence, at `146e44e`: `m2-render-world-parity` 1/1 OK 26.10 s on antec
+     x86_64 (llvmpipe/offscreen, not GPU raster), both processes exit 0, `openetqw_validate.py pr`
+     PASSED, provenance 0 missing. Reviewed at
+     Windows with a full assertion replay against the raw log and at Linux arm64 (no blocker;
+     its one should-fix, the manifest entry, is fixed in `04b2610`).
+     **It does not close the client-collision gap.** Both render worlds' `ModelTrace`/`Trace`/
+     `FastWorldTrace` are stubs that answer false (`src/renderer/RenderWorld.cpp:787-799`,
+     `src/sys/stub/headless_stubs.cpp:120-133`), so the prone-bot and `RadiusPush` scenes are
+     stub parity by construction and only the vehicle-exit `PointInArea` scene can differ today.
+     Render-model collision needs collisionModelManager/client-prediction coverage, not
+     render-world traces. Its result is the evidence for the owner question in §4.
 
    Each gap gets a test or a recorded decision.
 9. **M3, what is left** (`STATUS.md` § Milestones, M3):
@@ -75,7 +86,14 @@ Each item names its acceptance test. Details are in the linked plan.
       passes X1–X4 both ways with Linux x64, Windows x64 and macOS arm64
       (issuecomment-6281426367, -6282183468, -6303053162, -6303056403);
     - weapon fire seen by the other player (a headless peer can't observe it; needs a
-      Vulkan observer or a server-side check).
+      Vulkan observer or a server-side check). The test is written on branch head `be49e04`
+      (after `8e06d7c`). Reviewed from the text diffs `e2070be2` (test) and `534c375c`
+      (engine), not from the `be49e04` object: no blocker, no should-fix, one nit
+      (`set g_debugWeaponState -1` is unconfirmed). macOS arm64 ran the earlier revision
+      `ed6735b7` twice at engine `1ff001f` + game `bb8e0c5` and it passed, but that revision
+      measured client 0 by position (the observer, not the shooter) with 2D drift only, so it
+      is not evidence for the revised test. Next: publish `be49e04` and run the revised test
+      once on each platform.
 
     Acceptance: `cross-os` X1–X4 each way per pair, recorded like the evidence rows of
     2026-10-16, with the server's `playerPos` polled every 0.25 s (coordination §5).
@@ -107,10 +125,38 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   moderate), with render-model traces still out (they need render models; heavy).
   Recommended by `openETQW-linux-arm64` (2026-10-20): keep the stub for M2 as a recorded
   decision (ledger 013) until the §3 item 8 parity test measures the effects.
+  Measured 2026-10-21 by `openETQW-linux (Switchworks)` on antec (Linux x86_64, engine
+  `fix/m2-render-world-parity` on a38e311, game bb8e0c5 plus the test-only `m2Parity`
+  command, retail 1.5, `valley`). The listen host is a Vulkan client on SDL's offscreen
+  driver with llvmpipe (software Vulkan, Mesa 26.2.4), so it exercises the client's real
+  `idRenderWorldLocal` but no GPU raster path. Raw logs
+  `/var/tmp/oe-swk-linux/handoff/m2-parity-afab6d7`, reproducible with meson
+  `m2-render-world-parity`:
+  - `probe`: dedicated `numAreas=1`, `PointInArea` 0 inside and 0 outside; listen
+    `numAreas=54`, 0 inside and -1 outside;
+  - `prone`: both `modelHit=0`, `modelFraction=1.0`; both `clipHit=1`,
+    `clipFraction=0.8708`. The combat model has real bounds on both (about
+    96x54x86 dedicated, 94x49x86 listen; the pose varies a little);
+  - `RadiusPush` behind a wall: identical on both (`wallFound=1`,
+    `wallDistance=281.78`, `listed=8`, `pushed=1`, `speed=68.5902`,
+    `velocity=(59.3801 34.2830 1.8150)`), because `FastWorldTrace` answers false on
+    both;
+  - vehicle exit outside the map: dedicated accepts (`exitAccepted=1`,
+    `stillInVehicle=0`, `vehicleArea=0`); listen rejects (`exitAccepted=0`,
+    `stillInVehicle=1`, `vehicleArea=-1`). This is ledger 013's effect, now measured.
 - **A person at the controls.** Smooth motion at high caps, and M3's "Vulkan client with a
   human at the controls", are judged by people on real displays (M5 D3), not by a test.
 
 ## 5. Recently done
+
+2026-10-22/23:
+- #198 (part of #193): a single vertically centred line of GUI text centres its ink (capitals to descenders) as retail 1.5 does, and the bottom of a text rectangle gives way by the font's descent, so the main menu banner keeps its descenders. Screenshot sets on `screenshots-pr198` (Linux x64, Windows x64, Windows arm64; macOS banner check). Antec retail suite at the merge head: 71 OK / 0 FAIL / 1 SKIP (cross-os). #193 stays open for the blank OpenGL buttons.
+- #195 (part of #189): masked GUI draws are cut to where their mask coordinates are 0..1, so the command map's territory outlines no longer cover the 3D view under Vulkan. Screenshot sets on `screenshots-pr195` from all five platforms. #189 stays open for the black minimap (the `overlay_grid` layer draws opaque under Vulkan).
+- #194 (#190): a Bink movie named by a binary sound decl is found, so the first-start intro ends (here, at once, with no movie installed) and the main menu draws on a fresh profile. The menu it uncovered shows #193 (clipped descenders, blank OpenGL buttons) and #186's dark OpenGL globe.
+- #191 (#184): Vulkan submits the GUI at the end of the frame, so the HUD and menus queued after the last scene draw. Screenshot sets: Linux x64, Windows x64 (RT on and off), Windows arm64 and macOS on `screenshots-pr191`. Found once the HUD drew: #189 (minimap image, unmasked command-map lines), #190 (black fresh-profile main menu) and #192 (limbo name clipped on Windows arm64).
+- #182 (#181): GUI text drawn from the game's fonts on every platform and both renderers (`docs/gui-text.md`). Screenshot sets for all five platforms are on `screenshots-pr182`; follow-ups #184-#188.
+- #177 with game #59 (game #51): `sdUserInterfaceLocal::Load`'s catch no longer touches `this` after a failed load; the GUI tests cover it. Merge evidence: antec retail suite 70 OK / 0 FAIL / 1 SKIP (cross-os) at the merge head, which settles the macmini cap-240 question.
+- #178 with game #60: the M2 render-world parity test (`m2-render-world-parity`).
 
 2026-10-20/21, overnight:
 - #169 (#134): retail's per-entity shadow limits.
