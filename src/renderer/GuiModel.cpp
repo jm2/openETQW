@@ -566,6 +566,9 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 				rbinds->diffuseColor->Set( 1.0f, 1.0f, 1.0f, 1.0f );
 			}
 			if ( !RB_SetupMaterialStage( stage, evaluated.Begin(), image, stageColor, matrixS, matrixT ) ) continue;
+			// GUI quads are two-sided, as on Vulkan (cull mode none): a stage's own
+			// cull type would drop a mirrored quad such as the rotated command map.
+			GL_Cull( CT_TWO_SIDED );
 			// ARB vertex programs are precompiled for ETQW's packed idDrawVert
 			// layout when r_32ByteVtx is enabled.  The retail GUI path builds those
 			// packed vertices before drawing; this immediate-mode compatibility path
