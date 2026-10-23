@@ -6,11 +6,9 @@ in order, and every PR that changes an item's state updates its row. `owner` nam
 session that holds the item; `—` means nobody does. Before taking an item, check its PR or
 issue for anything newer than this file.
 
-**Parked (2026-10-20, the owner's wrap-up).** Every openETQW session finished or pushed its
-in-progress work and is parked: no PRs are open in either repository apart from this docs pass, and no host claims are held.
-Each row below names the branch or comment where its work stopped and its exact next step. When
-the owner resumes the sessions, start at §2's top row that has a next step.
+**Working (2026-10-23).** The sessions are fixing the open issues. Owner, 2026-10-23: "continue the fixes, but I need kisakcod to make some serious progress so limit the multi-hour review runs until the very tail end when all the identified fixes for issues are in and it's absolutely necessary". The coordinator's plan for following it, which changes no merge gate: fix PRs get targeted tests and an independent review and wait, open. The kisakcod sessions have priority on shared hosts. At the end, one integration head (main plus every fix PR) gets the retail suite and the screenshot sets, which the gates still require, and the PRs merge in order on that evidence. Docs-only PRs merge as usual.
 
+Updated: 2026-10-23 by `openETQW-linux` (coordinator): #180 (merged 2026-10-22), #198, #199 and #200 are in §5; M4's last item is done.
 Updated: 2026-10-22 by `openETQW-linux` (coordinator): the game #51 row with the Linux arm64
 evidence and the open owner ask, and the review state of §3 items 3, 8 and 9 and of #162.
 Updated 2026-10-21 after the overnight work (§5); earlier that day, merged since 2026-10-18
@@ -21,7 +19,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
-| [#180](https://github.com/jm2/openETQW/pull/180) | Build helpers, one command per platform (`scripts/build-*`, `docs/build-scripts.md`; the owner's request, 2026-10-22). | `openETQW-mac` | `build/helper-scripts` | Full runs of `build-linux.sh` on Linux x64 and arm64 and of `build-windows.ps1` on Windows x64 and arm64; an independent review. |
+| — | None open. | | | |
 
 ## 2. Open issues, in priority order
 
@@ -144,6 +142,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-22/23:
+- #180: build helpers, one command per platform (`scripts/build-*`, `docs/build-scripts.md`; the owner's request), merged 2026-10-22.
 - #200 (#189): the Vulkan GUI honours retail's `trivialMakeAlpha*` programs, which use brightness as alpha and draw white. The compass ring's black background no longer covers the minimap, and the menu and HUD sheets and the health cross draw translucent, as GL (which runs the real program) does. Found by skipping GUI stages one material at a time. Screenshot sets on `screenshots-pr200` from all five platforms (Windows x64 with RT on and off). Antec suite: 70 OK / 1 FAIL / 1 SKIP. The failure was `all-stock-maps` outskirts GDF `aas_area_validity` at 85.4% (#159's class); it was OK when rerun alone.
 - #199 (§3 item 3, M4): `m4-bot-match` (two live bots play a time-limited match and complete no objective; movement is measured within one life) and `m4-offcampaign-match` (an objective match on quarry and island runs to its time limit, and the map's defenders win). They pass on macOS arm64 at 6d43788 and 5e12932, and on antec Linux x64 at 5e12932 (34.8 s and 69.4 s). The antec full suite at c19f7ff gave 73 OK / 0 FAIL / 1 SKIP (cross-os).
 - #198 (part of #193): a single vertically centred line of GUI text centres its ink (capitals to descenders) as retail 1.5 does, and the bottom of a text rectangle gives way by the font's descent, so the main menu banner keeps its descenders. Screenshot sets on `screenshots-pr198` (Linux x64, Windows x64, Windows arm64; macOS banner check). Antec retail suite at the merge head: 71 OK / 0 FAIL / 1 SKIP (cross-os). #193 stays open for the blank OpenGL buttons.
