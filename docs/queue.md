@@ -19,7 +19,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
-| (this PR) | OpenGL GUI: resync the GL state cache at the start of `SubmitFrame` and after its `glPopAttrib` ([#203](https://github.com/jm2/openETQW/issues/203)). | `openETQW-mac` | `fix/gl-gui-cache-frame` | An independent review; the combined-head suite and screenshot sets at the end. |
+| [#207](https://github.com/jm2/openETQW/pull/207) | OpenGL GUI: resync the GL state cache at the start of `SubmitFrame` and after its `glPopAttrib` ([#203](https://github.com/jm2/openETQW/issues/203)). | `openETQW-mac` | `fix/gl-gui-cache-frame` | An independent review; the combined-head suite and screenshot sets at the end. |
 
 ## 2. Open issues, in priority order
 
