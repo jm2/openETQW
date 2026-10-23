@@ -31,12 +31,13 @@ struct sdGuiTextLayout {
 	idList< sdGuiTextGlyph >	glyphs;
 	float					width;		// widest line, virtual units
 	float					height;		// all lines, virtual units
+	float					descent;	// the face's, below the baseline, virtual units
 	float					scale;		// screen pixels per virtual unit, horizontal
 	int						numLines;
 	idList< int >			advances;	// per source character, 1/64 screen pixel (escapes 0)
 	idList< int >			lineBreaks;	// first index of each later line, or the '\n' ending one
 
-	sdGuiTextLayout() : width( 0.0f ), height( 0.0f ), scale( 1.0f ), numLines( 0 ) {}
+	sdGuiTextLayout() : width( 0.0f ), height( 0.0f ), descent( 0.0f ), scale( 1.0f ), numLines( 0 ) {}
 };
 
 // xScale and yScale: screen pixels per virtual unit (screen width / 640, height / 480).

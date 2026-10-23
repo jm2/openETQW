@@ -66,6 +66,7 @@ int main() {
 	Expect( l.glyphs.Num() == 2 && Near( l.glyphs[ 0 ].x, 0 ) && Near( l.glyphs[ 1 ].x, 10 ), "left: pens at 0 and 10" );
 	Expect( l.glyphs.Num() == 2 && Near( l.glyphs[ 0 ].baseline, 8 ), "top: baseline at the ascent" );
 	Expect( Near( l.width, 20 ) && Near( l.height, 12 ) && l.numLines == 1, "AB is 20 x 12, one line" );
+	Expect( Near( l.descent, 3 ), "the face's descent, for the clip below the rectangle" );
 	Expect( l.advances.Num() == 2 && l.advances[ 0 ] == 640 && l.advances[ 1 ] == 640, "advances in 1/64 pixel" );
 	Expect( l.lineBreaks.Num() == 0, "one line has no line breaks" );
 

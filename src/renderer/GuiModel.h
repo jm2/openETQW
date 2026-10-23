@@ -82,7 +82,8 @@ private:
 		int					font;
 		int					pointSize;
 		bool				clipped;
-		sdBounds2D			clip;
+		sdBounds2D			clip;		// the rectangle and the clip stack, but for the rectangle's bottom
+		float				clipBottom;	// the rectangle's bottom
 	};
 
 	// a glyph of a queued string, in virtual units, ready for either renderer
