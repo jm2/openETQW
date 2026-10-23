@@ -97,6 +97,7 @@ list. Anything open there and missing here belongs in this section or in §4.
 No session can finish these alone. Prepare the evidence, then ask the owner
 (`fleet_ask` to the owner's address, coordination §3).
 
+- **Before the repositories go public: less detail, no personal data.** Owner, 2026-10-23: "sooner or later this level of detail and any PII (including hostnames, etc.) should stop being published and then eventually scrubbed from the repo: it doesn't make sense to include all this if and when the repo goes public." Until then, new docs, PRs and comments keep host names, local paths and per-session narration to what the evidence rules need, and never include IPs, user names or home paths. Changing the evidence rules (AGENTS.md rule 6, `CONTRIBUTING.md` § Records, which name the host) and the scrub itself (a history rewrite or fresh repositories) are the owner's decisions.
 - **Release gate 1, the jmarshall licence.** Blocking for any public release. The owner
   deferred it on 2026-09-25. Nothing to do until the owner reopens it.
 - **Publishing.** Both repositories stay private until the owner decides otherwise; the
