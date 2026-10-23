@@ -360,9 +360,13 @@ void sdGuiModel::DrawTextA( const wchar_t* text, const sdBounds2D& rect, unsigne
 	command.color = currentColor;
 	command.font = currentFont;
 	command.pointSize = currentFontSize;
-	// clipped to its rectangle and the clip stack, as it is queued
+	// clipped to the clip stack, as it is queued, and across to its rectangle;
+	// retail 1.5 lets a line's descenders pass the bottom of a rectangle that
+	// is only as tall as the text (#193: the main menu's banner)
 	command.clipped = ( flags & DTF_NOCLIPPING ) == 0;
 	command.clip = rect;
+	command.clip.GetMins().y = -1.0e6f;
+	command.clip.GetMaxs().y = 1.0e6f;
 	if ( rect.GetWidth() <= 0.0f || rect.GetHeight() <= 0.0f ) {
 		// an empty rectangle places the text and does not hide it
 		command.clip.GetMins().Set( -1.0e6f, -1.0e6f );

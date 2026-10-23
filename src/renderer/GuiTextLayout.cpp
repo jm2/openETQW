@@ -191,7 +191,12 @@ void GuiText_Layout( const sdGuiTextMetrics& metrics, const wchar_t* text, const
 	// placement, in screen pixels from the screen's origin, then virtual units
 	const bool snap = ( flags & DTF_NO_SNAP_TO_PIXELS ) == 0;
 	float top = rect.GetMins().y * yScale;
-	if ( flags & DTF_VCENTER ) {
+	if ( ( flags & DTF_VCENTER ) && lines.Num() == 1 ) {
+		// retail 1.5 centres a single line's ink, from the top of the capitals to
+		// the descenders, not its line box (#193: the main menu's banner)
+		const float ink = metrics.CapHeight() + metrics.Descent();
+		top += ( rect.GetHeight() * yScale - ink ) * 0.5f + metrics.CapHeight() - metrics.Ascent();
+	} else if ( flags & DTF_VCENTER ) {
 		top += ( rect.GetHeight() * yScale - totalHeight ) * 0.5f;
 	} else if ( flags & DTF_BOTTOM ) {
 		top += rect.GetHeight() * yScale - totalHeight;

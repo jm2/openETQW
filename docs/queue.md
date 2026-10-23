@@ -22,6 +22,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
 | [#180](https://github.com/jm2/openETQW/pull/180) | Build helpers, one command per platform (`scripts/build-*`, `docs/build-scripts.md`; the owner's request, 2026-10-22). | `openETQW-mac` | `build/helper-scripts` | Full runs of `build-linux.sh` on Linux x64 and arm64 and of `build-windows.ps1` on Windows x64 and arm64; an independent review. |
+| part of [#193](https://github.com/jm2/openETQW/issues/193) | GUI text: a single vertically centred line centres its ink (capitals to descenders) as retail 1.5 does, and text is no longer cut at the bottom of its own rectangle, so the main menu's banner keeps its descenders. The blank OpenGL buttons remain (#193). | `openETQW-mac` | `fix/gui-text-clip` | The retail suite, the screenshot sets on every platform and an independent review. |
 
 ## 2. Open issues, in priority order
 

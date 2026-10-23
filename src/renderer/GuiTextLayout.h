@@ -16,6 +16,8 @@ public:
 	virtual float			Kerning( int left, int right ) const = 0;
 	virtual float			Ascent() const = 0;		// above the baseline, positive
 	virtual float			LineHeight() const = 0;	// baseline to baseline
+	virtual float			CapHeight() const = 0;	// top of the capitals above the baseline
+	virtual float			Descent() const = 0;	// below the baseline, positive
 };
 
 struct sdGuiTextGlyph {
