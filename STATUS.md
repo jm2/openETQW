@@ -521,7 +521,7 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
   - the Vulkan client with a human at the controls.
 - Loss and jitter simulation (POSIX and, since 2026-09-28, Windows) keeps packet order. Since 2026-10-08 `net_forceReorder` (percent) and `net_forceReorderDelay` (ms) hold received packets back so later ones overtake them, and each process reports how many it released out of order (`NET_REORDER`). meson `remote-client-map-change-reorder` (20 ms link, 20% reordered by up to 60 ms, base check) and `multiclient-gameplay-reorder` (40 ms link, 20%, 60 ms, base check) pass on win-arm64, Windows x64 and Linux arm64; no netcode failure was found. The counts are per socket, so a server's covers all its clients. A packet that arrives after a later one is dropped by the channel (`idMsgChannel` drops a sequence at or below the last one it accepted), so on the wire a reordered packet acts as a loss that the snapshot stream and the reliable resend recover, as they do for `net_forceDrop`.
 
-**M4 (full match): partial. The gameplay transitions, a time-limited match played by live bots, and matches on maps beyond the campaign are shown by tests; an objective played out by bots, or a match played by people, is not.**
+**M4 (full match): partial. The gameplay transitions, a time-limited match played by live bots, and matches on two maps beyond the campaign (quarry, island) are shown by tests; an objective played out by bots, or a match played by people, is not.**
 - meson `m4-*` (2026-10-08/09, #104 and #107 with game #45/#47; valley unless noted; read from the server's `g_logGameEvents` lines, except `m4-deployable`, which reads `g_debugDeployables` and `deployStatus`):
   - `m4-classes`: each of the ten classes spawns with its retail 1.5 kit;
   - `m4-damage-kills`: a hit damages, hits kill (one KILL line with victim, attacker, teams and damage decl), and the dead player spawns again;
@@ -532,8 +532,8 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
 - `valley-match`: a started objective match with a Titan entered and a seat swap, ending in game review.
 - meson `m4-bot-match` and `m4-offcampaign-match` (2026-10-23, #199; pass on Linux x64 and macOS arm64):
   - `m4-bot-match`: two live bots, one per team, play a time-limited objective match on valley. At least one moves within a single life, the defenders win on the time limit, game review follows, and no objective is completed.
-  - `m4-offcampaign-match`: on quarry and island, an objective match starts and runs to its time limit, the map's defenders win (GDF on quarry, Strogg on island) and game review agrees.
-- Not shown: an objective completed by bots (they play no objectives), and a human at the controls.
+  - `m4-offcampaign-match`: on quarry and island, with the bots paused, an objective match starts and runs to its time limit with no objective completed. The map's defenders win (GDF on quarry, Strogg on island) and game review agrees.
+- Not shown: an objective completed by bots (they play no objectives), a started match on the other seven non-campaign maps, and a human at the controls.
 - Bots / navigation row: partial. Retail AAS is on all 12 maps and bots traverse in warmup. Bots play no objectives.
 
 **M5 (high-refresh multiplayer): not met.**
