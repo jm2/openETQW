@@ -55,6 +55,8 @@ public:
 	virtual float	Kerning( int left, int right ) const;
 	virtual float	Ascent() const;
 	virtual float	LineHeight() const;
+	virtual float	CapHeight() const;
+	virtual float	Descent() const;
 };
 
 struct guiFontSize_t {
@@ -62,6 +64,8 @@ struct guiFontSize_t {
 	int				pixelEm;
 	float			ascent;
 	float			lineHeight;
+	float			capHeight;
+	float			descent;
 	idList< guiGlyph_t >	glyphs;
 	idHashIndex		glyphHash;
 	// the atlas: one byte of coverage per pixel, packed in shelves
@@ -245,6 +249,8 @@ guiFontSize_t* FindSize( int font, int pixelEm ) {
 	size->pixelEm = pixelEm;
 	size->ascent = pixelEm * 0.8f;
 	size->lineHeight = pixelEm * 1.2f;
+	size->capHeight = pixelEm * 0.7f;
+	size->descent = pixelEm * 0.2f;
 	size->glyphs.SetGranularity( 128 );
 	size->atlasHeight = 128;
 	size->pixels.SetNum( ATLAS_WIDTH * size->atlasHeight, false );
@@ -264,6 +270,13 @@ guiFontSize_t* FindSize( int font, int pixelEm ) {
 		const float scale = stbtt_ScaleForMappingEmToPixels( &info, static_cast< float >( pixelEm ) );
 		size->ascent = ascent * scale;
 		size->lineHeight = ( ascent - descent + lineGap ) * scale;
+		size->descent = -descent * scale;
+		int x0, y0, x1, y1;
+		if ( stbtt_GetCodepointBox( &info, 'H', &x0, &y0, &x1, &y1 ) && y1 > 0 ) {
+			size->capHeight = y1 * scale;
+		} else {
+			size->capHeight = size->ascent;
+		}
 	}
 	sizes.Append( size );
 	return size;
@@ -395,6 +408,14 @@ float sdGuiFaceMetrics::Ascent() const {
 
 float sdGuiFaceMetrics::LineHeight() const {
 	return size->lineHeight;
+}
+
+float sdGuiFaceMetrics::CapHeight() const {
+	return size->capHeight;
+}
+
+float sdGuiFaceMetrics::Descent() const {
+	return size->descent;
 }
 
 }

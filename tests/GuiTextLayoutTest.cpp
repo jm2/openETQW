@@ -39,13 +39,15 @@ static bool Near( float a, float b ) {
 }
 
 // every character 10 pixels wide, 'W' 20, a space 5; "AV" kerns by -2;
-// ascent 8, 12 pixels from baseline to baseline
+// ascent 8, 12 pixels from baseline to baseline; capitals 5 high, descenders 3
 class sdFixedMetrics : public sdGuiTextMetrics {
 public:
 	virtual float Advance( int c ) const { return c == L'W' ? 20.0f : c == L' ' ? 5.0f : 10.0f; }
 	virtual float Kerning( int a, int b ) const { return a == L'A' && b == L'V' ? -2.0f : 0.0f; }
 	virtual float Ascent() const { return 8.0f; }
 	virtual float LineHeight() const { return 12.0f; }
+	virtual float CapHeight() const { return 5.0f; }
+	virtual float Descent() const { return 3.0f; }
 };
 
 static const unsigned int WHITE = 0xFFFFFFFF;
@@ -64,6 +66,7 @@ int main() {
 	Expect( l.glyphs.Num() == 2 && Near( l.glyphs[ 0 ].x, 0 ) && Near( l.glyphs[ 1 ].x, 10 ), "left: pens at 0 and 10" );
 	Expect( l.glyphs.Num() == 2 && Near( l.glyphs[ 0 ].baseline, 8 ), "top: baseline at the ascent" );
 	Expect( Near( l.width, 20 ) && Near( l.height, 12 ) && l.numLines == 1, "AB is 20 x 12, one line" );
+	Expect( Near( l.descent, 3 ) && Near( l.accent, 3 ), "the face's descent and room above its capitals, 8 - 5, for the clip" );
 	Expect( l.advances.Num() == 2 && l.advances[ 0 ] == 640 && l.advances[ 1 ] == 640, "advances in 1/64 pixel" );
 	Expect( l.lineBreaks.Num() == 0, "one line has no line breaks" );
 
@@ -72,7 +75,10 @@ int main() {
 	Lay( L"AB", 100, 20, DTF_RIGHT, l );
 	Expect( l.glyphs.Num() == 2 && Near( l.glyphs[ 0 ].x, 80 ), "DTF_RIGHT: 100 - 20" );
 	Lay( L"AB", 100, 20, DTF_VCENTER, l );
-	Expect( l.glyphs.Num() == 2 && Near( l.glyphs[ 0 ].baseline, 12 ), "DTF_VCENTER: (20 - 12) / 2 + 8" );
+	Expect( l.glyphs.Num() == 2 && Near( l.glyphs[ 0 ].baseline, 11 ), "DTF_VCENTER, one line: its ink centred, (20 - (5 + 3)) / 2 + 5" );
+	Lay( L"A\nB", 100, 40, DTF_VCENTER, l );
+	Expect( l.glyphs.Num() == 2 && Near( l.glyphs[ 0 ].baseline, 16 ) && Near( l.glyphs[ 1 ].baseline, 28 ),
+		"DTF_VCENTER, two lines: the line boxes centred, (40 - 24) / 2 + 8, then + 12" );
 	Lay( L"AB", 100, 20, DTF_BOTTOM, l );
 	Expect( l.glyphs.Num() == 2 && Near( l.glyphs[ 0 ].baseline, 16 ), "DTF_BOTTOM: 20 - 12 + 8" );
 
