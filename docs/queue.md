@@ -22,7 +22,6 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
 | [#180](https://github.com/jm2/openETQW/pull/180) | Build helpers, one command per platform (`scripts/build-*`, `docs/build-scripts.md`; the owner's request, 2026-10-22). | `openETQW-mac` | `build/helper-scripts` | Full runs of `build-linux.sh` on Linux x64 and arm64 and of `build-windows.ps1` on Windows x64 and arm64; an independent review. |
-| part of [#193](https://github.com/jm2/openETQW/issues/193) | GUI text: a single vertically centred line centres its ink (capitals to descenders) as retail 1.5 does, and text is no longer cut at the bottom of its own rectangle, so the main menu's banner keeps its descenders. The blank OpenGL buttons remain (#193). | `openETQW-mac` | `fix/gui-text-clip` | The retail suite, the screenshot sets on every platform and an independent review. |
 
 ## 2. Open issues, in priority order
 
@@ -153,6 +152,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-22/23:
+- #198 (part of #193): a single vertically centred line of GUI text centres its ink (capitals to descenders) as retail 1.5 does, and the bottom of a text rectangle gives way by the font's descent, so the main menu banner keeps its descenders. Screenshot sets on `screenshots-pr198` (Linux x64, Windows x64, Windows arm64; macOS banner check). Antec retail suite at the merge head: 71 OK / 0 FAIL / 1 SKIP (cross-os). #193 stays open for the blank OpenGL buttons.
 - #195 (part of #189): masked GUI draws are cut to where their mask coordinates are 0..1, so the command map's territory outlines no longer cover the 3D view under Vulkan. Screenshot sets on `screenshots-pr195` from all five platforms. #189 stays open for the black minimap (the `overlay_grid` layer draws opaque under Vulkan).
 - #194 (#190): a Bink movie named by a binary sound decl is found, so the first-start intro ends (here, at once, with no movie installed) and the main menu draws on a fresh profile. The menu it uncovered shows #193 (clipped descenders, blank OpenGL buttons) and #186's dark OpenGL globe.
 - #191 (#184): Vulkan submits the GUI at the end of the frame, so the HUD and menus queued after the last scene draw. Screenshot sets: Linux x64, Windows x64 (RT on and off), Windows arm64 and macOS on `screenshots-pr191`. Found once the HUD drew: #189 (minimap image, unmasked command-map lines), #190 (black fresh-profile main menu) and #192 (limbo name clipped on Windows arm64).
