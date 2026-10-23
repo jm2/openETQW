@@ -28,6 +28,12 @@ static int FindBinkSampleIndex( const char* shaderName ) {
 	return -1;
 }
 
+static void RecordBinkSample( const char* shaderName, const char* sample ) {
+	soundShaderBinkSample_t& entry = soundShaderBinkSamples.Alloc();
+	entry.shader = shaderName;
+	entry.sample = sample;
+}
+
 bool SoundShader_GetBinkSample( const idSoundShader* shader, idStr& samplePath ) {
 	const int index = shader != NULL ? FindBinkSampleIndex( shader->GetName() ) : -1;
 	if ( index < 0 ) {
@@ -105,8 +111,7 @@ bool idSoundShader::ParseShader( idParser& src ) {
 	numLeadins = 0;
 	memset( leadins, 0, sizeof( leadins ) );
 	memset( entries, 0, sizeof( entries ) );
-	const int binkIndex = FindBinkSampleIndex( GetName() );
-	if ( binkIndex >= 0 ) {
+	for ( int binkIndex = FindBinkSampleIndex( GetName() ); binkIndex >= 0; binkIndex = FindBinkSampleIndex( GetName() ) ) {
 		soundShaderBinkSamples.RemoveIndex( binkIndex );
 	}
 
@@ -203,6 +208,9 @@ bool idSoundShader::ParseShader( idParser& src ) {
 			if ( !src.ExpectAnyToken( &token ) ) {
 				return false;
 			}
+			if ( token.Find( ".bik", false ) != -1 ) {
+				RecordBinkSample( GetName(), token );
+			}
 		} else if ( !token.Icmp( "ordered" ) || !token.Icmp( "plain" ) ) {
 			// Accepted legacy keywords.
 		} else if ( !token.Icmp( "compression" ) ) {
@@ -231,9 +239,7 @@ bool idSoundShader::ParseShader( idParser& src ) {
 			src.Warning( "unknown token '%s'", token.c_str() );
 			return false;
 		} else if ( token.Find( ".bik", false ) != -1 ) {
-			soundShaderBinkSample_t& entry = soundShaderBinkSamples.Alloc();
-			entry.shader = GetName();
-			entry.sample = token;
+			RecordBinkSample( GetName(), token );
 		}
 	}
 	return false;
