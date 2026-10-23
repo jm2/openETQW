@@ -7,8 +7,10 @@ match played out by bots is not.  A fresh dedicated server with the objective
 rules adds two bots (GDF soldier and Strogg aggressor), leaves them running and
 starts the match with 'admin startMatch'.  With si_timelimit 0.5 the defenders
 (Strogg on valley) win on the time limit 30 s (+-3 s) after gameon:
-  B1 the bots spawn and are seen alive by 'playerPos' during the match;
-  B2 at least one bot moves (the bots play, rather than stand at spawn);
+  B1 the bots spawn, one per team, and are seen alive (not spectating, not
+     dead) by 'playerPos' during the match;
+  B2 at least one bot moves within one life (the distance restarts at each
+     spawn, so a respawn is not counted as movement);
   B3 the match reaches gameon and its time limit with winner strogg;
   B4 the game reports no objective completion and no scriptEndGame: the bots
      play no objectives;
@@ -63,6 +65,16 @@ def bot_clients(srv, start):
     return found
 
 
+def spawn_counts(srv, start):
+    """number of spawn lines per client since start."""
+    counts = {}
+    for line in srv.snapshot(start):
+        m = SPAWN_RE.search(line.text)
+        if m:
+            counts[int(m.group(1))] = counts.get(int(m.group(1)), 0) + 1
+    return counts
+
+
 def player_pos(srv, client):
     for line in srv.command(f"playerPos {client}") or []:
         p = h.parse_player_pos(line.text)
@@ -100,11 +112,11 @@ def run(binary, data, port, map_name, log_dir):
         clients = {}
         while time.monotonic() < deadline:
             clients = bot_clients(srv, start)
-            if len(clients) >= 2:
+            if {"gdf", "strogg"} <= clients.keys():
                 break
             time.sleep(0.5)
-        if len(clients) < 2:
-            raise Failed(f"the bots did not spawn (saw teams {sorted(clients)})")
+        if not {"gdf", "strogg"} <= clients.keys():
+            raise Failed(f"the bots did not spawn, one per team (saw teams {sorted(clients)})")
         print(f"B1 bots: gdf client {clients['gdf']}, strogg client {clients['strogg']}")
 
         start_deadline = time.monotonic() + 30.0
@@ -119,15 +131,20 @@ def run(binary, data, port, map_name, log_dir):
         print(f"B3 gameon at {gameon['time']} ms")
 
         first, moved, alive = {}, {c: 0 for c in clients.values()}, {c: 0 for c in clients.values()}
+        lives = spawn_counts(srv, start)
         end = time.monotonic() + 45.0
         timelimit = None
         while time.monotonic() < end:
             timelimit = next((e for e in matches(srv) if e["event"] == "timelimit"), None)
             if timelimit is not None:
                 break
+            spawns = spawn_counts(srv, start)
             for team, client in clients.items():
+                if spawns.get(client, 0) != lives.get(client, 0):
+                    lives[client] = spawns.get(client, 0)
+                    first.pop(client, None)   # a new life: measure from its own first sample
                 p = player_pos(srv, client)
-                if p is None or p["spectating"]:
+                if p is None or p["spectating"] or p["dead"]:
                     continue
                 alive[client] += 1
                 if client not in first:

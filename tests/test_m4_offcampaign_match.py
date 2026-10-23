@@ -9,8 +9,9 @@ settled bots, starts the match with 'admin startMatch' and runs it to the time
 limit (si_timelimit 0.5, 30 s +-3 s):
   M1 the named map loads (the server's 'Map: maps/<name>.world' line);
   M2 the bots spawn and the match reaches gameon;
-  M3 the time limit ends it with a winner and gamereview agrees, with no
-     scriptEndGame and no completed objective;
+  M3 the time limit ends it with the map's defenders winning (from each map
+     script's OnTimeLimitHit: GDF on quarry, Strogg on island) and gamereview
+     agrees, with no scriptEndGame and no completed objective;
   M4 the server exits 0 on quit with no failure marker.
 
 Exit 77 when ETQW_DATA_PATH is unset/invalid or the binary is missing.
@@ -30,6 +31,7 @@ STATUS_RE = re.compile(r"OBJECTIVE_STATUS:\s*gdf_obj=(-?\d+)\s+strogg_obj=(-?\d+
 SPAWN_RE = re.compile(r"SPAWN: time=\d+ client=(\d+) team=(\S+) class=(\S+)")
 
 MAPS = ("quarry", "island")
+DEFENDERS = {"quarry": "gdf", "island": "strogg"}
 TIME_LIMIT_S = 30.0
 TIME_TOLERANCE_S = 3.0
 
@@ -88,11 +90,11 @@ def run_map(binary, data, port, map_name, log_dir):
                 m = SPAWN_RE.search(line.text)
                 if m:
                     spawned[m.group(2).lower()] = int(m.group(1))
-            if len(spawned) >= 2:
+            if {"gdf", "strogg"} <= spawned.keys():
                 break
             time.sleep(0.5)
-        if len(spawned) < 2:
-            raise Failed(f"{map_name}: the bots did not spawn (saw teams {sorted(spawned)})")
+        if not {"gdf", "strogg"} <= spawned.keys():
+            raise Failed(f"{map_name}: the bots did not spawn, one per team (saw teams {sorted(spawned)})")
         print(f"M2 {map_name} bots: gdf client {spawned['gdf']}, strogg client {spawned['strogg']}")
         srv.command("bot_pause 1")
 
@@ -117,8 +119,9 @@ def run_map(binary, data, port, map_name, log_dir):
             if abs(after - TIME_LIMIT_S) > TIME_TOLERANCE_S:
                 failures.append(f"M3: {map_name}: time limit {after:.1f} s after gameon "
                                 f"(want {TIME_LIMIT_S:.0f} +- {TIME_TOLERANCE_S:.0f})")
-            if timelimit["winner"] not in ("gdf", "strogg"):
-                failures.append(f"M3: {map_name}: time limit winner {timelimit['winner']}, want a team")
+            if timelimit["winner"] != DEFENDERS[map_name]:
+                failures.append(f"M3: {map_name}: time limit winner {timelimit['winner']}, "
+                                f"want the defenders, {DEFENDERS[map_name]}")
             review = wait_event(srv, lambda e: e["event"] == "state" and e["state"] == "gamereview", 10.0)
             print(f"M3 {map_name} gamereview: {review}")
             if review is None or review["winner"] != timelimit["winner"]:
