@@ -50,8 +50,9 @@ Each item names its acceptance test. Details are in the linked plan.
    `m4-*`, #104 and #107). Written (`feat/m4-bot-and-offcampaign-matches`): `m4-bot-match`
    (two live bots play a time-limited match and complete no objective) and
    `m4-offcampaign-match` (a match starts and runs to its time limit on quarry and island),
-   passed on Linux x64 at engine `a38e311` + game `bb8e0c5`; the second platform's run is
-   still owed. Acceptance: new meson tests pass on the retail 1.5 data on two platforms.
+   passed on Linux x64 at engine `a38e311` + game `bb8e0c5` and on macOS arm64 (mbp16) at
+   engine `6d43788` + game `7fbdf80` (OK 34.90 s and 68.92 s). Left: the PR's merge evidence
+   on antec at its head. Acceptance: new meson tests pass on the retail 1.5 data on two platforms.
 4. **Retail data discovery** (`STATUS.md` § Next steps, item 7): the Linux folder picker,
    and a person trying the macOS and Windows pickers (owner).
 5. **Provenance labels** (`docs/provenance.md` §6): the minizip relabel and the other
