@@ -529,6 +529,10 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 	// compatibility submission uses immediate vertices and must provide those
 	// generic attributes explicitly instead of inheriting the last world VBO.
 	GL_EnableVertexAttribs( 0 );
+	// the calls above set GL directly: without this, a stage whose bits match the
+	// last ones cached (the previous frame's last GUI stage, on a frame with no
+	// world render) skips its blend function (#203)
+	GL_ResyncStateCache();
 
 	auto submitPrimitive = [&]( const guiPrimitive_t& primitive ) {
 		idImage* image = primitive.referenceSound != NULL ? ResolveGuiImage( primitive.material, primitive.referenceSound ) : NULL;
@@ -727,6 +731,8 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 	glPopMatrix();
 	glMatrixMode( GL_MODELVIEW );
 	glPopAttrib();
+	// glPopAttrib restored the driver's state behind the cache
+	GL_ResyncStateCache();
 }
 
 void sdGuiModel::SubmitFrameVulkan() {
