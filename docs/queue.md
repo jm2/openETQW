@@ -22,6 +22,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
 | [#180](https://github.com/jm2/openETQW/pull/180) | Build helpers, one command per platform (`scripts/build-*`, `docs/build-scripts.md`; the owner's request, 2026-10-22). | `openETQW-mac` | `build/helper-scripts` | Full runs of `build-linux.sh` on Linux x64 and arm64 and of `build-windows.ps1` on Windows x64 and arm64; an independent review. |
+| (this PR) | OpenGL GUI: the text pass sets its blend state through the state cache, so the main menu's Mods/Replay/Credits buttons draw with their labels (part of [#193](https://github.com/jm2/openETQW/issues/193)). | `openETQW-mac` | `fix/gl-gui-state-cache` | An independent review; OpenGL captures on a second platform. |
 
 ## 2. Open issues, in priority order
 

@@ -665,8 +665,13 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 		// the stage drawn before may have been opaque: without blending every
 		// glyph is a solid box (seen on macOS and Linux under OpenGL)
 		// (GLS bits, as the Vulkan path's 0x65: source alpha, one minus source
-		// alpha; 0x100 no depth writes; 0x10000 depth always)
-		SD_ApplyRenderProgramState( 0x65 | 0x100 | 0x10000, CT_TWO_SIDED );
+		// alpha; 0x100 no depth writes; 0x10000 depth always).  Set through the
+		// state cache: setting GL directly leaves the cache holding the stage
+		// drawn before, so a following stage with the same bits skips its blend
+		// function and draws with this one (#193: the main menu's sheet_add pass
+		// after the Mods/Replay/Credits labels drew opaque and covered them).
+		GL_State( 0x65 | 0x100 | 0x10000 );
+		GL_Cull( CT_TWO_SIDED );
 		glDisable( GL_ALPHA_TEST );
 		glEnable( GL_TEXTURE_2D );
 		glTexEnvi( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE );
