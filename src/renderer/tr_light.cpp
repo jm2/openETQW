@@ -1741,7 +1741,6 @@ namespace {
 	};
 	idList< viewEntity_s* > frontEndModelSpaces;
 	idList< ambientSurfaceCandidate_t > frontEndSurfaceCandidates;
-	viewEntity_s* lastViewEntity = NULL;
 	viewLight_s* lastViewLight = NULL;
 	struct materialRegisterCacheEntry_t {
 		const idMaterial*	material;
@@ -1890,17 +1889,48 @@ namespace {
 	}
 
 	// Equal sorts keep the order the surfaces were added in, as the SDK's
-	// R_AddDrawSurf did with its growing tr.sortOffset (above, line ~1198).
-	// Opaque surfaces of one sort still group by material: under the depth test
-	// their order is not visible.
+	// R_AddDrawSurf did with its growing tr.sortOffset (above, line ~1198): a
+	// stable merge sort on sort alone.  Then, inside each run of equal sort,
+	// each stretch of consecutive opaque surfaces is grouped by material; under
+	// the depth test their order is not visible, and blended surfaces never move
+	// past one another.
+	idList< drawSurf_s* > drawSurfaceSortScratch;
+
 	void SortDrawSurfaces( idList< drawSurf_s* >& surfaces ) {
-		std::stable_sort( surfaces.Begin(), surfaces.Begin() + surfaces.Num(),
-			[]( const drawSurf_s* left, const drawSurf_s* right ) {
-				if ( left->sort != right->sort ) return left->sort < right->sort;
-				if ( left->material == NULL || right->material == NULL ||
-					left->material->Coverage() != MC_OPAQUE || right->material->Coverage() != MC_OPAQUE ) return false;
-				return left->material < right->material;
-			} );
+		const int count = surfaces.Num();
+		if ( count < 2 ) return;
+		drawSurfaceSortScratch.SetNum( count, false );
+		drawSurf_s** from = surfaces.Begin();
+		drawSurf_s** to = drawSurfaceSortScratch.Begin();
+		for ( int width = 1; width < count; width *= 2 ) {
+			for ( int start = 0; start < count; start += 2 * width ) {
+				const int middle = Min( start + width, count );
+				const int end = Min( start + 2 * width, count );
+				int left = start, right = middle, out = start;
+				while ( left < middle && right < end ) {
+					// take from the right only when strictly smaller: stable
+					to[ out++ ] = from[ right ]->sort < from[ left ]->sort ? from[ right++ ] : from[ left++ ];
+				}
+				while ( left < middle ) to[ out++ ] = from[ left++ ];
+				while ( right < end ) to[ out++ ] = from[ right++ ];
+			}
+			idSwap( from, to );
+		}
+		if ( from != surfaces.Begin() ) memcpy( surfaces.Begin(), from, count * sizeof( from[ 0 ] ) );
+
+		const auto opaque = []( const drawSurf_s* surface ) {
+			return surface->material != NULL && surface->material->Coverage() == MC_OPAQUE;
+		};
+		for ( int first = 0; first < count; ) {
+			if ( !opaque( surfaces[ first ] ) ) { ++first; continue; }
+			int end = first + 1;
+			while ( end < count && surfaces[ end ]->sort == surfaces[ first ]->sort && opaque( surfaces[ end ] ) ) ++end;
+			if ( end - first > 1 ) {
+				std::stable_sort( surfaces.Begin() + first, surfaces.Begin() + end,
+					[]( const drawSurf_s* left, const drawSurf_s* right ) { return left->material < right->material; } );
+			}
+			first = end;
+		}
 	}
 
 	bool SurfaceIntersectsLight( const drawSurf_s* surface, const viewLight_s* light ) {
@@ -2855,7 +2885,6 @@ viewEntity_s* R_SetEntityDefViewEntity( renderEntity_t* entity, idRenderModel* m
 	// draws first (#208)
 	space->next = view->viewEntities;
 	view->viewEntities = space;
-	lastViewEntity = space;
 	frontEndViewEntities.Append( space );
 	return space;
 }
@@ -2942,7 +2971,9 @@ drawSurf_s* R_AddDrawSurf( const srfTriangles_t* triangles, const viewEntity_s* 
 	surface->geo = triangles;
 	surface->space = space;
 	surface->material = material;
-	surface->sort = material->GetSort();
+	// the entity's sort override (renderEntity_t::sortOffset; the game offsets
+	// each sky layer by it, and an effect's distanceOffset arrives in it, #211)
+	surface->sort = material->GetSort() + ( renderEntity != NULL ? renderEntity->sortOffset : 0.0f );
 	surface->surfID = surfID;
 	surface->dsFlags = triangles->dsFlags;
 	surface->scissorRect = scissor;
@@ -3358,7 +3389,6 @@ void R_FreeBuiltDrawView() {
 	frontEndModelSpaces.SetNum( 0, false );
 	frontEndSurfaceCandidates.SetNum( 0, false );
 	memset( materialRegisterCache, 0, sizeof( materialRegisterCache ) );
-	lastViewEntity = NULL;
 	lastViewLight = NULL;
 }
 
@@ -3436,7 +3466,6 @@ void R_BuildDrawView( idRenderWorldLocal* renderWorld, const renderView_t* rende
 	if ( renderWorld->BackendNumLocalModels() > 0 || view->viewEntities != NULL ) {
 		view->worldSpace.next = view->viewEntities;
 		view->viewEntities = &view->worldSpace;
-		lastViewEntity = frontEndViewEntities.Num() > 0 ? frontEndViewEntities[ frontEndViewEntities.Num() - 1 ] : &view->worldSpace;
 	}
 	{
 		RENDER_METRIC_SCOPE( "Add model surfaces" );
