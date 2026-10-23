@@ -157,6 +157,23 @@ retail_discovery_test = executable(
 )
 test('retail-discovery', retail_discovery_test, suite: 'unit', timeout: 30)
 
+# 5d. GUI text layout (#181, docs/gui-text.md): alignment, colour escapes, line
+#     ends, word wrap, truncation, kerning, the screen scale, pixel snapping and
+#     the advances and line breaks the game reads, on a stand-in face
+gui_text_layout_test = executable(
+  'openetqw-gui-text-layout-test',
+  files(
+    'GuiTextLayoutTest.cpp',
+    meson.project_source_root() / 'src' / 'renderer' / 'GuiTextLayout.cpp',
+  ),
+  include_directories: engine_include_dirs + [include_directories('../src/renderer')],
+  cpp_args: common_engine_defs + ['-DID_DEDICATED'] + engine_pch_args,
+  dependencies: test_deps + [zlib_dep, threads_dep],
+  link_args: test_link_args,
+  install: false,
+)
+test('gui-text-layout', gui_text_layout_test, suite: 'unit', timeout: 30)
+
 # Every package carries the licence texts (GPL, SDK EULA, third-party notices)
 test(
   'install-licenses',
