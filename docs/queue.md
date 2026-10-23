@@ -19,7 +19,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
-| (this PR) | Draw order: view entities are prepended and equal sorts keep their add order, as in the SDK, so the main menu's star quads draw before the nebula and no square shows ([#208](https://github.com/jm2/openETQW/issues/208)). | `openETQW-mac` | `fix/equal-sort-draw-order` | An independent review; the combined-head suite and screenshot sets at the end. |
+| [#210](https://github.com/jm2/openETQW/pull/210) | Draw order: view entities are prepended and equal sorts keep their add order, as in the SDK, so the main menu's star quads draw before the nebula and no square shows ([#208](https://github.com/jm2/openETQW/issues/208)). | `openETQW-mac` | `fix/equal-sort-draw-order` | An independent review; the combined-head suite and screenshot sets at the end. |
 
 ## 2. Open issues, in priority order
 
