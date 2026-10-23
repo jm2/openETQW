@@ -22,6 +22,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
 | [#180](https://github.com/jm2/openETQW/pull/180) | Build helpers, one command per platform (`scripts/build-*`, `docs/build-scripts.md`; the owner's request, 2026-10-22). | `openETQW-mac` | `build/helper-scripts` | Full runs of `build-linux.sh` on Linux x64 and arm64 and of `build-windows.ps1` on Windows x64 and arm64; an independent review. |
+| part of [#189](https://github.com/jm2/openETQW/issues/189) | Masked GUI draws are cut to where their mask coordinates are 0..1, so the command map's territory outlines no longer spill across the 3D view under Vulkan. The black minimap remains (#189). | `openETQW-mac` | `fix/vulkan-gui-mask` | The retail suite, the screenshot sets on every platform and an independent review. |
 
 ## 2. Open issues, in priority order
 
