@@ -203,18 +203,31 @@ bool sdGuiModel::ClipToMask( idWinding2D& winding, float x, float y, float w, fl
 	float ms1, float mt1, float ms2, float mt2 ) {
 	// the mask coordinates run from (ms1, mt1) at (x, y) to (ms2, mt2) at
 	// (x + w, y + h); find where they are 0 and 1
-	if ( ms1 == ms2 || mt1 == mt2 ) {
+	// an axis whose mask coordinate is constant shows everywhere or nowhere
+	if ( ( ms1 == ms2 && ( ms1 < 0.0f || ms1 > 1.0f ) ) || ( mt1 == mt2 && ( mt1 < 0.0f || mt1 > 1.0f ) ) ) {
+		return false;
+	}
+	const float unbounded = 1.0e6f;
+	float x0 = -unbounded;
+	float x1 = unbounded;
+	float y0 = -unbounded;
+	float y1 = unbounded;
+	if ( ms1 != ms2 ) {
+		x0 = x + ( 0.0f - ms1 ) / ( ms2 - ms1 ) * w;
+		x1 = x + ( 1.0f - ms1 ) / ( ms2 - ms1 ) * w;
+		if ( x0 > x1 ) {
+			Swap( x0, x1 );
+		}
+	}
+	if ( mt1 != mt2 ) {
+		y0 = y + ( 0.0f - mt1 ) / ( mt2 - mt1 ) * h;
+		y1 = y + ( 1.0f - mt1 ) / ( mt2 - mt1 ) * h;
+		if ( y0 > y1 ) {
+			Swap( y0, y1 );
+		}
+	}
+	if ( ms1 == ms2 && mt1 == mt2 ) {
 		return winding.GetNumPoints() >= 3;
-	}
-	float x0 = x + ( 0.0f - ms1 ) / ( ms2 - ms1 ) * w;
-	float x1 = x + ( 1.0f - ms1 ) / ( ms2 - ms1 ) * w;
-	float y0 = y + ( 0.0f - mt1 ) / ( mt2 - mt1 ) * h;
-	float y1 = y + ( 1.0f - mt1 ) / ( mt2 - mt1 ) * h;
-	if ( x0 > x1 ) {
-		Swap( x0, x1 );
-	}
-	if ( y0 > y1 ) {
-		Swap( y0, y1 );
 	}
 	return winding.ClipByBounds( sdBounds2D( x0, y0, x1 - x0, y1 - y0 ) ) && winding.GetNumPoints() >= 3;
 }
