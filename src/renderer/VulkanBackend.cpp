@@ -9177,6 +9177,28 @@ void sdVulkanBackend::DestroyImage( const void* owner ) {
 						sizeof( descriptor.imageViews ) );
 				}
 			}
+			// the same for the front-end ambient programs' sets
+			for ( int descriptorIndex = 0;
+				descriptorIndex < state->frontEndDescriptors.Num(); ++descriptorIndex ) {
+				sdVulkanFrontEndDescriptor& descriptor =
+					state->frontEndDescriptors[ descriptorIndex ];
+				bool usesRemovedImage = false;
+				for ( int imageIndex = 0; imageIndex < VULKAN_FRONTEND_TEXTURES;
+					++imageIndex ) {
+					if ( descriptor.imageOwners[ imageIndex ] == owner ||
+						descriptor.imageViews[ imageIndex ] == removed.view ) {
+						usesRemovedImage = true;
+						break;
+					}
+				}
+				if ( usesRemovedImage ) {
+					descriptor.owner = NULL;
+					memset( descriptor.imageOwners, 0,
+						sizeof( descriptor.imageOwners ) );
+					memset( descriptor.imageViews, 0,
+						sizeof( descriptor.imageViews ) );
+				}
+			}
 			const int lastIndex = state->imageResources.Num() - 1;
 			const void* movedOwner = i != lastIndex ?
 				state->imageResources[ lastIndex ].owner : NULL;
@@ -10947,8 +10969,9 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 				}
 				frontEndPushConstants[ 23 ] = spaceCache.modelRotation[ 0 ];
 				frontEndPushConstants[ 27 ] = spaceCache.modelRotation[ 1 ];
-				frontEndPushConstants[ 28 ] = selectedStage->vertexColor == SVC_MODULATE ?
-					1.0f : 0.0f;
+				// 0: no vertex colour, 1: modulate, 2: inverse modulate (1 - colour)
+				frontEndPushConstants[ 28 ] = selectedStage->vertexColor == SVC_MODULATE ? 1.0f :
+					( selectedStage->vertexColor == SVC_INVERSE_MODULATE ? 2.0f : 0.0f );
 				const sdDeclAmbientCubeMap* cubeMap = surface->space->ambientCubeMap;
 				frontEndPushConstants[ 30 ] = cubeMap != NULL ? cubeMap->GetBrightness() : 1.0f;
 				frontEndPushConstants[ 31 ] = static_cast< float >( frontEndMode - 1 );

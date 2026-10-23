@@ -59,8 +59,10 @@ void main() {
 		dot( pc.textureMatrixS, vec3( texCoord, 1.0 ) ),
 		dot( pc.textureMatrixT, vec3( texCoord, 1.0 ) )
 	);
-	// the ARB program's MAD color, colorModulate, colorAdd
-	fragmentColor = mix( vec4( 1.0 ), inColor, pc.vertexColorModulate );
+	// the ARB program's MAD color, colorModulate, colorAdd: 1, the vertex colour
+	// (vertexColorModulate 1) or 1 - the vertex colour (2)
+	fragmentColor = pc.vertexColorModulate > 1.5 ? vec4( 1.0 ) - inColor :
+		mix( vec4( 1.0 ), inColor, pc.vertexColorModulate );
 	vec3 normal = unpackDirection( inPackedNormal, inNormalSign );
 	vec3 tangent = unpackDirection( inPackedTangent, inTangentSign );
 	vec3 bitangent = normalize( cross( normal, tangent ) ) *

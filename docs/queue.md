@@ -19,7 +19,14 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
-| — | None open. | | | |
+| [#202](https://github.com/jm2/openETQW/pull/202) | #193: blank OpenGL buttons | `openETQW-mac` | 1dafacf | Reviewed. Waits for the combined run (header). |
+| [#204](https://github.com/jm2/openETQW/pull/204) | #185: OpenGL world drawn solid orange (skip stages whose program is defaulted) | `openETQW-linux` | 66c54e8 | Reviewed. Waits for the combined run. |
+| [#206](https://github.com/jm2/openETQW/pull/206) | #187: Vulkan limbo box (the stand-in sky only for map worlds) | `openETQW-mac` | f7d2aee | Reviewed. Waits for the combined run. |
+| [#207](https://github.com/jm2/openETQW/pull/207) | #203: GL state cache resync | `openETQW-mac` | 233ae9e | Reviewed. Waits for the combined run. |
+| [#210](https://github.com/jm2/openETQW/pull/210) | #208 and #211: draw order of equal sorts; sky-layer `sortOffset` | `openETQW-mac` | c1da6eb | Reviewed. Waits for the combined run; check particles, smoke, glass and sky layers in its sets. |
+| [#213](https://github.com/jm2/openETQW/pull/213) | #159: samples in a recorded retail AAS gap left out of `aas_area_validity` | `openETQW-linux` | 06b26e0+ | Review, then the combined run. |
+| [#214](https://github.com/jm2/openETQW/pull/214) | Docs: the owner's decisions of 2026-10-23; Vulkan main renderer, OpenGL fallback (ledger 077) | `openETQW-linux` | — | Needs the owner's approval (`STATUS.md` owner-decision lines). Docs only. |
+| this PR | #186: Vulkan menu globe lit by retail's front-end ambient programs | `openETQW-linux` | — | Reviewed (subagent). Waits for the combined run; check the menu globe in every set, and Windows with ray tracing on. |
 
 ## 2. Open issues, in priority order
 
