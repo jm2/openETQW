@@ -244,16 +244,17 @@ void sdGuiModel::QueueRect(
 	winding.AddPoint( x + w, y + h, s2, t2 );
 	winding.AddPoint( x, y + h, s1, t2 );
 
-	// a masked draw shows only where its mask coordinates are within 0..1; the
-	// territory outlines are drawn far larger than the command map they are
-	// masked to, so cut them there (#189)
-	if ( masked && !ClipToMask( winding, x, y, w, h, ms1, mt1, ms2, mt2 ) ) {
-		return;
-	}
-
 	if ( angle != 0.0f ) {
 		const idVec2 center( x + w * 0.5f, y + h * 0.5f );
 		winding.Rotation( center, angle * idMath::M_DEG2RAD );
+	}
+
+	// a masked draw shows only where its mask coordinates are within 0..1; the
+	// territory outlines are drawn far larger than the command map they are
+	// masked to, so cut them there (#189). The mask coordinates below come from
+	// the rotated positions, so the cut comes after the rotation
+	if ( masked && !ClipToMask( winding, x, y, w, h, ms1, mt1, ms2, mt2 ) ) {
+		return;
 	}
 
 	if ( clipped && !ClipWinding( winding ) ) {
