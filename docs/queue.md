@@ -20,6 +20,7 @@ Updated: 2026-10-21 by `openETQW-linux` (coordinator), after the overnight work 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
 | [#180](https://github.com/jm2/openETQW/pull/180) | Build helpers, one command per platform (`scripts/build-*`, `docs/build-scripts.md`; the owner's request, 2026-10-22). | `openETQW-mac` | `build/helper-scripts` | Full runs of `build-linux.sh` on Linux x64 and arm64 and of `build-windows.ps1` on Windows x64 and arm64; an independent review. |
+| fix for [#184](https://github.com/jm2/openETQW/issues/184) | Vulkan: submit the GUI at the end of the frame, as OpenGL does, so the HUD and GUI queued after the last scene reach the screen. | `openETQW-mac` | `fix/vulkan-gui-endframe` | The retail suite, the screenshot sets, a Linux Vulkan check on antec (RADV) and an independent review. |
 
 ## 2. Open issues, in priority order
 

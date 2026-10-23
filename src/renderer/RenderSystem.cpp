@@ -170,6 +170,14 @@ void idRenderSystemLocal::EndFrame( bool swapBuffers ) {
 		}
 	}
 	if ( vulkanBackend.IsInitialized() ) {
+		// openGLRunning is false under Vulkan, so the GUI submission above never
+		// runs there either.  Without this, the GUI queued after the frame's last scene (the HUD, a menu with no
+		// renderWorld window) was drawn only if a pre-scene flush caught it,
+		// so it was dropped (#184).
+		if ( !openGLRunning ) {
+			RENDER_METRIC_SCOPE( "GUI submission" );
+			guiModel.SubmitFrame( windowWidth, windowHeight );
+		}
 		{
 			RENDER_METRIC_SCOPE( "Metrics overlay" );
 			R_RenderMetricsDrawOverlay( windowWidth, windowHeight );
