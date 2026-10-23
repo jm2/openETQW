@@ -711,7 +711,11 @@ void RB_ARB2_DrawSurface( const drawSurf_s* surface, const idMaterial* material,
 	byte enabledStages[ MAX_SHADER_STAGES ];
 	for ( int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex ) {
 		const materialStage_t* stage = material->GetStage( stageIndex );
-		const bool enabled = RB_ARB2_UseStage( stage, materialRegisters );
+		// A program that failed to parse (retail's Cg programs have no runtime on
+		// x64 or arm64) is the default decl, which draws constant orange.  Leave
+		// its stage out, as the Vulkan path does for programs it can't run (#185).
+		const bool enabled = RB_ARB2_UseStage( stage, materialRegisters ) &&
+			( stage->renderProgram == NULL || stage->renderProgram->GetState() != DS_DEFAULTED );
 		enabledStages[ stageIndex ] = enabled ? 1 : 0;
 		if ( enabled && ( stage->drawStateBits & 0x4000 ) != 0 ) {
 			activeSurfaceUsesAlphaToCoverage = true;

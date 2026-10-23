@@ -554,6 +554,9 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 				}
 			}
 			if ( primitive.referenceSound == NULL && stageHasDefaultedTexture ) continue;
+			// a program that failed to parse (retail's Cg postprocess passes) would
+			// draw its default constant orange over the whole view (#185)
+			if ( stage->renderProgram != NULL && stage->renderProgram->GetState() == DS_DEFAULTED ) continue;
 			idVec4 stageColor;
 			idVec4 matrixS;
 			idVec4 matrixT;
