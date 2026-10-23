@@ -112,7 +112,7 @@ common_parse_args() {
   if [[ -n "$MAP" ]] && ! "$RUN" && ! "$SERVER"; then
     usage_error "--map needs --run or --server"
   fi
-  if "$VALIDATE" && { [[ "$after" -gt 0 ]] || "$CLEAN" || "$BUILDTYPE_SET" || "$SYNC_GAME" || [[ "$BUILD_DIR" != build ]]; }; then
+  if "$VALIDATE" && { [[ "$after" -gt 0 ]] || "$CLEAN" || "$BUILDTYPE_SET" || [[ "$BUILD_DIR" != build ]]; }; then
     usage_error "--validate cannot be combined with build or launch options"
   fi
   if "$NO_DEPS" && "$INSTALL_DEPS"; then
@@ -201,8 +201,10 @@ common_main() {
 
   if "$VALIDATE"; then
     "$NO_DEPS" || platform_check_deps
+    # the validator builds whatever checkout it is given; check it against the pin as a build does
+    resolve_game_repo
     cd "$ENGINE_ROOT" || exit 1
-    run python3 tools/validation/openetqw_validate.py pr
+    run python3 tools/validation/openetqw_validate.py pr --game-repo "$GAME_REPO"
     exit 0
   fi
 

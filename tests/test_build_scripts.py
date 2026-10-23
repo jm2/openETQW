@@ -46,7 +46,7 @@ class Helper:
         return {
             "--dry-run": "-DryRun", "--no-deps": "-NoDeps", "--test": "-Test", "--run": "-Run",
             "--server": "-Server", "--map": "-Map", "--clean": "-Clean", "--validate": "-Validate",
-            "--release": "-BuildType", "--build-dir": "-BuildDir", "--bogus": "-Bogus",
+            "--release": "-BuildType", "--build-dir": "-BuildDir", "--bogus": "-Bogus", "--sync-game": "-SyncGame",
         }[posix]
 
     def args(self, *posix: str) -> list[str]:
@@ -142,6 +142,13 @@ def check(helper: Helper, game: Path) -> None:
     r = helper.run(*base, "--run", "--map", "canyon", env=env)
     last = steps(r.stdout)[-1] if steps(r.stdout) else ""
     expect("openETQW-client_" in last and "+devmap canyon" in last, f"{tag}: --run --map starts a devmap session")
+
+    r = helper.run(*base, "--validate", env=env)
+    last = steps(r.stdout)[-1] if steps(r.stdout) else ""
+    expect(r.returncode == 0 and "openetqw_validate.py" in last and str(game) in last,
+           f"{tag}: --validate runs the validator on the resolved game checkout ({last})")
+    r = helper.run(*base, "--validate", "--sync-game", env=env)
+    expect(r.returncode == 0, f"{tag}: --validate takes --sync-game, as its off-pin warning advises (exit {r.returncode})")
 
     r = helper.run(*base, env=dict(env, OPENETQW_GAME_REPO=str(game / "missing")))
     expect(r.returncode == 1, f"{tag}: a missing OPENETQW_GAME_REPO fails (exit {r.returncode})")
