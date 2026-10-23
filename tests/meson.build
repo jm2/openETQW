@@ -938,6 +938,30 @@ if build_engine and build_dedicated
   endforeach
 endif
 
+# 8b. The M2 render-world parity test (queue §3 item 8): the same three scripted scenes
+#    on a Vulkan listen host (the real render world) and a dedicated server
+#    (idRenderWorldHeadless); the outcomes are compared and the numbers are the
+#    evidence for the owner's headless-render-world question (queue §4)
+if build_engine and build_dedicated
+  test(
+    'm2-render-world-parity',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_m2_render_world_parity.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--client-binary', campaign_client,
+      '--ded-port', '29982',
+      '--listen-port', '29984',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'm2-render-world-parity',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration', 'm2'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
+endif
+
 # 9a. What the Vulkan client draws from a vehicle seat the seat gate allows (M5 step 14,
 #     stage 3): single player and a joined client, the badger's driver seat driving at caps 60/120/240, with
 #     an unlisted negative control and the chase camera and icarus as guards

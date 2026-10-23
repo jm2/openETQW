@@ -16,7 +16,7 @@
   },
   "postSplitAsOf": {
     "openETQW": "the commit that last changed this manifest",
-    "openETQW-game": "e4c6d3fc50619cf29b472df543f9d5fe64e898c7"
+    "openETQW-game": "c46e1470050ff826a95d37aa87eb50321266f16a"
   },
   "files": [
     {
@@ -47748,9 +47748,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "ed53b3c766ebc79fbce73329f2bf0e6d149c695d3bbf446fdbdb077ec3618e4d",
-      "canonicalSha256": "ed53b3c766ebc79fbce73329f2bf0e6d149c695d3bbf446fdbdb077ec3618e4d",
-      "bytes": 149805,
+      "rawSha256": "4e0af9f07f0921df500e700325097d5ce5e32223a9fe94547f40c85576715672",
+      "canonicalSha256": "4e0af9f07f0921df500e700325097d5ce5e32223a9fe94547f40c85576715672",
+      "bytes": 150540,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": null
@@ -47892,9 +47892,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "3e64987104a25dece3bceeb2875ae57c99b6e348715ba73944d7e31cf9ecd2c6",
-      "canonicalSha256": "3e64987104a25dece3bceeb2875ae57c99b6e348715ba73944d7e31cf9ecd2c6",
-      "bytes": 15715,
+      "rawSha256": "ffd51a90e87970503b58260b47b2a0bc2a01e4eaf98158953d91cdd85dd3ee34",
+      "canonicalSha256": "ffd51a90e87970503b58260b47b2a0bc2a01e4eaf98158953d91cdd85dd3ee34",
+      "bytes": 15656,
       "addedAfterSplit": true,
       "addedIn": "bcba1a665ec1fe2674896af8cffbb62c5a2de127",
       "spdx": "GPL-3.0-or-later"
@@ -48576,9 +48576,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "afed1cb1ba2b4e464039d004906899037e38897ed7cd5ee9f029c650da493dce",
-      "canonicalSha256": "afed1cb1ba2b4e464039d004906899037e38897ed7cd5ee9f029c650da493dce",
-      "bytes": 37005,
+      "rawSha256": "d4e57a5045f875a3b438b408158d637284886b6945fe5fdd096014fa23514cb9",
+      "canonicalSha256": "d4e57a5045f875a3b438b408158d637284886b6945fe5fdd096014fa23514cb9",
+      "bytes": 37301,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": "GPL-3.0-or-later"
@@ -48824,18 +48824,6 @@
       "spdx": "GPL-3.0-or-later"
     },
     {
-      "path": "tests/test_gui_hud_reload_error.py",
-      "tier": "Reconstruction_original",
-      "license": "GPL-3.0-or-later",
-      "targetRepo": "openETQW",
-      "rawSha256": "3d4af56fe38ab7296c46e825e4658f23c21af662d9581cadf5f31f5cdc9568f1",
-      "canonicalSha256": "3d4af56fe38ab7296c46e825e4658f23c21af662d9581cadf5f31f5cdc9568f1",
-      "bytes": 5590,
-      "addedAfterSplit": true,
-      "addedIn": "99261aa8d65d4ea6a6d1e193deb5d24a5ddcca4b",
-      "spdx": "GPL-3.0-or-later"
-    },
-    {
       "path": "tests/test_gui_load_error.py",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -48941,6 +48929,18 @@
       "bytes": 16368,
       "addedAfterSplit": true,
       "addedIn": "94c8d103937607127f82f45c34e4b9221d740a04",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
+      "path": "tests/test_m2_render_world_parity.py",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "c24bd212dc3cdcb5e350ca533e4b6384f66063bd6ff5962e5e6803b1ec87f3d6",
+      "canonicalSha256": "c24bd212dc3cdcb5e350ca533e4b6384f66063bd6ff5962e5e6803b1ec87f3d6",
+      "bytes": 18170,
+      "addedAfterSplit": true,
+      "addedIn": "deef4bba25ed12d4df2571281ff78a8efa0efb6b",
       "spdx": "GPL-3.0-or-later"
     },
     {
@@ -49788,8 +49788,8 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "bf8a45b56ce818dfa4b4759781e0bb03b712a341164995c77dbac9e4b6203eb7",
-      "canonicalSha256": "bf8a45b56ce818dfa4b4759781e0bb03b712a341164995c77dbac9e4b6203eb7",
+      "rawSha256": "04fb307f595c7185dee6a1bf8dd804e079db99bfb1bd734f3881de23ad6b83b9",
+      "canonicalSha256": "04fb307f595c7185dee6a1bf8dd804e079db99bfb1bd734f3881de23ad6b83b9",
       "bytes": 41,
       "addedAfterSplit": true,
       "addedIn": "96be8171ffa1e6299cb40d4423a3e10c3a54cd81",

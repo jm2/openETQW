@@ -69,9 +69,9 @@ Each item names its acceptance test. Details are in the linked plan.
    - ~~M1: the `false` defaults of `build_engine` and `build_dedicated`~~: both default to `true` (#173);
    - M2: collision in the graphical client is never asserted;
    - M2: the headless render world is still stubbed. Its effects are recorded in ledger 013,
-     and the parity test that measures them is PR [#178](https://github.com/jm2/openETQW/pull/178)
-     with game [#60](https://github.com/jm2/openETQW-game/pull/60) (engine `146e44e`, game
-     pin `8a13028`). Evidence at that head: `m2-render-world-parity` 1/1 OK 26.10 s on antec
+     and the parity test that measures them is merged: [#178](https://github.com/jm2/openETQW/pull/178)
+     with game [#60](https://github.com/jm2/openETQW-game/pull/60) (2026-10-22; meson `m2-render-world-parity`,
+     OK in 22 s in a 69/70 retail suite on antec's RX 6400). Earlier evidence, at `146e44e`: `m2-render-world-parity` 1/1 OK 26.10 s on antec
      x86_64 (llvmpipe/offscreen, not GPU raster), both processes exit 0, `openetqw_validate.py pr`
      PASSED, provenance 0 missing. Reviewed at
      Windows with a full assertion replay against the raw log and at Linux arm64 (no blocker;
@@ -128,6 +128,25 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   moderate), with render-model traces still out (they need render models; heavy).
   Recommended by `openETQW-linux-arm64` (2026-10-20): keep the stub for M2 as a recorded
   decision (ledger 013) until the §3 item 8 parity test measures the effects.
+  Measured 2026-10-21 by `openETQW-linux (Switchworks)` on antec (Linux x86_64, engine
+  `fix/m2-render-world-parity` on a38e311, game bb8e0c5 plus the test-only `m2Parity`
+  command, retail 1.5, `valley`). The listen host is a Vulkan client on SDL's offscreen
+  driver with llvmpipe (software Vulkan, Mesa 26.2.4), so it exercises the client's real
+  `idRenderWorldLocal` but no GPU raster path. Raw logs
+  `/var/tmp/oe-swk-linux/handoff/m2-parity-afab6d7`, reproducible with meson
+  `m2-render-world-parity`:
+  - `probe`: dedicated `numAreas=1`, `PointInArea` 0 inside and 0 outside; listen
+    `numAreas=54`, 0 inside and -1 outside;
+  - `prone`: both `modelHit=0`, `modelFraction=1.0`; both `clipHit=1`,
+    `clipFraction=0.8708`. The combat model has real bounds on both (about
+    96x54x86 dedicated, 94x49x86 listen; the pose varies a little);
+  - `RadiusPush` behind a wall: identical on both (`wallFound=1`,
+    `wallDistance=281.78`, `listed=8`, `pushed=1`, `speed=68.5902`,
+    `velocity=(59.3801 34.2830 1.8150)`), because `FastWorldTrace` answers false on
+    both;
+  - vehicle exit outside the map: dedicated accepts (`exitAccepted=1`,
+    `stillInVehicle=0`, `vehicleArea=0`); listen rejects (`exitAccepted=0`,
+    `stillInVehicle=1`, `vehicleArea=-1`). This is ledger 013's effect, now measured.
 - **A person at the controls.** Smooth motion at high caps, and M3's "Vulkan client with a
   human at the controls", are judged by people on real displays (M5 D3), not by a test.
 
