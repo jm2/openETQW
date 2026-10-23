@@ -1896,11 +1896,13 @@ namespace {
 	// past one another.
 	idList< drawSurf_s* > drawSurfaceSortScratch;
 
-	void SortDrawSurfaces( idList< drawSurf_s* >& surfaces ) {
-		const int count = surfaces.Num();
+	// stable bottom-up merge sort of surfaces[ begin, end ) by less(), through
+	// the persistent scratch list (no allocation once it has grown)
+	template< typename Less >
+	void MergeSortDrawSurfaces( drawSurf_s** surfaces, int count, Less less ) {
 		if ( count < 2 ) return;
-		drawSurfaceSortScratch.SetNum( count, false );
-		drawSurf_s** from = surfaces.Begin();
+		if ( drawSurfaceSortScratch.Num() < count ) drawSurfaceSortScratch.SetNum( count, false );
+		drawSurf_s** from = surfaces;
 		drawSurf_s** to = drawSurfaceSortScratch.Begin();
 		for ( int width = 1; width < count; width *= 2 ) {
 			for ( int start = 0; start < count; start += 2 * width ) {
@@ -1909,15 +1911,20 @@ namespace {
 				int left = start, right = middle, out = start;
 				while ( left < middle && right < end ) {
 					// take from the right only when strictly smaller: stable
-					to[ out++ ] = from[ right ]->sort < from[ left ]->sort ? from[ right++ ] : from[ left++ ];
+					to[ out++ ] = less( from[ right ], from[ left ] ) ? from[ right++ ] : from[ left++ ];
 				}
 				while ( left < middle ) to[ out++ ] = from[ left++ ];
 				while ( right < end ) to[ out++ ] = from[ right++ ];
 			}
 			idSwap( from, to );
 		}
-		if ( from != surfaces.Begin() ) memcpy( surfaces.Begin(), from, count * sizeof( from[ 0 ] ) );
+		if ( from != surfaces ) memcpy( surfaces, from, count * sizeof( from[ 0 ] ) );
+	}
 
+	void SortDrawSurfaces( idList< drawSurf_s* >& surfaces ) {
+		const int count = surfaces.Num();
+		MergeSortDrawSurfaces( surfaces.Begin(), count,
+			[]( const drawSurf_s* left, const drawSurf_s* right ) { return left->sort < right->sort; } );
 		const auto opaque = []( const drawSurf_s* surface ) {
 			return surface->material != NULL && surface->material->Coverage() == MC_OPAQUE;
 		};
@@ -1925,10 +1932,8 @@ namespace {
 			if ( !opaque( surfaces[ first ] ) ) { ++first; continue; }
 			int end = first + 1;
 			while ( end < count && surfaces[ end ]->sort == surfaces[ first ]->sort && opaque( surfaces[ end ] ) ) ++end;
-			if ( end - first > 1 ) {
-				std::stable_sort( surfaces.Begin() + first, surfaces.Begin() + end,
-					[]( const drawSurf_s* left, const drawSurf_s* right ) { return left->material < right->material; } );
-			}
+			MergeSortDrawSurfaces( surfaces.Begin() + first, end - first,
+				[]( const drawSurf_s* left, const drawSurf_s* right ) { return left->material < right->material; } );
 			first = end;
 		}
 	}
@@ -2972,8 +2977,11 @@ drawSurf_s* R_AddDrawSurf( const srfTriangles_t* triangles, const viewEntity_s* 
 	surface->space = space;
 	surface->material = material;
 	// the entity's sort override (renderEntity_t::sortOffset; the game offsets
-	// each sky layer by it, and an effect's distanceOffset arrives in it, #211)
-	surface->sort = material->GetSort() + ( renderEntity != NULL ? renderEntity->sortOffset : 0.0f );
+	// each sky layer by it, and an effect's distanceOffset arrives in it, #211).
+	// Clamped to [0, 1): a surface stays inside its material's sort, so the
+	// back ends' pass boundaries, which test the material's sort, still hold.
+	const float entitySortOffset = renderEntity != NULL ? idMath::ClampFloat( 0.0f, 0.999f, renderEntity->sortOffset ) : 0.0f;
+	surface->sort = material->GetSort() + entitySortOffset;
 	surface->surfID = surfID;
 	surface->dsFlags = triangles->dsFlags;
 	surface->scissorRect = scissor;
