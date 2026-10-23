@@ -9,6 +9,40 @@
 #include "SoundShader.h"
 #include "../framework/DeclParseHelper.h"
 
+// The Bink sample each shader names, by shader name (#190).  The SDK's
+// idSoundShader keeps no sample names, and a shader read from a binary decl
+// has no text to search, so the bootstrap emitter looks its movie up here.
+// Only the few movie shaders are listed.
+struct soundShaderBinkSample_t {
+	idStr	shader;
+	idStr	sample;
+};
+static idList< soundShaderBinkSample_t > soundShaderBinkSamples;
+
+static int FindBinkSampleIndex( const char* shaderName ) {
+	for ( int i = 0; i < soundShaderBinkSamples.Num(); i++ ) {
+		if ( soundShaderBinkSamples[ i ].shader.Icmp( shaderName ) == 0 ) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+static void RecordBinkSample( const char* shaderName, const char* sample ) {
+	soundShaderBinkSample_t& entry = soundShaderBinkSamples.Alloc();
+	entry.shader = shaderName;
+	entry.sample = sample;
+}
+
+bool SoundShader_GetBinkSample( const idSoundShader* shader, idStr& samplePath ) {
+	const int index = shader != NULL ? FindBinkSampleIndex( shader->GetName() ) : -1;
+	if ( index < 0 ) {
+		return false;
+	}
+	samplePath = soundShaderBinkSamples[ index ].sample;
+	return true;
+}
+
 void idSoundShader::Init() {
 	desc = "<no description>";
 	leadinVolume = 0.0f;
@@ -77,6 +111,9 @@ bool idSoundShader::ParseShader( idParser& src ) {
 	numLeadins = 0;
 	memset( leadins, 0, sizeof( leadins ) );
 	memset( entries, 0, sizeof( entries ) );
+	for ( int binkIndex = FindBinkSampleIndex( GetName() ); binkIndex >= 0; binkIndex = FindBinkSampleIndex( GetName() ) ) {
+		soundShaderBinkSamples.RemoveIndex( binkIndex );
+	}
 
 	while ( src.ExpectAnyToken( &token ) ) {
 		if ( token == "}" ) {
@@ -171,6 +208,9 @@ bool idSoundShader::ParseShader( idParser& src ) {
 			if ( !src.ExpectAnyToken( &token ) ) {
 				return false;
 			}
+			if ( token.Find( ".bik", false ) != -1 ) {
+				RecordBinkSample( GetName(), token );
+			}
 		} else if ( !token.Icmp( "ordered" ) || !token.Icmp( "plain" ) ) {
 			// Accepted legacy keywords.
 		} else if ( !token.Icmp( "compression" ) ) {
@@ -198,6 +238,8 @@ bool idSoundShader::ParseShader( idParser& src ) {
 					token.Find( ".bik", false ) == -1 ) {
 			src.Warning( "unknown token '%s'", token.c_str() );
 			return false;
+		} else if ( token.Find( ".bik", false ) != -1 ) {
+			RecordBinkSample( GetName(), token );
 		}
 	}
 	return false;

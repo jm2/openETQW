@@ -13,6 +13,9 @@
 #include "SoundShader.h"
 #include "AudioHardware.h"
 
+// SoundShader.cpp: the Bink sample a shader's parse found (#190)
+bool SoundShader_GetBinkSample( const idSoundShader* shader, idStr& samplePath );
+
 namespace {
 
 idCVar s_volume(
@@ -148,8 +151,12 @@ binkApiBootstrap_t binkApi;
 
 bool FindBinkPath( const idSoundShader* shader, idStr& samplePath ) {
 	samplePath.Clear();
-	if ( shader == NULL || shader->GetTextLength() <= 0 ) {
+	if ( shader == NULL ) {
 		return false;
+	}
+	// a shader from a binary decl has no text: the parsed sample (#190)
+	if ( shader->GetTextLength() <= 0 ) {
+		return SoundShader_GetBinkSample( shader, samplePath );
 	}
 
 	const int textLength = shader->GetTextLength();
