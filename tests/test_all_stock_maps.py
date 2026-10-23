@@ -104,9 +104,11 @@ AREA_VALID_MIN_FRACTION = 0.90
 # on #159, 2026-10-23: match retail). Add a box only with the measurement.
 RETAIL_AAS_GAPS: dict[str, list[tuple[float, float, float, float, float, float]]] = {
     # #159 (issuecomment-6306739573): a strip about 64 u wide between areas
-    # 3297 (y <= 3208) and 2747 (y >= 3272), with no area at z 2983-3008 and no
-    # reachability in or out; area 0 on a 24 u grid over x -816.5..-720.5.
-    "salvage": [(-817.0, -720.0, 3208.0, 3272.0, 2975.0, 3030.0)],
+    # 3297 (y <= 3208) and 2747 (y >= 3272), no reachability in or out. Area 0
+    # was measured on a 24 u grid over x -816.5..-720.5, y 3215..3263, and at
+    # the stuck point from z 2990.9 to +32; the y edges are the two areas'
+    # bounds and z starts at 3297's floor (2983).
+    "salvage": [(-817.0, -720.0, 3208.0, 3272.0, 2983.0, 3023.0)],
 }
 GAME_HZ_RANGE = (27.0, 33.5)
 THINK_RATIO_MIN = 0.9
