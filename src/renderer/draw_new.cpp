@@ -696,6 +696,10 @@ const sdDeclRenderProgram* RB_ARB2_SelectProgram( const sdDeclRenderProgram* pro
 	return RB_ARB2_SelectProgram( program, activePass, activeEntity, activeMaterial );
 }
 
+static bool RB_ARB2_ProgramDefaulted( const sdDeclRenderProgram* program ) {
+	return program != NULL && program->GetState() == DS_DEFAULTED;
+}
+
 void RB_ARB2_DrawSurface( const drawSurf_s* surface, const idMaterial* material, const float* materialRegisters,
 		void ( *customSpaceCallback )( const drawSurf_s* ) ) {
 	if ( surface == NULL || surface->geo == NULL || surface->space == NULL || material == NULL || materialRegisters == NULL ) return;
@@ -715,6 +719,18 @@ void RB_ARB2_DrawSurface( const drawSurf_s* surface, const idMaterial* material,
 		enabledStages[ stageIndex ] = enabled ? 1 : 0;
 		if ( enabled && ( stage->drawStateBits & 0x4000 ) != 0 ) {
 			activeSurfaceUsesAlphaToCoverage = true;
+		}
+	}
+	// A program that failed to parse (retail's Cg programs have no runtime on
+	// x64 or arm64) is the default decl, which draws constant orange.  Leave its
+	// stage out, as the Vulkan path does for programs it can't run (#185).  The
+	// alternate actually bound (skinning, coverage, ...) can be defaulted while
+	// the base parses, so test both, once the coverage choice above is known.
+	for ( int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex ) {
+		if ( enabledStages[ stageIndex ] == 0 ) continue;
+		const sdDeclRenderProgram* program = material->GetStage( stageIndex )->renderProgram;
+		if ( RB_ARB2_ProgramDefaulted( program ) || RB_ARB2_ProgramDefaulted( RB_ARB2_SelectProgram( program ) ) ) {
+			enabledStages[ stageIndex ] = 0;
 		}
 	}
 	bool weightCacheModified = false;
@@ -858,7 +874,8 @@ void RB_ARB2_DrawSurface_Simple( const drawSurf_s* surface, const idMaterial* ma
 		for ( int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex ) {
 			const materialStage_t* stage = material->GetStage( stageIndex );
 			if ( materialRegisters[ stage->conditionRegister ] == 0.0f || stage->depthStage ||
-					stage->renderProgram == NULL || stage->renderProgram->IsInteraction() ) continue;
+					stage->renderProgram == NULL || stage->renderProgram->IsInteraction() ||
+					RB_ARB2_ProgramDefaulted( stage->renderProgram ) ) continue;
 			requiredVertexAttribs |= stage->renderProgram->GetRequiredVertexAttribs();
 		}
 		GL_EnableVertexAttribs( requiredVertexAttribs );
@@ -868,7 +885,8 @@ void RB_ARB2_DrawSurface_Simple( const drawSurf_s* surface, const idMaterial* ma
 	for ( int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex ) {
 		const materialStage_t* stage = material->GetStage( stageIndex );
 		if ( materialRegisters[ stage->conditionRegister ] == 0.0f || stage->depthStage ||
-				stage->renderProgram == NULL || stage->renderProgram->IsInteraction() ) continue;
+				stage->renderProgram == NULL || stage->renderProgram->IsInteraction() ||
+				RB_ARB2_ProgramDefaulted( stage->renderProgram ) ) continue;
 		activeStage = stage;
 		idImage* destination = NULL;
 		viewDef_s* view = RB_GetViewDef();
