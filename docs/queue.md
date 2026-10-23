@@ -28,7 +28,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 | [#122](https://github.com/jm2/openETQW/issues/122) | GDF rifle viewmodel: near-black on raster, tan with ray tracing. | — (parked) | Get a retail reference first: a retail 1.5 screenshot from the owner, or published retail footage. Until then, don't change either path. Escalate to the owner if no reference turns up. |
 | [#141](https://github.com/jm2/openETQW/issues/141) | Mouse motion: SDL's sub-pixel `xrel`/`yrel` is truncated per event (`src/sys/sdl/sdl_events.cpp:238`), so slow motion is lost on high-DPI displays. From code, not reproduced. | `openETQW-mac` (parked) | Branch `fix/mouse-subpixel-deltas` at 42de177, no PR yet: the fix and its unit test pass, local checks are clean, and the full suite passed on macOS apart from a `seat-poses-listen` L3 failure (#162, since reproduced 6 of 10 on mbp16: listen-host CPU spikes). Next: the owner's Retina check, old build against new (commands on #141, issuecomment-6290237448), then the PR. Input path only. |
 | [#162](https://github.com/jm2/openETQW/issues/162) | `seat-poses-listen` L3 (held yaw): cross-tick rates over 2.5x on macOS. | `openETQW-mac` | Reproduced 6 of 10 on mbp16 in the cap-120 driver phase; the cause is CPU work spikes on the listen host, not GPU waits (issuecomment-6306063943). Branch `fix/seat-poses-listen-l3` at `1ff001f` (base 2b4a158; patch `208e03b6…cdf`, 10,644 B): one retry after a draw gap of at least 2x the median; the 2.5x L3 bound is unchanged and a second stall still fails. Code-reviewed at Linux arm64 and macOS with no blocker and one nit: 2.0x sits just under a two-vblank gap at the saved 8.511 ms median (1.9x would cover it), while the saved 37.447 ms gap is caught. The retry-pass path is statically reviewed, not run. Next: the listen run needs a display-capable host (mbp16 has no display, so zero listen runs there) or the owner's Retina check. Never apply the superseded a7aa73a/fefa519f. |
-| [#159](https://github.com/jm2/openETQW/issues/159) | `all-stock-maps`: salvage's Strogg `aas_area_validity` dips when a bot lands in a gap in retail's own AAS (no area or reachability in a 64 u strip between areas 3297 and 2747). | — (owner-gated, §4) | The cause is retail data, not a port bug (issuecomment-6306739573). Whether to exclude recorded retail AAS gaps from the check is the owner's call (§4). |
+| [#159](https://github.com/jm2/openETQW/issues/159) | `all-stock-maps`: salvage's Strogg `aas_area_validity` dips when a bot lands in a gap in retail's own AAS (no area or reachability in a 64 u strip between areas 3297 and 2747). | `openETQW-linux` | The cause is retail data, not a port bug (issuecomment-6306739573). Owner, 2026-10-23: match retail. The fix PR leaves area-0 samples inside the measured gap out of `aas_area_validity` (`RETAIL_AAS_GAPS`) and reports them. It waits for the combined run. Outskirts GDF's 85.4% dip (#200's suite) is not explained yet; on the next one, keep the per-map log and measure the spot. |
 | [#148](https://github.com/jm2/openETQW/issues/148) | `ANTEC-WIN` drew at about 30 fps for some 15 minutes during a retail suite (2026-10-20 02:16–02:31Z); cause unknown. | — | If it recurs, capture what the issue lists. |
 
 ## 3. Milestone work, in order
@@ -109,9 +109,6 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   host is in the fleet; the owner would have to provide one.
 - **Hosted CI:** comes back only with Actions minutes. Until then, local checks replace it.
 - **#122's retail reference** if none can be found.
-- **#159, retail AAS gaps:** salvage's AAS has a 64 u strip with no area that bots can land
-  in, so `all-stock-maps` sometimes fails. Exclude a recorded list of retail AAS gaps from
-  `aas_area_validity`, or keep it as a known flake (#159).
 - **The headless render world (M2):** keep `idRenderWorldHeadless` as it is, or load the
   `.procb` areas and nodes on the dedicated server (`PointInArea`, `BoundsInAreas`;
   moderate), with render-model traces still out (they need render models; heavy).
@@ -142,6 +139,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-22/23:
+- #213 (#159): all-stock-maps leaves area-0 samples inside a measured gap in retail's own AAS (salvage) out of aas_area_validity and reports them (owner: match retail). Combined run 2026-10-23 (as #202).
 - #210 (#208, #211): surfaces of equal sort draw in submission order (a stable merge sort, view entities first as the SDK does), so the menu's star field no longer covers the nebula; the game's sky-layer sortOffset is honoured. Combined run 2026-10-23 (as #202); smoke and vehicle glass were not in the sets.
 - #207 (#203): the OpenGL GUI path resyncs the GL state cache each frame after direct state calls. Combined run 2026-10-23 (as #202).
 - #206 (#187): Vulkan's stand-in sky gradient runs only for render worlds loaded from a map, so the limbo player model no longer sits in a black box (ledger 076). Combined run 2026-10-23 (as #202).
