@@ -1631,6 +1631,7 @@ void R_RemoveUnecessaryViewLights( void ) {
 #include "Image.h"
 #include "Material.h"
 
+#include <algorithm>
 #include <unordered_map>
 #include "Model.h"
 #include "Model_Stuff.h"
@@ -1888,11 +1889,18 @@ namespace {
 		return interaction;
 	}
 
-	int DrawSurfaceSortCompare( drawSurf_s* const* left, drawSurf_s* const* right ) {
-		if ( ( *left )->sort < ( *right )->sort ) return -1;
-		if ( ( *left )->sort > ( *right )->sort ) return 1;
-		if ( ( *left )->material < ( *right )->material ) return -1;
-		return ( *left )->material != ( *right )->material;
+	// Equal sorts keep the order the surfaces were added in, as the SDK's
+	// R_AddDrawSurf did with its growing tr.sortOffset (above, line ~1198).
+	// Opaque surfaces of one sort still group by material: under the depth test
+	// their order is not visible.
+	void SortDrawSurfaces( idList< drawSurf_s* >& surfaces ) {
+		std::stable_sort( surfaces.Begin(), surfaces.Begin() + surfaces.Num(),
+			[]( const drawSurf_s* left, const drawSurf_s* right ) {
+				if ( left->sort != right->sort ) return left->sort < right->sort;
+				if ( left->material == NULL || right->material == NULL ||
+					left->material->Coverage() != MC_OPAQUE || right->material->Coverage() != MC_OPAQUE ) return false;
+				return left->material < right->material;
+			} );
 	}
 
 	bool SurfaceIntersectsLight( const drawSurf_s* surface, const viewLight_s* light ) {
@@ -2841,8 +2849,12 @@ viewEntity_s* R_SetEntityDefViewEntity( renderEntity_t* entity, idRenderModel* m
 	space->scissorRect = model != NULL && !modelBounds.IsCleared() ?
 		ScreenRectForBounds( modelBounds, space->modelMatrix ) : view->scissor;
 	space->culled = space->scissorRect.IsEmpty();
-	if ( lastViewEntity != NULL ) lastViewEntity->next = space;
-	else view->viewEntities = space;
+	// prepended, as the SDK's R_SetEntityDefViewEntity does: surfaces are added
+	// entity by entity in this list's order, and with the add-order tie-break in
+	// SortDrawSurfaces that decides which of two equal-sort blended surfaces
+	// draws first (#208)
+	space->next = view->viewEntities;
+	view->viewEntities = space;
 	lastViewEntity = space;
 	frontEndViewEntities.Append( space );
 	return space;
@@ -3054,7 +3066,7 @@ void R_AddModelSurfaces() {
 			entity = entity->next ) {
 			if ( entity->entityDef != NULL ) R_AddAmbientDrawsurfs( entity );
 		}
-		sortedDrawSurfaces.Sort( DrawSurfaceSortCompare );
+		SortDrawSurfaces( sortedDrawSurfaces );
 		view->drawSurfs = sortedDrawSurfaces.Begin();
 		view->numDrawSurfs = sortedDrawSurfaces.Num();
 		return;
@@ -3122,7 +3134,7 @@ void R_AddModelSurfaces() {
 	}
 	{
 		RENDER_METRIC_SCOPE( "Sort draw surfaces" );
-		sortedDrawSurfaces.Sort( DrawSurfaceSortCompare );
+		SortDrawSurfaces( sortedDrawSurfaces );
 	}
 	view->drawSurfs = sortedDrawSurfaces.Begin();
 	view->numDrawSurfs = sortedDrawSurfaces.Num();
