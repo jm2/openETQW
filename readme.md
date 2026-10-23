@@ -145,6 +145,15 @@ for Local Network access the first time a client or server uses the LAN.
 
 `--run`, `--server` and `--test` can't be combined.
 
+### Renderers
+
+**Vulkan is the main renderer and the default** (`r_renderAPI vulkan`; MoltenVK over Metal
+on macOS). Use it unless it fails on your system. **OpenGL is a degraded fallback**
+(`+set r_renderAPI opengl`): retail 1.5 wrote some of its effects (sky layers, glow, smoke
+and others) as Cg programs. Cg has no runtime on x64 or arm64, so OpenGL leaves those
+effects out (`docs/compat-ledger.md` row 077). For now, expect Vulkan to look better than
+OpenGL and to get fixes first.
+
 ### After pulling new changes
 
 Run the helper again; it reconfigures the build, so changed game headers are picked up. If
