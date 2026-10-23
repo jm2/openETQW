@@ -558,6 +558,9 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 				}
 			}
 			if ( primitive.referenceSound == NULL && stageHasDefaultedTexture ) continue;
+			// a program that failed to parse (retail's Cg postprocess passes) would
+			// draw its default constant orange over the whole view (#185)
+			if ( stage->renderProgram != NULL && stage->renderProgram->GetState() == DS_DEFAULTED ) continue;
 			idVec4 stageColor;
 			idVec4 matrixS;
 			idVec4 matrixT;
@@ -570,6 +573,9 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 				rbinds->diffuseColor->Set( 1.0f, 1.0f, 1.0f, 1.0f );
 			}
 			if ( !RB_SetupMaterialStage( stage, evaluated.Begin(), image, stageColor, matrixS, matrixT ) ) continue;
+			// GUI quads are two-sided, as on Vulkan (cull mode none): a stage's own
+			// cull type would drop a mirrored quad such as the rotated command map.
+			GL_Cull( CT_TWO_SIDED );
 			// ARB vertex programs are precompiled for ETQW's packed idDrawVert
 			// layout when r_32ByteVtx is enabled.  The retail GUI path builds those
 			// packed vertices before drawing; this immediate-mode compatibility path
@@ -669,8 +675,13 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 		// the stage drawn before may have been opaque: without blending every
 		// glyph is a solid box (seen on macOS and Linux under OpenGL)
 		// (GLS bits, as the Vulkan path's 0x65: source alpha, one minus source
-		// alpha; 0x100 no depth writes; 0x10000 depth always)
-		SD_ApplyRenderProgramState( 0x65 | 0x100 | 0x10000, CT_TWO_SIDED );
+		// alpha; 0x100 no depth writes; 0x10000 depth always).  Set through the
+		// state cache: setting GL directly leaves the cache holding the stage
+		// drawn before, so a following stage with the same bits skips its blend
+		// function and draws with this one (#193: the main menu's sheet_add pass
+		// after the Mods/Replay/Credits labels drew opaque and covered them).
+		GL_State( 0x65 | 0x100 | 0x10000 );
+		GL_Cull( CT_TWO_SIDED );
 		glDisable( GL_ALPHA_TEST );
 		glEnable( GL_TEXTURE_2D );
 		glTexEnvi( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE );
