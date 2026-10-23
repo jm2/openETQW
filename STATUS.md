@@ -57,6 +57,16 @@ Not from the owner: the integrator settled step 7's other escalation items witho
 
 From the owner, 2026-09-30, on the `game->Init()` proposal ("go with your recommendations"): a failed `game->Init()` stops the engine, as openQ4's does. `idCommonLocal::LoadGameDLL` prints the failure and rethrows it, and `idCommonLocal::Init` exits through `Sys_Error( "Error during initialization" )` with status 1 (engine #42). It used to log a warning and carry on, which turned the Clang `sdPropertyValue` bug (openETQW-game #16, fixed by #17) into a crash in `idTypeInfo::RespondsTo` at map load, far from its cause. The assetless smoke's `bare` and `empty` variants now assert that clean fatal error instead of a console and a clean quit.
 From the owner, 2026-10-20, typed in the coordinator's session (`openETQW-linux`), and approved for this line the same day: `openETQW-win-arm64` may download the retail 1.5 installer to get a retail reference for #134 (retail's sun shadow distance limits). Retail executables, disassembly and screenshots of retail still never enter either repository (`AGENTS.md` rule 3).
+From the owner, 2026-10-23, typed in the coordinator's session (`openETQW-linux`), answering its list of open questions:
+- **#209, compat-ledger row 076** (the Vulkan stand-in sky gradient): "acceptable". It stays as a recorded deviation; #209 merged.
+- **#197, fresh profile:** "player is fine as long as it can be renamed from the in-game menus". The offline stub's "Player" user stays, with no Login dialog on first start, as long as the name can be changed in-game. Retail's place for that is Options > Game Settings > Simple > Player > Name, with Apply. Whether openETQW's menu does it is being checked.
+- **#185, OpenGL and retail's Cg programs:** "OpenGL is fine as degraded fallback, just make sure that it's documented clearly that Vulkan is the primary/preferred renderer and will likely be better than OpenGL for now." Recorded in `readme.md` § Renderers and compat-ledger row 077.
+- **#186:** the coordinator drives the retail build itself for retail references, in a private headless display, never the owner's desktop.
+- **#192:** close it (a scrolling marquee, not a bug).
+- **#159, retail AAS gaps:** "match retail or whatever makes sense". `all-stock-maps` leaves area-0 samples inside a measured gap in retail's own AAS out of `aas_area_validity` (#213).
+- **#147, `r_mode` on high-density displays:** do what most id Tech GPL ports do. Those that enable high-DPI rendering (dhewm3 and openQ4 always, Yamagi Quake II on Wayland by default) treat a windowed size as points and read the pixel size back, as openETQW already does; ioquake3, iortcw, Quake3e, ET: Legacy and RBDOOM-3-BFG don't request high DPI at all. So `r_mode` and `r_custom*` stay points.
+- **#141**, the Retina mouse check: still deferred.
+
 Environment corrections vs. SESSION_BRIEF: the macOS arm64 host is joined by `antec` (Fedora 44, x86_64, GCC 16.2.1, AMD RX 6400 / RADV NAVI24) since 2026-09-26 and by a Windows 11 26H2 x64 host (VS 2026 MSVC 19.51.36260, AMD RX 6400 / Adrenalin 26.8.1) since 2026-09-28; the Linux engine and game module build and run the full retail suite on `antec`, and on the Windows host the engine, dedicated server and game module build with MSVC, debug and optimized (debugoptimized), and run the full retail suite (rows below; the Windows leg is engine PR #23 with game PR #13). VS 2026 is the Windows toolchain baseline everywhere, including CI. GitHub Actions minutes for private repositories ran out on 2026-09-24, so hosted CI does not run. Local checks, local independent reviews and CodeRabbit (about one review an hour) replace it (`CONTRIBUTING.md`). Merge gates are a convention; the free plan has no branch protection.
 
 ## Toolchain and commands (this session)
@@ -521,7 +531,7 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
   - the Vulkan client with a human at the controls.
 - Loss and jitter simulation (POSIX and, since 2026-09-28, Windows) keeps packet order. Since 2026-10-08 `net_forceReorder` (percent) and `net_forceReorderDelay` (ms) hold received packets back so later ones overtake them, and each process reports how many it released out of order (`NET_REORDER`). meson `remote-client-map-change-reorder` (20 ms link, 20% reordered by up to 60 ms, base check) and `multiclient-gameplay-reorder` (40 ms link, 20%, 60 ms, base check) pass on win-arm64, Windows x64 and Linux arm64; no netcode failure was found. The counts are per socket, so a server's covers all its clients. A packet that arrives after a later one is dropped by the channel (`idMsgChannel` drops a sequence at or below the last one it accepted), so on the wire a reordered packet acts as a loss that the snapshot stream and the reliable resend recover, as they do for `net_forceDrop`.
 
-**M4 (full match): partial. The gameplay transitions are shown by tests with bots and helper commands; a full match played by bots or people is not.**
+**M4 (full match): partial. The gameplay transitions, a time-limited match played by live bots, and matches on two maps beyond the campaign (quarry, island) are shown by tests; an objective played out by bots, or a match played by people, is not.**
 - meson `m4-*` (2026-10-08/09, #104 and #107 with game #45/#47; valley unless noted; read from the server's `g_logGameEvents` lines, except `m4-deployable`, which reads `g_debugDeployables` and `deployStatus`):
   - `m4-classes`: each of the ten classes spawns with its retail 1.5 kit;
   - `m4-damage-kills`: a hit damages, hits kill (one KILL line with victim, attacker, teams and damage decl), and the dead player spawns again;
@@ -530,7 +540,10 @@ Charter milestone numbers. `CHECKPOINT_STOCK_MAPS_PHASE.md` and older notes use 
   - `m4-stopwatch`: a stopwatch pair, round 1 setting the time to beat and round 2 played against it, with the teams swapped;
   - `m4-campaign`: a campaign plays its three maps (valley, outskirts, area22) with a remote client following, then an admin map change; the engine now runs the game's queued map changes (#107).
 - `valley-match`: a started objective match with a Titan entered and a seat swap, ending in game review.
-- Not shown: a match played out by bots (they play no objectives), a started match on maps other than the campaign's three, and a human at the controls.
+- meson `m4-bot-match` and `m4-offcampaign-match` (2026-10-23, #199; pass on Linux x64 and macOS arm64):
+  - `m4-bot-match`: two live bots, one per team, play a time-limited objective match on valley. At least one moves within a single life, the defenders win on the time limit, game review follows, and no objective is completed.
+  - `m4-offcampaign-match`: on quarry and island, with the bots paused, an objective match starts and runs to its time limit with no objective completed. The map's defenders win (GDF on quarry, Strogg on island) and game review agrees.
+- Not shown: an objective completed by bots (they play no objectives), a started match on the other seven non-campaign maps, and a human at the controls.
 - Bots / navigation row: partial. Retail AAS is on all 12 maps and bots traverse in warmup. Bots play no objectives.
 
 **M5 (high-refresh multiplayer): not met.**
@@ -641,7 +654,7 @@ The shared, owner-ordered list is `docs/queue.md`; this table follows its milest
 |---|---|---|---|---|
 | 1 | M5 step 14b, the hull lead (`docs/hull-lead.md`; ledger 067, off by default; per-class `VEH_PRED` on a network client and a listen host in §6): the owner's review on a high-refresh display | owner | owner review | The owner's per-class bound and default seat list |
 | 2 | M5 step 14, what is left: late mouse look for `freepivot` views and the `clampDamped*` seat (the husky driver; the desecrator driver is rate-limited and has late look); `pivot`/`freepivot` are presentable since 2026-10-07 (ledger 070) | any | none | `seat-poses` late-look phases for them; then the owner picks the default seats |
-| 3 | M4, what is left: a match played out by bots (they play no objectives), and a started match on maps beyond the campaign's three | any | none | New meson tests pass on the retail 1.5 data on two platforms |
+| 3 | M4, what is left: done 2026-10-23 (#199, `m4-bot-match` and `m4-offcampaign-match`). Bots still play no objectives (the bots / navigation row) | — | — | Met: the new meson tests pass on Linux x64 and macOS arm64 |
 | 4 | Retail data discovery: the Linux folder picker; a person tries the macOS and Windows pickers | Linux; owner | none | A package started from its own directory finds a configured ET:QW install |
 | 5 | Provenance labels: the minizip relabel and the other label questions (`docs/provenance.md` §6) | any | none | `provenance_post_split.py` no gap; game `check_spdx.py` passes; §6 rows resolved |
 | 6 | `docs/platform-matrix.md` (release gate, M7) | any | none | Every platform's verified items with evidence level, host and commit |

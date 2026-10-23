@@ -6,11 +6,9 @@ in order, and every PR that changes an item's state updates its row. `owner` nam
 session that holds the item; `—` means nobody does. Before taking an item, check its PR or
 issue for anything newer than this file.
 
-**Parked (2026-10-20, the owner's wrap-up).** Every openETQW session finished or pushed its
-in-progress work and is parked: no PRs are open in either repository apart from this docs pass, and no host claims are held.
-Each row below names the branch or comment where its work stopped and its exact next step. When
-the owner resumes the sessions, start at §2's top row that has a next step.
+**Working (2026-10-23).** The sessions are fixing the open issues. Owner, 2026-10-23: "continue the fixes, but I need kisakcod to make some serious progress so limit the multi-hour review runs until the very tail end when all the identified fixes for issues are in and it's absolutely necessary". The coordinator's plan for following it, which changes no merge gate: fix PRs get targeted tests and an independent review and wait, open. The kisakcod sessions have priority on shared hosts. At the end, one integration head (main plus every fix PR) gets the retail suite and the screenshot sets, which the gates still require, and the PRs merge in order on that evidence. Docs-only PRs merge as usual.
 
+Updated: 2026-10-23 by `openETQW-linux` (coordinator): #180 (merged 2026-10-22), #198, #199 and #200 are in §5; M4's last item is done.
 Updated: 2026-10-22 by `openETQW-linux` (coordinator): the game #51 row with the Linux arm64
 evidence and the open owner ask, and the review state of §3 items 3, 8 and 9 and of #162.
 Updated 2026-10-21 after the overnight work (§5); earlier that day, merged since 2026-10-18
@@ -21,7 +19,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
-| [#180](https://github.com/jm2/openETQW/pull/180) | Build helpers, one command per platform (`scripts/build-*`, `docs/build-scripts.md`; the owner's request, 2026-10-22). | `openETQW-mac` | `build/helper-scripts` | Full runs of `build-linux.sh` on Linux x64 and arm64 and of `build-windows.ps1` on Windows x64 and arm64; an independent review. |
+| [#202](https://github.com/jm2/openETQW/pull/202) | OpenGL GUI: the text pass sets its blend state through the state cache and GUI stages are two-sided, so the main menu's Mods/Replay/Credits buttons draw with their labels (part of [#193](https://github.com/jm2/openETQW/issues/193)). | `openETQW-mac` | `fix/gl-gui-state-cache` | An independent review; the combined-head suite and screenshot sets at the end. |
 
 ## 2. Open issues, in priority order
 
@@ -29,7 +27,6 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 |---|---|---|---|
 | [#122](https://github.com/jm2/openETQW/issues/122) | GDF rifle viewmodel: near-black on raster, tan with ray tracing. | — (parked) | Get a retail reference first: a retail 1.5 screenshot from the owner, or published retail footage. Until then, don't change either path. Escalate to the owner if no reference turns up. |
 | [#141](https://github.com/jm2/openETQW/issues/141) | Mouse motion: SDL's sub-pixel `xrel`/`yrel` is truncated per event (`src/sys/sdl/sdl_events.cpp:238`), so slow motion is lost on high-DPI displays. From code, not reproduced. | `openETQW-mac` (parked) | Branch `fix/mouse-subpixel-deltas` at 42de177, no PR yet: the fix and its unit test pass, local checks are clean, and the full suite passed on macOS apart from a `seat-poses-listen` L3 failure (#162, since reproduced 6 of 10 on mbp16: listen-host CPU spikes). Next: the owner's Retina check, old build against new (commands on #141, issuecomment-6290237448), then the PR. Input path only. |
-| [#147](https://github.com/jm2/openETQW/issues/147) | High-density displays: should `r_mode` / `r_custom*` mean pixels or points (SDL sizes on macOS are points)? | — | An owner question with three options; not urgent. |
 | [#162](https://github.com/jm2/openETQW/issues/162) | `seat-poses-listen` L3 (held yaw): cross-tick rates over 2.5x on macOS. | `openETQW-mac` | Reproduced 6 of 10 on mbp16 in the cap-120 driver phase; the cause is CPU work spikes on the listen host, not GPU waits (issuecomment-6306063943). Branch `fix/seat-poses-listen-l3` at `1ff001f` (base 2b4a158; patch `208e03b6…cdf`, 10,644 B): one retry after a draw gap of at least 2x the median; the 2.5x L3 bound is unchanged and a second stall still fails. Code-reviewed at Linux arm64 and macOS with no blocker and one nit: 2.0x sits just under a two-vblank gap at the saved 8.511 ms median (1.9x would cover it), while the saved 37.447 ms gap is caught. The retry-pass path is statically reviewed, not run. Next: the listen run needs a display-capable host (mbp16 has no display, so zero listen runs there) or the owner's Retina check. Never apply the superseded a7aa73a/fefa519f. |
 | [#159](https://github.com/jm2/openETQW/issues/159) | `all-stock-maps`: salvage's Strogg `aas_area_validity` dips when a bot lands in a gap in retail's own AAS (no area or reachability in a 64 u strip between areas 3297 and 2747). | — (owner-gated, §4) | The cause is retail data, not a port bug (issuecomment-6306739573). Whether to exclude recorded retail AAS gaps from the check is the owner's call (§4). |
 | [#148](https://github.com/jm2/openETQW/issues/148) | `ANTEC-WIN` drew at about 30 fps for some 15 minutes during a retail suite (2026-10-20 02:16–02:31Z); cause unknown. | — | If it recurs, capture what the issue lists. |
@@ -100,6 +97,7 @@ list. Anything open there and missing here belongs in this section or in §4.
 No session can finish these alone. Prepare the evidence, then ask the owner
 (`fleet_ask` to the owner's address, coordination §3).
 
+- **Before the repositories go public: less detail, no personal data.** Owner, 2026-10-23: "sooner or later this level of detail and any PII (including hostnames, etc.) should stop being published and then eventually scrubbed from the repo: it doesn't make sense to include all this if and when the repo goes public." Until then, new docs, PRs and comments keep host names, local paths and per-session narration to what the evidence rules need, and never include IPs, user names or home paths. Changing the evidence rules (AGENTS.md rule 6, `CONTRIBUTING.md` § Records, which name the host) and the scrub itself (a history rewrite or fresh repositories) are the owner's decisions.
 - **Release gate 1, the jmarshall licence.** Blocking for any public release. The owner
   deferred it on 2026-09-25. Nothing to do until the owner reopens it.
 - **Publishing.** Both repositories stay private until the owner decides otherwise; the
@@ -144,6 +142,10 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-22/23:
+- #202 (#193): the OpenGL GUI state cache follows direct state changes, so the menu's and limbo's buttons draw (Mods, Replay, Credits; team buttons). Combined run 2026-10-23 (integration e9df517): antec suite 71/2 flakes (#162, #216; both OK alone)/1 skip; screenshot sets from five platforms, no regressions.
+- The owner's answers of 2026-10-23 (`STATUS.md` § Owner decisions): #209 merged (ledger row 076 kept); #192 and game #51 closed; #147 decided, so sizes stay points; #185's OpenGL is a documented degraded fallback (`readme.md` § Renderers, ledger row 077); #159 fixed by #213; #197 is waiting on a check that the in-game Name field works.
+- #205 (#188): `openetqw_validate.py` links the installed game module beside the build's binaries (copies it on Windows), so `meson test` on a validate tree loads the PR's module rather than one in `<data>/base/`. The by-hand link step in coordination §5 is gone.
+- #180: build helpers, one command per platform (`scripts/build-*`, `docs/build-scripts.md`; the owner's request), merged 2026-10-22.
 - #200 (#189): the Vulkan GUI honours retail's `trivialMakeAlpha*` programs, which use brightness as alpha and draw white. The compass ring's black background no longer covers the minimap, and the menu and HUD sheets and the health cross draw translucent, as GL (which runs the real program) does. Found by skipping GUI stages one material at a time. Screenshot sets on `screenshots-pr200` from all five platforms (Windows x64 with RT on and off). Antec suite: 70 OK / 1 FAIL / 1 SKIP. The failure was `all-stock-maps` outskirts GDF `aas_area_validity` at 85.4% (#159's class); it was OK when rerun alone.
 - #199 (§3 item 3, M4): `m4-bot-match` (two live bots play a time-limited match and complete no objective; movement is measured within one life) and `m4-offcampaign-match` (an objective match on quarry and island runs to its time limit, and the map's defenders win). They pass on macOS arm64 at 6d43788 and 5e12932, and on antec Linux x64 at 5e12932 (34.8 s and 69.4 s). The antec full suite at c19f7ff gave 73 OK / 0 FAIL / 1 SKIP (cross-os).
 - #198 (part of #193): a single vertically centred line of GUI text centres its ink (capitals to descenders) as retail 1.5 does, and the bottom of a text rectangle gives way by the font's descent, so the main menu banner keeps its descenders. Screenshot sets on `screenshots-pr198` (Linux x64, Windows x64, Windows arm64; macOS banner check). Antec retail suite at the merge head: 71 OK / 0 FAIL / 1 SKIP (cross-os). #193 stays open for the blank OpenGL buttons.
