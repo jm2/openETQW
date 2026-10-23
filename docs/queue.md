@@ -11,10 +11,11 @@ in-progress work and is parked: no PRs are open in either repository apart from 
 Each row below names the branch or comment where its work stopped and its exact next step. When
 the owner resumes the sessions, start at §2's top row that has a next step.
 
-Updated: 2026-10-22 by `openETQW-linux` (coordinator): the review state of §3 items 3, 8
-and 9 and of #162. Updated 2026-10-21 after the overnight work (§5); earlier that day, merged
-since 2026-10-18 were #145, #146, #149, #152, #153, #155–#158 and game #53–#56 (§5), and
-#159 and #160 were filed. Before that, 2026-10-18, after a pass over every doc.
+Updated: 2026-10-22 by `openETQW-linux` (coordinator): the game #51 row with the Linux arm64
+evidence and the open owner ask, and the review state of §3 items 3, 8 and 9 and of #162.
+Updated 2026-10-21 after the overnight work (§5); earlier that day, merged since 2026-10-18
+were #145, #146, #149, #152, #153, #155–#158 and game #53–#56 (§5), and #159 and #160 were
+filed. Before that, 2026-10-18, after a pass over every doc.
 
 ## 1. Open PRs, in merge order
 
@@ -149,6 +150,10 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   human at the controls", are judged by people on real displays (M5 D3), not by a test.
 
 ## 5. Recently done
+
+2026-10-22/23:
+- #177 with game #59 (game #51): `sdUserInterfaceLocal::Load`'s catch no longer touches `this` after a failed load; the GUI tests cover it. Merge evidence: antec retail suite 70 OK / 0 FAIL / 1 SKIP (cross-os) at the merge head, which settles the macmini cap-240 question.
+- #178 with game #60: the M2 render-world parity test (`m2-render-world-parity`).
 
 2026-10-20/21, overnight:
 - #169 (#134): retail's per-entity shadow limits.
