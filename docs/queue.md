@@ -19,7 +19,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
-| (this PR) | Vulkan: no stand-in sky gradient for a render world made without a map, so the limbo menu's player model has no black box behind it ([#187](https://github.com/jm2/openETQW/issues/187)). | `openETQW-mac` | `fix/vk-limbo-model-box` | An independent review; the combined-head suite and screenshot sets at the end. |
+| [#206](https://github.com/jm2/openETQW/pull/206) | Vulkan: no stand-in sky gradient for a render world made without a map, so the limbo menu's player model has no black box behind it ([#187](https://github.com/jm2/openETQW/issues/187)). | `openETQW-mac` | `fix/vk-limbo-model-box` | An independent review; the combined-head suite and screenshot sets at the end. |
 
 ## 2. Open issues, in priority order
 
