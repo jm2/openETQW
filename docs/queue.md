@@ -67,9 +67,9 @@ Each item names its acceptance test. Details are in the linked plan.
    - ~~M1: the `false` defaults of `build_engine` and `build_dedicated`~~: both default to `true` (#173);
    - M2: collision in the graphical client is never asserted;
    - M2: the headless render world is still stubbed. Its effects are recorded in ledger 013,
-     and the parity test that measures them is PR [#178](https://github.com/jm2/openETQW/pull/178)
-     with game [#60](https://github.com/jm2/openETQW-game/pull/60) (engine `146e44e`, game
-     pin `8a13028`). Evidence at that head: `m2-render-world-parity` 1/1 OK 26.10 s on antec
+     and the parity test that measures them is merged: [#178](https://github.com/jm2/openETQW/pull/178)
+     with game [#60](https://github.com/jm2/openETQW-game/pull/60) (2026-10-22; meson `m2-render-world-parity`,
+     OK in 22 s in a 69/70 retail suite on antec's RX 6400). Earlier evidence, at `146e44e`: `m2-render-world-parity` 1/1 OK 26.10 s on antec
      x86_64 (llvmpipe/offscreen, not GPU raster), both processes exit 0, `openetqw_validate.py pr`
      PASSED, provenance 0 missing. Reviewed at
      Windows with a full assertion replay against the raw log and at Linux arm64 (no blocker;
