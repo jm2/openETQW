@@ -9851,7 +9851,11 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 	// Establish the authored sky gradient first so pixels not covered by world
 	// geometry no longer expose the swapchain clear color.  This intentionally
 	// precedes depth-tested surfaces; clouds and the sun remain later passes.
-	if ( view->atmosphere != NULL && state->skyPipeline != VK_NULL_HANDLE ) {
+	// Only a map's world has a sky: a GUI's render world (the limbo menu's player
+	// model, UIRenderWorld) has an atmosphere for its lighting but no sky, and
+	// filling its viewport drew an opaque box behind the model (#187).
+	if ( view->atmosphere != NULL && state->skyPipeline != VK_NULL_HANDLE &&
+		view->renderWorld != NULL && view->renderWorld->HasMap() ) {
 		RENDER_METRIC_SCOPE( "Vulkan sky" );
 		idImage* skyImage = view->atmosphere->GetSkyGradientImage();
 		if ( skyImage != NULL && !skyImage->IsLoaded() ) {

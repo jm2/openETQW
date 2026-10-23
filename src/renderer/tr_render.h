@@ -31,6 +31,7 @@ void GL_SelectTexture( int unit );
 void GL_Cull( int cullType );
 void GL_TexEnv( int env );
 void GL_State( int stateVector );
+void GL_ResyncStateCache();
 void RB_SetDefaultGLState();
 void RB_SetGL2D();
 

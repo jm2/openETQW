@@ -19,14 +19,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
-| [#202](https://github.com/jm2/openETQW/pull/202) | #193: blank OpenGL buttons | `openETQW-mac` | 1dafacf | Reviewed. Waits for the combined run (header). |
-| [#204](https://github.com/jm2/openETQW/pull/204) | #185: OpenGL world drawn solid orange (skip stages whose program is defaulted) | `openETQW-linux` | 66c54e8 | Reviewed. Waits for the combined run. |
-| [#206](https://github.com/jm2/openETQW/pull/206) | #187: Vulkan limbo box (the stand-in sky only for map worlds) | `openETQW-mac` | f7d2aee | Reviewed. Waits for the combined run. |
-| [#207](https://github.com/jm2/openETQW/pull/207) | #203: GL state cache resync | `openETQW-mac` | 233ae9e | Reviewed. Waits for the combined run. |
-| [#210](https://github.com/jm2/openETQW/pull/210) | #208 and #211: draw order of equal sorts; sky-layer `sortOffset` | `openETQW-mac` | c1da6eb | Reviewed. Waits for the combined run; check particles, smoke, glass and sky layers in its sets. |
-| [#213](https://github.com/jm2/openETQW/pull/213) | #159: samples in a recorded retail AAS gap left out of `aas_area_validity` | `openETQW-linux` | 06b26e0+ | Review, then the combined run. |
-| [#214](https://github.com/jm2/openETQW/pull/214) | Docs: the owner's decisions of 2026-10-23; Vulkan main renderer, OpenGL fallback (ledger 077) | `openETQW-linux` | — | Needs the owner's approval (`STATUS.md` owner-decision lines). Docs only. |
-| this PR | #186: Vulkan menu globe lit by retail's front-end ambient programs | `openETQW-linux` | — | Reviewed (subagent). Waits for the combined run; check the menu globe in every set, and Windows with ray tracing on. |
+| [#202](https://github.com/jm2/openETQW/pull/202) | OpenGL GUI: the text pass sets its blend state through the state cache and GUI stages are two-sided, so the main menu's Mods/Replay/Credits buttons draw with their labels (part of [#193](https://github.com/jm2/openETQW/issues/193)). | `openETQW-mac` | `fix/gl-gui-state-cache` | An independent review; the combined-head suite and screenshot sets at the end. |
 
 ## 2. Open issues, in priority order
 
@@ -34,9 +27,8 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 |---|---|---|---|
 | [#122](https://github.com/jm2/openETQW/issues/122) | GDF rifle viewmodel: near-black on raster, tan with ray tracing. | — (parked) | Get a retail reference first: a retail 1.5 screenshot from the owner, or published retail footage. Until then, don't change either path. Escalate to the owner if no reference turns up. |
 | [#141](https://github.com/jm2/openETQW/issues/141) | Mouse motion: SDL's sub-pixel `xrel`/`yrel` is truncated per event (`src/sys/sdl/sdl_events.cpp:238`), so slow motion is lost on high-DPI displays. From code, not reproduced. | `openETQW-mac` (parked) | Branch `fix/mouse-subpixel-deltas` at 42de177, no PR yet: the fix and its unit test pass, local checks are clean, and the full suite passed on macOS apart from a `seat-poses-listen` L3 failure (#162, since reproduced 6 of 10 on mbp16: listen-host CPU spikes). Next: the owner's Retina check, old build against new (commands on #141, issuecomment-6290237448), then the PR. Input path only. |
-| [#147](https://github.com/jm2/openETQW/issues/147) | High-density displays: should `r_mode` / `r_custom*` mean pixels or points (SDL sizes on macOS are points)? | — | An owner question with three options; not urgent. |
 | [#162](https://github.com/jm2/openETQW/issues/162) | `seat-poses-listen` L3 (held yaw): cross-tick rates over 2.5x on macOS. | `openETQW-mac` | Reproduced 6 of 10 on mbp16 in the cap-120 driver phase; the cause is CPU work spikes on the listen host, not GPU waits (issuecomment-6306063943). Branch `fix/seat-poses-listen-l3` at `1ff001f` (base 2b4a158; patch `208e03b6…cdf`, 10,644 B): one retry after a draw gap of at least 2x the median; the 2.5x L3 bound is unchanged and a second stall still fails. Code-reviewed at Linux arm64 and macOS with no blocker and one nit: 2.0x sits just under a two-vblank gap at the saved 8.511 ms median (1.9x would cover it), while the saved 37.447 ms gap is caught. The retry-pass path is statically reviewed, not run. Next: the listen run needs a display-capable host (mbp16 has no display, so zero listen runs there) or the owner's Retina check. Never apply the superseded a7aa73a/fefa519f. |
-| [#159](https://github.com/jm2/openETQW/issues/159) | `all-stock-maps`: salvage's Strogg `aas_area_validity` dips when a bot lands in a gap in retail's own AAS (no area or reachability in a 64 u strip between areas 3297 and 2747). | — (owner-gated, §4) | The cause is retail data, not a port bug (issuecomment-6306739573). Whether to exclude recorded retail AAS gaps from the check is the owner's call (§4). |
+| [#159](https://github.com/jm2/openETQW/issues/159) | `all-stock-maps`: salvage's Strogg `aas_area_validity` dips when a bot lands in a gap in retail's own AAS (no area or reachability in a 64 u strip between areas 3297 and 2747). | `openETQW-linux` | The cause is retail data, not a port bug (issuecomment-6306739573). Owner, 2026-10-23: match retail. The fix PR leaves area-0 samples inside the measured gap out of `aas_area_validity` (`RETAIL_AAS_GAPS`) and reports them. It waits for the combined run. Outskirts GDF's 85.4% dip (#200's suite) is not explained yet; on the next one, keep the per-map log and measure the spot. |
 | [#148](https://github.com/jm2/openETQW/issues/148) | `ANTEC-WIN` drew at about 30 fps for some 15 minutes during a retail suite (2026-10-20 02:16–02:31Z); cause unknown. | — | If it recurs, capture what the issue lists. |
 
 ## 3. Milestone work, in order
@@ -105,6 +97,7 @@ list. Anything open there and missing here belongs in this section or in §4.
 No session can finish these alone. Prepare the evidence, then ask the owner
 (`fleet_ask` to the owner's address, coordination §3).
 
+- **Before the repositories go public: less detail, no personal data.** Owner, 2026-10-23: "sooner or later this level of detail and any PII (including hostnames, etc.) should stop being published and then eventually scrubbed from the repo: it doesn't make sense to include all this if and when the repo goes public." Until then, new docs, PRs and comments keep host names, local paths and per-session narration to what the evidence rules need, and never include IPs, user names or home paths. Changing the evidence rules (AGENTS.md rule 6, `CONTRIBUTING.md` § Records, which name the host) and the scrub itself (a history rewrite or fresh repositories) are the owner's decisions.
 - **Release gate 1, the jmarshall licence.** Blocking for any public release. The owner
   deferred it on 2026-09-25. Nothing to do until the owner reopens it.
 - **Publishing.** Both repositories stay private until the owner decides otherwise; the
@@ -116,9 +109,6 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   host is in the fleet; the owner would have to provide one.
 - **Hosted CI:** comes back only with Actions minutes. Until then, local checks replace it.
 - **#122's retail reference** if none can be found.
-- **#159, retail AAS gaps:** salvage's AAS has a 64 u strip with no area that bots can land
-  in, so `all-stock-maps` sometimes fails. Exclude a recorded list of retail AAS gaps from
-  `aas_area_validity`, or keep it as a known flake (#159).
 - **The headless render world (M2):** keep `idRenderWorldHeadless` as it is, or load the
   `.procb` areas and nodes on the dedicated server (`PointInArea`, `BoundsInAreas`;
   moderate), with render-model traces still out (they need render models; heavy).
@@ -149,6 +139,13 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-22/23:
+- #213 (#159): all-stock-maps leaves area-0 samples inside a measured gap in retail's own AAS (salvage) out of aas_area_validity and reports them (owner: match retail). Combined run 2026-10-23 (as #202).
+- #210 (#208, #211): surfaces of equal sort draw in submission order (a stable merge sort, view entities first as the SDK does), so the menu's star field no longer covers the nebula; the game's sky-layer sortOffset is honoured. Combined run 2026-10-23 (as #202); smoke and vehicle glass were not in the sets.
+- #207 (#203): the OpenGL GUI path resyncs the GL state cache each frame after direct state calls. Combined run 2026-10-23 (as #202).
+- #206 (#187): Vulkan's stand-in sky gradient runs only for render worlds loaded from a map, so the limbo player model no longer sits in a black box (ledger 076). Combined run 2026-10-23 (as #202).
+- #204 (#185): OpenGL skips any stage whose render program is defaulted (retail's Cg programs, which have no runtime on x64 or arm64), in the world and the GUI, instead of drawing it solid orange; OpenGL is a documented degraded fallback (ledger 077). Combined run 2026-10-23 (as #202).
+- #202 (#193): the OpenGL GUI state cache follows direct state changes, so the menu's and limbo's buttons draw (Mods, Replay, Credits; team buttons). Combined run 2026-10-23 (integration e9df517): antec suite 71/2 flakes (#162, #216; both OK alone)/1 skip; screenshot sets from five platforms, no regressions.
+- The owner's answers of 2026-10-23 (`STATUS.md` § Owner decisions): #209 merged (ledger row 076 kept); #192 and game #51 closed; #147 decided, so sizes stay points; #185's OpenGL is a documented degraded fallback (`readme.md` § Renderers, ledger row 077); #159 fixed by #213; #197 is waiting on a check that the in-game Name field works.
 - #205 (#188): `openetqw_validate.py` links the installed game module beside the build's binaries (copies it on Windows), so `meson test` on a validate tree loads the PR's module rather than one in `<data>/base/`. The by-hand link step in coordination §5 is gone.
 - #180: build helpers, one command per platform (`scripts/build-*`, `docs/build-scripts.md`; the owner's request), merged 2026-10-22.
 - #200 (#189): the Vulkan GUI honours retail's `trivialMakeAlpha*` programs, which use brightness as alpha and draw white. The compass ring's black background no longer covers the minimap, and the menu and HUD sheets and the health cross draw translucent, as GL (which runs the real program) does. Found by skipping GUI stages one material at a time. Screenshot sets on `screenshots-pr200` from all five platforms (Windows x64 with RT on and off). Antec suite: 70 OK / 1 FAIL / 1 SKIP. The failure was `all-stock-maps` outskirts GDF `aas_area_validity` at 85.4% (#159's class); it was OK when rerun alone.
