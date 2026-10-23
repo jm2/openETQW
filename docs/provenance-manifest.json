@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5523,
+  "totalFiles": 5521,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 311,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 402
   },
   "postSplitCounts": {
-    "Reconstruction_original": 244,
+    "Reconstruction_original": 242,
     "ThirdParty": 1,
     "Doom3_GPL": 2,
     "SDK": 2
@@ -47898,30 +47898,6 @@
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": null
-    },
-    {
-      "path": "docs/queue.md",
-      "tier": "Reconstruction_original",
-      "license": "GPL-3.0-or-later",
-      "targetRepo": "openETQW",
-      "rawSha256": "b328c6c5a9f527fedc9d769aa669a9344616e7efe5d61ab96562af012fba518f",
-      "canonicalSha256": "b328c6c5a9f527fedc9d769aa669a9344616e7efe5d61ab96562af012fba518f",
-      "bytes": 18742,
-      "addedAfterSplit": true,
-      "addedIn": "bcba1a665ec1fe2674896af8cffbb62c5a2de127",
-      "spdx": "GPL-3.0-or-later"
-    },
-    {
-      "path": "docs/queue.md",
-      "tier": "Reconstruction_original",
-      "license": "GPL-3.0-or-later",
-      "targetRepo": "openETQW",
-      "rawSha256": "b328c6c5a9f527fedc9d769aa669a9344616e7efe5d61ab96562af012fba518f",
-      "canonicalSha256": "b328c6c5a9f527fedc9d769aa669a9344616e7efe5d61ab96562af012fba518f",
-      "bytes": 18742,
-      "addedAfterSplit": true,
-      "addedIn": "bcba1a665ec1fe2674896af8cffbb62c5a2de127",
-      "spdx": "GPL-3.0-or-later"
     },
     {
       "path": "docs/queue.md",
