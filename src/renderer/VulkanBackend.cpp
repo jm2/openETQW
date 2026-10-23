@@ -93,6 +93,9 @@ const VkDeviceSize VULKAN_JOINT_BUFFER_BYTES = 4 * 1024 * 1024;
 const VkDeviceSize VULKAN_JOINT_PALETTE_BYTES =
 	MAX_JOINTS_PER_MESH * sizeof( idJointMat );
 const int VULKAN_MATERIAL_TEXTURES = 5;
+// retail's front-end ambient programs (sfx/feAmbDecal and the programs built on its
+// vertex program) also read the ambient cube map's specular cube map
+const int VULKAN_FRONTEND_TEXTURES = 6;
 
 // Off by default: where the layer is installed it costs most of the frame rate
 // (56 against ~370 fps uncapped on an RX 6400), and players do not need it.
@@ -244,6 +247,13 @@ struct sdVulkanMaterialDescriptor {
 	const materialStage_t*	owner;
 	const void*				imageOwners[ VULKAN_MATERIAL_TEXTURES ];
 	VkImageView				imageViews[ VULKAN_MATERIAL_TEXTURES ];
+	VkDescriptorSet			descriptorSet;
+};
+
+struct sdVulkanFrontEndDescriptor {
+	const materialStage_t*	owner;
+	const void*				imageOwners[ VULKAN_FRONTEND_TEXTURES ];
+	VkImageView				imageViews[ VULKAN_FRONTEND_TEXTURES ];
 	VkDescriptorSet			descriptorSet;
 };
 
@@ -613,6 +623,7 @@ struct sdVulkanBackendState {
 	sdVulkanResourceLookup		bufferResourceLookup;
 	idList< sdVulkanMaterialDescriptor > materialDescriptors;
 	idHashIndex				materialDescriptorHash;
+	idList< sdVulkanFrontEndDescriptor > frontEndDescriptors;
 	// Resources removed while a frame is being recorded must remain alive until
 	// that command buffer has been submitted and completed.  ETQW retires vertex
 	// cache blocks in idRenderSystemLocal::EndFrame before the Vulkan backend
@@ -626,6 +637,10 @@ struct sdVulkanBackendState {
 	VkDescriptorSetLayout		jointDescriptorSetLayout;
 	VkDescriptorPool			guiDescriptorPool;
 	VkPipelineLayout			guiPipelineLayout;
+	VkDescriptorSetLayout		frontEndDescriptorSetLayout;
+	VkPipelineLayout			frontEndPipelineLayout;
+	VkPipeline				worldFrontEndPipeline;
+	VkPipeline				worldFrontEndAlphaPipeline;
 	VkPipeline				guiPipeline;
 	VkPipeline				guiOpaquePipeline;
 	VkPipeline				guiAddPipeline;
@@ -870,6 +885,10 @@ struct sdVulkanBackendState {
 		jointDescriptorSetLayout = VK_NULL_HANDLE;
 		guiDescriptorPool = VK_NULL_HANDLE;
 		guiPipelineLayout = VK_NULL_HANDLE;
+		frontEndDescriptorSetLayout = VK_NULL_HANDLE;
+		frontEndPipelineLayout = VK_NULL_HANDLE;
+		worldFrontEndPipeline = VK_NULL_HANDLE;
+		worldFrontEndAlphaPipeline = VK_NULL_HANDLE;
 		guiPipeline = VK_NULL_HANDLE;
 		guiOpaquePipeline = VK_NULL_HANDLE;
 		guiAddPipeline = VK_NULL_HANDLE;
@@ -1120,10 +1139,13 @@ void ReportVulkanDrawMaterial( sdVulkanBackendState& state,
 		}
 	}
 	state.reportedDrawMaterials.Append( surface.material );
-	common->Printf( "Vulkan material draw: '%s' (%d stages, coverage=%d, sort=%g)\n",
+	common->Printf( "Vulkan material draw: '%s' (%d stages, coverage=%d, sort=%g, cull=%d, ambient cube map %s)\n",
 		materialName, surface.material->GetNumStages(),
 		static_cast< int >( surface.material->Coverage() ),
-		surface.material->GetSort() );
+		surface.material->GetSort(),
+		static_cast< int >( surface.material->GetCullType() ),
+		surface.space != NULL && surface.space->ambientCubeMap != NULL ?
+			surface.space->ambientCubeMap->GetName() : "<none>" );
 	if ( importantEffect && surface.geo != NULL && surface.space != NULL ) {
 		common->Printf( "  effect geometry: model=%s, %d verts, %d indexes, bounds "
 			"(%g %g %g)-(%g %g %g), scissor (%d %d)-(%d %d), "
@@ -1148,6 +1170,15 @@ void ReportVulkanDrawMaterial( sdVulkanBackendState& state,
 			stageIndex, enabled ? "enabled" : "disabled", stage->drawStateBits,
 			stage->numTextures, stage->renderProgram != NULL ?
 			stage->renderProgram->GetName() : "<none>" );
+		for ( int vectorIndex = 0; vectorIndex < stage->numVectors; ++vectorIndex ) {
+			const stageVector_t& vector = stage->vectors[ vectorIndex ];
+			common->Printf( "    vector %s = (%g %g %g %g)\n",
+				vector.renderBinding != NULL ? vector.renderBinding->GetName() : "<binding>",
+				surface.materialRegisters != NULL ? surface.materialRegisters[ vector.registers[ 0 ] ] : 0.0f,
+				surface.materialRegisters != NULL ? surface.materialRegisters[ vector.registers[ 1 ] ] : 0.0f,
+				surface.materialRegisters != NULL ? surface.materialRegisters[ vector.registers[ 2 ] ] : 0.0f,
+				surface.materialRegisters != NULL ? surface.materialRegisters[ vector.registers[ 3 ] ] : 0.0f );
+		}
 		for ( int textureIndex = 0; textureIndex < stage->numTextures; ++textureIndex ) {
 			const stageTexture_t& texture = stage->textures[ textureIndex ];
 			common->Printf( "    %s = %s%s (%dx%d, type %d)\n",
@@ -3307,6 +3338,29 @@ bool CompileVulkanShaderModule( sdVulkanBackendState& state,
 void DestroyGuiResources( sdVulkanBackendState& state ) {
 	state.materialDescriptors.Clear();
 	state.materialDescriptorHash.Clear();
+	state.frontEndDescriptors.Clear();
+	VkPipeline* frontEndPipelines[] = {
+		&state.worldFrontEndPipeline,
+		&state.worldFrontEndAlphaPipeline
+	};
+	for ( unsigned int pipelineIndex = 0;
+		pipelineIndex < sizeof( frontEndPipelines ) / sizeof( frontEndPipelines[ 0 ] );
+		++pipelineIndex ) {
+		if ( *frontEndPipelines[ pipelineIndex ] != VK_NULL_HANDLE ) {
+			state.DestroyPipeline( state.device,
+				*frontEndPipelines[ pipelineIndex ], NULL );
+			*frontEndPipelines[ pipelineIndex ] = VK_NULL_HANDLE;
+		}
+	}
+	if ( state.frontEndPipelineLayout != VK_NULL_HANDLE ) {
+		state.DestroyPipelineLayout( state.device, state.frontEndPipelineLayout, NULL );
+		state.frontEndPipelineLayout = VK_NULL_HANDLE;
+	}
+	if ( state.frontEndDescriptorSetLayout != VK_NULL_HANDLE ) {
+		state.DestroyDescriptorSetLayout( state.device,
+			state.frontEndDescriptorSetLayout, NULL );
+		state.frontEndDescriptorSetLayout = VK_NULL_HANDLE;
+	}
 	VkPipeline* skinnedPipelines[] = {
 		&state.worldSkinnedPipeline,
 		&state.worldSkinnedDepthPipeline,
@@ -3527,7 +3581,8 @@ bool CreateWorldPipelineVariant( sdVulkanBackendState& state,
 	VkPipeline& pipeline, VkCompareOp depthCompare = VK_COMPARE_OP_LESS_OR_EQUAL,
 	bool colorWrite = true,
 	VkPolygonMode polygonMode = VK_POLYGON_MODE_FILL,
-	bool skinned = false ) {
+	bool skinned = false, VkPipelineLayout layout = VK_NULL_HANDLE,
+	VkCullModeFlags cullMode = VK_CULL_MODE_NONE ) {
 	VkShaderModule vertexModule = VK_NULL_HANDLE;
 	VkShaderModule fragmentModule = VK_NULL_HANDLE;
 	if ( !CompileVulkanShaderModule( state, vertexShader,
@@ -3622,7 +3677,7 @@ bool CreateWorldPipelineVariant( sdVulkanBackendState& state,
 	memset( &rasterization, 0, sizeof( rasterization ) );
 	rasterization.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
 	rasterization.polygonMode = polygonMode;
-	rasterization.cullMode = VK_CULL_MODE_NONE;
+	rasterization.cullMode = cullMode;
 	rasterization.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	rasterization.depthBiasEnable = VK_TRUE;
 	rasterization.lineWidth = 1.0f;
@@ -3686,7 +3741,7 @@ bool CreateWorldPipelineVariant( sdVulkanBackendState& state,
 	pipelineInfo.pDepthStencilState = &depthStencil;
 	pipelineInfo.pColorBlendState = &blendState;
 	pipelineInfo.pDynamicState = &dynamicState;
-	pipelineInfo.layout = state.guiPipelineLayout;
+	pipelineInfo.layout = layout != VK_NULL_HANDLE ? layout : state.guiPipelineLayout;
 	const bool created = CheckVulkanResult( state.CreateGraphicsPipelines(
 		state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
 		&pipeline ), "vkCreateGraphicsPipelines(world)" );
@@ -3695,7 +3750,31 @@ bool CreateWorldPipelineVariant( sdVulkanBackendState& state,
 	return created;
 }
 
+void CreateFrontEndPipelines( sdVulkanBackendState& state ) {
+	if ( state.frontEndPipelineLayout == VK_NULL_HANDLE ) {
+		return;
+	}
+	// sfx/feAmbDecal (opaque) and sfx/feAmbDecal_cloud (blend).  Optional:
+	// without them these surfaces fall back to the generic pipelines.  Culled as
+	// GL_Cull culls a front-sided material, so the far side of the cloud shell
+	// does not draw over the globe.
+	const VkCullModeFlags frontSidedCull = VK_CULL_MODE_FRONT_BIT;
+	if ( !CreateWorldPipelineVariant( state, "vkprogs/world/frontend.vert",
+			"vkprogs/world/frontend.frag", VK_BLEND_FACTOR_ONE,
+			VK_BLEND_FACTOR_ZERO, true, true, false, state.worldFrontEndPipeline,
+			VK_COMPARE_OP_LESS_OR_EQUAL, true, VK_POLYGON_MODE_FILL, false,
+			state.frontEndPipelineLayout, frontSidedCull ) ||
+		!CreateWorldPipelineVariant( state, "vkprogs/world/frontend.vert",
+			"vkprogs/world/frontend.frag", VK_BLEND_FACTOR_SRC_ALPHA,
+			VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, true, false, false,
+			state.worldFrontEndAlphaPipeline, VK_COMPARE_OP_LESS_OR_EQUAL, true,
+			VK_POLYGON_MODE_FILL, false, state.frontEndPipelineLayout, frontSidedCull ) ) {
+		common->Warning( "Vulkan: the front-end ambient pipelines failed; the menu globe uses the generic material path" );
+	}
+}
+
 bool CreateWorldPipeline( sdVulkanBackendState& state ) {
+	CreateFrontEndPipelines( state );
 	return CreateWorldPipelineVariant( state, "vkprogs/world/ambient.vert",
 		"vkprogs/world/ambient.frag", VK_BLEND_FACTOR_ONE,
 		VK_BLEND_FACTOR_ZERO, true, true, false, state.worldDepthPipeline,
@@ -4553,6 +4632,35 @@ bool CreateGuiResources( sdVulkanBackendState& state ) {
 		DestroyGuiResources( state );
 		return false;
 	}
+	// The front-end ambient programs' set: the material set's five bindings plus
+	// the specular cube map.  Same push constant range, so pushes stay compatible.
+	VkDescriptorSetLayoutBinding frontEndBindings[ VULKAN_FRONTEND_TEXTURES ];
+	memset( frontEndBindings, 0, sizeof( frontEndBindings ) );
+	for ( int bindingIndex = 0; bindingIndex < VULKAN_FRONTEND_TEXTURES;
+		++bindingIndex ) {
+		frontEndBindings[ bindingIndex ].binding = bindingIndex;
+		frontEndBindings[ bindingIndex ].descriptorType =
+			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		frontEndBindings[ bindingIndex ].descriptorCount = 1;
+		frontEndBindings[ bindingIndex ].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	}
+	VkDescriptorSetLayoutCreateInfo frontEndSetLayoutInfo = setLayoutInfo;
+	frontEndSetLayoutInfo.bindingCount = VULKAN_FRONTEND_TEXTURES;
+	frontEndSetLayoutInfo.pBindings = frontEndBindings;
+	VkDescriptorSetLayout frontEndSetLayouts[ 2 ] = {
+		VK_NULL_HANDLE,
+		state.jointDescriptorSetLayout
+	};
+	if ( CheckVulkanResult( state.CreateDescriptorSetLayout( state.device,
+		&frontEndSetLayoutInfo, NULL, &state.frontEndDescriptorSetLayout ),
+		"vkCreateDescriptorSetLayout(front end)" ) ) {
+		frontEndSetLayouts[ 0 ] = state.frontEndDescriptorSetLayout;
+		VkPipelineLayoutCreateInfo frontEndLayoutInfo = pipelineLayoutInfo;
+		frontEndLayoutInfo.pSetLayouts = frontEndSetLayouts;
+		CheckVulkanResult( state.CreatePipelineLayout( state.device,
+			&frontEndLayoutInfo, NULL, &state.frontEndPipelineLayout ),
+			"vkCreatePipelineLayout(front end)" );
+	}
 
 	VkShaderModule vertexModule = VK_NULL_HANDLE;
 	VkShaderModule fragmentModule = VK_NULL_HANDLE;
@@ -4840,6 +4948,27 @@ bool StageUsesVulkanMaterialTextures( const materialStage_t& stage ) {
 	return false;
 }
 
+// Retail 1.5's front-end ambient programs, lit by the entity's ambient cube map
+// (the main menu's globe).  The values match frontend.frag's mode.  sfx/atmos,
+// which shares their vertex program, stays on the atmosphere pipeline (#186).
+enum vulkanFrontEndProgram_t {
+	FRONTEND_AMBIENT_DECAL,		// sfx/feAmbDecal
+	FRONTEND_AMBIENT_CLOUD		// sfx/feAmbDecal_cloud
+};
+
+int VulkanFrontEndMode( const char* programName ) {
+	if ( programName == NULL ) {
+		return 0;
+	}
+	if ( idStr::Icmp( programName, "sfx/feAmbDecal" ) == 0 ) {
+		return FRONTEND_AMBIENT_DECAL + 1;
+	}
+	if ( idStr::Icmp( programName, "sfx/feAmbDecal_cloud" ) == 0 ) {
+		return FRONTEND_AMBIENT_CLOUD + 1;
+	}
+	return 0;
+}
+
 enum vulkanSurfacePreparationStatus_t {
 	VULKAN_SURFACE_MISSING_GEOMETRY,
 	VULKAN_SURFACE_MISSING_CACHE,
@@ -4858,6 +4987,7 @@ struct vulkanSurfaceSelection_t {
 	bool			skybox;
 	bool			foggyWaterUnderside;
 	bool			materialTextures;
+	int				frontEndMode;	// FRONTEND_* + 1 for retail's front-end ambient programs, else 0
 };
 
 struct vulkanSurfaceSelectionCacheEntry_t {
@@ -4981,6 +5111,7 @@ void AnalyzeVulkanSurfaces( void* opaqueContext, int firstItem, int itemCount,
 				idStr::Icmp( programName, "sfx/foggyWaterSurface" ) == 0;
 			selection.materialTextures =
 				StageUsesVulkanMaterialTextures( *selection.stage );
+			selection.frontEndMode = VulkanFrontEndMode( programName );
 		}
 		cached.material = surface->material;
 		cached.registers = surface->materialRegisters;
@@ -5010,6 +5141,134 @@ void SetVulkanPolygonOffset( sdVulkanBackendState& state,
 	state.CmdSetDepthBias( commandBuffer,
 		enabled ? r_offsetUnits.GetFloat() * polygonOffset : 0.0f,
 		0.0f, enabled ? r_offsetFactor.GetFloat() : 0.0f );
+}
+
+// The descriptor for a front-end ambient program: diffuse, bump, specular and
+// self-illumination maps, then the entity's ambient and specular cube maps, bound
+// as the GL path's SetAmbientCubeMapBindings does (black when there are none).
+bool GetVulkanFrontEndDescriptor( sdVulkanBackendState& state,
+	const materialStage_t& stage, idImage* selectedImage,
+	const viewEntity_s* space, VkDescriptorSet& descriptorSet ) {
+	descriptorSet = VK_NULL_HANDLE;
+	if ( globalImages == NULL || selectedImage == NULL ||
+		state.frontEndDescriptorSetLayout == VK_NULL_HANDLE ) {
+		return false;
+	}
+	idImage* images[ VULKAN_FRONTEND_TEXTURES ] = {
+		selectedImage,
+		globalImages->flatNormalMap,
+		globalImages->blackImage,
+		globalImages->blackImage,
+		globalImages->blackCubeMapImage,
+		globalImages->blackCubeMapImage
+	};
+	const sdDeclAmbientCubeMap* cubeMap = space != NULL ? space->ambientCubeMap : NULL;
+	if ( cubeMap != NULL && cubeMap->GetAmbientCubeMap() != NULL ) {
+		images[ 4 ] = cubeMap->GetAmbientCubeMap();
+	}
+	if ( cubeMap != NULL && cubeMap->GetSpecularCubeMap() != NULL ) {
+		images[ 5 ] = cubeMap->GetSpecularCubeMap();
+	}
+	for ( int textureIndex = 0; textureIndex < stage.numTextures; ++textureIndex ) {
+		const stageTexture_t& texture = stage.textures[ textureIndex ];
+		if ( texture.image == NULL || texture.image->defaulted ) {
+			continue;
+		}
+		if ( rbinds != NULL && texture.renderBinding == rbinds->diffuseMap ) {
+			images[ 0 ] = texture.image;
+		} else if ( rbinds != NULL && texture.renderBinding == rbinds->bumpMap ) {
+			images[ 1 ] = texture.image;
+		} else if ( rbinds != NULL && texture.renderBinding == rbinds->specularMap ) {
+			images[ 2 ] = texture.image;
+		} else if ( texture.renderBinding != NULL &&
+			idStr::Icmp( texture.renderBinding->GetName(), "selfillummap" ) == 0 ) {
+			images[ 3 ] = texture.image;
+		}
+	}
+	idImage* fallbacks[ VULKAN_FRONTEND_TEXTURES ];
+	for ( int slot = 0; slot < VULKAN_FRONTEND_TEXTURES; ++slot ) {
+		fallbacks[ slot ] = slot >= 4 ? globalImages->blackCubeMapImage :
+			globalImages->blackImage;
+		if ( images[ slot ] == NULL ) {
+			images[ slot ] = fallbacks[ slot ];
+		}
+		if ( !images[ slot ]->IsLoaded() ) {
+			images[ slot ]->BindFragment();
+		}
+		if ( !fallbacks[ slot ]->IsLoaded() ) {
+			fallbacks[ slot ]->BindFragment();
+		}
+	}
+	// BindFragment can reallocate state.imageResources: resolve afterwards.  A
+	// generated cube map keeps cubeFiles CF_2D, so the slot type is checked on
+	// the uploaded resource: binding 4 and 5 are samplerCube, the rest sampler2D.
+	const sdVulkanImageResource* resources[ VULKAN_FRONTEND_TEXTURES ];
+	for ( int slot = 0; slot < VULKAN_FRONTEND_TEXTURES; ++slot ) {
+		const bool cubeSlot = slot >= 4;
+		resources[ slot ] = FindVulkanImageResource( state, images[ slot ] );
+		if ( resources[ slot ] == NULL || resources[ slot ]->cubeMap != cubeSlot ) {
+			images[ slot ] = fallbacks[ slot ];
+			resources[ slot ] = FindVulkanImageResource( state, images[ slot ] );
+		}
+		if ( resources[ slot ] == NULL || resources[ slot ]->cubeMap != cubeSlot ) {
+			return false;
+		}
+	}
+	for ( int descriptorIndex = 0; descriptorIndex < state.frontEndDescriptors.Num();
+		++descriptorIndex ) {
+		const sdVulkanFrontEndDescriptor& cached = state.frontEndDescriptors[ descriptorIndex ];
+		if ( cached.owner != &stage ) {
+			continue;
+		}
+		bool matches = true;
+		for ( int slot = 0; slot < VULKAN_FRONTEND_TEXTURES; ++slot ) {
+			if ( cached.imageOwners[ slot ] != images[ slot ] ||
+				cached.imageViews[ slot ] != resources[ slot ]->view ) {
+				matches = false;
+				break;
+			}
+		}
+		if ( matches ) {
+			descriptorSet = cached.descriptorSet;
+			return true;
+		}
+	}
+	sdVulkanFrontEndDescriptor frontEndDescriptor;
+	memset( &frontEndDescriptor, 0, sizeof( frontEndDescriptor ) );
+	frontEndDescriptor.owner = &stage;
+	VkDescriptorSetAllocateInfo allocateInfo;
+	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
+	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocateInfo.descriptorPool = state.guiDescriptorPool;
+	allocateInfo.descriptorSetCount = 1;
+	allocateInfo.pSetLayouts = &state.frontEndDescriptorSetLayout;
+	if ( !CheckVulkanResult( state.AllocateDescriptorSets( state.device,
+		&allocateInfo, &frontEndDescriptor.descriptorSet ),
+		"vkAllocateDescriptorSets(front end)" ) ) {
+		return false;
+	}
+	VkDescriptorImageInfo imageInfos[ VULKAN_FRONTEND_TEXTURES ];
+	VkWriteDescriptorSet writes[ VULKAN_FRONTEND_TEXTURES ];
+	memset( imageInfos, 0, sizeof( imageInfos ) );
+	memset( writes, 0, sizeof( writes ) );
+	for ( int slot = 0; slot < VULKAN_FRONTEND_TEXTURES; ++slot ) {
+		frontEndDescriptor.imageOwners[ slot ] = images[ slot ];
+		frontEndDescriptor.imageViews[ slot ] = resources[ slot ]->view;
+		imageInfos[ slot ].sampler = resources[ slot ]->sampler;
+		imageInfos[ slot ].imageView = resources[ slot ]->view;
+		imageInfos[ slot ].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		writes[ slot ].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		writes[ slot ].dstSet = frontEndDescriptor.descriptorSet;
+		writes[ slot ].dstBinding = slot;
+		writes[ slot ].descriptorCount = 1;
+		writes[ slot ].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		writes[ slot ].pImageInfo = &imageInfos[ slot ];
+	}
+	state.UpdateDescriptorSets( state.device, VULKAN_FRONTEND_TEXTURES,
+		writes, 0, NULL );
+	state.frontEndDescriptors.Append( frontEndDescriptor );
+	descriptorSet = frontEndDescriptor.descriptorSet;
+	return true;
 }
 
 bool GetVulkanMaterialDescriptor( sdVulkanBackendState& state,
@@ -10640,6 +10899,74 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			VkPipeline materialPipeline = state->worldPipeline;
 			VkDescriptorSet drawDescriptorSet = selectedImageDescriptorSet;
 			const int blendBits = selectedStage->drawStateBits & 0xFF;
+			// Retail's front-end ambient programs light themselves from the entity's
+			// ambient cube map (frontend.frag); the rest of this path expects lights.
+			const int frontEndMode = preparedSelection.frontEndMode;
+			VkPipeline frontEndPipeline = VK_NULL_HANDLE;
+			if ( frontEndMode == FRONTEND_AMBIENT_DECAL + 1 ) {
+				frontEndPipeline = state->worldFrontEndPipeline;
+			} else if ( frontEndMode == FRONTEND_AMBIENT_CLOUD + 1 ) {
+				frontEndPipeline = state->worldFrontEndAlphaPipeline;
+			}
+			VkDescriptorSet frontEndDescriptorSet = VK_NULL_HANDLE;
+			if ( frontEndPipeline != VK_NULL_HANDLE && !submitHardwareSkinning &&
+				surface->material->GetCullType() == CT_FRONT_SIDED &&
+				!view->isMirror &&
+				GetVulkanFrontEndDescriptor( *state, *selectedStage, selectedImage,
+					surface->space, frontEndDescriptorSet ) ) {
+				float frontEndPushConstants[ 32 ];
+				memcpy( frontEndPushConstants, pushConstants, sizeof( frontEndPushConstants ) );
+				// $parameters (retail's default binding value is 1)
+				frontEndPushConstants[ 16 ] = frontEndPushConstants[ 17 ] =
+					frontEndPushConstants[ 18 ] = frontEndPushConstants[ 19 ] = 1.0f;
+				for ( int vectorIndex = 0; vectorIndex < selectedStage->numVectors;
+					++vectorIndex ) {
+					const stageVector_t& vector = selectedStage->vectors[ vectorIndex ];
+					if ( vector.renderBinding != NULL &&
+						idStr::Icmp( vector.renderBinding->GetName(), "parameters" ) == 0 ) {
+						for ( int component = 0; component < 4; ++component ) {
+							frontEndPushConstants[ 16 + component ] =
+								surface->materialRegisters[ vector.registers[ component ] ];
+						}
+					}
+				}
+				frontEndPushConstants[ 20 ] = 1.0f;
+				frontEndPushConstants[ 21 ] = 0.0f;
+				frontEndPushConstants[ 22 ] = 0.0f;
+				frontEndPushConstants[ 24 ] = 0.0f;
+				frontEndPushConstants[ 25 ] = 1.0f;
+				frontEndPushConstants[ 26 ] = 0.0f;
+				if ( selectedStage->diffuseTextureMatrix != NULL ) {
+					const int ( *matrix )[ 3 ] = selectedStage->diffuseTextureMatrix->matrix;
+					for ( int column = 0; column < 3; ++column ) {
+						frontEndPushConstants[ 20 + column ] =
+							surface->materialRegisters[ matrix[ 0 ][ column ] ];
+						frontEndPushConstants[ 24 + column ] =
+							surface->materialRegisters[ matrix[ 1 ][ column ] ];
+					}
+				}
+				frontEndPushConstants[ 23 ] = spaceCache.modelRotation[ 0 ];
+				frontEndPushConstants[ 27 ] = spaceCache.modelRotation[ 1 ];
+				frontEndPushConstants[ 28 ] = selectedStage->vertexColor == SVC_MODULATE ?
+					1.0f : 0.0f;
+				const sdDeclAmbientCubeMap* cubeMap = surface->space->ambientCubeMap;
+				frontEndPushConstants[ 30 ] = cubeMap != NULL ? cubeMap->GetBrightness() : 1.0f;
+				frontEndPushConstants[ 31 ] = static_cast< float >( frontEndMode - 1 );
+				BindPipeline( frontEndPipeline );
+				state->CmdBindDescriptorSets( frame.commandBuffer,
+					VK_PIPELINE_BIND_POINT_GRAPHICS, state->frontEndPipelineLayout, 0, 1,
+					&frontEndDescriptorSet, 0, NULL );
+				// a set 0 of another layout disturbs the material set and the joint palette
+				submittedDescriptorSet = VK_NULL_HANDLE;
+				submittedJointOffset = UINT_MAX;
+				state->CmdPushConstants( frame.commandBuffer, state->frontEndPipelineLayout,
+					VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+					sizeof( frontEndPushConstants ), frontEndPushConstants );
+				state->CmdDrawIndexed( frame.commandBuffer, surface->geo->numIndexes,
+					1, 0, 0, 0 );
+				state->worldDrawCalls++;
+				continue;
+			}
 			if ( skyboxTexturesAvailable ) {
 				materialPipeline = state->worldSkyboxPipeline;
 				if ( blendBits == 0x65 &&
