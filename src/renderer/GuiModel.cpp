@@ -405,17 +405,21 @@ void sdGuiModel::DrawTextA( const wchar_t* text, const sdBounds2D& rect, unsigne
 	command.font = currentFont;
 	command.pointSize = currentFontSize;
 	// clipped to its rectangle and the clip stack, as it is queued; the
-	// rectangle's bottom gives way by the face's descent, applied once the
-	// string is laid out, because retail 1.5 draws a line's descenders below a
-	// rectangle only as tall as the text (#193: the main menu's banner)
+	// rectangle's top gives way by the face's room above its capitals and its
+	// bottom by the descent, applied once the string is laid out, because retail
+	// 1.5 draws a line's ink whole in a rectangle only as tall as the text (#193:
+	// the main menu's banner)
 	command.clipped = ( flags & DTF_NOCLIPPING ) == 0;
 	command.clip = rect;
+	command.clip.GetMins().y = -1.0e6f;
 	command.clip.GetMaxs().y = 1.0e6f;
+	command.clipTop = rect.GetMins().y;
 	command.clipBottom = rect.GetMaxs().y;
 	if ( rect.GetWidth() <= 0.0f || rect.GetHeight() <= 0.0f ) {
 		// an empty rectangle places the text and does not hide it
 		command.clip.GetMins().Set( -1.0e6f, -1.0e6f );
 		command.clip.GetMaxs().Set( 1.0e6f, 1.0e6f );
+		command.clipTop = -1.0e6f;
 		command.clipBottom = 1.0e6f;
 	}
 	if ( command.clipped && clippingEnabled ) {
@@ -460,8 +464,9 @@ void sdGuiModel::BuildTextQuads() {
 			quad.s1 = cell.s1;
 			quad.t1 = cell.t1;
 			if ( command.clipped ) {
-				const idVec2& mins = command.clip.GetMins();
+				idVec2 mins = command.clip.GetMins();
 				idVec2 maxs = command.clip.GetMaxs();
+				mins.y = Max( mins.y, command.clipTop - layout.accent );
 				maxs.y = Min( maxs.y, command.clipBottom + layout.descent );
 				if ( quad.x1 <= mins.x || quad.x0 >= maxs.x || quad.y1 <= mins.y || quad.y0 >= maxs.y ) {
 					continue;

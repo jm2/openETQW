@@ -82,7 +82,8 @@ private:
 		int					font;
 		int					pointSize;
 		bool				clipped;
-		sdBounds2D			clip;		// the rectangle and the clip stack, but for the rectangle's bottom
+		sdBounds2D			clip;		// the rectangle and the clip stack, but for the rectangle's top and bottom
+		float				clipTop;	// the rectangle's top
 		float				clipBottom;	// the rectangle's bottom
 	};
 

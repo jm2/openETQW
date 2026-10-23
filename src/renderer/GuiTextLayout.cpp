@@ -58,6 +58,7 @@ void GuiText_Layout( const sdGuiTextMetrics& metrics, const wchar_t* text, const
 	xScale = Max( xScale, 0.001f );
 	yScale = Max( yScale, 0.001f );
 	out.descent = metrics.Descent() / yScale;
+	out.accent = Max( 0.0f, metrics.Ascent() - metrics.CapHeight() ) / yScale;
 	out.scale = xScale;
 	if ( text == NULL ) {
 		return;
