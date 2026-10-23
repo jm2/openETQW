@@ -726,6 +726,40 @@ if build_dedicated
     timeout: 900,
     is_parallel: false,
   )
+  # M4: two live bots play a full time-limited match and complete no objective
+  # (the game's MATCH and OBJECTIVE_STATUS lines, positions during the match)
+  test(
+    'm4-bot-match',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_m4_bot_match.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--port', '29992',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'm4-bot-match',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration', 'm4'],
+    protocol: 'exitcode',
+    timeout: 400,
+    is_parallel: false,
+  )
+  # M4: a started match runs to its time limit on maps beyond the campaign's
+  # three (quarry and island), each read from the game's MATCH lines
+  test(
+    'm4-offcampaign-match',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_m4_offcampaign_match.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--port', '29993',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'm4-offcampaign-match',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration', 'm4'],
+    protocol: 'exitcode',
+    timeout: 800,
+    is_parallel: false,
+  )
   # the charter's M3 soak: 10 minutes at 2% loss and 40 +/- 20 ms delay without
   # a disconnect (skip it in quick runs with 'meson test --no-suite soak')
   test(

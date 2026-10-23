@@ -46,15 +46,7 @@ Each item names its acceptance test. Details are in the linked plan.
 2. **M5 step 14, what is left** (owner: `openETQW-win`): late look for `freepivot` views and the damped
    first-person `clampDamped*` view is merged (#152 with game #54). Left: the owner decides
    which seats join the default list (§4).
-3. **M4, what is left** (`STATUS.md` § Milestones, M4). Done: classes, damage and kills,
-   deployable delivery, both match endings, stopwatch and campaign transitions (meson
-   `m4-*`, #104 and #107). Left: a match played out by bots (they play no objectives), and
-   a started match on maps beyond the campaign's three. Acceptance: new meson tests pass on
-   the retail 1.5 data on two platforms. The two tests are written on branch head `8d59718`
-   (patch `m4item3-engine.patch`, 24,047 B, sha256 `7fc78335…1e1d`); independent
-   review found one should-fix, both new tests missing from `docs/provenance-manifest.json`,
-   fixed at that head, and nothing else. **Neither test has been run on any platform yet.**
-   Next: one run on macOS arm64, then one on a second platform.
+3. **M4, what is left**: done (#199, §5). Every M4 item listed in `STATUS.md` § Milestones now has a meson test.
 4. **Retail data discovery** (`STATUS.md` § Next steps, item 7): the Linux folder picker,
    and a person trying the macOS and Windows pickers (owner).
 5. **Provenance labels** (`docs/provenance.md` §6): the minizip relabel and the other
@@ -153,6 +145,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-22/23:
+- #199 (§3 item 3, M4): `m4-bot-match` (two live bots play a time-limited match and complete no objective; movement is measured within one life) and `m4-offcampaign-match` (an objective match on quarry and island runs to its time limit, and the map's defenders win). They pass on macOS arm64 at 6d43788 and 5e12932, and on antec Linux x64 at 5e12932 (34.8 s and 69.4 s). The antec full suite at c19f7ff gave 73 OK / 0 FAIL / 1 SKIP (cross-os).
 - #198 (part of #193): a single vertically centred line of GUI text centres its ink (capitals to descenders) as retail 1.5 does, and the bottom of a text rectangle gives way by the font's descent, so the main menu banner keeps its descenders. Screenshot sets on `screenshots-pr198` (Linux x64, Windows x64, Windows arm64; macOS banner check). Antec retail suite at the merge head: 71 OK / 0 FAIL / 1 SKIP (cross-os). #193 stays open for the blank OpenGL buttons.
 - #195 (part of #189): masked GUI draws are cut to where their mask coordinates are 0..1, so the command map's territory outlines no longer cover the 3D view under Vulkan. Screenshot sets on `screenshots-pr195` from all five platforms. #189 stays open for the black minimap (the `overlay_grid` layer draws opaque under Vulkan).
 - #194 (#190): a Bink movie named by a binary sound decl is found, so the first-start intro ends (here, at once, with no movie installed) and the main menu draws on a fresh profile. The menu it uncovered shows #193 (clipped descenders, blank OpenGL buttons) and #186's dark OpenGL globe.
