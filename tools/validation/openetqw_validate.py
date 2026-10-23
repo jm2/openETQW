@@ -289,20 +289,24 @@ def stage_game_module(build: Path, install: Path, arch: str, system: str) -> Non
     """put the installed game module beside the build's binaries.
 
     The retail suite runs the client and server from the build directory, and
-    FindDLL tries the executable's directory first, then <fs_basepath>/base.
-    Without a module here a test loads whatever module the data directory holds,
-    an older game than the PR's (#188).
+    FindDLL tries the executable's directory before the module root and the
+    search paths (<fs_basepath>/base among them).  Without a module here a test
+    loads whatever module the data directory holds, an older game than the
+    PR's (#188).  On Windows the copy is refreshed only by the next validate run.
     """
     name = module_name(arch, system)
     source = install / name
     target = build / name
-    if target.is_symlink() or target.exists():
-        target.unlink()
-    if system == "windows":
-        # symlinks need a privilege on Windows
-        shutil.copy2(source, target)
-    else:
-        target.symlink_to(Path("install") / name)
+    try:
+        if target.is_symlink() or target.exists():
+            target.unlink()
+        if system == "windows":
+            # symlinks need a privilege on Windows
+            shutil.copy2(source, target)
+        else:
+            target.symlink_to(Path("install") / name)
+    except OSError as error:
+        raise CheckFailed(f"could not stage the game module at {target}: {error}") from error
     print(f"staged {target} -> {source}")
 
 
