@@ -9801,6 +9801,27 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 			pushConstants[ 34 ] = localOrigin.z;
 			pushConstants[ 35 ] = radius;
 		}
+		if ( megaTextureSurface ) {
+			// Retail's megatexture/interaction_bakedamb* scale the light by the
+			// stage's $parameters.w (valley: 0.5): the terrain's baked lighting
+			// already carries half the sun, and its ambient pass removes
+			// $parameters.z of it where the sun faces (the 0.34 ambient here).
+			for ( int stageIndex = 0; stageIndex < surface->material->GetNumStages(); ++stageIndex ) {
+				const materialStage_t* megaStage = surface->material->GetStage( stageIndex );
+				if ( megaStage == NULL || megaStage->megaTexture == NULL || megaStage->renderProgram == NULL ||
+					idStr::FindText( megaStage->renderProgram->GetName(), "bakedamb", false ) < 0 ) {
+					continue;
+				}
+				for ( int vectorIndex = 0; vectorIndex < megaStage->numVectors; ++vectorIndex ) {
+					const stageVector_t& vector = megaStage->vectors[ vectorIndex ];
+					if ( vector.renderBinding != NULL && surface->materialRegisters != NULL &&
+						idStr::Icmp( vector.renderBinding->GetName(), "parameters" ) == 0 ) {
+						lightColor *= surface->materialRegisters[ vector.registers[ 3 ] ];
+					}
+				}
+				break;
+			}
+		}
 		pushConstants[ 36 ] = lightColor.x;
 		pushConstants[ 37 ] = lightColor.y;
 		pushConstants[ 38 ] = lightColor.z;
