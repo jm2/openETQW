@@ -375,7 +375,9 @@ void sdDeclAmbientCubeMap::AmbientCubeMapImage( idImage* image ) {
 			BakeLight( cubeMapFloat, BAKEDLIGHT_SIZE, light.dir, light.color );
 		}
 	}
-	ScaleCubeMapColor( cubeMapFloat, BAKEDLIGHT_SIZE, brightness );
+	// Not scaled by brightness: every retail program that samples $ambientCubeMap
+	// multiplies by $ambientBrightness itself (SetAmbientCubeMapBindings sets it to
+	// this decl's brightness), so baking it in as well applied it twice (#232).
 	CubeMapFtob( cubeMapFloat, cubeMapByte, BAKEDLIGHT_SIZE );
 	const byte* faces[ 6 ] = { cubeMapByte[ 0 ], cubeMapByte[ 1 ],
 		cubeMapByte[ 2 ], cubeMapByte[ 3 ], cubeMapByte[ 4 ], cubeMapByte[ 5 ] };
