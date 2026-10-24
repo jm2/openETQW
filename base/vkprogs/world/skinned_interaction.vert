@@ -37,6 +37,7 @@ layout( location = 2 ) out vec3 fragmentPosition;
 layout( location = 3 ) out vec3 fragmentTangent;
 layout( location = 4 ) out vec3 fragmentBitangent;
 layout( location = 5 ) out vec3 fragmentNormal;
+layout( location = 6 ) out vec3 fragmentToEye;
 
 void blendedJointRows( out vec4 row0, out vec4 row1, out vec4 row2 ) {
 	vec4 weights = inJointWeights;
@@ -84,5 +85,8 @@ void main() {
 	// pixels of a skinned surface then miss its depth under LEQUAL (Adreno; the
 	// Titan's lit mean drops about 7% without this).  A small clip-space pull
 	// towards the viewer, fixed in NDC so it holds in the viewmodel's narrow range.
+	// the eye in model space (as frontend.vert), for the terrain's specular term
+	vec4 eye = inverse( pc.modelViewProjection ) * vec4( 0.0, 0.0, 1.0, 0.0 );
+	fragmentToEye = eye.xyz / eye.w - fragmentPosition;
 	gl_Position.z -= 2.0e-5 * gl_Position.w;
 }

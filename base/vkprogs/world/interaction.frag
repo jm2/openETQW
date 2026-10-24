@@ -24,6 +24,7 @@ layout( location = 2 ) in vec3 fragmentPosition;
 layout( location = 3 ) in vec3 fragmentTangent;
 layout( location = 4 ) in vec3 fragmentBitangent;
 layout( location = 5 ) in vec3 fragmentNormal;
+layout( location = 6 ) in vec3 fragmentToEye;
 layout( location = 0 ) out vec4 outColor;
 
 void main() {
@@ -78,6 +79,15 @@ void main() {
 	float lambert = max( dot( normal, lightDirection ), 0.0 );
 	vec3 lit = diffuse.rgb * ( relative ? vec3( 1.0 ) : fragmentColor.rgb ) *
 		pc.lightColorDirectional.rgb * ( lambert * attenuation );
+	if ( relative ) {
+		// megatexture/interaction_*_spec: the light times 1 + 20 * (H.N)^4 * mask,
+		// with the terrain's specular mask in binding 2 (black when it has none)
+		vec3 halfAngle = normalize( lightDirection + normalize( fragmentToEye ) );
+		float specular = max( dot( halfAngle, geometricNormal ), 0.0 );
+		specular *= specular;
+		specular *= specular;
+		lit *= 1.0 + 20.0 * specular * texture( specularTexture, fragmentTexCoord ).x;
+	}
 	// additive into colour only; destination alpha is left as the base pass wrote it
 	outColor = vec4( lit, 0.0 );
 }
