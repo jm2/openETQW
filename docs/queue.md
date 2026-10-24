@@ -20,7 +20,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
 | BC5 PR (fix/vk-bc5-normal-axes) | Vulkan: 3Dc (ATI2) normal maps sample with X in red and Y in green, as retail's LATC2 layout means; heat haze and water read the same convention | openETQW-win | see PR | Windows x64 Vulkan sets RT on/off, limbo and menu done, validate passed; review; other platforms' sets at the combined run |
-| Globe PR (fix/menu-globe-ambient-186) | Ambient cube bakes only the directional ambient lights, not ambientColor, so the menu globe gets retail's dark left limb (#186 lead 1) | openETQW-win | see PR | Windows x64 GL/VK sets (Vulkan RT on/off), limbo and menu done, validate passed; review; other platforms at the combined run |
+| #232 PR (fix/ambient-brightness-232) | Ambient cube no longer bakes brightness in; the programs apply $ambientBrightness (affects main_menu 1.15, canyon_underground_base 1.10, ark_clear_amb 1.03, ark_biodome 0.90) | openETQW-win | see PR | Windows x64 GL/VK sets, limbo and menu done, validate passed; review |
 
 ## 2. Open issues, in priority order
 
