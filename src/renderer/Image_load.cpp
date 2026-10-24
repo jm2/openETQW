@@ -647,6 +647,17 @@ void idImage::GenerateImageEx(
 			common->Warning( "Vulkan image upload failed for '%s'", imgName.c_str() );
 		}
 		if ( !R_UseVulkanBackend() ) {
+			// Retail's ARB programs read a normal's X from alpha and Y from green
+			// (MOV localNormal.x, localNormal.a), the layout of its 3Dc normal maps
+			// uploaded as LATC.  An uncompressed normal map (a TGA, or a heightmap()
+			// with no precompressed file) carries X in red, so copy it to alpha, as
+			// id's RXGB loaders did.  Copying rather than swapping keeps every mip
+			// level right.  Vulkan reads red and green and is left alone.
+			if ( depth == TD_BUMP ) {
+				for ( int i = 0; i < levelWidth * levelHeight; ++i ) {
+					levelPixels[ i * 4 + 3 ] = levelPixels[ i * 4 + 0 ];
+				}
+			}
 			glTexImage2D(
 				GL_TEXTURE_2D,
 				level,
