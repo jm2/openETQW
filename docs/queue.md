@@ -19,6 +19,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
+| #212/#186 PR (fix/gl-bump-alpha-212) | OpenGL: uncompressed normal maps and `_flat` carry X in alpha, where retail's ARB programs read it; ends the OpenGL menu globe's blowout | openETQW-win | see PR | Windows x64 GL/VK sets, menu and limbo done, validate passed; review |
 
 ## 2. Open issues, in priority order
 
