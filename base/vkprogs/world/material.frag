@@ -27,8 +27,8 @@ void main() {
 	if ( pc.parameters.w > 0.5 && diffuse.a < pc.parameters.z ) {
 		discard;
 	}
-	// Normal maps reach Vulkan with X and Y in red and green (retail's ATI2/BC5
-	// decodes to (X, Y, 0, 255), RXGB to (X, Y, Z, 255)); positive Z is rebuilt.
+	// Normal maps reach Vulkan with X in red and Y in green (see interaction.frag);
+	// positive Z is rebuilt.
 	vec4 packedNormal = texture( bumpTexture, fragmentTexCoord );
 	vec2 tangentXY = packedNormal.rg * 2.0 - 1.0;
 	float tangentZ = sqrt( max( 0.0, 1.0 - dot( tangentXY, tangentXY ) ) );

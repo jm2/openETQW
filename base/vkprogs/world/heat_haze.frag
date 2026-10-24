@@ -21,8 +21,9 @@ void main() {
 		discard;
 	}
 	vec4 packedNormal = texture( bumpTexture, fragmentTexCoord );
-	// ETQW's non-DXN normal maps store X in alpha and Y in green.
-	vec2 localNormal = vec2( packedNormal.a, packedNormal.g ) * 2.0 - 1.0;
+	// Normal maps reach Vulkan with X in red and Y in green (see interaction.frag);
+	// retail's ARB programs read X from alpha, where LATC2 puts it.
+	vec2 localNormal = packedNormal.rg * 2.0 - 1.0;
 	vec2 framebufferSize = vec2( textureSize( currentRenderTexture, 0 ) );
 	vec2 screenTexCoord = gl_FragCoord.xy / framebufferSize;
 	vec2 distortedTexCoord = clamp(

@@ -1199,6 +1199,15 @@ void idImage::UploadPrecompressedImage( byte* data, int len ) {
 				}
 				decoded = true;
 			}
+			if ( decoded && header->ddspf.dwFourCC == DDS_MAKEFOURCC( 'A', 'T', 'I', '2' ) ) {
+				// The decode is ( first, second ) = ( Y, X ); Vulkan's normal maps carry
+				// X in red and Y in green, as the BC5 view swizzle gives.
+				for ( int pixel = 0; pixel < mipWidth * mipHeight; ++pixel ) {
+					const byte first = rgba[ pixel * 4 + 0 ];
+					rgba[ pixel * 4 + 0 ] = rgba[ pixel * 4 + 1 ];
+					rgba[ pixel * 4 + 1 ] = first;
+				}
+			}
 			if ( decoded ) {
 				vulkanUploaded = vulkanBackend.UploadImage2D( this, rgba,
 					mipWidth, mipHeight, Max( 1, fileMipCount - skippedMips ),
