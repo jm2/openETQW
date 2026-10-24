@@ -29,7 +29,8 @@ vec3 safeNormalize( vec3 value, vec3 fallbackValue ) {
 }
 
 vec3 decodeWaterNormal( vec4 packedNormal ) {
-	vec2 tangentXY = clamp( vec2( packedNormal.a, packedNormal.g ),
+	// X in red and Y in green, as every Vulkan normal map (see interaction.frag)
+	vec2 tangentXY = clamp( packedNormal.rg,
 		vec2( 0.0 ), vec2( 1.0 ) ) * 2.0 - 1.0;
 	float tangentZ = sqrt( max( 0.0, 1.0 - dot( tangentXY, tangentXY ) ) );
 	return safeNormalize( vec3( tangentXY, tangentZ ), vec3( 0.0, 0.0, 1.0 ) );
