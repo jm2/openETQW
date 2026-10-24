@@ -11057,6 +11057,12 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 						VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
 						sizeof( megaPushConstants ), megaPushConstants );
 				} else if ( state->megaDetailPipeline && !submitHardwareSkinning ) {
+					static bool megaDescriptorWarned = false;
+					if ( !megaDescriptorWarned ) {
+						common->Warning( "Vulkan: no MegaTexture detail descriptor for a level of '%s'; the level is skipped",
+							surface->material->GetName() );
+						megaDescriptorWarned = true;
+					}
 					continue;	// the pipeline expects the detail set; draw nothing rather than mismatch
 				} else {
 					BindDescriptorSet( levelResource->descriptorSet );
