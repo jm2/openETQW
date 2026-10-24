@@ -214,7 +214,7 @@ def check_staged(install: Path, platform: str, arch: str) -> None:
     exe = ".exe" if platform == "windows" else ""
     module = {"linux": ".so", "windows": ".dll", "macos": ".dylib"}[platform]
     required = [f"openETQW-client_{arch}{exe}", f"openETQW-ded_{arch}{exe}", f"game_{arch}{module}"]
-    required += ["base/vkprogs", "licenses/openETQW/LICENSE", "licenses/ETQW-SDK/EULA_SDK_ETQW.txt"]
+    required += ["base/vkprogs", "base/glprogs", "licenses/openETQW/LICENSE", "licenses/ETQW-SDK/EULA_SDK_ETQW.txt"]
     missing = [r for r in required if not (install / r).exists()]
     if missing:
         raise PackageError(f"the staged tree {install} lacks {', '.join(missing)} (run meson install first)")

@@ -95,6 +95,7 @@ private:
 	};
 
 	bool				ParseState( idLexer& src );
+	bool				LoadGLReplacement( int shaderType, idStr& source ) const;
 	bool				ParseProgram( idLexer& src, parseData_t& parseData );
 	bool				ResolveReferences( parseData_t& parseData );
 

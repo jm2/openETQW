@@ -189,6 +189,7 @@ CATEGORY_RULES: tuple[tuple[str, str, int, bool], ...] = (
     ("src/openal/", "dependencies", 2, False),
     ("src/", "engine", 3, False),
     ("base/vkprogs/", "shaders", 3, False),
+    ("base/glprogs/", "shaders", 3, False),
     ("base/", "content", 1, False),
     ("tests/", "tests", 1, False),
     ("tools/", "build", 2, False),
