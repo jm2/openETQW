@@ -641,6 +641,7 @@ struct sdVulkanBackendState {
 	VkPipelineLayout			frontEndPipelineLayout;
 	VkPipeline				worldFrontEndPipeline;
 	VkPipeline				worldFrontEndAlphaPipeline;
+	VkPipeline				worldFrontEndAddPipeline;
 	VkPipeline				guiPipeline;
 	VkPipeline				guiOpaquePipeline;
 	VkPipeline				guiAddPipeline;
@@ -889,6 +890,7 @@ struct sdVulkanBackendState {
 		frontEndPipelineLayout = VK_NULL_HANDLE;
 		worldFrontEndPipeline = VK_NULL_HANDLE;
 		worldFrontEndAlphaPipeline = VK_NULL_HANDLE;
+		worldFrontEndAddPipeline = VK_NULL_HANDLE;
 		guiPipeline = VK_NULL_HANDLE;
 		guiOpaquePipeline = VK_NULL_HANDLE;
 		guiAddPipeline = VK_NULL_HANDLE;
@@ -3341,7 +3343,8 @@ void DestroyGuiResources( sdVulkanBackendState& state ) {
 	state.frontEndDescriptors.Clear();
 	VkPipeline* frontEndPipelines[] = {
 		&state.worldFrontEndPipeline,
-		&state.worldFrontEndAlphaPipeline
+		&state.worldFrontEndAlphaPipeline,
+		&state.worldFrontEndAddPipeline
 	};
 	for ( unsigned int pipelineIndex = 0;
 		pipelineIndex < sizeof( frontEndPipelines ) / sizeof( frontEndPipelines[ 0 ] );
@@ -3754,10 +3757,15 @@ void CreateFrontEndPipelines( sdVulkanBackendState& state ) {
 	if ( state.frontEndPipelineLayout == VK_NULL_HANDLE ) {
 		return;
 	}
-	// sfx/feAmbDecal (opaque) and sfx/feAmbDecal_cloud (blend).  Optional:
+	// sfx/feAmbDecal (opaque), sfx/feAmbDecal_cloud (blend) and sfx/atmos (add;
+	// its material is blend GL_ONE, GL_ONE without depth writes).  Optional:
 	// without them these surfaces fall back to the generic pipelines.  Culled as
 	// GL_Cull culls a front-sided material, so the far side of the cloud shell
-	// does not draw over the globe.
+	// does not draw over the globe.  The atmosphere shell is culled the other way:
+	// OpenGL, running retail's program on the same front-sided material, shows only
+	// the shell's far side (a soft glow outside the globe's limb, with N.V small at
+	// the shell's silhouette); drawing its near side with this program washes the
+	// whole disc blue (#186).  Why the shell's winding differs is not established.
 	const VkCullModeFlags frontSidedCull = VK_CULL_MODE_FRONT_BIT;
 	if ( !CreateWorldPipelineVariant( state, "vkprogs/world/frontend.vert",
 			"vkprogs/world/frontend.frag", VK_BLEND_FACTOR_ONE,
@@ -3768,7 +3776,12 @@ void CreateFrontEndPipelines( sdVulkanBackendState& state ) {
 			"vkprogs/world/frontend.frag", VK_BLEND_FACTOR_SRC_ALPHA,
 			VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, true, false, false,
 			state.worldFrontEndAlphaPipeline, VK_COMPARE_OP_LESS_OR_EQUAL, true,
-			VK_POLYGON_MODE_FILL, false, state.frontEndPipelineLayout, frontSidedCull ) ) {
+			VK_POLYGON_MODE_FILL, false, state.frontEndPipelineLayout, frontSidedCull ) ||
+		!CreateWorldPipelineVariant( state, "vkprogs/world/frontend.vert",
+			"vkprogs/world/frontend.frag", VK_BLEND_FACTOR_ONE,
+			VK_BLEND_FACTOR_ONE, true, false, false,
+			state.worldFrontEndAddPipeline, VK_COMPARE_OP_LESS_OR_EQUAL, true,
+			VK_POLYGON_MODE_FILL, false, state.frontEndPipelineLayout, VK_CULL_MODE_BACK_BIT ) ) {
 		common->Warning( "Vulkan: the front-end ambient pipelines failed; the menu globe uses the generic material path" );
 	}
 }
@@ -4949,11 +4962,12 @@ bool StageUsesVulkanMaterialTextures( const materialStage_t& stage ) {
 }
 
 // Retail 1.5's front-end ambient programs, lit by the entity's ambient cube map
-// (the main menu's globe).  The values match frontend.frag's mode.  sfx/atmos,
-// which shares their vertex program, stays on the atmosphere pipeline (#186).
+// (the main menu's globe), and sfx/atmos, the globe's atmosphere shell, which
+// shares their vertex program.  The values match frontend.frag's mode.
 enum vulkanFrontEndProgram_t {
 	FRONTEND_AMBIENT_DECAL,		// sfx/feAmbDecal
-	FRONTEND_AMBIENT_CLOUD		// sfx/feAmbDecal_cloud
+	FRONTEND_AMBIENT_CLOUD,		// sfx/feAmbDecal_cloud
+	FRONTEND_ATMOSPHERE			// sfx/atmos
 };
 
 int VulkanFrontEndMode( const char* programName ) {
@@ -4965,6 +4979,9 @@ int VulkanFrontEndMode( const char* programName ) {
 	}
 	if ( idStr::Icmp( programName, "sfx/feAmbDecal_cloud" ) == 0 ) {
 		return FRONTEND_AMBIENT_CLOUD + 1;
+	}
+	if ( idStr::Icmp( programName, "sfx/atmos" ) == 0 ) {
+		return FRONTEND_ATMOSPHERE + 1;
 	}
 	return 0;
 }
@@ -10960,6 +10977,8 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 				frontEndPipeline = state->worldFrontEndPipeline;
 			} else if ( frontEndMode == FRONTEND_AMBIENT_CLOUD + 1 ) {
 				frontEndPipeline = state->worldFrontEndAlphaPipeline;
+			} else if ( frontEndMode == FRONTEND_ATMOSPHERE + 1 ) {
+				frontEndPipeline = state->worldFrontEndAddPipeline;
 			}
 			VkDescriptorSet frontEndDescriptorSet = VK_NULL_HANDLE;
 			if ( frontEndPipeline != VK_NULL_HANDLE && !submitHardwareSkinning &&
