@@ -4351,14 +4351,26 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 			return;
 		}
 		const VkShaderModule interactionModule = shaderStages[ 1 ].module;
+		const VkPipelineDepthStencilStateCreateInfo interactionDepthStencil = depthStencil;
 		shaderStages[ 1 ].module = fogModule;
 		blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+		// fog a pixel once: pass on stencil 0 (cleared before the fog) and mark it
+		depthStencil.stencilTestEnable = VK_TRUE;
+		depthStencil.front.compareOp = VK_COMPARE_OP_EQUAL;
+		depthStencil.front.reference = 0;
+		depthStencil.front.compareMask = 0xFF;
+		depthStencil.front.writeMask = 0xFF;
+		depthStencil.front.failOp = VK_STENCIL_OP_KEEP;
+		depthStencil.front.depthFailOp = VK_STENCIL_OP_KEEP;
+		depthStencil.front.passOp = VK_STENCIL_OP_INCREMENT_AND_CLAMP;
+		depthStencil.back = depthStencil.front;
 		if ( !CheckVulkanResult( state.CreateGraphicsPipelines( state.device, VK_NULL_HANDLE, 1,
 			&pipelineInfo, NULL, &fogPipeline ), what ) ) {
 			fogPipeline = VK_NULL_HANDLE;
 		}
 		shaderStages[ 1 ].module = interactionModule;
 		blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+		depthStencil = interactionDepthStencil;
 	};
 	bool created = CheckVulkanResult( state.CreateGraphicsPipelines(
 		state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
@@ -10422,6 +10434,28 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 				const float fogStart = view->atmosphere->GetFogStart();
 				const float fogRange = view->atmosphere->GetFogEnd() - fogStart;
 				const float fog[ 5 ] = { fogColor.x, fogColor.y, fogColor.z, 1.0f / fogRange, -fogStart / fogRange };
+				// each pixel is fogged once, by the first surface that reaches it (the
+				// fog pipelines test stencil 0 and increment it): a decal or another
+				// coplanar lit surface over it would fog it a second time.  Retail's
+				// atmosphere pass does the same (r_noDoubleAtmosphere).
+				VkClearAttachment stencilClear;
+				memset( &stencilClear, 0, sizeof( stencilClear ) );
+				stencilClear.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
+				stencilClear.clearValue.depthStencil.stencil = 0;
+				VkClearRect stencilRect;
+				memset( &stencilRect, 0, sizeof( stencilRect ) );
+				const int viewX1 = view->viewport.x1;
+				const int viewX2 = view->viewport.x2;
+				const int viewY1 = view->viewport.y1;
+				const int viewY2 = view->viewport.y2;
+				stencilRect.rect.offset.x = Max( 0, viewX1 );
+				stencilRect.rect.offset.y = Max( 0, static_cast< int >( state->extent.height ) - ( viewY2 + 1 ) );
+				stencilRect.rect.extent.width = static_cast< uint32_t >( Max( 0, Min( viewX2 - viewX1 + 1,
+					static_cast< int >( state->extent.width ) - stencilRect.rect.offset.x ) ) );
+				stencilRect.rect.extent.height = static_cast< uint32_t >( Max( 0, Min( viewY2 - viewY1 + 1,
+					static_cast< int >( state->extent.height ) - stencilRect.rect.offset.y ) ) );
+				stencilRect.layerCount = 1;
+				state->CmdClearAttachments( frame.commandBuffer, 1, &stencilClear, 1, &stencilRect );
 				for ( int i = 0; i < view->numDrawSurfs; ++i ) {
 					const drawSurf_s* surf = view->drawSurfs[ i ];
 					if ( surf == NULL || surf->material == NULL ) {
