@@ -113,7 +113,11 @@ void RB_ARB2_DrawShadowSurface( const drawSurf_s* surface, const sdDeclRenderPro
 	const srfTriangles_t* triangles = surface->geo;
 	const void* shadowVertices = NULL;
 	if ( triangles->shadowCache != NULL ) shadowVertices = CachePosition( triangles->shadowCache, false );
-	else shadowVertices = triangles->shadowVertexes;
+	else {
+		// client pointer: don't let a bound array buffer turn it into an offset (#218)
+		if ( qglBindBufferARB != NULL ) qglBindBufferARB( GL_ARRAY_BUFFER_ARB, 0 );
+		shadowVertices = triangles->shadowVertexes;
+	}
 	if ( shadowVertices == NULL && ( triangles->shadowCache == NULL || triangles->shadowCache->vbo == 0 ) ) return;
 
 	glVertexPointer( 4, GL_FLOAT, sizeof( shadowCache_t ), shadowVertices );
