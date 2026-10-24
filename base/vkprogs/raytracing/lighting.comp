@@ -32,6 +32,10 @@ layout( std430, set = 0, binding = 3 ) readonly buffer ViewLighting {
 	vec4 waterParameters;
 	// x: light count, y: reserved, z: water instance count.
 	uvec4 lightCounts;
+	// The atmosphere fog (#233), as the raster path's fog.frag: rgb the fog colour,
+	// a 1 when the view fogs; fogDepths z = 1 / (end - start), w = -start / (end - start).
+	vec4 fogColor;
+	vec4 fogDepths;
 	RayLight lights[ 1024 ];
 	vec4 waterNormals[ 1024 ];
 } lighting;
@@ -439,6 +443,11 @@ void shadeLighting( ivec2 pixel ) {
 
 	vec3 ambientLighting = vec3( lighting.sunDirectionAmbient.w );
 	vec3 litColor = sourceColor.rgb * ( ambientLighting + directLighting );
+	// retail's lit programs: lit * (1 - f) + fogColor * f by the view distance
+	if ( lighting.fogColor.a > 0.5 ) {
+		float fog = clamp( cameraDistance * lighting.fogDepths.z + lighting.fogDepths.w, 0.0, 1.0 );
+		litColor = mix( litColor, lighting.fogColor.rgb, fog );
+	}
 	imageStore( colorImage, pixel, vec4( litColor, sourceColor.a ) );
 }
 
