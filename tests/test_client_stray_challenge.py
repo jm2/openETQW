@@ -12,7 +12,9 @@ A dedicated server and a headless remote client (the dedicated binary started
 with +connect): once the client receives snapshots, a raw UDP peer on the same
 address sends the client's port three challengeResponse packets. Over the next
 3 s (three connect resend periods) the client must send no connect request and
-not connect again, and its snapshots must keep coming.
+not connect again, and its snapshots must keep coming. The client must also
+print "Unwanted challenge response received." (as Doom 3 does), so a pass
+proves the packets reached it.
 
 Exit 77 when ETQW_DATA_PATH is unset/invalid or the binary is missing.
 """
@@ -33,6 +35,7 @@ from test_remote_client_map_change import READY, RemoteClient  # noqa: E402
 
 CONNECTED_FROM_RE = re.compile(r"Client (\d+) connected from 127\.0\.0\.1:(\d+)")
 RECONNECT_MARKERS = ("Sending connect request", "Client connected to server")
+UNWANTED = "Unwanted challenge response received."
 
 
 def main(argv):
@@ -88,6 +91,10 @@ def main(argv):
         seen = [ln.text for ln in cl.snapshot(mark) if any(m in ln.text for m in RECONNECT_MARKERS)]
         if seen:
             raise Failed(f"the connected client started connecting again: {seen[0]!r}")
+        unwanted = sum(1 for ln in cl.snapshot(mark) if UNWANTED in ln.text)
+        print(f"[stray] the client printed '{UNWANTED}' {unwanted} times")
+        if unwanted == 0:
+            raise Failed(f"the client never printed '{UNWANTED}': the stray packets did not reach it")
         again = [ln.text for ln in srv.snapshot(srv_mark) if CONNECTED_FROM_RE.search(ln.text)]
         if again:
             raise Failed(f"the server connected the client again: {again[0]!r}")
