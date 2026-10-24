@@ -5977,7 +5977,7 @@ bool GetVulkanHeatHazeDescriptor( sdVulkanBackendState& state,
 // lives in the megatexture tiles rather than a stage texture, reads it back
 // per pixel in interaction.frag.  Binding 0 is the snapshot, the rest neutral.
 bool GetVulkanSceneAlbedoDescriptor( sdVulkanBackendState& state,
-	VkDescriptorSet& descriptorSet, idImage* specularMask = NULL ) {
+	VkDescriptorSet& descriptorSet ) {
 	static const int sceneAlbedoKey = 0;	// identity only, never dereferenced
 	const materialStage_t* const sceneAlbedoOwner =
 		reinterpret_cast< const materialStage_t* >( &sceneAlbedoKey );
@@ -5986,9 +5986,7 @@ bool GetVulkanSceneAlbedoDescriptor( sdVulkanBackendState& state,
 		state.currentRenderResource.sampler == VK_NULL_HANDLE ) {
 		return false;
 	}
-	// binding 2: the terrain's specular mask (megatexture/interaction_*_spec), or black
-	idImage* fallbackImages[ 4 ] = { globalImages->flatNormalMap,
-		specularMask != NULL ? specularMask : globalImages->blackImage,
+	idImage* fallbackImages[ 4 ] = { globalImages->flatNormalMap, globalImages->blackImage,
 		globalImages->blackImage, globalImages->blackCubeMapImage };
 	const sdVulkanImageResource* fallbackResources[ 4 ];
 	for ( int fallbackIndex = 0; fallbackIndex < 4; ++fallbackIndex ) {
@@ -9647,23 +9645,8 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	}
 	// MegaTexture terrain reads its albedo from the light block's snapshot
 	VkDescriptorSet sceneAlbedoSet = VK_NULL_HANDLE;
-	idImage* megaSpecularMask = NULL;
-	for ( int stageIndex = 0; megaTextureSurface && stageIndex < surface->material->GetNumStages(); ++stageIndex ) {
-		const materialStage_t* megaStage = surface->material->GetStage( stageIndex );
-		if ( megaStage == NULL || megaStage->megaTexture == NULL ) {
-			continue;
-		}
-		for ( int textureIndex = 0; textureIndex < megaStage->numTextures; ++textureIndex ) {
-			const stageTexture_t& texture = megaStage->textures[ textureIndex ];
-			if ( texture.renderBinding != NULL && texture.image != NULL &&
-				idStr::Icmp( texture.renderBinding->GetName(), "mask" ) == 0 ) {
-				megaSpecularMask = texture.image;
-			}
-		}
-		break;
-	}
 	const bool sceneAlbedoInteraction = litInteraction && megaTextureSurface &&
-		state.sceneAlbedoCopied && GetVulkanSceneAlbedoDescriptor( state, sceneAlbedoSet, megaSpecularMask );
+		state.sceneAlbedoCopied && GetVulkanSceneAlbedoDescriptor( state, sceneAlbedoSet );
 	if ( litInteraction && megaTextureSurface && !sceneAlbedoInteraction ) {
 		return;	// no albedo snapshot (no TRANSFER_SRC swapchain): ambient only, not white
 	}

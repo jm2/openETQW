@@ -32,7 +32,6 @@ layout( location = 2 ) out vec3 fragmentPosition;
 layout( location = 3 ) out vec3 fragmentTangent;
 layout( location = 4 ) out vec3 fragmentBitangent;
 layout( location = 5 ) out vec3 fragmentNormal;
-layout( location = 6 ) out vec3 fragmentToEye;
 
 vec3 unpackDirection( vec2 packedDirection, uint zSign ) {
 	float z = sqrt( max( 0.0, 1.0 - dot( packedDirection, packedDirection ) ) );
@@ -56,8 +55,5 @@ void main() {
 	fragmentBitangent = normalize( cross( normal, tangent ) ) *
 		( float( inBitangentSign ) - 1.0 );
 	fragmentPosition = inPosition;
-	// the eye in model space (as frontend.vert), for the terrain's specular term
-	vec4 eye = inverse( pc.modelViewProjection ) * vec4( 0.0, 0.0, 1.0, 0.0 );
-	fragmentToEye = eye.xyz / eye.w - fragmentPosition;
 	gl_Position = pc.modelViewProjection * vec4( inPosition, 1.0 );
 }
