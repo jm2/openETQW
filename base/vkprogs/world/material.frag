@@ -27,16 +27,11 @@ void main() {
 	if ( pc.parameters.w > 0.5 && diffuse.a < pc.parameters.z ) {
 		discard;
 	}
-	// Normal maps reach Vulkan with X in red and Y in green (see interaction.frag);
-	// positive Z is rebuilt.
-	vec4 packedNormal = texture( bumpTexture, fragmentTexCoord );
-	vec2 tangentXY = packedNormal.rg * 2.0 - 1.0;
-	float tangentZ = sqrt( max( 0.0, 1.0 - dot( tangentXY, tangentXY ) ) );
-	vec3 tangentNormal = normalize( vec3( tangentXY, tangentZ ) );
 	vec3 selfIllum = texture( selfIllumTexture, fragmentTexCoord ).rgb;
 	// Direct and ambient illumination are applied once, after opaque visibility,
 	// by vkprogs/raytracing/lighting.comp.  This pass only supplies material
-	// albedo and authored emission to that ray-query lighting stage.
+	// albedo and authored emission to that ray-query lighting stage; it doesn't
+	// read the bump map (binding 1).
 	outColor = vec4( ( diffuse.rgb + selfIllum ) * fragmentColor.rgb,
 		diffuse.a * fragmentColor.a );
 }
