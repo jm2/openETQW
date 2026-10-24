@@ -466,7 +466,11 @@ void RB_DrawElementsWithCounters( const srfTriangles_t* triangles ) {
 	if ( triangles->indexCache != NULL && r_useIndexBuffers.GetBool() ) {
 		indexes = CachePosition( triangles->indexCache, true );
 	} else {
-		if ( r_useIndexBuffers.GetBool() && qglBindBufferARB != NULL ) {
+		// Unbind even when r_useIndexBuffers is 0 (the shipped etqwconfig.cfg):
+		// index caches are still uploaded through GL_ELEMENT_ARRAY_BUFFER, and a
+		// buffer left bound turns the client index pointer into a bogus offset
+		// (Mesa glthread crash, amdgpu reset: #218).
+		if ( qglBindBufferARB != NULL ) {
 			qglBindBufferARB( GL_ELEMENT_ARRAY_BUFFER_ARB, 0 );
 		}
 		if ( singleTriangle > 1 ) indexes = singleTriangleIndexes;
