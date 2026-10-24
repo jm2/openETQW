@@ -18,6 +18,13 @@ expires the client's. Then the client sets the password. Its next connect must
 get "Bad challenge" (the test forced the stale challenge), and the client must
 then ask for a new challenge, connect, get a game init and receive snapshots.
 
+A second client (net_clientServerTimeout 20) never gets the password, and the
+raw peer asks for a challenge every 2 s, so its challenge goes bad every cycle
+and it keeps asking for new ones. It must get "Bad challenge" at least once and
+still log "Server connection timed out" within 30 s of its first refusal: the
+timeout runs from the first challengeResponse of a connect, and new challenges
+do not restart it, so a client the server never accepts still gives up.
+
 Exit 77 when ETQW_DATA_PATH is unset/invalid or the binary is missing.
 """
 
@@ -36,6 +43,13 @@ from test_remote_client_map_change import GAME_INIT_RE, READY, RemoteClient  # n
 
 PASSWORD = "letmein"
 CHALLENGE_LIFETIME = 10.0  # idAsyncServer::ProcessChallengeMessage
+TIMEOUT_CLIENT = 20.0  # the second client's net_clientServerTimeout (s)
+
+
+def get_challenge(port, client_id):
+    """A raw peer's getChallenge: the server expires every challenge older than its lifetime."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.sendto(oob(cstr("getChallenge"), struct.pack("<i", client_id)), ("127.0.0.1", port))
 
 
 def main(argv):
@@ -66,7 +80,10 @@ def main(argv):
     srv.name = "SERVER"
     cl = RemoteClient(binary, data, args.port, args.port + 1, log_path=log("client"))
     cl.name, cl.slot = "RemoteClient", None
-    procs = [("client", cl), ("server", srv)]
+    cl2 = RemoteClient(binary, data, args.port, args.port + 2, log_path=log("client2"),
+                       net={"net_clientServerTimeout": str(int(TIMEOUT_CLIENT))})
+    cl2.name, cl2.slot = "RemoteClient2", None
+    procs = [("client2", cl2), ("client", cl), ("server", srv)]
 
     failures = []
     try:
@@ -81,20 +98,19 @@ def main(argv):
         refused_at = time.monotonic()
         print("[refused] the server refuses the client's connects without the password")
 
-        # the client's challenge is now older than its lifetime; any getChallenge expires it
+        # the client's challenge is now older than its lifetime; any getChallenge expires it.
+        # Marks first: the client's next connect may land as soon as the challenge expires.
         time.sleep(CHALLENGE_LIFETIME + 1.0 - (time.monotonic() - refused_at))
-        srv_mark = srv.mark()
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.sendto(oob(cstr("getChallenge"), struct.pack("<i", 4242)), ("127.0.0.1", args.port))
+        cl_mark, srv_mark = cl.mark(), srv.mark()
+        get_challenge(args.port, 4242)
         if not srv.wait_for(lambda s: "(id: 4242," in s or None, 10.0, srv_mark):
             raise Failed("the server never answered the raw peer's getChallenge")
         print("[expire] a raw peer asked for a challenge; the client's has expired")
 
-        cl_mark, srv_mark = cl.mark(), srv.mark()
-        cl.send(f"set password {PASSWORD}")
         if not cl.wait_for(lambda s: "Bad challenge" in s or None, 15.0, cl_mark):
             raise Failed("the client's next connect did not get 'Bad challenge': the test did not force a stale challenge")
         print("[stale] the client's connect got 'Bad challenge'")
+        cl.send(f"set password {PASSWORD}")
 
         hit = srv.wait_for(lambda s: GAME_INIT_RE.search(s), 30.0, srv_mark)
         if not hit:
@@ -106,6 +122,27 @@ def main(argv):
             raise Failed("the client connected without asking for a new challenge")
         got = wait_snapshots(cl, cl_mark)
         print(f"[recovered] the client asked for a new challenge and is client {cl.slot}; snapshots from {got[0]}")
+
+        # A challenge that keeps going bad (never the password, and a raw peer expires
+        # it every cycle) must still end in the client's timeout, counted from its first
+        # challengeResponse: new challenges do not restart it.
+        cl2.start()
+        if not cl2.wait_for(lambda s: "Invalid password" in s or None, 120.0, 0):
+            raise Failed("the server never refused the second client's connect")
+        refused_at = time.monotonic()
+        deadline = refused_at + TIMEOUT_CLIENT + 10.0
+        timed_out = None
+        while time.monotonic() < deadline and not timed_out:
+            get_challenge(args.port, 4243)
+            timed_out = cl2.wait_for(lambda s: "Server connection timed out" in s or None, 2.0, 0)
+        bad = sum(1 for ln in cl2.snapshot() if "Bad challenge" in ln.text)
+        print(f"[timeout] the second client got 'Bad challenge' {bad} times; timed out: {bool(timed_out)}"
+              f" ({time.monotonic() - refused_at:.0f} s after its first refusal)")
+        if bad == 0:
+            raise Failed("the second client never got 'Bad challenge': the test did not force a stale challenge")
+        if not timed_out:
+            raise Failed(f"a client stuck on bad challenges did not time out within {TIMEOUT_CLIENT + 10:.0f} s"
+                         f" of its first refusal (net_clientServerTimeout {TIMEOUT_CLIENT:.0f})")
     except Failed as e:
         failures.append(str(e))
     finally:

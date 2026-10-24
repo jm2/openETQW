@@ -783,7 +783,11 @@ void idAsyncClient::ProcessChallengeResponseMessage( const netadr_t from, const 
 	}
 	serverChallenge = msg.ReadLong();
 	clientState = CS_CONNECTING;
-	lastPacketTime = realTime;
+	// the connection timeout runs from the first answer of this connect: a client that
+	// keeps getting new challenges (Bad challenge) but is never accepted still times out
+	if ( lastPacketTime < 0 ) {
+		lastPacketTime = realTime;
+	}
 }
 
 void idAsyncClient::ProcessConnectResponseMessage( const netadr_t from, const idBitMsg& msg ) {
