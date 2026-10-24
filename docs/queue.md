@@ -19,7 +19,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
-| BC5 PR (fix/vk-bc5-normal-axes) | Vulkan: 3Dc (ATI2) normal maps sample with X in red and Y in green, as retail's LATC2 layout means; heat haze and water read the same convention | openETQW-win | see PR | Windows x64 Vulkan sets RT on/off, limbo and menu done, validate passed; review; other platforms' sets at the combined run |
+| Atmos PR (fix/vk-menu-atmos-186) | Vulkan: port retail's sfx/atmos, so the menu globe's atmosphere is a soft blue glow, not a hard white ring (#186 lead 2) | openETQW-win | see PR | Windows x64 Vulkan sets RT on/off, limbo and menu on both APIs done, validate passed; review; other platforms at the combined run |
 
 ## 2. Open issues, in priority order
 
