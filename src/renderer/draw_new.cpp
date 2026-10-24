@@ -752,11 +752,12 @@ void RB_ARB2_DrawSurface( const drawSurf_s* surface, const idMaterial* material,
 	}
 	const bool spaceChanged = activeDrawSpace != surface->space;
 	RB_ARB2_SetSpace( surface->space, true );
-	if ( spaceChanged ) {
-		if ( customSpaceCallback != NULL ) customSpaceCallback( surface );
-		SetAmbientCubeMapBindings( surface->space );
-		if ( surface->space->envCubemap != NULL ) rbinds->environmentCubeMap->Set( surface->space->envCubemap );
-	}
+	if ( spaceChanged && customSpaceCallback != NULL ) customSpaceCallback( surface );
+	// Per surface, not per space: a stage that names one of these cubes itself
+	// (water's environmentCubeMap) would otherwise leave it bound for the next
+	// surface of the same entity.
+	SetAmbientCubeMapBindings( surface->space );
+	if ( surface->space->envCubemap != NULL ) rbinds->environmentCubeMap->Set( surface->space->envCubemap );
 	idVec4 stuffParameters = rbinds->stuffParameters->GetVec4();
 	stuffParameters.w = surface->geo->params[ TRIPARM_DISTANCESCALE ];
 	rbinds->stuffParameters->Set( stuffParameters );
