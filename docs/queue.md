@@ -138,6 +138,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-22/23:
+- #226 (openETQW-win): OpenGL material stages also leave the environment cube, gradient map and dither mask to the renderer, re-set per surface (follow-up to #224, #186)
 - #228 (openETQW-win): OpenGL copies red into alpha for uncompressed TD_BUMP images and _flat gets alpha 128, as retail's programs read X from alpha (OpenGL menu globe, #186)
 - #225 (openETQW-win-arm64): the client takes a challengeResponse only while challenging; new test client-stray-challenge (side finding of #216)
 - #224 (openETQW-win): OpenGL material stages no longer overwrite the entity's ambient, sun and specular cubes with _normalCubeMap (#186 OpenGL globe, part)
