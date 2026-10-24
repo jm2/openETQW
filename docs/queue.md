@@ -19,7 +19,6 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
-| #186 PR (fix/gl-atmos-bindings-186) | OpenGL: material stages also leave the environment cube, gradient map and sky gradient cube to the renderer (follow-up to #224) | openETQW-win | see PR | Windows x64 GL/VK sets, menus and limbo done, validate passed; review |
 
 ## 2. Open issues, in priority order
 
