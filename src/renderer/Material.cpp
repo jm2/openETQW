@@ -1022,17 +1022,20 @@ void idMaterial::ParseStage( idParser& src ) {
 			if ( stage->renderProgram != NULL && stage->renderProgram->IsInteraction() ) {
 				CompleteInterationStage( stage, spd );
 			} else if ( stage->renderProgram != NULL ) {
-				// The ambient, sun and specular cube maps belong to the entity being
-				// drawn (SetAmbientCubeMapBindings).  Filling them with the binding's
+				// The ambient, sun, specular and environment cube maps and the gradient
+				// map belong to the entity being drawn (SetAmbientCubeMapBindings), and
+				// the sky gradient cube to the view's atmosphere
+				// (RB_SetAtmosphereFrameRenderBindings).  Filling them with the binding's
 				// default image here made every stage overwrite them with _normalCubeMap,
-				// so retail's front-end ambient programs (the menu globe, #186) sampled
-				// the wrong cube under OpenGL.
+				// so retail's front-end ambient programs (the menu globe, #186), window
+				// glass and the sky sampled the wrong image under OpenGL.
 				const int count = stage->renderProgram->GetNumTextureBindings();
 				const sdDeclRenderBinding* defaults[ MAX_STAGE_TEXTURES ];
 				int numDefaults = 0;
 				for ( int i = 0; i < count; ++i ) {
 					const sdDeclRenderBinding* binding = stage->renderProgram->GetTextureBinding( i );
-					if ( binding == rbinds->ambientCubeMap || binding == rbinds->ambientCubeMapSun || binding == rbinds->specularCubeMap ) {
+					if ( binding == rbinds->ambientCubeMap || binding == rbinds->ambientCubeMapSun || binding == rbinds->specularCubeMap ||
+						binding == rbinds->environmentCubeMap || binding == rbinds->gradientMap || binding == rbinds->skyGradientCubeMap ) {
 						continue;
 					}
 					defaults[ numDefaults++ ] = binding;
