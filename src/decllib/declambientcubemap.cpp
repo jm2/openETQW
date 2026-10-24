@@ -365,9 +365,9 @@ void sdDeclAmbientCubeMap::AmbientCubeMapImage( idImage* image ) {
 	// Only the directional ambient lights are baked; ambientColor is not added to
 	// every direction.  Retail's menu globe (sfx/feAmbDecal: cube x brightness x 2,
 	// night lights where that is below 1/8) shows a dark limb with night lights,
-	// which main_menu's ambientColor of 0.49 x 1.15 x 2 would light through, and
-	// retail's ambient-only limbo soldier is nearly black (#186).  ambientColor
-	// still feeds the average colour and the gradient map.
+	// which main_menu's ambientColor of 0.49 x 1.15 x 2 would light through (#186).
+	// ambientColor still feeds the average colour and the gradient map, and the
+	// light cube keeps it.
 	FillCubeMap( cubeMapFloat, BAKEDLIGHT_SIZE, vec3_zero );
 	for ( int lightIndex = 0; lightIndex < ambientLights.Num(); ++lightIndex ) {
 		const ambientLight_t& light = ambientLights[ lightIndex ];
