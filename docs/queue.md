@@ -19,6 +19,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
+| Cleanup PR (fix/vk-frontend-cleanup) | Vulkan: front-end pipelines gated on the stage's cull (atmos back-sided); MoltenVK view-swizzle fallback for RXGB/ATI1/ATI2; #229 comment and dead-code nits | openETQW-win | see PR | Windows x64 Vulkan set, menu and limbo done, validate passed; review; MoltenVK path needs a macOS check |
 
 ## 2. Open issues, in priority order
 
