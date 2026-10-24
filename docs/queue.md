@@ -19,7 +19,6 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
-| BC5 PR (fix/vk-bc5-normal-axes) | Vulkan: 3Dc (ATI2) normal maps sample with X in red and Y in green, as retail's LATC2 layout means; heat haze and water read the same convention | openETQW-win | see PR | Windows x64 Vulkan sets RT on/off, limbo and menu done, validate passed; review; other platforms' sets at the combined run |
 
 ## 2. Open issues, in priority order
 
@@ -138,6 +137,10 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-22/23:
+- #237 (openETQW-linux): Vulkan scales the terrain's light by the bakedamb stage's parameters.w, as retail; valley ground loses its doubled sun (part of #233)
+- #235 (openETQW-win): the ambient cube is no longer pre-scaled by brightness, which every consumer applies; the menu globe lands on retail's brightness (fixes #232)
+- #234 (openETQW-win): Vulkan ports retail's sfx/atmos for the menu globe's atmosphere, with the stage's back-face cull (#186 lead 2)
+- #231 (openETQW-win): the ambient cube bakes the directional ambient lights on black, not on ambientColor; the menu globe gets retail's terminator and dark limb (#186 lead 1)
 - #229 (openETQW-win): Vulkan reads retail's 3Dc normal maps with X and Y the right way round (BC5 view swizzle, decode fallback, heat haze and water)
 - #230 (openETQW-linux): the ambient specular cube is baked on black, not minSpecAmbientColor, ending OpenGL's silvery overbright on lit models (#212)
 - #227 (openETQW-win-arm64): the client re-challenges on Bad challenge, takes challenge replies only from the server's address and port, and still times out; new test client-bad-challenge (may fix #216)
