@@ -185,6 +185,13 @@ bool sdDeclRenderProgram::ParseProgram( idLexer& src, parseData_t& parseData ) {
 	}
 
 	idStr type = token;
+	// OpenGL can't compile retail's Cg programs (no Cg runtime on x64 or arm64,
+	// ledger row 077). Where base/glprogs has our own ARB port of one, use it
+	// in its place (#219).
+	idStr replacementSource;
+	if ( type.Icmp( "cg" ) == 0 && SD_LoadCgReplacement( GetName(), shaderType == ST_VERTEX_SHADER, replacementSource ) ) {
+		type = "arb";
+	}
 	sdRenderShader* renderShader = SD_AllocRenderShader( type.c_str() );
 	if ( renderShader == NULL ) {
 		if ( type.Icmp( "arb" ) != 0 && type.Icmp( "cg" ) != 0 && type.Icmp( "glsl" ) != 0 ) {
@@ -209,6 +216,9 @@ bool sdDeclRenderProgram::ParseProgram( idLexer& src, parseData_t& parseData ) {
 		return false;
 	}
 	StripProgramDelimiters( source );
+	if ( !replacementSource.IsEmpty() ) {
+		source = replacementSource;
+	}
 
 	// Retail preserves shaders parsed before the OpenGL context exists.  They
 	// are attached without compiling so declaration references and ownership
