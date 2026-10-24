@@ -760,7 +760,11 @@ void idAsyncClient::ProcessReliableServerMessages() {
 }
 
 void idAsyncClient::ProcessChallengeResponseMessage( const netadr_t from, const idBitMsg& msg ) {
-	if ( !Sys_CompareNetAdrBase( from, serverAddress ) ) {
+	// only while challenging (Doom 3): a late, duplicate response (the client resent
+	// getChallenge while the first answer was on its way) would otherwise put a
+	// connected client back to connecting, and the next connectResponse would reset
+	// its channel
+	if ( !Sys_CompareNetAdrBase( from, serverAddress ) || clientState != CS_CHALLENGING ) {
 		return;
 	}
 	serverChallenge = msg.ReadLong();
