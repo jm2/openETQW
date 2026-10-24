@@ -486,6 +486,7 @@ struct sdVulkanBackendState {
 	char					versionString[ 32 + VK_MAX_DRIVER_NAME_SIZE + VK_MAX_DRIVER_INFO_SIZE ];
 	bool					fillModeNonSolid;
 	bool					textureCompressionBC;
+	bool					imageViewFormatSwizzle;	// false on a portability subset (MoltenVK) without it
 	bool					rayTracingDeviceEnabled;
 	VkDeviceSize			jointUniformAlignment;
 
@@ -816,6 +817,7 @@ struct sdVulkanBackendState {
 		versionString[ 0 ] = '\0';
 		fillModeNonSolid = false;
 		textureCompressionBC = false;
+		imageViewFormatSwizzle = true;
 		rayTracingDeviceEnabled = false;
 		jointUniformAlignment = 1;
 		swapchain = VK_NULL_HANDLE;
@@ -1709,6 +1711,9 @@ bool CreateLogicalDevice( sdVulkanBackendState& state,
 		features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
 		features2.pNext = &portabilityFeatures;
 		state.GetPhysicalDeviceFeatures2( state.physicalDevice, &features2 );
+		// Without it, image views must use the identity swizzle, so the block
+		// formats that need one (RXGB, ATI1, ATI2) take the decode path instead.
+		state.imageViewFormatSwizzle = portabilityFeatures.imageViewFormatSwizzle == VK_TRUE;
 
 		portabilityFeatures.pNext = features13.pNext;
 		features13.pNext = &portabilityFeatures;
@@ -3761,12 +3766,13 @@ void CreateFrontEndPipelines( sdVulkanBackendState& state ) {
 	// its material is blend GL_ONE, GL_ONE without depth writes).  Optional:
 	// without them these surfaces fall back to the generic pipelines.  Culled as
 	// GL_Cull culls a front-sided material, so the far side of the cloud shell
-	// does not draw over the globe.  The atmosphere shell is culled the other way:
-	// OpenGL, running retail's program on the same front-sided material, shows only
-	// the shell's far side (a soft glow outside the globe's limb, with N.V small at
-	// the shell's silhouette); drawing its near side with this program washes the
-	// whole disc blue (#186).  Why the shell's winding differs is not established.
+	// does not draw over the globe.  The atmosphere is culled as GL_Cull culls a
+	// back-sided stage: retail's atmosphere stage says "cullFace front", which
+	// ParseStage reads as CT_BACK_SIDED, so only the shell's far side draws, a soft
+	// glow outside the globe's limb (#186).  The draw uses a pipeline only when the
+	// stage's cull matches the one it was built with.
 	const VkCullModeFlags frontSidedCull = VK_CULL_MODE_FRONT_BIT;
+	const VkCullModeFlags backSidedCull = VK_CULL_MODE_BACK_BIT;
 	if ( !CreateWorldPipelineVariant( state, "vkprogs/world/frontend.vert",
 			"vkprogs/world/frontend.frag", VK_BLEND_FACTOR_ONE,
 			VK_BLEND_FACTOR_ZERO, true, true, false, state.worldFrontEndPipeline,
@@ -3781,8 +3787,8 @@ void CreateFrontEndPipelines( sdVulkanBackendState& state ) {
 			"vkprogs/world/frontend.frag", VK_BLEND_FACTOR_ONE,
 			VK_BLEND_FACTOR_ONE, true, false, false,
 			state.worldFrontEndAddPipeline, VK_COMPARE_OP_LESS_OR_EQUAL, true,
-			VK_POLYGON_MODE_FILL, false, state.frontEndPipelineLayout, VK_CULL_MODE_BACK_BIT ) ) {
-		common->Warning( "Vulkan: the front-end ambient pipelines failed; the menu globe uses the generic material path" );
+			VK_POLYGON_MODE_FILL, false, state.frontEndPipelineLayout, backSidedCull ) ) {
+		common->Warning( "Vulkan: the front-end pipelines (globe, clouds, atmosphere) failed; the menu globe uses the generic material path" );
 	}
 }
 
@@ -8391,8 +8397,10 @@ struct vulkanBlockFormatInfo_t {
 	VkComponentMapping	swizzle;
 };
 
-// The view swizzles make each format sample as DecodeDDSLevelRGBA's RGBA does,
-// except that normal maps sample with tangent X in red and Y in green (RXGB, ATI2).
+// The view swizzles make each format sample as DecodeDDSLevelRGBA's RGBA does (RXGB
+// with its alpha moved into red, ATI1 as luminance), except ATI2, whose two blocks
+// are swapped so a normal's X is in red; the Vulkan decode fallback swaps likewise.
+// Without imageViewFormatSwizzle, SupportsBlockFormat refuses the swizzled formats.
 bool GetVulkanBlockFormat( vulkanBlockFormat_t blockFormat, vulkanBlockFormatInfo_t& info ) {
 	const VkComponentSwizzle I = VK_COMPONENT_SWIZZLE_IDENTITY;
 	info.swizzle.r = info.swizzle.g = info.swizzle.b = info.swizzle.a = I;
@@ -8502,6 +8510,11 @@ bool sdVulkanBackend::SupportsBlockFormat( vulkanBlockFormat_t blockFormat, bool
 	vulkanBlockFormatInfo_t info;
 	if ( state == NULL || state->device == VK_NULL_HANDLE ||
 		!state->textureCompressionBC || !GetVulkanBlockFormat( blockFormat, info ) ) {
+		return false;
+	}
+	const VkComponentSwizzle I = VK_COMPONENT_SWIZZLE_IDENTITY;
+	if ( !state->imageViewFormatSwizzle && ( info.swizzle.r != I || info.swizzle.g != I ||
+		info.swizzle.b != I || info.swizzle.a != I ) ) {
 		return false;
 	}
 	VkFormatProperties properties;
@@ -10959,9 +10972,16 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			} else if ( frontEndMode == FRONTEND_ATMOSPHERE + 1 ) {
 				frontEndPipeline = state->worldFrontEndAddPipeline;
 			}
+			// Each pipeline bakes one cull: a stage's own cullFace overrides the
+			// material's (retail's atmosphere stage says cullFace front, parsed as
+			// CT_BACK_SIDED).  Any other cull takes the generic path.
+			const cullType_t frontEndCull = selectedStage->cullType != CT_INVALID ?
+				selectedStage->cullType : surface->material->GetCullType();
+			const cullType_t frontEndPipelineCull =
+				frontEndMode == FRONTEND_ATMOSPHERE + 1 ? CT_BACK_SIDED : CT_FRONT_SIDED;
 			VkDescriptorSet frontEndDescriptorSet = VK_NULL_HANDLE;
 			if ( frontEndPipeline != VK_NULL_HANDLE && !submitHardwareSkinning &&
-				surface->material->GetCullType() == CT_FRONT_SIDED &&
+				frontEndCull == frontEndPipelineCull &&
 				!view->isMirror &&
 				GetVulkanFrontEndDescriptor( *state, *selectedStage, selectedImage,
 					surface->space, frontEndDescriptorSet ) ) {

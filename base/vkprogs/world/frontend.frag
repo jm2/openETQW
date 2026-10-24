@@ -36,7 +36,7 @@ layout( location = 5 ) in vec3 fragmentNormal;
 layout( location = 0 ) out vec4 outColor;
 
 vec3 WorldNormal() {
-	// Normal maps reach Vulkan with X and Y in red and green (see material.frag);
+	// Normal maps reach Vulkan with X and Y in red and green (see interaction.frag);
 	// Z is rebuilt, as the ARB programs do under r_normalizeNormalMaps.
 	vec2 tangentXY = texture( bumpMap, fragmentTexCoord ).rg * 2.0 - 1.0;
 	vec3 localNormal = vec3( tangentXY,
