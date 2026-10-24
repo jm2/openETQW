@@ -4,7 +4,8 @@
 // programs (renderprogs sfx/feAmbDecal and sfx/feAmbDecal_cloud): the main
 // menu's globe and its clouds.  They are lit only by the entity's ambient cube
 // map, with a rim term and, for the globe, the night lights where the cube map
-// is dark.  mode: 0 globe, 1 clouds.
+// is dark.  sfx/atmos, the atmosphere shell around them, is added on top (its
+// material blends GL_ONE, GL_ONE).  mode: 0 globe, 1 clouds, 2 atmosphere.
 
 layout( set = 0, binding = 0 ) uniform sampler2D diffuseMap;
 layout( set = 0, binding = 1 ) uniform sampler2D bumpMap;
@@ -48,6 +49,13 @@ void main() {
 	int mode = int( pc.mode + 0.5 );
 	vec3 worldNormal = WorldNormal();
 	float facing = dot( fragmentToEye, worldNormal );
+
+	if ( mode == 2 ) {
+		// sfx/atmos: sat( 5 (N.V)^2 ) by the stage's parameters, alpha 1
+		float glow = clamp( facing * facing * 5.0, 0.0, 1.0 );
+		outColor = vec4( glow * pc.parameters.rgb, 1.0 );
+		return;
+	}
 
 	vec4 diffuse = texture( diffuseMap, fragmentTexCoord );
 	if ( mode == 0 && diffuse.a - 0.001 < 0.0 ) {
