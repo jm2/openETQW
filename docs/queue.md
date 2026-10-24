@@ -19,7 +19,6 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
-| #223 PR (fix/gl-cg-replacements-219) | OpenGL: ARB ports in `base/glprogs` of retail's Cg sky, atmosphere and grass programs (#219) | openETQW-linux | see PR | Linux x64 GL set and validate done; review answered; other platforms' GL at the combined run |
 
 ## 2. Open issues, in priority order
 
