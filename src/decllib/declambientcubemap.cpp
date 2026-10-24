@@ -395,7 +395,12 @@ void sdDeclAmbientCubeMap::LightCubeMapImage( idImage* image ) {
 }
 
 void sdDeclAmbientCubeMap::SpecularCubeMapImage( idImage* image ) {
-	FillCubeMap( cubeMapFloat, BAKEDLIGHT_SIZE, minSpecAmbientColor );
+	// Only the specular lights and the sun, on black.  minSpecAmbientColor (0.6 by
+	// default) is the ambient colour for minimum-spec hardware, not a floor for this
+	// cube: filling with it gave every surface a uniform sheen (specular map * 2 in
+	// the ambient programs), the silvery overbright of #212.  Retail's lit models take
+	// almost nothing from the ambient pass (its ambient-only soldier is near black).
+	FillCubeMap( cubeMapFloat, BAKEDLIGHT_SIZE, vec3_zero );
 	for ( int lightIndex = 0; lightIndex < ambientLights.Num(); ++lightIndex ) {
 		const ambientLight_t& light = ambientLights[ lightIndex ];
 		if ( light.specular ) {
