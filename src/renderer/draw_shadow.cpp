@@ -103,7 +103,7 @@ void RB_ARB2_DrawShadowElementsWithCounters( const srfTriangles_t* triangles, in
 	const void* indexes = triangles->indexes;
 	const bool usingIndexBuffer = triangles->indexCache != NULL && r_useIndexBuffers.GetBool();
 	if ( usingIndexBuffer ) indexes = CachePosition( triangles->indexCache, true );
-	else if ( r_useIndexBuffers.GetBool() && qglBindBufferARB != NULL ) qglBindBufferARB( GL_ELEMENT_ARRAY_BUFFER_ARB, 0 );
+	else if ( qglBindBufferARB != NULL ) qglBindBufferARB( GL_ELEMENT_ARRAY_BUFFER_ARB, 0 ); // even with r_useIndexBuffers 0 (#218)
 	if ( indexes == NULL && !usingIndexBuffer ) return;
 	glDrawElements( GL_TRIANGLES, numIndexes, GL_UNSIGNED_SHORT, indexes );
 }
