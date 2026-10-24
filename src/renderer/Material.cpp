@@ -1022,10 +1022,22 @@ void idMaterial::ParseStage( idParser& src ) {
 			if ( stage->renderProgram != NULL && stage->renderProgram->IsInteraction() ) {
 				CompleteInterationStage( stage, spd );
 			} else if ( stage->renderProgram != NULL ) {
+				// The ambient, sun and specular cube maps belong to the entity being
+				// drawn (SetAmbientCubeMapBindings).  Filling them with the binding's
+				// default image here made every stage overwrite them with _normalCubeMap,
+				// so retail's front-end ambient programs (the menu globe, #186) sampled
+				// the wrong cube under OpenGL.
 				const int count = stage->renderProgram->GetNumTextureBindings();
 				const sdDeclRenderBinding* defaults[ MAX_STAGE_TEXTURES ];
-				for ( int i = 0; i < count; ++i ) defaults[ i ] = stage->renderProgram->GetTextureBinding( i );
-				CompleteStage( stage, spd, defaults, count );
+				int numDefaults = 0;
+				for ( int i = 0; i < count; ++i ) {
+					const sdDeclRenderBinding* binding = stage->renderProgram->GetTextureBinding( i );
+					if ( binding == rbinds->ambientCubeMap || binding == rbinds->ambientCubeMapSun || binding == rbinds->specularCubeMap ) {
+						continue;
+					}
+					defaults[ numDefaults++ ] = binding;
+				}
+				CompleteStage( stage, spd, defaults, numDefaults );
 			}
 			FinishStage( stage, spd );
 			return;
