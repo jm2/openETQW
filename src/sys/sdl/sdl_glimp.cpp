@@ -86,6 +86,12 @@ public:
 		}
 
 		if ( !R_UseVulkanBackend() ) {
+#if !defined( _WIN32 ) && !defined( __APPLE__ )
+			// Mesa's threaded GL dispatch (glthread, on by default for radeonsi)
+			// crashes in DrawElements or resets the GPU on our client-side quads
+			// (#218). Turn it off for this context unless the user set it.
+			setenv( "mesa_glthread", "false", 0 );
+#endif
 			glContext = SDL_GL_CreateContext( window );
 			if ( glContext == NULL ) {
 				common->FatalError( "SDL3: failed to create OpenGL context: %s", SDL_GetError() );
