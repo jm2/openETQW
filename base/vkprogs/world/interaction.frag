@@ -37,9 +37,17 @@ void main() {
 		discard;
 	}
 
-	// lightColorDirectional.w: 1 for the sun, + 2 for a two-sided material
+	// lightColorDirectional.w: 1 for the sun, + 2 for a two-sided material, + 4 for
+	// MegaTexture terrain under the sun drawn as retail's megaTexture/notlit_lit:
+	// albedo x ( 0.65 + 0.35 x light colour ), no N.L.  The light block has already
+	// scaled the pixel to albedo x ambient (parameters.z here), so add the rest.
+	if ( relative && pc.lightColorDirectional.w > 3.5 ) {
+		vec3 notLit = 0.65 + 0.35 * pc.lightColorDirectional.rgb;
+		outColor = vec4( diffuse.rgb * max( notLit - pc.parameters.z, 0.0 ), 0.0 );
+		return;
+	}
 	const bool directional = mod( pc.lightColorDirectional.w, 2.0 ) > 0.5;
-	const bool twoSided = pc.lightColorDirectional.w > 1.5;
+	const bool twoSided = mod( pc.lightColorDirectional.w, 4.0 ) > 1.5;
 	vec3 lightDirection;
 	float attenuation = 1.0;
 	if ( directional ) {
