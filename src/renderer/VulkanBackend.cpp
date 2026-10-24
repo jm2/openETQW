@@ -8391,7 +8391,8 @@ struct vulkanBlockFormatInfo_t {
 	VkComponentMapping	swizzle;
 };
 
-// The view swizzles make each format sample as DecodeDDSLevelRGBA's RGBA does.
+// The view swizzles make each format sample as DecodeDDSLevelRGBA's RGBA does,
+// except that normal maps sample with tangent X in red and Y in green (RXGB, ATI2).
 bool GetVulkanBlockFormat( vulkanBlockFormat_t blockFormat, vulkanBlockFormatInfo_t& info ) {
 	const VkComponentSwizzle I = VK_COMPONENT_SWIZZLE_IDENTITY;
 	info.swizzle.r = info.swizzle.g = info.swizzle.b = info.swizzle.a = I;
@@ -8416,9 +8417,14 @@ bool GetVulkanBlockFormat( vulkanBlockFormat_t blockFormat, vulkanBlockFormatInf
 			info.swizzle.a = VK_COMPONENT_SWIZZLE_ONE;
 			return true;
 		case VBF_BC5:
-			// ATI2 decodes to (X, Y, 0, 1), as BC5 samples
+			// ATI2 keeps a normal's Y in its first block and X in its second: retail
+			// uploads it as LATC2, and its programs read X from alpha (the second
+			// block) and Y from green (the first).  BC5 samples the blocks as (R, G),
+			// so swap them to give (X, Y, 0, 1).
 			info.format = VK_FORMAT_BC5_UNORM_BLOCK;
 			info.blockBytes = 16;
+			info.swizzle.r = VK_COMPONENT_SWIZZLE_G;
+			info.swizzle.g = VK_COMPONENT_SWIZZLE_R;
 			return true;
 		default:
 			return false;

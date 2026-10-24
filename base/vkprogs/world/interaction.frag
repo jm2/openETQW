@@ -62,10 +62,11 @@ void main() {
 	if ( dot( geometricNormal, lightDirection ) <= 0.0 ) {
 		discard;
 	}
-	// Normal maps reach Vulkan with X and Y in red and green: retail's ATI2/BC5
-	// decodes to (X, Y, 0, 255) (DecodeDDSLevelRGBA), RXGB to (X, Y, Z, 255) with
-	// its alpha moved into red, and the generated _flat image (128, 128, 255, 255)
-	// reads as X = Y = 0.  Z is rebuilt from X and Y.
+	// Normal maps reach Vulkan with X in red and Y in green.  Retail's ATI2 keeps
+	// Y in its first block and X in its second (its ARB programs read X from LATC2's
+	// alpha), and the BC5 view swizzle and the decode fallback swap them; RXGB has
+	// its alpha moved into red; uncompressed maps carry X in red; and the generated
+	// _flat image reads as X = Y = 0.  Z is rebuilt from X and Y.
 	vec4 packedNormal = relative ? vec4( 0.5, 0.5, 1.0, 1.0 ) : texture( bumpTexture, fragmentTexCoord );
 	vec3 normal = geometricNormal;
 	{
