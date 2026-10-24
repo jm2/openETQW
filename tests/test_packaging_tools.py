@@ -222,6 +222,7 @@ def test_package_release(tmp: Path) -> None:
     for name in ("openETQW-client_x64", "openETQW-ded_x64", "game_x64.so"):
         (staged / name).write_bytes(b"x")
     (staged / "base" / "vkprogs" / "cache").mkdir(parents=True)
+    (staged / "base" / "glprogs").mkdir()
     for rel in ("licenses/openETQW/LICENSE", "licenses/ETQW-SDK/EULA_SDK_ETQW.txt"):
         (staged / rel).parent.mkdir(parents=True, exist_ok=True)
         (staged / rel).write_text("l", encoding="utf-8")

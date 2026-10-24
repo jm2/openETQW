@@ -1,0 +1,8 @@
+# stuff/grass_alphatestcg: retail uses only its fragment program (stuff/grass_alphatest
+# takes the vertex program from stuff/grass); this pass-through mirrors the Cg one.
+OPTION ARB_position_invariant;
+MOV	result.texcoord[0], $texCoordAttrib;
+MOV	result.texcoord[1], $normalAttrib;
+MOV	result.texcoord[2], 0;
+MOV	result.color, 1;
+MOV	result.color.secondary, 1;

@@ -121,7 +121,7 @@ def check_resolution(package_root: Path, arch: str) -> None:
 
 def check_appdir(appdir: Path, arch: str) -> None:
     for required in ("AppRun", "openetqw.desktop", "openetqw.svg", ".DirIcon",
-                     f"usr/share/openetqw/openETQW-client_{arch}", "usr/share/openetqw/base/vkprogs",
+                     f"usr/share/openetqw/openETQW-client_{arch}", "usr/share/openetqw/base/vkprogs", "usr/share/openetqw/base/glprogs",
                      "usr/share/openetqw/glslangValidator", "usr/share/openetqw/libSDL3.so.0",
                      "usr/share/openetqw/licenses/openETQW/LICENSE"):
         if not (appdir / required).exists():

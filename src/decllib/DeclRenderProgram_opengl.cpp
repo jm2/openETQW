@@ -12,6 +12,7 @@
 #include "declTypeHolder.h"
 #include "../renderer/RendererTypesImpl.h"
 #include "../renderer/RenderSystem.h"
+#include "../renderer/VulkanBackend.h"
 #include "../libs/qglLib/qgl.h"
 #include "../libs/qglLib/qcg.h"
 
@@ -667,6 +668,23 @@ void sdRenderProgramGLSL::UpdateHWSkinningParameters( const idJointMat* joints, 
 	if ( hwSkinningUniformLocation >= 0 && qglUniform4fvARB != NULL && joints != NULL ) {
 		qglUniform4fvARB( hwSkinningUniformLocation, 3 * numJoints, joints[ 0 ].ToFloatPtr() );
 	}
+}
+
+bool SD_LoadCgReplacement( const char* programName, bool vertex, idStr& source ) {
+	if ( R_UseVulkanBackend() ) {
+		return false;
+	}
+	idStr path = va( "glprogs/%s.%s", programName, vertex ? "vp" : "fp" );
+	path.ToLower();
+	void* buffer = NULL;
+	const int length = fileSystem->ReadFile( path.c_str(), &buffer, NULL, false );
+	if ( buffer != NULL ) {
+		if ( length > 0 ) {
+			source = static_cast< const char* >( buffer );
+		}
+		fileSystem->FreeFile( buffer );
+	}
+	return length > 0 && !source.IsEmpty();
 }
 
 sdRenderShader* SD_AllocRenderShader( const char* type ) {
