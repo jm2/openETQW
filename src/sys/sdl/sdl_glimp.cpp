@@ -40,6 +40,14 @@ public:
 	}
 
 	virtual void InitContext( const glimpParms_t& parms ) override {
+#if !defined( _WIN32 ) && !defined( __APPLE__ )
+		// Mesa's threaded GL dispatch (glthread, on by default for radeonsi)
+		// crashes in DrawElements or resets the GPU on our client-side quads
+		// (#218). Turn it off unless the user set it, before SDL creates the
+		// window: older Mesa reads it when the display is set up, not at
+		// context creation. Vulkan ignores it.
+		setenv( "mesa_glthread", "false", 0 );
+#endif
 		InitVideo();
 		// The OpenGL path (explicit or the Vulkan fallback) draws stencil shadows
 		// and assumes 24/8 (glConfig, as win_opengl.cpp requests); SDL's defaults
@@ -86,12 +94,6 @@ public:
 		}
 
 		if ( !R_UseVulkanBackend() ) {
-#if !defined( _WIN32 ) && !defined( __APPLE__ )
-			// Mesa's threaded GL dispatch (glthread, on by default for radeonsi)
-			// crashes in DrawElements or resets the GPU on our client-side quads
-			// (#218). Turn it off for this context unless the user set it.
-			setenv( "mesa_glthread", "false", 0 );
-#endif
 			glContext = SDL_GL_CreateContext( window );
 			if ( glContext == NULL ) {
 				common->FatalError( "SDL3: failed to create OpenGL context: %s", SDL_GetError() );
