@@ -19,7 +19,6 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
-| #232 PR (fix/ambient-brightness-232) | Ambient cube no longer bakes brightness in; the programs apply $ambientBrightness (affects main_menu 1.15, canyon_underground_base 1.10, ark_clear_amb 1.03, ark_biodome 0.90) | openETQW-win | see PR | Windows x64 GL/VK sets, limbo and menu done, validate passed; review |
 
 ## 2. Open issues, in priority order
 
