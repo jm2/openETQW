@@ -816,10 +816,14 @@ void idImage::GenerateMipmaps() {
 }
 
 void idImage::MakeDefault() {
+	// As Doom 3: the bordered box (to show the mapping) only in developer mode,
+	// otherwise black.  Retail binds images it never shipped (the megatexture
+	// templates' _lit_spec masks), and a coloured border lit their map edges (#239).
+	const bool showBox = com_developer.GetBool();
 	byte data[ 16 * 16 * 4 ];
 	for ( int y = 0; y < 16; y++ ) {
 		for ( int x = 0; x < 16; x++ ) {
-			const bool border = x == 0 || y == 0 || x == 15 || y == 15;
+			const bool border = showBox && ( x == 0 || y == 0 || x == 15 || y == 15 );
 			byte* pixel = data + ( y * 16 + x ) * 4;
 			pixel[ 0 ] = border ? 255 : 0;
 			pixel[ 1 ] = 0;
