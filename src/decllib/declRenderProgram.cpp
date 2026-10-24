@@ -166,18 +166,6 @@ bool sdDeclRenderProgram::ParseState( idLexer& src ) {
 	return true;
 }
 
-bool sdDeclRenderProgram::LoadGLReplacement( int shaderType, idStr& source ) const {
-	idStr path = va( "glprogs/%s.%s", GetName(), shaderType == ST_VERTEX_SHADER ? "vp" : "fp" );
-	path.ToLower();
-	void* buffer = NULL;
-	if ( fileSystem->ReadFile( path.c_str(), &buffer, NULL, false ) <= 0 || buffer == NULL ) {
-		return false;
-	}
-	source = static_cast< const char* >( buffer );
-	fileSystem->FreeFile( buffer );
-	return !source.IsEmpty();
-}
-
 bool sdDeclRenderProgram::ParseProgram( idLexer& src, parseData_t& parseData ) {
 	idToken token;
 	if ( !src.ExpectAnyToken( &token ) ) return false;
@@ -201,7 +189,7 @@ bool sdDeclRenderProgram::ParseProgram( idLexer& src, parseData_t& parseData ) {
 	// ledger row 077). Where base/glprogs has our own ARB port of one, use it
 	// in its place (#219).
 	idStr replacementSource;
-	if ( type.Icmp( "cg" ) == 0 && LoadGLReplacement( shaderType, replacementSource ) ) {
+	if ( type.Icmp( "cg" ) == 0 && SD_LoadCgReplacement( GetName(), shaderType == ST_VERTEX_SHADER, replacementSource ) ) {
 		type = "arb";
 	}
 	sdRenderShader* renderShader = SD_AllocRenderShader( type.c_str() );

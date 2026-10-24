@@ -10,6 +10,10 @@
 #include "declRenderProgram.h"
 #include "../renderer/RendererTypesImpl.h"
 
+bool SD_LoadCgReplacement( const char*, bool, idStr& ) {
+	return false;
+}
+
 sdRenderShader* SD_AllocRenderShader( const char* type ) {
 	return NULL;
 }

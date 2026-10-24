@@ -3,7 +3,7 @@
 """Package a staged openETQW install tree as a release asset.
 
 Takes the tree `meson install` stages (the binaries, the game module,
-base/vkprogs and licenses/; tools/validation/openetqw_validate.py checks it)
+base/vkprogs, base/glprogs and licenses/; tools/validation/openetqw_validate.py checks it)
 and makes the package users download. Plays the role of openQ4's
 tools/build/package_nightly.py (jm2/openQ4 b37b1456), written for openETQW's
 single Vulkan-first build: one package per platform and architecture, and one
@@ -12,6 +12,7 @@ macOS build (Vulkan on MoltenVK), not an OpenGL/Metal pair.
 Every package carries:
   - the engine client and dedicated server and the game module;
   - base/vkprogs, the engine's GLSL (compiled to SPIR-V at run time);
+  - base/glprogs, OpenGL's ARB ports of retail's Cg programs;
   - glslangValidator next to the engine (tools/build/build_glslang.py): the
     renderer finds it through the executable's directory;
   - the libraries the engine links that a user's system may lack, next to the

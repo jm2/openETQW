@@ -7,5 +7,5 @@ so `sdDeclRenderProgram::ParseProgram` loads `glprogs/<decl name>.vp` (vertex) o
 (#219). Each file is the body of an ARB program, written the way retail's own
 `program … arb` blocks are: `$name` render bindings and `$if` precompiler lines,
 without the `!!ARBvp1.0` header or `END`. Vertex programs are position-invariant,
-as retail compiled its Cg vertex programs (`-posinv`). The Vulkan backend doesn't
-use these files.
+as retail compiled its Cg vertex programs (`-posinv`). The lookup is skipped under
+Vulkan and on the dedicated server (`SD_LoadCgReplacement`).
