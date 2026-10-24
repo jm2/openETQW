@@ -19,6 +19,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
+| Globe PR (fix/menu-globe-ambient-186) | Ambient cube bakes only the directional ambient lights, not ambientColor, so the menu globe gets retail's dark left limb (#186 lead 1) | openETQW-win | see PR | Windows x64 GL/VK sets (Vulkan RT on/off), limbo and menu done, validate passed; review; other platforms at the combined run |
 
 ## 2. Open issues, in priority order
 
