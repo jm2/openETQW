@@ -688,6 +688,9 @@ struct sdVulkanBackendState {
 	// GPU-skinned surfaces: skinned_interaction.vert with the weight stream
 	VkPipeline				worldInteractionSkinnedPipeline;
 	VkPipeline				worldInteractionSkinnedUnshadowedPipeline;
+	// the atmosphere fog over the lit opaque surfaces (fog.frag, #233)
+	VkPipeline				worldFogPipeline;
+	VkPipeline				worldFogSkinnedPipeline;
 	// set while the light block's snapshot of the opaque base is in _currentRender
 	bool					sceneAlbedoCopied;
 	VkPipeline				worldLightAmbientPipeline;
@@ -933,6 +936,8 @@ struct sdVulkanBackendState {
 		worldInteractionUnshadowedPipeline = VK_NULL_HANDLE;
 		worldInteractionSkinnedPipeline = VK_NULL_HANDLE;
 		worldInteractionSkinnedUnshadowedPipeline = VK_NULL_HANDLE;
+		worldFogPipeline = VK_NULL_HANDLE;
+		worldFogSkinnedPipeline = VK_NULL_HANDLE;
 		sceneAlbedoCopied = false;
 		worldLightAmbientPipeline = VK_NULL_HANDLE;
 		pushConstantFloats = 32;
@@ -3545,6 +3550,14 @@ void DestroyGuiResources( sdVulkanBackendState& state ) {
 		state.DestroyPipeline( state.device, state.worldInteractionSkinnedUnshadowedPipeline, NULL );
 		state.worldInteractionSkinnedUnshadowedPipeline = VK_NULL_HANDLE;
 	}
+	if ( state.worldFogPipeline != VK_NULL_HANDLE ) {
+		state.DestroyPipeline( state.device, state.worldFogPipeline, NULL );
+		state.worldFogPipeline = VK_NULL_HANDLE;
+	}
+	if ( state.worldFogSkinnedPipeline != VK_NULL_HANDLE ) {
+		state.DestroyPipeline( state.device, state.worldFogSkinnedPipeline, NULL );
+		state.worldFogSkinnedPipeline = VK_NULL_HANDLE;
+	}
 	if ( state.worldLightAmbientPipeline != VK_NULL_HANDLE ) {
 		state.DestroyPipeline( state.device, state.worldLightAmbientPipeline, NULL );
 		state.worldLightAmbientPipeline = VK_NULL_HANDLE;
@@ -4318,6 +4331,22 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 	pipelineInfo.pDynamicState = &dynamicState;
 	pipelineInfo.layout = state.guiPipelineLayout;
 
+	VkShaderModule fogModule = VK_NULL_HANDLE;
+	bool fogShader = false;
+	auto CreateFogPipeline = [&]( VkPipeline& fogPipeline, const char* what ) {
+		if ( !fogShader ) {
+			return;
+		}
+		const VkShaderModule interactionModule = shaderStages[ 1 ].module;
+		shaderStages[ 1 ].module = fogModule;
+		blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+		if ( !CheckVulkanResult( state.CreateGraphicsPipelines( state.device, VK_NULL_HANDLE, 1,
+			&pipelineInfo, NULL, &fogPipeline ), what ) ) {
+			fogPipeline = VK_NULL_HANDLE;
+		}
+		shaderStages[ 1 ].module = interactionModule;
+		blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+	};
 	bool created = CheckVulkanResult( state.CreateGraphicsPipelines(
 		state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
 		&state.worldInteractionPipeline ), "vkCreateGraphicsPipelines(worldInteraction)" );
@@ -4328,6 +4357,12 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 			state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
 			&state.worldInteractionUnshadowedPipeline ),
 			"vkCreateGraphicsPipelines(worldInteractionUnshadowed)" );
+		// The atmosphere fog (#233): an unshadowed interaction's geometry, depth test
+		// and alpha test, with fog.frag blending the lit colour toward the fog colour
+		// (dst * (1 - f) + fogColor * f).  Without it the view has no fog, nothing else.
+		fogShader = created && CompileVulkanShaderModule( state, "vkprogs/world/fog.frag",
+			SPIRV_SHADER_STAGE_FRAGMENT, fogModule );
+		CreateFogPipeline( state.worldFogPipeline, "vkCreateGraphicsPipelines(worldFog)" );
 		// GPU-skinned variants: skinned vertex shader, plus the vertWeight_t stream
 		VkShaderModule skinnedModule = VK_NULL_HANDLE;
 		if ( created && CompileVulkanShaderModule( state, "vkprogs/world/skinned_interaction.vert",
@@ -4357,6 +4392,7 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 				state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
 				&state.worldInteractionSkinnedUnshadowedPipeline ),
 				"vkCreateGraphicsPipelines(worldInteractionSkinnedUnshadowed)" );
+			CreateFogPipeline( state.worldFogSkinnedPipeline, "vkCreateGraphicsPipelines(worldFogSkinned)" );
 			depthStencil.stencilTestEnable = VK_TRUE;
 			created = created && CheckVulkanResult( state.CreateGraphicsPipelines(
 				state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
@@ -4366,6 +4402,9 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 		}
 	}
 
+	if ( fogModule != VK_NULL_HANDLE ) {
+		state.DestroyShaderModule( state.device, fogModule, NULL );
+	}
 	state.DestroyShaderModule( state.device, vertexModule, NULL );
 	state.DestroyShaderModule( state.device, fragmentModule, NULL );
 	if ( created ) {
@@ -9505,10 +9544,12 @@ void DrawVulkanShadowSurface( sdVulkanBackendState& state, const drawSurf_s* sur
 	state.worldShadowDrawCalls++;
 }
 
+// fog != NULL draws the atmosphere fog over the surface instead (no light; fog.frag,
+// #233): fog[ 0..2 ] the fog colour, fog[ 3 ] and fog[ 4 ] fogDepths' z and w.
 void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* surface,
-	const viewLight_s* light, const viewDef_s* view, bool unshadowed ) {
+	const viewLight_s* light, const viewDef_s* view, bool unshadowed, const float* fog ) {
 	if ( surface == NULL || surface->geo == NULL || surface->space == NULL ||
-		 surface->material == NULL || light == NULL || view == NULL ) {
+		 surface->material == NULL || ( light == NULL && fog == NULL ) || view == NULL ) {
 		return;
 	}
 	const srfTriangles_t* tri = surface->geo;
@@ -9567,7 +9608,9 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	}
 
 	idScreenRect scissorRect = surface->scissorRect;
-	scissorRect.Intersect( light->scissorRect );
+	if ( fog == NULL ) {
+		scissorRect.Intersect( light->scissorRect );
+	}
 	int scissorWidth = Max( 0, scissorRect.x2 - scissorRect.x1 + 1 );
 	int scissorHeight = Max( 0, scissorRect.y2 - scissorRect.y1 + 1 );
 	if ( scissorWidth <= 0 || scissorHeight <= 0 ) {
@@ -9645,9 +9688,9 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	}
 	// MegaTexture terrain reads its albedo from the light block's snapshot
 	VkDescriptorSet sceneAlbedoSet = VK_NULL_HANDLE;
-	const bool sceneAlbedoInteraction = litInteraction && megaTextureSurface &&
+	const bool sceneAlbedoInteraction = fog == NULL && litInteraction && megaTextureSurface &&
 		state.sceneAlbedoCopied && GetVulkanSceneAlbedoDescriptor( state, sceneAlbedoSet );
-	if ( litInteraction && megaTextureSurface && !sceneAlbedoInteraction ) {
+	if ( fog == NULL && litInteraction && megaTextureSurface && !sceneAlbedoInteraction ) {
 		return;	// no albedo snapshot (no TRANSFER_SRC swapchain): ambient only, not white
 	}
 	VkPipeline pipeline = unshadowed ?
@@ -9672,6 +9715,12 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		pipeline = unshadowed ? state.worldInteractionSkinnedUnshadowedPipeline :
 			state.worldInteractionSkinnedPipeline;
 	}
+	if ( fog != NULL ) {
+		pipeline = hardwareSkinned ? state.worldFogSkinnedPipeline : state.worldFogPipeline;
+		if ( !litInteraction || pipeline == VK_NULL_HANDLE ) {
+			return;
+		}
+	}
 	if ( pipeline == VK_NULL_HANDLE ) {
 		pipeline = state.worldMaterialAddPipeline != VK_NULL_HANDLE ?
 			state.worldMaterialAddPipeline : state.worldAddPipeline;
@@ -9688,8 +9737,8 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	memset( pushConstants, 0, sizeof( pushConstants ) );
 	memcpy( pushConstants, mvp, sizeof( mvp ) );
 	idVec3 lightColor( 1.0f, 1.0f, 1.0f );
-	bool lightColorResolved = false;
-	if ( light->material != NULL && light->lightRegisters != NULL ) {
+	bool lightColorResolved = fog != NULL;
+	if ( fog == NULL && light->material != NULL && light->lightRegisters != NULL ) {
 		for ( int stageIndex = 0; stageIndex < light->material->GetNumStages(); ++stageIndex ) {
 			const materialStage_t* lightStage = light->material->GetStage( stageIndex );
 			if ( lightStage == NULL || lightStage->depthStage ||
@@ -9737,9 +9786,17 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 			pushConstants[ 30 ] = surface->materialRegisters[ stage->alphaTestRegister ];
 			pushConstants[ 31 ] = 1.0f;
 		}
-		const bool directional = light == view->atmosphereLight ||
-			( light->lightDef != NULL && light->lightDef->flags.atmosphereLight );
-		if ( directional ) {
+		const bool directional = fog == NULL && ( light == view->atmosphereLight ||
+			( light->lightDef != NULL && light->lightDef->flags.atmosphereLight ) );
+		if ( fog != NULL ) {
+			// fog.frag: the view origin in model space, fogDepths and the fog colour
+			const float* m = surface->space->modelMatrix;	// axis rows 0-2, 4-6, 8-10, origin 12-14
+			const idVec3 delta = view->renderView.vieworg - idVec3( m[ 12 ], m[ 13 ], m[ 14 ] );
+			pushConstants[ 32 ] = delta.x * m[ 0 ] + delta.y * m[ 1 ] + delta.z * m[ 2 ];
+			pushConstants[ 33 ] = delta.x * m[ 4 ] + delta.y * m[ 5 ] + delta.z * m[ 6 ];
+			pushConstants[ 34 ] = delta.x * m[ 8 ] + delta.y * m[ 9 ] + delta.z * m[ 10 ];
+			pushConstants[ 35 ] = fog[ 3 ];
+		} else if ( directional ) {
 			idVec3 sunDirection( 0.35f, 0.45f, 0.82f );
 			if ( view->atmosphere != NULL ) {
 				sunDirection = view->atmosphere->GetSunDirection();
@@ -9771,11 +9828,11 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 			pushConstants[ 34 ] = localOrigin.z;
 			pushConstants[ 35 ] = radius;
 		}
-		pushConstants[ 36 ] = lightColor.x;
-		pushConstants[ 37 ] = lightColor.y;
-		pushConstants[ 38 ] = lightColor.z;
-		// w: 1 for the sun, + 2 for a two-sided material (lit from either side)
-		pushConstants[ 39 ] = ( directional ? 1.0f : 0.0f ) +
+		pushConstants[ 36 ] = fog != NULL ? fog[ 0 ] : lightColor.x;
+		pushConstants[ 37 ] = fog != NULL ? fog[ 1 ] : lightColor.y;
+		pushConstants[ 38 ] = fog != NULL ? fog[ 2 ] : lightColor.z;
+		// w: 1 for the sun, + 2 for a two-sided material (lit from either side); fog: fogDepths.w
+		pushConstants[ 39 ] = fog != NULL ? fog[ 4 ] : ( directional ? 1.0f : 0.0f ) +
 			( surface->material->GetCullType() == CT_TWO_SIDED ? 2.0f : 0.0f );
 	}
 
@@ -9824,7 +9881,9 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		sizeof( float ) * ( litInteraction ? 40 : 32 ), pushConstants );
 	state.CmdDrawIndexed( frame.commandBuffer, tri->numIndexes, 1, 0, 0, 0 );
 	state.worldDrawCalls++;
-	state.worldInteractionDrawCalls++;
+	if ( fog == NULL ) {
+		state.worldInteractionDrawCalls++;
+	}
 }
 
 void sdVulkanBackend::DrawView( const viewDef_s* view ) {
@@ -10308,6 +10367,39 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 				// Render translucentInteractions
 				for ( const drawSurf_s* surf = light->translucentInteractions; surf != NULL; surf = surf->nextOnLight ) {
 					DrawVulkanLightInteraction( *state, surf, light, view, true );
+				}
+			}
+			// The atmosphere fog (#233).  Retail fogs inside its lit programs: the
+			// ambient pass lerps toward the fog colour by f = (distance - fogStart) /
+			// (fogEnd - fogStart) and every additive light pass scales by 1 - f, so a
+			// lit pixel ends as lit * (1 - f) + fogColor * f.  Draw that over the summed
+			// lighting of each surface the lighting covered (sorted up to SS_DECAL),
+			// with retail's choice of surfaces (draw_atmosphere.cpp's
+			// SurfaceReceivesAtmosphere).  r_AtmospherePostprocess zeroes the
+			// programs' fog in retail, as here.
+			if ( view->atmosphere != NULL && state->worldFogPipeline != VK_NULL_HANDLE &&
+				!cvarSystem->GetCVarBool( "r_AtmospherePostprocess" ) &&
+				view->atmosphere->GetFogEnd() > view->atmosphere->GetFogStart() ) {
+				const idVec3& fogColor = view->atmosphere->GetFogColor();
+				const float fogStart = view->atmosphere->GetFogStart();
+				const float fogRange = view->atmosphere->GetFogEnd() - fogStart;
+				const float fog[ 5 ] = { fogColor.x, fogColor.y, fogColor.z, 1.0f / fogRange, -fogStart / fogRange };
+				for ( int i = 0; i < view->numDrawSurfs; ++i ) {
+					const drawSurf_s* surf = view->drawSurfs[ i ];
+					if ( surf == NULL || surf->material == NULL ) {
+						continue;
+					}
+					const idMaterial* material = surf->material;
+					if ( material->GetSort() > static_cast< float >( SS_DECAL ) ) {
+						break;
+					}
+					if ( material->TestMaterialFlag( MF_NOATMOSPHERE ) ||
+						( !material->TestMaterialFlag( MF_FORCEATMOSPHERE ) &&
+						( material->GetSort() == SS_SUBVIEW || material->Coverage() == MC_TRANSLUCENT ||
+						!material->ReceivesLighting() ) ) ) {
+						continue;
+					}
+					DrawVulkanLightInteraction( *state, surf, NULL, view, true, fog );
 				}
 			}
 			// _currentRender now holds the unlit snapshot: a later refraction
