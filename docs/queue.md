@@ -20,6 +20,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
 | #212 PR (fix/gl-overbright-212) | OpenGL: decode the 3Dc (ATI2/ATI1) maps when the driver has no LATC, so normal maps load on macOS (#212) | openETQW-mac | see PR | macOS before/after and validate done; full sets at the combined run |
+| #186 PR (fix/gl-menu-globe-186) | OpenGL: material stages no longer freeze the entity's ambient, sun and specular cube maps to `_normalCubeMap`, so the menu globe is lit by `main_menu`'s cube (part of #186) | openETQW-win | see PR | Windows x64 GL/VK sets and menus done, validate passed; review; other platforms' GL menu at the combined run. The globe is still overbright (#186 lead 1) |
 
 ## 2. Open issues, in priority order
 
