@@ -170,6 +170,9 @@ sdRenderShader* SD_AllocRenderShader( const char* type );
 // False on the dedicated server, which has no render-shader backend: no
 // render-program decl there ever owns a program or shader object.
 bool SD_HasRenderShaderBackend();
+// OpenGL only: our ARB port of a retail Cg program, from glprogs/<name>.vp or .fp
+// (#219). False under Vulkan, on the dedicated server, or when there is none.
+bool SD_LoadCgReplacement( const char* programName, bool vertex, idStr& source );
 void SD_UnbindRenderProgram();
 void SD_ApplyRenderProgramState( int stateBits, cullType_t cullType );
 

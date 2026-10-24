@@ -1,0 +1,20 @@
+# trivialWithTextureMatrix_Blend*Atmosphere: the texture matrix, and the vertex
+# colour scaled by the atmosphere's extinction. With r_megaDrawMethod != 0 that is
+# 1 - saturate(|pos - viewOrigin| * fogDepths.z + fogDepths.w); the
+# r_megaDrawMethod 0 path is not ported.
+OPTION ARB_position_invariant;
+TEMP	delta, extinction;
+DP4	result.texcoord[0].x, $texCoordAttrib, $diffuseMatrix_s;
+DP4	result.texcoord[0].y, $texCoordAttrib, $diffuseMatrix_t;
+SUB	delta.xyz, $positionAttrib, $viewOrigin;
+DP3	delta.w, delta, delta;
+RSQ	delta.w, delta.w;
+RCP	delta.w, delta.w;
+MAD	extinction.x, delta.w, $fogDepths.z, $fogDepths.w;
+# saturate (vertex programs have no _SAT)
+MAX	extinction.x, extinction.x, 0;
+MIN	extinction.x, extinction.x, 1;
+SUB	extinction.x, 1, extinction.x;
+# BlendBlend: only the alpha fades out.
+MOV	result.color.xyz, $colorAttrib;
+MUL	result.color.w, $colorAttrib.w, extinction.x;

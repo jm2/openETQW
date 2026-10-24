@@ -479,6 +479,8 @@ if build_engine or build_dedicated
     install_dir: install_root / 'base',
     exclude_directories: ['cache'],
   )
+  # OpenGL's ARB ports of retail's Cg programs (#219)
+  install_subdir('base' / 'glprogs', install_dir: install_root / 'base')
   # the game module, from the companion's build (engine and module ship together)
   game_module_suffix = '.so'
   if host_system == 'windows'
