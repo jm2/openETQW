@@ -310,6 +310,10 @@ void R_CheckPortableExtensions() {
 #define LOAD_QGL( name ) name = reinterpret_cast< decltype( name ) >( sys3D->ExtensionPointer( #name + 1 ) )
 	LOAD_QGL( qglActiveTextureARB );
 	LOAD_QGL( qglClientActiveTextureARB );
+	// SetInstanceAttributes hands each instance's colour and transform rows to the
+	// *_instance programs as texcoords 2, 5-7; left null, every instanced model
+	// (valley's trees and shrubs) collapsed to a point under OpenGL (#246).
+	LOAD_QGL( qglMultiTexCoord4fARB );
 	LOAD_QGL( qglBindBufferARB );
 	LOAD_QGL( qglDeleteBuffersARB );
 	LOAD_QGL( qglGenBuffersARB );

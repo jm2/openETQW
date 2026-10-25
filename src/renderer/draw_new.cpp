@@ -193,10 +193,12 @@ namespace {
 		const float lightScale = r_lightScale.GetFloat() * activeViewLight->fadeFraction;
 		if ( stage->colorVector != NULL ) {
 			const int* registers = stage->colorVector->registers;
+			// retail 1.5 limits a light's colour to 1 per channel before r_lightScale: the limbo
+			// GUI lights' colours of 2-3 then light the model as retail does (#212)
 			activeLightColor.Set(
-				activeViewLight->lightRegisters[ registers[ 0 ] ] * lightScale,
-				activeViewLight->lightRegisters[ registers[ 1 ] ] * lightScale,
-				activeViewLight->lightRegisters[ registers[ 2 ] ] * lightScale,
+				idMath::ClampFloat( 0.0f, 1.0f, activeViewLight->lightRegisters[ registers[ 0 ] ] ) * lightScale,
+				idMath::ClampFloat( 0.0f, 1.0f, activeViewLight->lightRegisters[ registers[ 1 ] ] ) * lightScale,
+				idMath::ClampFloat( 0.0f, 1.0f, activeViewLight->lightRegisters[ registers[ 2 ] ] ) * lightScale,
 				activeViewLight->lightRegisters[ registers[ 3 ] ]
 			);
 		} else {
@@ -795,6 +797,13 @@ void RB_ARB2_DrawSurface( const drawSurf_s* surface, const idMaterial* material,
 		}
 		idMaterial::SetRenderBindings( stage, materialRegisters, surface->geo->texCoordScale );
 		if ( activePass == RBP_INTERACTION ) {
+			// a view of a world with no map (a GUI's: the limbo and menu models) draws no
+			// interaction specular, matching retail 1.5 as measured (#212, compat-ledger row 079)
+			const viewDef_s* drawView = RB_GetViewDef();
+			if ( drawView != NULL && drawView->renderWorld != NULL && !drawView->renderWorld->HasMap() &&
+				 globalImages != NULL ) {
+				rbinds->specularMap->Set( globalImages->blackImage );
+			}
 			const bool bakedAtmosphereColor = material->TestMaterialFlag( MF_BAKEDINATMOSLIGHTCOL ) &&
 				activeViewLight != NULL && activeViewLight->lightDef != NULL && activeViewLight->lightDef->flags.atmosphereLight;
 			if ( !bakedAtmosphereColor ) {
