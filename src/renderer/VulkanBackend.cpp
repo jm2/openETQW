@@ -10689,7 +10689,11 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 			// multiplies it by the light colour; one factor here, its mean), and its
 			// foliage programs have none
 			float specularFactor = 1.0f;
-			if ( stage != NULL && stage->renderProgram != NULL &&
+			if ( view->renderWorld != NULL && !view->renderWorld->HasMap() ) {
+				// a GUI's world (the limbo and menu models) draws no interaction
+				// specular, as OpenGL since #251 (compat-ledger row 079)
+				specularFactor = 0.0f;
+			} else if ( stage != NULL && stage->renderProgram != NULL &&
 				idStr::Icmpn( stage->renderProgram->GetName(), "interaction/foliage", 19 ) == 0 ) {
 				specularFactor = 0.0f;
 			} else if ( stage != NULL && surface->materialRegisters != NULL ) {
