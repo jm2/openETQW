@@ -2052,11 +2052,8 @@ void DestroySemaphoreList( sdVulkanBackendState& state,
 void PurgeCurrentRenderDescriptors( sdVulkanBackendState& state );
 
 void DestroySwapchain( sdVulkanBackendState& state ) {
-<<<<<<< HEAD
 	DestroyGlowBuffers( state );
-=======
 	PurgeCurrentRenderDescriptors( state );
->>>>>>> origin/main
 	DestroyCurrentRenderResource( state, state.currentRenderResource );
 	state.currentRenderInitialized = false;
 	state.swapchainTransferSource = false;
@@ -2382,11 +2379,8 @@ bool CreateSwapchain( sdVulkanBackendState& state, int requestedWidth,
 		return false;
 	}
 
-<<<<<<< HEAD
 	DestroyGlowBuffers( state );
-=======
 	PurgeCurrentRenderDescriptors( state );
->>>>>>> origin/main
 	DestroyCurrentRenderResource( state, state.currentRenderResource );
 	DestroyDepthResources( state );
 	DestroySemaphoreList( state, state.presentSemaphores );
