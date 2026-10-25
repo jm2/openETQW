@@ -354,6 +354,10 @@ without a desktop. On `macmini-m1`, add `--timeout-multiplier 3` to `meson test`
   Without it the client stops with "SDL3: failed to initialize video subsystem: No available
   video device". The compositor doesn't survive a reboot, so check with `pgrep -a mutter`.
   Kill only your own: `kisakcod-linux` runs its own (`kisak-hl`).
+- **Comparing against retail 1.5.** Retail's `r_skipSpecular` takes effect only after a
+  `vid_restart`. Retail has no `r_skipPostProcess`; turn the post-process off with
+  `g_skipPostProcess 1`. A fresh retail profile auto-detected at low spec sets
+  `r_skipStuff 1`, `r_detailTexture 0` and `r_shaderQuality 2`; reset them before comparing.
 - **`client-lifecycle` needs a working audio output.** "Missing SDL3 audio initialization
   message (… Could not connect PulseAudio stream)" means the host's default PipeWire sink
   failed. After the 2026-10-20 reboot, PipeWire logged RAOP-sink errors. It passed on rerun.
