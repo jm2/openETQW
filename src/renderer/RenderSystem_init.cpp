@@ -573,6 +573,7 @@ void R_InitOpenGL() {
 	common->Printf( "GL_VENDOR: %s\n", glConfig.vendor_string );
 	common->Printf( "GL_RENDERER: %s\n", glConfig.renderer_string );
 	common->Printf( "GL_VERSION: %s\n", glConfig.version_string );
+	common->Printf( "GL multisample: %d samples\n", glConfig.samples );
 	common->Printf( "GL_MAX_TEXTURE_SIZE: %d\n", glConfig.maxTextureSize );
 	R_ARB2_Init();
 	vertexCache.Init();
