@@ -6,9 +6,12 @@ in order, and every PR that changes an item's state updates its row. `owner` nam
 session that holds the item; `—` means nobody does. Before taking an item, check its PR or
 issue for anything newer than this file.
 
-**Working (2026-10-23).** The sessions are fixing the open issues. Owner, 2026-10-23: "continue the fixes, but I need kisakcod to make some serious progress so limit the multi-hour review runs until the very tail end when all the identified fixes for issues are in and it's absolutely necessary". The coordinator's plan for following it, which changes no merge gate: fix PRs get targeted tests and an independent review and wait, open. The kisakcod sessions have priority on shared hosts. At the end, one integration head (main plus every fix PR) gets the retail suite and the screenshot sets, which the gates still require, and the PRs merge in order on that evidence. Docs-only PRs merge as usual.
+**Parked (2026-10-25).** Owner, 2026-10-24: "burn down all open issues and in-progress PRs across all sessions" (coordination §9). That burn-down is done: #220–#272 merged (§5), and no PR is open in either repository. Owner, 2026-10-25: finish the open issues and PRs, update the docs and park every session. The open issues left (§2) are unowned or wait on the owner. Owner, 2026-10-25: "focus specifically on bug fixes rather than large feature requests from the issues"; "small features are ok if they're easy wins, just not long/large feature efforts".
 
-Updated: 2026-10-23 by `openETQW-linux` (coordinator): the combined run merged #202, #204, #206, #207, #210, #213 and #215 (§5); §1 is empty. Earlier: #180 (merged 2026-10-22), #198, #199 and #200 are in §5; M4's last item is done.
+**Outstanding gate work: the combined run.** Owner, 2026-10-23: full retail suites and screenshot sets wait for one combined run at the tail end, so the kisakcod sessions keep priority on shared hosts. That run has not been done for #220–#272 (merged 2026-10-23 to 10-25 on targeted tests and independent reviews). Next: on `main`, the retail suite on each platform's host and the screenshot sets from all five platforms against the 2026-10-23 combined run; file an issue for any regression.
+
+Updated: 2026-10-25 by `openETQW-linux` (coordinator): §1 empty; §2 is #270, #197 and #246; #220–#272 in §5, #268 added.
+Updated: 2026-10-23 by `openETQW-linux` (coordinator): the combined run merged #202, #204, #206, #207, #210, #213 and #215 (§5). Earlier: #180 (merged 2026-10-22), #198, #199 and #200 are in §5; M4's last item is done.
 Updated: 2026-10-22 by `openETQW-linux` (coordinator): the game #51 row with the Linux arm64
 evidence and the open owner ask, and the review state of §3 items 3, 8 and 9 and of #162.
 Updated 2026-10-21 after the overnight work (§5); earlier that day, merged since 2026-10-18
@@ -17,15 +20,16 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 ## 1. Open PRs, in merge order
 
-| # | What | Owner | Head | Left to do |
-|---|---|---|---|---|
-| PR `fix/postprocess-glare-233` | OpenGL draws the GUI post-process (`guis/postprocess`: glare, saturation, contrast, tint), as retail: ARB ports, the GUI path's destination buffers, render targets found by name (part of #233; the Vulkan half is openETQW-win's) | openETQW-linux-arm64 | 46e56d3+ | Independent review; screenshot sets on other OpenGL platforms; the combined run |
+None (2026-10-25).
 
 ## 2. Open issues, in priority order
 
 | # | What | Owner | Next step |
 |---|---|---|---|
-| [#262](https://github.com/jm2/openETQW/issues/262) | Vulkan material descriptor cache never frees orphaned sets (guiDescriptorPool exhaustion after ~300 map loads) | openETQW-win-arm64 | PR `fix/vk-material-descriptor-leak-262`: sets freed with their images, unused sets evicted when full, one-time warning. |
+| [#270](https://github.com/jm2/openETQW/issues/270) | Vulkan stuff grass about 2.25x darker than OpenGL's (grass to ground: retail 0.83, OpenGL 0.68, Vulkan 0.32); cosmetic | — | Three passes so far, findings on the issue. Next checks: (a) Vulkan's sampled grass texels and the BC3 upload; (b) OpenGL's ambient cube along +Z; (c) the `.clustb` tint scaling, for the gap both APIs share with retail. |
+| [#197](https://github.com/jm2/openETQW/issues/197) | Fresh profile goes straight to the menu as "Player" (owner, 2026-10-23: fine if the name can be changed in-game) | owner | `ui_name` persists across restarts (checked on macOS). Left: the owner's 30-second real-keyboard check: Options > Game Settings > Name, type a name, Apply, restart, look at the field. |
+| [#246](https://github.com/jm2/openETQW/issues/246) | Instanced trees and shrubs: they draw on both APIs since #248 (Vulkan) and #252 (OpenGL) | — | Deferred by the owner (2026-10-25) as a large feature: distant-tree imposters and the per-instance distance cull. Not to be taken until the owner reopens it. |
+| [#133](https://github.com/jm2/openETQW/issues/133) | Coordinator log | `openETQW-linux` | Stays open. |
 
 ## 3. Milestone work, in order
 
@@ -133,10 +137,13 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 
 ## 5. Recently done
 
-2026-10-22/23:
+2026-10-24/25 (the burn-down; the combined run is outstanding, see the top):
+- #274 Docs: state as of 2026-10-25 (burn-down done; sessions parked)
+- Closed since 2026-10-24: #267, #265, #262, #258, #256, #255, #253, #246 (reopened for the deferred part), #239, #233, #232, #219, #218, #216, #212, #211, #196, #193, #186, #185, #162, #148, #141, #122. #270 was split from #256.
 - #273 Vulkan: no interaction specular in GUI render worlds, as OpenGL since #251 (ledger 079)
 - #272 Vulkan draws guis/postprocess's glow natively, with retail's scene alpha (fixes #233 with #263)
 - #271 Vulkan shadow stencil counts around 128 and lights where 128 >= stencil, as OpenGL (fixes #267)
+- #268 Raster Vulkan: shadowed amblit surfaces end as (ambient + sun) × minSpecShadowColor, as retail's shadow/multiplitive pass (fixes #265)
 - #269 Stuff grass fades with distance on both APIs: _diffusionMask is a 16x16 ordered dither; Vulkan fades per instance (fixes #256; colour gap in #270)
 - #263 OpenGL draws retail's guis/postprocess glow (ARB ports of downsample, glare, blur, glow), the scene lift #233 measured
 - #266 Vulkan: image descriptors use the evicting allocator; currentRender material sets purged on swapchain recreate (#264 review)
@@ -157,6 +164,8 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 - #243 Owner decisions of 2026-10-24 in coordination §9 (a contended re-run fails on a second failure; burn-down; #141 undeferred) and ledger row 078. Closed with evidence: #186 (macOS globe renders), #148 (no repro).
 - #244 Mouse: carry SDL's sub-pixel motion between events (fixes #141)
 - #241 Vulkan megatexture detail texture, with the CPU mipmap-state levels (part of #233)
+
+2026-10-23/24 (after the 2026-10-23 combined run; these wait on the next one too):
 - #236 (openETQW-win-arm64): Vulkan applies retail's linear atmosphere fog to world surfaces, raster (fog-once stencil) and RT (part of #233)
 - #238 (openETQW-win): Vulkan front-end pipelines gated on the stage cull, MoltenVK swizzle fallback, comment and dead-code cleanup (#229 and #234 follow-ups)
 - #240 (openETQW-linux): the default image is black outside developer mode, as Doom 3; missing terrain spec masks no longer light map edges (fixes #239)
@@ -175,6 +184,8 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 - #222 (openETQW-linux): OpenGL unbinds stale element and array buffers before client-pointer draws; fixes #218 and drops #221's glthread stopgap
 - #221 (openETQW-linux): Linux OpenGL turns off Mesa glthread (stopgap for #218's crash and GPU reset)
 - #220 (openETQW-mac): OpenGL decodes 3Dc (ATI1/ATI2) normal maps when the driver has no LATC; fixes macOS's part of #212
+
+2026-10-22/23:
 - #215 (part of #186): Vulkan ports retail's sfx/feAmbDecal and sfx/feAmbDecal_cloud, so the menu globe is lit by its ambient cube map, with night lights only on the dark side. Still brighter than retail, no visible terminator, atmosphere rim unchanged (#186 open). Combined run 2026-10-23 (as #202).
 - #213 (#159): all-stock-maps leaves area-0 samples inside a measured gap in retail's own AAS (salvage) out of aas_area_validity and reports them (owner: match retail). Combined run 2026-10-23 (as #202).
 - #210 (#208, #211): surfaces of equal sort draw in submission order (a stable merge sort, view entities first as the SDK does), so the menu's star field no longer covers the nebula; the game's sky-layer sortOffset is honoured. Combined run 2026-10-23 (as #202); smoke and vehicle glass were not in the sets.

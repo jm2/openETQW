@@ -4,8 +4,8 @@
 >
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
-Updated: 2026-10-20 · session/agent: `openETQW-linux` (Claude Code), coordinator · host: `antec`, Fedora 44 x86_64 (Linux 7.2.11), RX 6400 / RADV · **all openETQW sessions parked (owner's wrap-up, 2026-10-20)**
-Engine repo `~/openETQW`: `main` 0055ed7 (#174; `tools/ci/companion.ref` pins game bb8e0c5) · game repo `~/openETQW-game`: `main` bb8e0c5 (game #58) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (upstream last checked 2026-09-24)
+Updated: 2026-10-25 · session/agent: `openETQW-linux` (Claude Code), coordinator · **all openETQW sessions parked (owner, 2026-10-25)**
+Engine repo `~/openETQW`: `main` b24c565 (#273; `tools/ci/companion.ref` pins game 7fbdf80) · game repo `~/openETQW-game`: `main` 7fbdf80 (game #59) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (upstream last checked 2026-09-24)
 
 Engine SHAs quoted in older docs (`CHECKPOINT_STOCK_MAPS_PHASE.md`, ledger rows, earlier STATUS text) may not resolve in the current history, and neither do some of the game's historical `tools/ci/engine.ref` pins.
 
@@ -93,6 +93,22 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 
 ## This session
 
+2026-10-21 to 10-25, `openETQW-linux` as coordinator and merge role. Owner, 2026-10-24: "burn down all open issues and in-progress PRs across all sessions" (coordination §9). Owner, 2026-10-25: finish the open issues and PRs, update the docs and park every session. **Every openETQW session is now parked**, no PR is open in either repository, and `docs/queue.md` §2 has what is left: #270 (Vulkan stuff grass darker than OpenGL; unowned), #197 (the owner's real-keyboard rename check), #246 (distant-tree imposters and the per-instance cull, deferred by the owner as a large feature) and #133 (the coordinator log). Owner, 2026-10-25: bug fixes first; small features only if they're easy wins.
+
+**Outstanding: the combined run.** #220–#272 merged on targeted tests and independent reviews, under the owner's rule of 2026-10-23 that full retail suites and screenshot sets wait for one combined run at the tail end (kisakcod priority). That run on `main` (the retail suite per platform and the screenshot sets from all five platforms) has not been done.
+
+**What changed (2026-10-23 to 10-25), in short:**
+- **Scene brightness against retail (#233, closed):** retail's colour-grading post-process (`guis/postprocess`: glare, saturation, contrast, tint) now draws on both APIs, OpenGL through ARB ports (#263, ledger 077) and Vulkan natively (#272). It accounted for the long-standing ~15–20% darkness against retail. Vulkan terrain also gained retail's detail texture (#241), bakedamb scale (#237), notlit_lit under the sun (#242) and per-pixel atmosphere fog (#236, ledger 078).
+- **Vulkan's ambient model is retail's (#122, closed):** the ambient cube and interaction specular (#249), amblit ambient via ambSurf for sun-lit surfaces (#257), and shadowed amblit surfaces scaled by minSpecShadowColor (#268, #265). Shadow stencil counts around 128, as OpenGL (#271, #267).
+- **OpenGL overbright (#212, closed):** light colour clamped to 1 per channel before `r_lightScale` (#250); no interaction specular in GUI render worlds (#251, ledger 079).
+- **Trees and shrubs (#246):** instanced models draw on Vulkan (#248) and OpenGL (#252).
+- **Grass:** stuff grass fades as retail's programs do, on both APIs (#269, #256). The colour gap is #270.
+- **Vulkan descriptor caches** no longer leak or exhaust their pools (#261, #264, #266; #258, #262).
+- **OpenGL MSAA:** `qglSampleCoverageARB` loads and SDL3 requests the samples (#254); an unavailable `r_multiSamples` falls back to none (#259, #260).
+- **Other:** the megatexture IDCT, bit-identical and about 2x faster to the finest level (#247); SDL3's sub-pixel mouse motion is carried between events (#244, #141); `seat-poses-listen` re-runs a contended phase once and fails a second as "host contended" (#245, #162, #196). The menu globe (#186), GUI text (#193), sky and grass on OpenGL (#219), Mesa glthread (#218), the default image (#239) and the client challenge flake (#216) were closed too.
+
+### Earlier: 2026-10-19 to 10-21
+
 2026-10-19 to 10-20, `openETQW-linux` on `antec`, as coordinator and merge role. The owner first delayed the switch to Switchworks and had every Claude session implement at full speed from the current state. Then, on 2026-10-20, the owner asked every session to finish or push its in-progress work, bring the docs up to date and park. **Every openETQW session is now parked.** No PRs are open in either repository apart from this docs pass, and no host claims are held. `docs/queue.md` names where each item stopped and its next step.
 
 **Merged (2026-10-19/20), engine and game:**
@@ -177,8 +193,8 @@ Then every session parked again. `main` was f14cf48.
 | game | #14 2485998 (`ci/refresh-engine-pin-and-blockers`) | CI facts: engine contract pin 84a224b -> cba54bb (engine main after #25); the contract legs' blocker reasons as they stand (the engine builds on Linux and with MSVC); Windows x64 legs on `windows-2025-vs2026`; zlib from vcpkg on the Windows contract leg |
 
 ### Open and pending
-- **Open PRs (2026-10-20):** none in either repository apart from this docs pass. Every session is parked.
-- **Open issues to work, in `docs/queue.md` order:** #122 (GDF rifle viewmodel; needs a retail reference), #141 (mouse sub-pixel deltas; parked on the owner's check), #147 (an owner question), #162 (seat-poses L3 on macOS; cause found), #159 (a retail AAS gap; owner question), #148 (ANTEC-WIN's slow spells).
+- **Open PRs (2026-10-25):** none in either repository. Every session is parked.
+- **Open issues, in `docs/queue.md` order (2026-10-25):** #270 (Vulkan stuff grass darker than OpenGL; unowned), #197 (the owner's rename check), #246 (distant trees; deferred by the owner). The combined run for #220–#272 is outstanding.
 - **M5 step 14b, the hull lead: plan (2026-10-06, the Mac session; `docs/hull-lead.md`).**
   - A first measurement (`tools/analysis/veh_pred.py` over `g_determinismTest 2`'s `VEH_TRACE`, on this Mac):
     - stage 7's physics step about the centre of mass is essentially exact in free flight (anansi median 0.005 u);
@@ -659,7 +675,7 @@ The shared, owner-ordered list is `docs/queue.md`; this table follows its milest
 | 5 | Provenance labels: the minizip relabel and the other label questions (`docs/provenance.md` §6) | any | none | `provenance_post_split.py` no gap; game `check_spdx.py` passes; §6 rows resolved |
 | 6 | `docs/platform-matrix.md` (release gate, M7) | any | none | Every platform's verified items with evidence level, host and commit |
 
-The open issues (`docs/queue.md` §2) run beside these, the shadow follow-up first: #134 (retail's shadow distance limits), a raster-path graphics change that needs the screenshot set (#128, casters outside the view, merged as #149 on 2026-10-20).
+Before these, the combined run for #220–#272 (the retail suite per platform and the screenshot sets; `docs/queue.md`, top). The open issues (`docs/queue.md` §2: #270, #197, #246) run beside them.
 
 ## Inputs needed from the owner
 - Optional: `Loaded pk4 ... with checksum` lines from other-language editions (`pak000`–`pak004`), so the retail-install check can accept them.
