@@ -24,7 +24,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Next step |
 |---|---|---|---|
-| [#122](https://github.com/jm2/openETQW/issues/122) | GDF rifle viewmodel: near-black on raster, tan with ray tracing. | — (parked) | Get a retail reference first: a retail 1.5 screenshot from the owner, or published retail footage. Until then, don't change either path. Escalate to the owner if no reference turns up. |
+| [#122](https://github.com/jm2/openETQW/issues/122) | GDF rifle viewmodel: dark on raster Vulkan, tan with ray tracing. Retail (coordinator, canyon) is lit tan-brown; raster Vulkan was dark across the whole lit scene. | openETQW-win-arm64 | PR `fix/vk-viewmodel-dark-122`: raster Vulkan ambient from the entity's ambient cube and retail's interaction specular. Follow-ups: the specular cube term of the ambient pass, terrain's bakedamb ambient, the RT path relighting viewmodel pixels as world (lighting.comp). |
 
 ## 3. Milestone work, in order
 
@@ -103,7 +103,6 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 - **A Windows run on an NVIDIA or Intel GPU** (`STATUS.md` § Next steps, item 3). No such
   host is in the fleet; the owner would have to provide one.
 - **Hosted CI:** comes back only with Actions minutes. Until then, local checks replace it.
-- **#122's retail reference** if none can be found.
 - **The headless render world (M2):** keep `idRenderWorldHeadless` as it is, or load the
   `.procb` areas and nodes on the dedicated server (`PointInArea`, `BoundsInAreas`;
   moderate), with render-model traces still out (they need render models; heavy).
@@ -134,6 +133,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-22/23:
+- #249 Raster Vulkan: retail's ambient cube (multiplicative, before the flat ambient), self-illumination, interaction specular; generated cubes no longer black (part of #122)
 - #252 OpenGL: load qglMultiTexCoord4fARB, so instanced trees and shrubs draw (#246 OpenGL half)
 - #251 No interaction specular in GUI render worlds (limbo model), matched to measured retail; ledger row 079 (owner accepted 2026-10-25; fixes #212 with #250)
 - #250 Light colours clamped to [0,1] before r_lightScale (GL, Vulkan, RT), as retail (limbo and canyon bunker light measured; part of #212)

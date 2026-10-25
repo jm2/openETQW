@@ -141,6 +141,7 @@ int ShadowIndexCount( const drawSurf_s* surface, bool& external );
 void DrawVulkanShadowSurface( sdVulkanBackendState& state, const drawSurf_s* surface,
 	const viewLight_s* light, const viewDef_s* view );
 void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* surface,
-	const viewLight_s* light, const viewDef_s* view, bool unshadowed = false, const float* fog = NULL );
+	const viewLight_s* light, const viewDef_s* view, bool unshadowed = false, const float* fog = NULL,
+	const float* ambient = NULL );
 
 #endif /* !__RENDERER_VULKANBACKEND_H__ */

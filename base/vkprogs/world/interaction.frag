@@ -86,8 +86,19 @@ void main() {
 			fragmentBitangent * tangentXY.y + geometricNormal * tangentZ );
 	}
 	float lambert = max( dot( normal, lightDirection ), 0.0 );
-	vec3 lit = diffuse.rgb * ( relative ? vec3( 1.0 ) : fragmentColor.rgb ) *
-		pc.lightColorDirectional.rgb * ( lambert * attenuation );
+	vec3 color = diffuse.rgb * ( relative ? vec3( 1.0 ) : fragmentColor.rgb );
+	if ( !relative ) {
+		// Retail's specular (interaction/basic_fragment.inc): the falloff
+		// sat(4 * N.H - 3)^2 (its specular table) times the light's colour times
+		// 2 * the specular map, added to the diffuse before the light's N.L.
+		// pc.color.rgb is the view origin in model space, pc.color.a the stage's
+		// $specularColor factor (0 for foliage).
+		vec3 viewDirection = normalize( pc.color.rgb - fragmentPosition );
+		vec3 halfAngle = normalize( lightDirection + viewDirection );
+		float specular = clamp( 4.0 * dot( halfAngle, normal ) - 3.0, 0.0, 1.0 );
+		color += specular * specular * pc.color.a * 2.0 * texture( specularTexture, fragmentTexCoord ).rgb;
+	}
+	vec3 lit = color * pc.lightColorDirectional.rgb * ( lambert * attenuation );
 	// additive into colour only; destination alpha is left as the base pass wrote it
 	outColor = vec4( lit, 0.0 );
 }
