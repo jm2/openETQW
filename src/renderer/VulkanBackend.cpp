@@ -11628,13 +11628,46 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			first = false;
 		} );
 	}
+	// Stuff grass sorts as a decal (SS_DECAL) but lights itself, as retail's
+	// stuff/grass program does (the ambient cube plus the sun, times its tint).  The
+	// raster lighting block scales everything drawn before it by the flat ambient,
+	// which left the grass about a third as bright as OpenGL's (#270), so the grass
+	// moves after the other opaque and decal surfaces and starts the lighting.
+	{
+		idList< vulkanExpandedSurface_t > grass;
+		int insertAt = -1;
+		for ( int expandedIndex = 0; expandedIndex < expandedSurfaces.Num(); ++expandedIndex ) {
+			const vulkanExpandedSurface_t& expanded = expandedSurfaces[ expandedIndex ];
+			const float sort = expanded.surface != NULL && expanded.surface->material != NULL ?
+				expanded.surface->material->GetSort() : 0.0f;
+			if ( sort > static_cast< float >( SS_DECAL ) ) {
+				insertAt = expandedIndex;
+				break;
+			}
+			if ( vulkanSurfaceSelections[ expanded.index ].stuffGrass ) {
+				grass.Append( expanded );
+				expandedSurfaces.RemoveIndex( expandedIndex-- );
+			}
+		}
+		if ( grass.Num() > 0 ) {
+			if ( insertAt < 0 ) {
+				insertAt = expandedSurfaces.Num();
+			} else {
+				insertAt -= grass.Num();
+			}
+			for ( int grassIndex = 0; grassIndex < grass.Num(); ++grassIndex ) {
+				expandedSurfaces.Insert( grass[ grassIndex ], insertAt + grassIndex );
+			}
+		}
+	}
 	for ( int expandedIndex = 0; expandedIndex < expandedSurfaces.Num(); ++expandedIndex ) {
 		const int surfaceIndex = expandedSurfaces[ expandedIndex ].index;
 		const drawSurf_s* surface = expandedSurfaces[ expandedIndex ].surface;
 		const drawSurf_s* rayTracingSurface = expandedSurfaces[ expandedIndex ].rayTracingSource ?
 			expandedSurfaces[ expandedIndex ].original : NULL;
 		if ( !rasterLightingDone && surface != NULL && surface->material != NULL &&
-			surface->material->GetSort() > static_cast< float >( SS_DECAL ) ) {
+			( surface->material->GetSort() > static_cast< float >( SS_DECAL ) ||
+			  vulkanSurfaceSelections[ surfaceIndex ].stuffGrass ) ) {
 			RunRasterLighting();
 			rasterLightingDone = true;
 		}
