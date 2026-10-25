@@ -132,6 +132,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-22/23:
+- #259 OpenGL: retry without multisampling when the requested r_multiSamples fails (fixes #255 on SDL3)
 - #257 Vulkan: sunlit opaque surfaces take retail's amblit ambient (minSpecAmbientColor) via ambSurf; others the cube plus its specular term (fixes #122's ambient gap)
 - #254 OpenGL: load qglSampleCoverageARB; the SDL3 window requests r_multiSamples (fixes #253)
 - #249 Raster Vulkan: retail's ambient cube (multiplicative, before the flat ambient), self-illumination, interaction specular; generated cubes no longer black (part of #122)
