@@ -9947,10 +9947,11 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 			const float lightScale = cvarSystem != NULL ?
 				cvarSystem->GetCVarFloat( "r_lightScale" ) * light->fadeFraction : light->fadeFraction;
 			if ( lightStage->colorVector != NULL ) {
+				// each channel limited to 1 before r_lightScale, as the OpenGL interaction (#212)
 				lightColor.Set(
-					light->lightRegisters[ lightStage->colorVector->registers[ 0 ] ] * lightScale,
-					light->lightRegisters[ lightStage->colorVector->registers[ 1 ] ] * lightScale,
-					light->lightRegisters[ lightStage->colorVector->registers[ 2 ] ] * lightScale );
+					idMath::ClampFloat( 0.0f, 1.0f, light->lightRegisters[ lightStage->colorVector->registers[ 0 ] ] ) * lightScale,
+					idMath::ClampFloat( 0.0f, 1.0f, light->lightRegisters[ lightStage->colorVector->registers[ 1 ] ] ) * lightScale,
+					idMath::ClampFloat( 0.0f, 1.0f, light->lightRegisters[ lightStage->colorVector->registers[ 2 ] ] ) * lightScale );
 			} else {
 				lightColor.Set( lightScale, lightScale, lightScale );
 			}

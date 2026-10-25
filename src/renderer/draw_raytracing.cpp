@@ -549,10 +549,11 @@ bool ResolveLightColor( const viewLight_s& light, idVec3& color ) {
 		const float lightScale = cvarSystem->GetCVarFloat( "r_lightScale" ) *
 			light.fadeFraction;
 		if ( stage->colorVector != NULL ) {
+			// each channel limited to 1 before r_lightScale, as the OpenGL interaction (#212)
 			color.Set(
-				light.lightRegisters[ stage->colorVector->registers[ 0 ] ] * lightScale,
-				light.lightRegisters[ stage->colorVector->registers[ 1 ] ] * lightScale,
-				light.lightRegisters[ stage->colorVector->registers[ 2 ] ] * lightScale );
+				idMath::ClampFloat( 0.0f, 1.0f, light.lightRegisters[ stage->colorVector->registers[ 0 ] ] ) * lightScale,
+				idMath::ClampFloat( 0.0f, 1.0f, light.lightRegisters[ stage->colorVector->registers[ 1 ] ] ) * lightScale,
+				idMath::ClampFloat( 0.0f, 1.0f, light.lightRegisters[ stage->colorVector->registers[ 2 ] ] ) * lightScale );
 		} else {
 			color.Set( lightScale, lightScale, lightScale );
 		}
