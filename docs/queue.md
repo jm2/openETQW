@@ -19,7 +19,6 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
-| IDCT PR (perf/mega-idct) | MegaTexture tile decoder: bit-identical IDCT over nonzero coefficients; finest level complete after a teleport in about half the time | openETQW-win | see PR | Windows x64 time-to-valid measured, validate passed; review |
 
 ## 2. Open issues, in priority order
 
