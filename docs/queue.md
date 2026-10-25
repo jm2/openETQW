@@ -134,6 +134,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-22/23:
+- #273 Vulkan: no interaction specular in GUI render worlds, as OpenGL since #251 (ledger 079)
 - #272 Vulkan draws guis/postprocess's glow natively, with retail's scene alpha (fixes #233 with #263)
 - #271 Vulkan shadow stencil counts around 128 and lights where 128 >= stencil, as OpenGL (fixes #267)
 - #269 Stuff grass fades with distance on both APIs: _diffusionMask is a 16x16 ordered dither; Vulkan fades per instance (fixes #256; colour gap in #270)
