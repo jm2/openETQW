@@ -42,6 +42,7 @@
 
 extern idCVar r_offsetFactor;
 extern idCVar r_offsetUnits;
+extern idCVar r_megaDrawMethod;
 extern idCVar r_shadows;
 extern idCVar r_shadowPass;
 extern idCVar r_useExternalShadows;
@@ -9887,6 +9888,9 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	pushConstants[ 29 ] = surface->material->TestMaterialFlag( MF_LOWRANGEUVCOMPRESS ) ?
 		ST_TO_FLOAT_LOWRANGE : ST_TO_FLOAT;
 	EncodeModelRotation( surface->space->modelMatrix, pushConstants[ 23 ], pushConstants[ 27 ] );
+	bool notLitTerrain = false;
+	bool notLitShadowSplit = false;
+	idVec3 notLitShadowColor( 1.0f, 1.0f, 1.0f );
 	if ( litInteraction ) {
 		// interaction.vert/.frag: the light in the surface's model space, with
 		// the terms of raytracing/lighting.comp (N.L, (1 - d/r)^2, a directional
@@ -9941,7 +9945,29 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 			pushConstants[ 34 ] = localOrigin.z;
 			pushConstants[ 35 ] = radius;
 		}
-		if ( fog == NULL && megaTextureSurface ) {
+		// Under the atmosphere sun with r_megaDrawMethod != 0 (retail 1.5's default
+		// is 3), retail draws MegaTexture terrain with the bakedamb programs'
+		// amblitVersion, megaTexture/notlit_lit: albedo x lerp( 0.35, $diffuseColor,
+		// 1 ), no N.L and no separate ambient, the megatexture's baked lighting being
+		// the shading (R_DrawMTInteractions).  The light block has already scaled the
+		// pixel to albedo x ambient, so the interaction adds the rest.
+		// Only the view's own sun: a second atmosphere light would add the term twice.
+		notLitTerrain = fog == NULL && megaTextureSurface && sceneAlbedoInteraction &&
+			light == view->atmosphereLight && r_megaDrawMethod.GetInteger() != 0;
+		if ( notLitTerrain ) {
+			pushConstants[ 30 ] = cvarSystem->GetCVarFloat( "r_rayTracingAmbient" );	// the light block's ambient
+			if ( !unshadowed && light->lightDef != NULL ) {
+				// Retail then multiplies the sun's shadowed pixels by the atmosphere's
+				// minSpecShadowColor (draw_new.cpp, shadow/multiplitive).  Here the
+				// terrain's add is split in two: minSpecShadowColor x notlit_lit
+				// everywhere, then the rest where the stencil says unshadowed.
+				const unsigned int packed = light->lightDef->minSpecShadowColor;	// sdColor4::PackColor
+				notLitShadowColor.Set( ( packed & 0xFF ) / 255.0f, ( ( packed >> 8 ) & 0xFF ) / 255.0f,
+					( ( packed >> 16 ) & 0xFF ) / 255.0f );
+				notLitShadowSplit = true;
+			}
+		}
+		if ( fog == NULL && megaTextureSurface && !notLitTerrain ) {
 			// Retail's megatexture/interaction_bakedamb* scale the light by the
 			// stage's $parameters.w (valley: 0.5): the terrain's baked lighting
 			// already carries half the sun, and its ambient pass removes
@@ -9965,9 +9991,11 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		pushConstants[ 36 ] = fog != NULL ? fog[ 0 ] : lightColor.x;
 		pushConstants[ 37 ] = fog != NULL ? fog[ 1 ] : lightColor.y;
 		pushConstants[ 38 ] = fog != NULL ? fog[ 2 ] : lightColor.z;
-		// w: 1 for the sun, + 2 for a two-sided material (lit from either side); fog: fogDepths.w
+		// w: 1 for the sun, + 2 for a two-sided material (lit from either side), + 4 for
+		// notlit_lit terrain; fog: fogDepths.w
 		pushConstants[ 39 ] = fog != NULL ? fog[ 4 ] : ( directional ? 1.0f : 0.0f ) +
-			( surface->material->GetCullType() == CT_TWO_SIDED ? 2.0f : 0.0f );
+			( surface->material->GetCullType() == CT_TWO_SIDED ? 2.0f : 0.0f ) +
+			( notLitTerrain ? 4.0f : 0.0f );
 	}
 
 	sdVulkanFrame& frame = state.frames[ state.frameIndex ];
@@ -10010,6 +10038,27 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		state.CmdBindVertexBuffers( frame.commandBuffer, 0, 1, &vertexResource->buffer, &vertexOffset );
 	}
 	state.CmdBindIndexBuffer( frame.commandBuffer, indexResource->buffer, indexOffset, VK_INDEX_TYPE_UINT16 );
+	if ( notLitShadowSplit ) {
+		// notlit_lit terrain under shadows: color.rgb scales the notlit term.  First,
+		// unstenciled, minSpecShadowColor x notlit less the ambient already there ...
+		state.CmdBindPipeline( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+			state.worldInteractionUnshadowedPipeline );
+		pushConstants[ 16 ] = notLitShadowColor.x;
+		pushConstants[ 17 ] = notLitShadowColor.y;
+		pushConstants[ 18 ] = notLitShadowColor.z;
+		state.CmdPushConstants( frame.commandBuffer, state.guiPipelineLayout,
+			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+			sizeof( float ) * 40, pushConstants );
+		state.CmdDrawIndexed( frame.commandBuffer, tri->numIndexes, 1, 0, 0, 0 );
+		state.worldDrawCalls++;
+		state.worldInteractionDrawCalls++;
+		// ... then, where unshadowed, the remaining ( 1 - minSpecShadowColor ) x notlit
+		state.CmdBindPipeline( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
+		pushConstants[ 16 ] = 1.0f - notLitShadowColor.x;
+		pushConstants[ 17 ] = 1.0f - notLitShadowColor.y;
+		pushConstants[ 18 ] = 1.0f - notLitShadowColor.z;
+		pushConstants[ 30 ] = 0.0f;
+	}
 	state.CmdPushConstants( frame.commandBuffer, state.guiPipelineLayout,
 		VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
 		sizeof( float ) * ( litInteraction ? 40 : 32 ), pushConstants );
