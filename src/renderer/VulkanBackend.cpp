@@ -1143,13 +1143,15 @@ void EncodeModelRotation( const float modelMatrix[ 16 ], float& encodedXY,
 
 // Retail's foliage programs colour each vertex by its colour attribute whatever the
 // stage's vertexColor (foliage_vertex.inc: MOV result.color, $colorAttrib); the tree
-// models carry their leaves' green there (#246).
+// models carry their leaves' green there (#246).  stuff/grass reads it the same way:
+// its rgb is the instance tint, and under Vulkan its alpha the fade (#256).
 bool VulkanStageUsesVertexColor( const materialStage_t* stage ) {
 	if ( stage == NULL ) {
 		return false;
 	}
 	return stage->vertexColor == SVC_MODULATE || ( stage->renderProgram != NULL &&
-		idStr::Icmpn( stage->renderProgram->GetName(), "interaction/foliage", 19 ) == 0 );
+		( idStr::Icmpn( stage->renderProgram->GetName(), "interaction/foliage", 19 ) == 0 ||
+		  idStr::Icmpn( stage->renderProgram->GetName(), "stuff/grass", 11 ) == 0 ) );
 }
 
 void ReportMissingVulkanMaterial( sdVulkanBackendState& state,

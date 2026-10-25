@@ -110,7 +110,7 @@ struct stuffSurface_t {
 };
 
 struct stuffSnapshot_t {
-	stuffSnapshot_t() : entity( NULL ), model( NULL ), valid( false ), fadeEnd( -1.0f ) {
+	stuffSnapshot_t() : entity( NULL ), model( NULL ), valid( false ), fadeStart( -1.0f ), fadeEnd( -1.0f ) {
 		viewOrigin.Zero();
 		viewForward.Zero();
 	}
@@ -120,6 +120,7 @@ struct stuffSnapshot_t {
 	idVec3 viewOrigin;
 	idVec3 viewForward;
 	bool valid;
+	float fadeStart;
 	float fadeEnd;
 };
 
@@ -362,7 +363,7 @@ bool SnapshotNeedsUpdate( const stuffSnapshot_t* snapshot, const viewDef_s* view
 	if ( snapshot == NULL || !snapshot->valid || snapshot->model == NULL ) {
 		return true;
 	}
-	if ( snapshot->fadeEnd != r_stuffFadeEnd.GetFloat() ) {
+	if ( snapshot->fadeEnd != r_stuffFadeEnd.GetFloat() || snapshot->fadeStart != r_stuffFadeStart.GetFloat() ) {
 		return true;
 	}
 	if ( view->isSubview ) {
@@ -440,13 +441,14 @@ idRenderModel* BuildSnapshot( stuffModelData_t* data, stuffSnapshot_t* snapshot,
 	snapshot->viewOrigin = view->renderView.vieworg;
 	snapshot->viewForward = view->renderView.viewaxis[ 0 ];
 	snapshot->fadeEnd = r_stuffFadeEnd.GetFloat();
+	snapshot->fadeStart = r_stuffFadeStart.GetFloat();
 	snapshot->valid = true;
 
 	const idVec3 localViewOrigin = ( view->renderView.vieworg - entity->origin ) * entity->axis.Transpose();
 	const float fadeEnd = Max( 0.0f, snapshot->fadeEnd );
 	const float fadeEndSqr = fadeEnd * fadeEnd;
 	const bool fadeGrass = R_UseVulkanBackend();
-	const float fadeStart = Min( r_stuffFadeStart.GetFloat(), fadeEnd );
+	const float fadeStart = Min( snapshot->fadeStart, fadeEnd );
 	const float fadeRange = Max( 1.0f, fadeEnd - fadeStart );
 	idList< stuffBuildGroup_t* > groups;
 
