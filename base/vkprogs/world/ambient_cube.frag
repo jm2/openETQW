@@ -1,13 +1,19 @@
 #version 450
 
 // The ambient term for the rasterized lighting path (#122), drawn over each lit
-// opaque surface with interaction.vert's geometry before the light interactions,
-// replacing the flat r_rayTracingAmbient scale there.  As retail's
-// interaction/basic_ambient_fragment.inc: the diffuse map times the ambient cube
-// map, looked up by the bumped world-space normal, times $ambientBrightness and
-// $ambientScale.x, times the vertex colour.  Retail's second term (2 * the
-// specular map * the specular cube map along the reflection) is not drawn here.
-// Blend: src * 1 + dst * 0 on colour; destination alpha is kept.
+// opaque surface with interaction.vert's geometry before the flat
+// r_rayTracingAmbient scale (which then skips these pixels) and the light
+// interactions.  As retail's interaction/basic_ambient_fragment.inc, a
+// surface's ambient is the ambient cube map looked up by the bumped world-space
+// normal, times $ambientBrightness and $ambientScale.x; the self-illumination
+// map is added unscaled.  Retail's specular term (2 * the specular map * the
+// specular cube map along the reflection) is not drawn here.
+//
+// The pass scales what the base pass and the decals left instead of
+// replacing it, so blended decals and extra stages keep their colour:
+//   mode 0, blend 2 * src * dst: the ambient, halved here so up to 2 fits;
+//   mode 1, blend dst + src: the self-illumination the scale took away,
+//           selfIllum * vertex colour * ( 1 - ambient ).
 
 layout( set = 0, binding = 0 ) uniform sampler2D diffuseTexture;
 layout( set = 0, binding = 1 ) uniform sampler2D bumpTexture;
@@ -23,7 +29,7 @@ layout( push_constant ) uniform AmbientCubePushConstants {
 	vec3 textureMatrixT;
 	uint packedRotationZW;
 	vec4 parameters;		// z: alpha test reference, w: 1 when the stage alpha tests
-	vec4 ambientParameters;		// x: $ambientBrightness, y: $ambientScale.x
+	vec4 ambientParameters;		// x: $ambientBrightness, y: $ambientScale.x, z: mode
 	vec4 unused;
 } pc;
 
@@ -45,8 +51,7 @@ vec3 rotateToWorld( vec3 value, vec4 idQuaternion ) {
 }
 
 void main() {
-	vec4 diffuse = texture( diffuseTexture, fragmentTexCoord );
-	if ( pc.parameters.w > 0.5 && diffuse.a < pc.parameters.z ) {
+	if ( pc.parameters.w > 0.5 && texture( diffuseTexture, fragmentTexCoord ).a < pc.parameters.z ) {
 		discard;
 	}
 	// the bumped normal as interaction.frag decodes it, in model space
@@ -57,6 +62,11 @@ void main() {
 	vec4 modelRotation = normalize( vec4( unpackSnorm2x16( pc.packedRotationXY ),
 		unpackSnorm2x16( pc.packedRotationZW ) ) );
 	vec3 ambient = texture( ambientCubeTexture, rotateToWorld( normal, modelRotation ) ).rgb *
-		pc.ambientParameters.x;
-	outColor = vec4( diffuse.rgb * fragmentColor.rgb * ambient * pc.ambientParameters.y, 0.0 );
+		pc.ambientParameters.x * pc.ambientParameters.y;
+	if ( pc.ambientParameters.z < 0.5 ) {
+		outColor = vec4( ambient * 0.5, 1.0 );
+	} else {
+		vec3 selfIllum = texture( selfIllumTexture, fragmentTexCoord ).rgb;
+		outColor = vec4( selfIllum * fragmentColor.rgb * max( 1.0 - ambient, vec3( 0.0 ) ), 0.0 );
+	}
 }
