@@ -255,6 +255,7 @@ struct sdVulkanMaterialDescriptor {
 	const void*				imageOwners[ VULKAN_MATERIAL_TEXTURES ];
 	VkImageView				imageViews[ VULKAN_MATERIAL_TEXTURES ];
 	VkDescriptorSet			descriptorSet;
+	unsigned int			lastUsedFrame;	// frameSerial when last returned
 };
 
 struct sdVulkanFrontEndDescriptor {
@@ -263,7 +264,12 @@ struct sdVulkanFrontEndDescriptor {
 	const void*				imageOwners[ VULKAN_FRONTEND_TEXTURES ];
 	VkImageView				imageViews[ VULKAN_FRONTEND_TEXTURES ];
 	VkDescriptorSet			descriptorSet;
+	unsigned int			lastUsedFrame;	// frameSerial when last returned
 };
+
+// The front-end sets (6 samplers each) have their own pool, so the cube-ambient
+// pass's sets, one per stage and cube, cannot exhaust the material pool (#258).
+const int VULKAN_FRONTEND_DESCRIPTOR_SETS = 4096;
 
 const char* VkResultName( VkResult result ) {
 	switch ( result ) {
@@ -275,6 +281,8 @@ const char* VkResultName( VkResult result ) {
 		case VK_INCOMPLETE: return "VK_INCOMPLETE";
 		case VK_ERROR_OUT_OF_HOST_MEMORY: return "VK_ERROR_OUT_OF_HOST_MEMORY";
 		case VK_ERROR_OUT_OF_DEVICE_MEMORY: return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
+		case VK_ERROR_OUT_OF_POOL_MEMORY: return "VK_ERROR_OUT_OF_POOL_MEMORY";
+		case VK_ERROR_FRAGMENTED_POOL: return "VK_ERROR_FRAGMENTED_POOL";
 		case VK_ERROR_INITIALIZATION_FAILED: return "VK_ERROR_INITIALIZATION_FAILED";
 		case VK_ERROR_DEVICE_LOST: return "VK_ERROR_DEVICE_LOST";
 		case VK_ERROR_MEMORY_MAP_FAILED: return "VK_ERROR_MEMORY_MAP_FAILED";
@@ -632,7 +640,19 @@ struct sdVulkanBackendState {
 	sdVulkanResourceLookup		bufferResourceLookup;
 	idList< sdVulkanMaterialDescriptor > materialDescriptors;
 	idHashIndex				materialDescriptorHash;
+	// sets of material descriptors whose image went away, freed to guiDescriptorPool
+	// with that frame's retired images (#262)
+	idList< VkDescriptorSet > frameRetiredMaterialSets[ NUM_VULKAN_FRAMES ];
+	bool					materialPoolExhaustedWarned;
 	idList< sdVulkanFrontEndDescriptor > frontEndDescriptors;
+	idHashIndex				frontEndDescriptorHash;	// by owner
+	VkDescriptorPool			frontEndDescriptorPool;
+	// sets of front-end descriptors whose image went away, freed with that frame's
+	// retired images
+	idList< VkDescriptorSet > frameRetiredFrontEndSets[ NUM_VULKAN_FRAMES ];
+	unsigned int				frameSerial;	// counts frames, for evicting unused sets
+	int					frontEndDescriptorSetsLive;	// allocated from frontEndDescriptorPool, not yet freed
+	bool					frontEndPoolExhaustedWarned;
 	// Resources removed while a frame is being recorded must remain alive until
 	// that command buffer has been submitted and completed.  ETQW retires vertex
 	// cache blocks in idRenderSystemLocal::EndFrame before the Vulkan backend
@@ -908,6 +928,11 @@ struct sdVulkanBackendState {
 		guiPipelineLayout = VK_NULL_HANDLE;
 		frontEndDescriptorSetLayout = VK_NULL_HANDLE;
 		frontEndPipelineLayout = VK_NULL_HANDLE;
+		frontEndDescriptorPool = VK_NULL_HANDLE;
+		frameSerial = 0;
+		frontEndDescriptorSetsLive = 0;
+		frontEndPoolExhaustedWarned = false;
+		materialPoolExhaustedWarned = false;
 		megaDetailPipeline = false;
 		worldFrontEndPipeline = VK_NULL_HANDLE;
 		worldFrontEndAlphaPipeline = VK_NULL_HANDLE;
@@ -1977,7 +2002,10 @@ void DestroyDepthResources( sdVulkanBackendState& state ) {
 void DestroySemaphoreList( sdVulkanBackendState& state,
 	idList< VkSemaphore >& semaphores );
 
+void PurgeCurrentRenderDescriptors( sdVulkanBackendState& state );
+
 void DestroySwapchain( sdVulkanBackendState& state ) {
+	PurgeCurrentRenderDescriptors( state );
 	DestroyCurrentRenderResource( state, state.currentRenderResource );
 	state.currentRenderInitialized = false;
 	state.swapchainTransferSource = false;
@@ -2303,6 +2331,7 @@ bool CreateSwapchain( sdVulkanBackendState& state, int requestedWidth,
 		return false;
 	}
 
+	PurgeCurrentRenderDescriptors( state );
 	DestroyCurrentRenderResource( state, state.currentRenderResource );
 	DestroyDepthResources( state );
 	DestroySemaphoreList( state, state.presentSemaphores );
@@ -2816,8 +2845,153 @@ void DestroyRetiredResources( sdVulkanBackendState& state ) {
 	state.retiredToolDepthResources.Clear();
 }
 
+int FrontEndDescriptorKey( const sdVulkanBackendState& state, const void* owner ) {
+	return sdVulkanPointerHash::Hash( state.frontEndDescriptorHash, owner );
+}
+
+// Removes a front-end descriptor from the cache (the last one takes its index);
+// the caller frees or retires its set.
+void RemoveFrontEndDescriptor( sdVulkanBackendState& state, int index ) {
+	const int lastIndex = state.frontEndDescriptors.Num() - 1;
+	state.frontEndDescriptorHash.Remove(
+		FrontEndDescriptorKey( state, state.frontEndDescriptors[ index ].owner ), index );
+	if ( index != lastIndex ) {
+		state.frontEndDescriptorHash.Remove(
+			FrontEndDescriptorKey( state, state.frontEndDescriptors[ lastIndex ].owner ), lastIndex );
+	}
+	state.frontEndDescriptors.RemoveIndexFast( index );
+	if ( index != lastIndex ) {
+		state.frontEndDescriptorHash.Add(
+			FrontEndDescriptorKey( state, state.frontEndDescriptors[ index ].owner ), index );
+	}
+}
+
+void FreeFrontEndDescriptorSets( sdVulkanBackendState& state, idList< VkDescriptorSet >& sets ) {
+	if ( sets.Num() > 0 && state.frontEndDescriptorPool != VK_NULL_HANDLE ) {
+		state.FreeDescriptorSets( state.device, state.frontEndDescriptorPool,
+			static_cast< uint32_t >( sets.Num() ), &sets[ 0 ] );
+		state.frontEndDescriptorSetsLive -= sets.Num();
+	}
+	sets.Clear();
+}
+
+// Frees the sets no frame has used for longer than the frames in flight, so no
+// command buffer can still reference them.  Returns how many it freed.
+int EvictUnusedFrontEndDescriptors( sdVulkanBackendState& state ) {
+	idList< VkDescriptorSet > unused;
+	for ( int index = state.frontEndDescriptors.Num() - 1; index >= 0; --index ) {
+		const sdVulkanFrontEndDescriptor& descriptor = state.frontEndDescriptors[ index ];
+		if ( state.frameSerial - descriptor.lastUsedFrame > static_cast< unsigned int >( NUM_VULKAN_FRAMES ) ) {
+			unused.Append( descriptor.descriptorSet );
+			RemoveFrontEndDescriptor( state, index );
+		}
+	}
+	const int evicted = unused.Num();
+	FreeFrontEndDescriptorSets( state, unused );
+	return evicted;
+}
+
+int MaterialDescriptorKey( const sdVulkanBackendState& state, const void* owner ) {
+	return sdVulkanPointerHash::Hash( state.materialDescriptorHash, owner );
+}
+
+// Removes a material descriptor from the cache (the last one takes its index);
+// the caller frees or retires its set.
+void RemoveMaterialDescriptor( sdVulkanBackendState& state, int index ) {
+	const int lastIndex = state.materialDescriptors.Num() - 1;
+	state.materialDescriptorHash.Remove(
+		MaterialDescriptorKey( state, state.materialDescriptors[ index ].owner ), index );
+	if ( index != lastIndex ) {
+		state.materialDescriptorHash.Remove(
+			MaterialDescriptorKey( state, state.materialDescriptors[ lastIndex ].owner ), lastIndex );
+	}
+	state.materialDescriptors.RemoveIndexFast( index );
+	if ( index != lastIndex ) {
+		state.materialDescriptorHash.Add(
+			MaterialDescriptorKey( state, state.materialDescriptors[ index ].owner ), index );
+	}
+}
+
+void FreeMaterialDescriptorSets( sdVulkanBackendState& state, idList< VkDescriptorSet >& sets ) {
+	if ( sets.Num() > 0 && state.guiDescriptorPool != VK_NULL_HANDLE ) {
+		state.FreeDescriptorSets( state.device, state.guiDescriptorPool,
+			static_cast< uint32_t >( sets.Num() ), &sets[ 0 ] );
+	}
+	sets.Clear();
+}
+
+// As EvictUnusedFrontEndDescriptors, for the material cache.
+int EvictUnusedMaterialDescriptors( sdVulkanBackendState& state ) {
+	idList< VkDescriptorSet > unused;
+	for ( int index = state.materialDescriptors.Num() - 1; index >= 0; --index ) {
+		const sdVulkanMaterialDescriptor& descriptor = state.materialDescriptors[ index ];
+		if ( state.frameSerial - descriptor.lastUsedFrame > static_cast< unsigned int >( NUM_VULKAN_FRAMES ) ) {
+			unused.Append( descriptor.descriptorSet );
+			RemoveMaterialDescriptor( state, index );
+		}
+	}
+	const int evicted = unused.Num();
+	FreeMaterialDescriptorSets( state, unused );
+	return evicted;
+}
+
+// Allocates a material-layout set from guiDescriptorPool.  When the pool is full,
+// the material sets no recent frame used are freed and the allocation is tried
+// once more; a failure after that warns once.
+bool AllocateMaterialDescriptorSet( sdVulkanBackendState& state, VkDescriptorSet& descriptorSet,
+	const char* what ) {
+	VkDescriptorSetAllocateInfo allocateInfo;
+	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
+	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocateInfo.descriptorPool = state.guiDescriptorPool;
+	allocateInfo.descriptorSetCount = 1;
+	allocateInfo.pSetLayouts = &state.guiDescriptorSetLayout;
+	VkResult result = state.AllocateDescriptorSets( state.device, &allocateInfo, &descriptorSet );
+	if ( ( result == VK_ERROR_OUT_OF_POOL_MEMORY || result == VK_ERROR_FRAGMENTED_POOL ) &&
+		EvictUnusedMaterialDescriptors( state ) > 0 ) {
+		result = state.AllocateDescriptorSets( state.device, &allocateInfo, &descriptorSet );
+	}
+	if ( result != VK_SUCCESS ) {
+		if ( !state.materialPoolExhaustedWarned ) {
+			common->Warning( "vkAllocateDescriptorSets(%s) failed: %s (%d material sets cached); "
+				"draws needing a new set are skipped until sets are freed (warned once)",
+				what, VkResultName( result ), state.materialDescriptors.Num() );
+			state.materialPoolExhaustedWarned = true;
+		}
+		descriptorSet = VK_NULL_HANDLE;
+		return false;
+	}
+	state.materialPoolExhaustedWarned = false;	// warn once per exhaustion
+	return true;
+}
+
+// The water, heat-haze and scene-albedo sets sample the current-render copy,
+// cached under its fixed address (&state.currentRenderResource).  When the copy is
+// recreated with the swapchain, its new view can reuse the old handle's value, so
+// the cache would return a set holding the destroyed view: drop those entries and
+// free their sets once the frame that may use them has completed.
+void PurgeCurrentRenderDescriptors( sdVulkanBackendState& state ) {
+	const void* owner = &state.currentRenderResource;
+	const unsigned int retireFrame = state.frameActive || state.toolFrameActive ? state.frameIndex :
+		( state.frameIndex + NUM_VULKAN_FRAMES - 1 ) % NUM_VULKAN_FRAMES;
+	for ( int index = state.materialDescriptors.Num() - 1; index >= 0; --index ) {
+		const sdVulkanMaterialDescriptor& descriptor = state.materialDescriptors[ index ];
+		for ( int imageIndex = 0; imageIndex < VULKAN_MATERIAL_TEXTURES; ++imageIndex ) {
+			if ( descriptor.imageOwners[ imageIndex ] == owner ||
+				( state.currentRenderResource.view != VK_NULL_HANDLE &&
+				  descriptor.imageViews[ imageIndex ] == state.currentRenderResource.view ) ) {
+				state.frameRetiredMaterialSets[ retireFrame ].Append( descriptor.descriptorSet );
+				RemoveMaterialDescriptor( state, index );
+				break;
+			}
+		}
+	}
+}
+
 void DestroyFrameRetiredResources( sdVulkanBackendState& state,
 	unsigned int frameIndex ) {
+	FreeFrontEndDescriptorSets( state, state.frameRetiredFrontEndSets[ frameIndex ] );
+	FreeMaterialDescriptorSets( state, state.frameRetiredMaterialSets[ frameIndex ] );
 	for ( int i = 0; i < state.frameRetiredImageResources[ frameIndex ].Num(); ++i ) {
 		DestroyImageResource( state,
 			state.frameRetiredImageResources[ frameIndex ][ i ] );
@@ -3381,7 +3555,21 @@ bool CompileVulkanShaderModule( sdVulkanBackendState& state,
 void DestroyGuiResources( sdVulkanBackendState& state ) {
 	state.materialDescriptors.Clear();
 	state.materialDescriptorHash.Clear();
+	for ( int frameIndex = 0; frameIndex < NUM_VULKAN_FRAMES; ++frameIndex ) {
+		state.frameRetiredMaterialSets[ frameIndex ].Clear();	// freed with the pool
+	}
+	state.materialPoolExhaustedWarned = false;
 	state.frontEndDescriptors.Clear();
+	state.frontEndDescriptorHash.Clear();
+	for ( int frameIndex = 0; frameIndex < NUM_VULKAN_FRAMES; ++frameIndex ) {
+		state.frameRetiredFrontEndSets[ frameIndex ].Clear();	// freed with the pool
+	}
+	if ( state.frontEndDescriptorPool != VK_NULL_HANDLE ) {
+		state.DestroyDescriptorPool( state.device, state.frontEndDescriptorPool, NULL );
+		state.frontEndDescriptorPool = VK_NULL_HANDLE;
+	}
+	state.frontEndDescriptorSetsLive = 0;
+	state.frontEndPoolExhaustedWarned = false;
 	VkPipeline* frontEndPipelines[] = {
 		&state.worldFrontEndPipeline,
 		&state.worldFrontEndAlphaPipeline,
@@ -4457,13 +4645,16 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 	VkShaderModule ambientCubeModule = VK_NULL_HANDLE;
 	bool ambientCubeShader = false;
 	// called while the unshadowed (no stencil test) state is set up; multiply:
-	// dst * src (the ambient rescale), else dst + src (the self-illumination)
+	// dst * src (the ambient rescale), else dst + src (the specular and the
+	// self-illumination).  The front-end layout: its set carries the specular cube.
 	auto CreateAmbientCubePipeline = [&]( VkPipeline& ambientPipeline, bool multiply, const char* what ) {
-		if ( !ambientCubeShader ) {
+		if ( !ambientCubeShader || state.frontEndPipelineLayout == VK_NULL_HANDLE ) {
 			return;
 		}
 		const VkShaderModule interactionModule = shaderStages[ 1 ].module;
 		shaderStages[ 1 ].module = ambientCubeModule;
+		const VkPipelineLayout interactionLayout = pipelineInfo.layout;
+		pipelineInfo.layout = state.frontEndPipelineLayout;
 		const VkPipelineDepthStencilStateCreateInfo interactionDepthStencil = depthStencil;
 		if ( multiply ) {
 			// 2 * src * dst, so the scale reaches twice the base; scale a pixel once
@@ -4485,6 +4676,7 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 			ambientPipeline = VK_NULL_HANDLE;
 		}
 		shaderStages[ 1 ].module = interactionModule;
+		pipelineInfo.layout = interactionLayout;
 		blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
 		blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
 		depthStencil = interactionDepthStencil;
@@ -4856,6 +5048,16 @@ bool CreateGuiResources( sdVulkanBackendState& state ) {
 		CheckVulkanResult( state.CreatePipelineLayout( state.device,
 			&frontEndLayoutInfo, NULL, &state.frontEndPipelineLayout ),
 			"vkCreatePipelineLayout(front end)" );
+		VkDescriptorPoolSize frontEndPoolSize;
+		frontEndPoolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		frontEndPoolSize.descriptorCount = VULKAN_FRONTEND_DESCRIPTOR_SETS * VULKAN_FRONTEND_TEXTURES;
+		VkDescriptorPoolCreateInfo frontEndPoolInfo = poolInfo;
+		frontEndPoolInfo.maxSets = VULKAN_FRONTEND_DESCRIPTOR_SETS;
+		frontEndPoolInfo.poolSizeCount = 1;
+		frontEndPoolInfo.pPoolSizes = &frontEndPoolSize;
+		CheckVulkanResult( state.CreateDescriptorPool( state.device,
+			&frontEndPoolInfo, NULL, &state.frontEndDescriptorPool ),
+			"vkCreateDescriptorPool(front end)" );
 	}
 
 	VkShaderModule vertexModule = VK_NULL_HANDLE;
@@ -5035,15 +5237,8 @@ const sdVulkanImageResource* FindVulkanImageResource(
 
 bool AllocateImageDescriptor( sdVulkanBackendState& state,
 	sdVulkanImageResource& resource ) {
-	VkDescriptorSetAllocateInfo allocateInfo;
-	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
-	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocateInfo.descriptorPool = state.guiDescriptorPool;
-	allocateInfo.descriptorSetCount = 1;
-	allocateInfo.pSetLayouts = &state.guiDescriptorSetLayout;
-	if ( !CheckVulkanResult( state.AllocateDescriptorSets( state.device,
-		&allocateInfo, &resource.descriptorSet ),
-		"vkAllocateDescriptorSets(image)" ) ) {
+	// through the material allocator, so a full pool evicts unused material sets
+	if ( !AllocateMaterialDescriptorSet( state, resource.descriptorSet, "image" ) ) {
 		return false;
 	}
 	VkDescriptorImageInfo imageInfo;
@@ -5465,9 +5660,11 @@ bool GetVulkanFrontEndLayoutDescriptor( sdVulkanBackendState& state, const void*
 			return false;
 		}
 	}
-	for ( int descriptorIndex = 0; descriptorIndex < state.frontEndDescriptors.Num();
-		++descriptorIndex ) {
-		const sdVulkanFrontEndDescriptor& cached = state.frontEndDescriptors[ descriptorIndex ];
+	const int descriptorHashKey = FrontEndDescriptorKey( state, owner );
+	for ( int descriptorIndex = state.frontEndDescriptorHash.GetFirst( descriptorHashKey );
+		descriptorIndex != -1;
+		descriptorIndex = state.frontEndDescriptorHash.GetNext( descriptorIndex ) ) {
+		sdVulkanFrontEndDescriptor& cached = state.frontEndDescriptors[ descriptorIndex ];
 		if ( cached.owner != owner ) {
 			continue;
 		}
@@ -5480,22 +5677,46 @@ bool GetVulkanFrontEndLayoutDescriptor( sdVulkanBackendState& state, const void*
 			}
 		}
 		if ( matches ) {
+			cached.lastUsedFrame = state.frameSerial;
 			descriptorSet = cached.descriptorSet;
 			return true;
 		}
 	}
+	if ( state.frontEndDescriptorPool == VK_NULL_HANDLE ) {
+		return false;
+	}
 	sdVulkanFrontEndDescriptor frontEndDescriptor;
 	memset( &frontEndDescriptor, 0, sizeof( frontEndDescriptor ) );
 	frontEndDescriptor.owner = owner;
+	frontEndDescriptor.lastUsedFrame = state.frameSerial;
 	VkDescriptorSetAllocateInfo allocateInfo;
 	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
 	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocateInfo.descriptorPool = state.guiDescriptorPool;
+	allocateInfo.descriptorPool = state.frontEndDescriptorPool;
 	allocateInfo.descriptorSetCount = 1;
 	allocateInfo.pSetLayouts = &state.frontEndDescriptorSetLayout;
-	if ( !CheckVulkanResult( state.AllocateDescriptorSets( state.device,
-		&allocateInfo, &frontEndDescriptor.descriptorSet ),
-		"vkAllocateDescriptorSets(front end)" ) ) {
+	// A full pool (a long session over many maps): drop the sets no recent frame
+	// used and try once more.  The pool's size is kept in software as well, since
+	// a driver may let allocations run past maxSets.
+	const bool full = state.frontEndDescriptorSetsLive >= VULKAN_FRONTEND_DESCRIPTOR_SETS;
+	VkResult result = full ? VK_ERROR_OUT_OF_POOL_MEMORY :
+		state.AllocateDescriptorSets( state.device, &allocateInfo, &frontEndDescriptor.descriptorSet );
+	if ( ( result == VK_ERROR_OUT_OF_POOL_MEMORY || result == VK_ERROR_FRAGMENTED_POOL ) &&
+		EvictUnusedFrontEndDescriptors( state ) > 0 &&
+		state.frontEndDescriptorSetsLive < VULKAN_FRONTEND_DESCRIPTOR_SETS ) {
+		result = state.AllocateDescriptorSets( state.device,
+			&allocateInfo, &frontEndDescriptor.descriptorSet );
+	}
+	if ( result == VK_SUCCESS ) {
+		state.frontEndDescriptorSetsLive++;
+		state.frontEndPoolExhaustedWarned = false;	// warn once per exhaustion
+	} else {
+		if ( !state.frontEndPoolExhaustedWarned ) {
+			common->Warning( "vkAllocateDescriptorSets(front end) failed: %s (%d sets in use); "
+				"draws needing a new set are skipped until sets are freed (warned once)",
+				VkResultName( result ), state.frontEndDescriptorSetsLive );
+			state.frontEndPoolExhaustedWarned = true;
+		}
 		return false;
 	}
 	VkDescriptorImageInfo imageInfos[ VULKAN_FRONTEND_TEXTURES ];
@@ -5517,7 +5738,8 @@ bool GetVulkanFrontEndLayoutDescriptor( sdVulkanBackendState& state, const void*
 	}
 	state.UpdateDescriptorSets( state.device, VULKAN_FRONTEND_TEXTURES,
 		writes, 0, NULL );
-	state.frontEndDescriptors.Append( frontEndDescriptor );
+	state.frontEndDescriptorHash.Add( descriptorHashKey,
+		state.frontEndDescriptors.Append( frontEndDescriptor ) );
 	descriptorSet = frontEndDescriptor.descriptorSet;
 	return true;
 }
@@ -5600,7 +5822,7 @@ bool GetVulkanMaterialDescriptor( sdVulkanBackendState& state,
 		if ( descriptorIndex < 0 || descriptorIndex >= state.materialDescriptors.Num() ) {
 			continue;
 		}
-		const sdVulkanMaterialDescriptor& cached =
+		sdVulkanMaterialDescriptor& cached =
 			state.materialDescriptors[ descriptorIndex ];
 		if ( cached.owner != &stage ) {
 			continue;
@@ -5615,6 +5837,7 @@ bool GetVulkanMaterialDescriptor( sdVulkanBackendState& state,
 			}
 		}
 		if ( matches ) {
+			cached.lastUsedFrame = state.frameSerial;
 			descriptorSet = cached.descriptorSet;
 			return true;
 		}
@@ -5622,15 +5845,8 @@ bool GetVulkanMaterialDescriptor( sdVulkanBackendState& state,
 	sdVulkanMaterialDescriptor materialDescriptor;
 	memset( &materialDescriptor, 0, sizeof( materialDescriptor ) );
 	materialDescriptor.owner = &stage;
-	VkDescriptorSetAllocateInfo allocateInfo;
-	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
-	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocateInfo.descriptorPool = state.guiDescriptorPool;
-	allocateInfo.descriptorSetCount = 1;
-	allocateInfo.pSetLayouts = &state.guiDescriptorSetLayout;
-	if ( !CheckVulkanResult( state.AllocateDescriptorSets( state.device,
-		&allocateInfo, &materialDescriptor.descriptorSet ),
-		"vkAllocateDescriptorSets(material)" ) ) {
+	materialDescriptor.lastUsedFrame = state.frameSerial;
+	if ( !AllocateMaterialDescriptorSet( state, materialDescriptor.descriptorSet, "material" ) ) {
 		return false;
 	}
 	VkDescriptorImageInfo imageInfos[ VULKAN_MATERIAL_TEXTURES ];
@@ -5923,7 +6139,7 @@ bool GetVulkanSkyboxDescriptor( sdVulkanBackendState& state,
 		if ( descriptorIndex < 0 || descriptorIndex >= state.materialDescriptors.Num() ) {
 			continue;
 		}
-		const sdVulkanMaterialDescriptor& cached =
+		sdVulkanMaterialDescriptor& cached =
 			state.materialDescriptors[ descriptorIndex ];
 		if ( cached.owner != &stage ) {
 			continue;
@@ -5938,6 +6154,7 @@ bool GetVulkanSkyboxDescriptor( sdVulkanBackendState& state,
 			}
 		}
 		if ( matches ) {
+			cached.lastUsedFrame = state.frameSerial;
 			descriptorSet = cached.descriptorSet;
 			return true;
 		}
@@ -5945,15 +6162,8 @@ bool GetVulkanSkyboxDescriptor( sdVulkanBackendState& state,
 	sdVulkanMaterialDescriptor skyboxDescriptor;
 	memset( &skyboxDescriptor, 0, sizeof( skyboxDescriptor ) );
 	skyboxDescriptor.owner = &stage;
-	VkDescriptorSetAllocateInfo allocateInfo;
-	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
-	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocateInfo.descriptorPool = state.guiDescriptorPool;
-	allocateInfo.descriptorSetCount = 1;
-	allocateInfo.pSetLayouts = &state.guiDescriptorSetLayout;
-	if ( !CheckVulkanResult( state.AllocateDescriptorSets( state.device,
-		&allocateInfo, &skyboxDescriptor.descriptorSet ),
-		"vkAllocateDescriptorSets(skybox)" ) ) {
+	skyboxDescriptor.lastUsedFrame = state.frameSerial;
+	if ( !AllocateMaterialDescriptorSet( state, skyboxDescriptor.descriptorSet, "skybox" ) ) {
 		return false;
 	}
 	VkDescriptorImageInfo imageInfos[ VULKAN_MATERIAL_TEXTURES ];
@@ -6054,7 +6264,7 @@ bool GetVulkanWaterDescriptor( sdVulkanBackendState& state,
 		if ( descriptorIndex < 0 || descriptorIndex >= state.materialDescriptors.Num() ) {
 			continue;
 		}
-		const sdVulkanMaterialDescriptor& cached =
+		sdVulkanMaterialDescriptor& cached =
 			state.materialDescriptors[ descriptorIndex ];
 		if ( cached.owner != &stage ) {
 			continue;
@@ -6069,6 +6279,7 @@ bool GetVulkanWaterDescriptor( sdVulkanBackendState& state,
 			}
 		}
 		if ( matches ) {
+			cached.lastUsedFrame = state.frameSerial;
 			descriptorSet = cached.descriptorSet;
 			return true;
 		}
@@ -6076,15 +6287,8 @@ bool GetVulkanWaterDescriptor( sdVulkanBackendState& state,
 	sdVulkanMaterialDescriptor waterDescriptor;
 	memset( &waterDescriptor, 0, sizeof( waterDescriptor ) );
 	waterDescriptor.owner = &stage;
-	VkDescriptorSetAllocateInfo allocateInfo;
-	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
-	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocateInfo.descriptorPool = state.guiDescriptorPool;
-	allocateInfo.descriptorSetCount = 1;
-	allocateInfo.pSetLayouts = &state.guiDescriptorSetLayout;
-	if ( !CheckVulkanResult( state.AllocateDescriptorSets( state.device,
-		&allocateInfo, &waterDescriptor.descriptorSet ),
-		"vkAllocateDescriptorSets(water)" ) ) {
+	waterDescriptor.lastUsedFrame = state.frameSerial;
+	if ( !AllocateMaterialDescriptorSet( state, waterDescriptor.descriptorSet, "water" ) ) {
 		return false;
 	}
 	VkDescriptorImageInfo imageInfos[ VULKAN_MATERIAL_TEXTURES ];
@@ -6166,7 +6370,7 @@ bool GetVulkanHeatHazeDescriptor( sdVulkanBackendState& state,
 		if ( descriptorIndex < 0 || descriptorIndex >= state.materialDescriptors.Num() ) {
 			continue;
 		}
-		const sdVulkanMaterialDescriptor& cached =
+		sdVulkanMaterialDescriptor& cached =
 			state.materialDescriptors[ descriptorIndex ];
 		if ( cached.owner != &stage ) {
 			continue;
@@ -6181,6 +6385,7 @@ bool GetVulkanHeatHazeDescriptor( sdVulkanBackendState& state,
 			}
 		}
 		if ( matches ) {
+			cached.lastUsedFrame = state.frameSerial;
 			descriptorSet = cached.descriptorSet;
 			return true;
 		}
@@ -6189,15 +6394,8 @@ bool GetVulkanHeatHazeDescriptor( sdVulkanBackendState& state,
 	sdVulkanMaterialDescriptor heatDescriptor;
 	memset( &heatDescriptor, 0, sizeof( heatDescriptor ) );
 	heatDescriptor.owner = &stage;
-	VkDescriptorSetAllocateInfo allocateInfo;
-	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
-	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocateInfo.descriptorPool = state.guiDescriptorPool;
-	allocateInfo.descriptorSetCount = 1;
-	allocateInfo.pSetLayouts = &state.guiDescriptorSetLayout;
-	if ( !CheckVulkanResult( state.AllocateDescriptorSets( state.device,
-		&allocateInfo, &heatDescriptor.descriptorSet ),
-		"vkAllocateDescriptorSets(heat haze)" ) ) {
+	heatDescriptor.lastUsedFrame = state.frameSerial;
+	if ( !AllocateMaterialDescriptorSet( state, heatDescriptor.descriptorSet, "heat haze" ) ) {
 		return false;
 	}
 	VkDescriptorImageInfo imageInfos[ VULKAN_MATERIAL_TEXTURES ];
@@ -6283,7 +6481,7 @@ bool GetVulkanSceneAlbedoDescriptor( sdVulkanBackendState& state,
 		if ( descriptorIndex < 0 || descriptorIndex >= state.materialDescriptors.Num() ) {
 			continue;
 		}
-		const sdVulkanMaterialDescriptor& cached = state.materialDescriptors[ descriptorIndex ];
+		sdVulkanMaterialDescriptor& cached = state.materialDescriptors[ descriptorIndex ];
 		if ( cached.owner != sceneAlbedoOwner ) {
 			continue;
 		}
@@ -6296,6 +6494,7 @@ bool GetVulkanSceneAlbedoDescriptor( sdVulkanBackendState& state,
 			}
 		}
 		if ( matches ) {
+			cached.lastUsedFrame = state.frameSerial;
 			descriptorSet = cached.descriptorSet;
 			return true;
 		}
@@ -6303,15 +6502,8 @@ bool GetVulkanSceneAlbedoDescriptor( sdVulkanBackendState& state,
 	sdVulkanMaterialDescriptor albedoDescriptor;
 	memset( &albedoDescriptor, 0, sizeof( albedoDescriptor ) );
 	albedoDescriptor.owner = sceneAlbedoOwner;
-	VkDescriptorSetAllocateInfo allocateInfo;
-	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
-	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocateInfo.descriptorPool = state.guiDescriptorPool;
-	allocateInfo.descriptorSetCount = 1;
-	allocateInfo.pSetLayouts = &state.guiDescriptorSetLayout;
-	if ( !CheckVulkanResult( state.AllocateDescriptorSets( state.device,
-		&allocateInfo, &albedoDescriptor.descriptorSet ),
-		"vkAllocateDescriptorSets(scene albedo)" ) ) {
+	albedoDescriptor.lastUsedFrame = state.frameSerial;
+	if ( !AllocateMaterialDescriptorSet( state, albedoDescriptor.descriptorSet, "scene albedo" ) ) {
 		return false;
 	}
 	VkDescriptorImageInfo imageInfos[ VULKAN_MATERIAL_TEXTURES ];
@@ -7139,6 +7331,7 @@ void sdVulkanBackend::EndFrame( bool ) {
 	}
 	state->frameActive = false;
 	state->frameIndex = ( state->frameIndex + 1 ) % NUM_VULKAN_FRAMES;
+	state->frameSerial++;
 
 	// r_vkPrepareAhead: the next frame's fence wait and command-pool reset happen now, before
 	// the next frame samples input and ClientUpdateView computes its fraction, not in BeginFrame
@@ -8139,6 +8332,7 @@ void sdVulkanBackend::EndToolWindow() {
 	state->toolRenderExtent.width = state->toolRenderExtent.height = 0;
 	state->toolImageOwner = NULL;
 	state->frameIndex = ( state->frameIndex + 1 ) % NUM_VULKAN_FRAMES;
+	state->frameSerial++;
 }
 
 bool sdVulkanBackend::IsToolWindowActive() const {
@@ -9422,12 +9616,16 @@ void sdVulkanBackend::DestroyImage( const void* owner ) {
 			// Composite material descriptors do not own their sampled images.  Once
 			// any constituent image is replaced, never return the old descriptor
 			// again: its VkImageView remains the destroyed view even if Vulkan later
-			// reuses the same numeric handle for the replacement.  Do not free the
-			// set here because it may already be referenced by this frame's command
-			// buffer; invalid entries are reclaimed with the descriptor pool.
-			for ( int descriptorIndex = 0;
-				descriptorIndex < state->materialDescriptors.Num(); ++descriptorIndex ) {
-				sdVulkanMaterialDescriptor& descriptor =
+			// reuses the same numeric handle for the replacement.  The set may already
+			// be referenced by this frame's command buffer, so it is freed once this
+			// frame has completed, with the image itself (#262); the entry leaves the
+			// cache now.
+			const unsigned int setRetireFrame = state->frameActive ||
+				state->toolFrameActive ? state->frameIndex :
+				( state->frameIndex + NUM_VULKAN_FRAMES - 1 ) % NUM_VULKAN_FRAMES;
+			for ( int descriptorIndex = state->materialDescriptors.Num() - 1;
+				descriptorIndex >= 0; --descriptorIndex ) {
+				const sdVulkanMaterialDescriptor& descriptor =
 					state->materialDescriptors[ descriptorIndex ];
 				bool usesRemovedImage = false;
 				for ( int imageIndex = 0; imageIndex < VULKAN_MATERIAL_TEXTURES;
@@ -9439,17 +9637,14 @@ void sdVulkanBackend::DestroyImage( const void* owner ) {
 					}
 				}
 				if ( usesRemovedImage ) {
-					descriptor.owner = NULL;
-					memset( descriptor.imageOwners, 0,
-						sizeof( descriptor.imageOwners ) );
-					memset( descriptor.imageViews, 0,
-						sizeof( descriptor.imageViews ) );
+					state->frameRetiredMaterialSets[ setRetireFrame ].Append( descriptor.descriptorSet );
+					RemoveMaterialDescriptor( *state, descriptorIndex );
 				}
 			}
-			// the same for the front-end ambient programs' sets
-			for ( int descriptorIndex = 0;
-				descriptorIndex < state->frontEndDescriptors.Num(); ++descriptorIndex ) {
-				sdVulkanFrontEndDescriptor& descriptor =
+			// the same for the front-end ambient programs' sets, in their own pool (#258)
+			for ( int descriptorIndex = state->frontEndDescriptors.Num() - 1;
+				descriptorIndex >= 0; --descriptorIndex ) {
+				const sdVulkanFrontEndDescriptor& descriptor =
 					state->frontEndDescriptors[ descriptorIndex ];
 				bool usesRemovedImage = false;
 				for ( int imageIndex = 0; imageIndex < VULKAN_FRONTEND_TEXTURES;
@@ -9461,11 +9656,8 @@ void sdVulkanBackend::DestroyImage( const void* owner ) {
 					}
 				}
 				if ( usesRemovedImage ) {
-					descriptor.owner = NULL;
-					memset( descriptor.imageOwners, 0,
-						sizeof( descriptor.imageOwners ) );
-					memset( descriptor.imageViews, 0,
-						sizeof( descriptor.imageViews ) );
+					state->frameRetiredFrontEndSets[ setRetireFrame ].Append( descriptor.descriptorSet );
+					RemoveFrontEndDescriptor( *state, descriptorIndex );
 				}
 			}
 			const int lastIndex = state->imageResources.Num() - 1;
@@ -9950,7 +10142,12 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	}
 	VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
 	if ( stage != NULL && selectedImage != NULL ) {
-		GetVulkanMaterialDescriptor( state, *stage, selectedImage, surface->space, descriptorSet );
+		// the ambient pass takes the front-end set, which adds the specular cube
+		if ( ambient != NULL ) {
+			GetVulkanFrontEndDescriptor( state, *stage, selectedImage, surface->space, descriptorSet );
+		} else {
+			GetVulkanMaterialDescriptor( state, *stage, selectedImage, surface->space, descriptorSet );
+		}
 	}
 	if ( ambient != NULL && descriptorSet == VK_NULL_HANDLE ) {
 		return;	// the fallback sets carry a black cube: keep the flat ambient
@@ -10138,11 +10335,14 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 			pushConstants[ 34 ] = delta.x * m[ 8 ] + delta.y * m[ 9 ] + delta.z * m[ 10 ];
 			pushConstants[ 35 ] = fog[ 3 ];
 		} else if ( ambient != NULL ) {
-			// ambient_cube.frag: $ambientBrightness, $ambientScale.x and the mode
-			// (0: the ambient scale, 1: the self-illumination)
+			// ambient_cube.frag: $ambientBrightness, $ambientScale.x, the mode
+			// (0: the ambient scale, 1: the specular) and 1 to add the
+			// self-illumination; the colour slot holds the view origin, as above,
+			// and ambient[ 4..7 ] the flat amblit ambient (below)
 			pushConstants[ 32 ] = ambient[ 0 ];
 			pushConstants[ 33 ] = ambient[ 1 ];
 			pushConstants[ 34 ] = ambient[ 2 ];
+			pushConstants[ 35 ] = ambient[ 3 ];
 		} else if ( directional ) {
 			idVec3 sunDirection( 0.35f, 0.45f, 0.82f );
 			if ( view->atmosphere != NULL ) {
@@ -10226,6 +10426,13 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		pushConstants[ 39 ] = fog != NULL ? fog[ 4 ] : ( directional ? 1.0f : 0.0f ) +
 			( surface->material->GetCullType() == CT_TWO_SIDED ? 2.0f : 0.0f ) +
 			( notLitTerrain ? 4.0f : 0.0f );
+		if ( ambient != NULL ) {
+			// ambient_cube.frag's flatAmbient: the amblit colour, and 1 to use it
+			pushConstants[ 36 ] = ambient[ 4 ];
+			pushConstants[ 37 ] = ambient[ 5 ];
+			pushConstants[ 38 ] = ambient[ 6 ];
+			pushConstants[ 39 ] = ambient[ 7 ];
+		}
 	}
 
 	sdVulkanFrame& frame = state.frames[ state.frameIndex ];
@@ -10233,8 +10440,10 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	state.CmdSetScissor( frame.commandBuffer, 0, 1, &vkScissor );
 	state.CmdSetDepthBias( frame.commandBuffer, 0.0f, 0.0f, 0.0f );
 	state.CmdBindPipeline( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
+	const VkPipelineLayout pipelineLayout = ambient != NULL ? state.frontEndPipelineLayout :
+		state.guiPipelineLayout;
 	state.CmdBindDescriptorSets( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-		state.guiPipelineLayout, 0, 1, sceneAlbedoInteraction ? &sceneAlbedoSet : &descriptorSet,
+		pipelineLayout, 0, 1, sceneAlbedoInteraction ? &sceneAlbedoSet : &descriptorSet,
 		0, NULL );
 	if ( hardwareSkinned ) {
 		// the palette goes into this frame's joint arena, bound at set 1 as the
@@ -10258,7 +10467,7 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 			tri->numJoints * sizeof( idJointMat ) );
 		const unsigned int dynamicOffset = static_cast< unsigned int >( jointOffset );
 		state.CmdBindDescriptorSets( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-			state.guiPipelineLayout, 1, 1, &frame.jointDescriptorSet, 1, &dynamicOffset );
+			pipelineLayout, 1, 1, &frame.jointDescriptorSet, 1, &dynamicOffset );
 		frame.jointOffset += stride;
 		const VkBuffer buffers[ 2 ] = { vertexResource->buffer, weightResource->buffer };
 		const VkDeviceSize offsets[ 2 ] = { vertexOffset,
@@ -10289,7 +10498,7 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		pushConstants[ 18 ] = 1.0f - notLitShadowColor.z;
 		pushConstants[ 30 ] = 0.0f;
 	}
-	state.CmdPushConstants( frame.commandBuffer, state.guiPipelineLayout,
+	state.CmdPushConstants( frame.commandBuffer, pipelineLayout,
 		VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
 		sizeof( float ) * ( litInteraction ? 40 : 32 ), pushConstants );
 	state.CmdDrawIndexed( frame.commandBuffer, tri->numIndexes, 1, 0, 0, 0 );
@@ -10702,23 +10911,41 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 					}
 					bool megaTexture = false;
 					bool selfIllum = false;
+					bool specular = false;
 					for ( int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex ) {
 						const materialStage_t* stage = material->GetStage( stageIndex );
 						megaTexture |= stage->megaTexture != NULL;
 						for ( int textureIndex = 0; textureIndex < stage->numTextures; ++textureIndex ) {
 							const sdDeclRenderBinding* binding = stage->textures[ textureIndex ].renderBinding;
 							selfIllum |= binding != NULL && idStr::Icmp( binding->GetName(), "selfillummap" ) == 0;
+							specular |= binding != NULL && rbinds != NULL && binding == rbinds->specularMap;
 						}
 					}
 					if ( megaTexture ) {
 						continue;
 					}
-					const float scaleTerms[ 3 ] = { cubeMap->GetBrightness(), ambientScale, 0.0f };
-					const float selfIllumTerms[ 3 ] = { cubeMap->GetBrightness(), ambientScale, 1.0f };
+					// Under the sun with r_megaDrawMethod != 0, retail draws the ambient of
+					// a surface the sun lights (its ambSurf bit, which OpenGL's
+					// R_FillDepthAmbient skips) in the sun's amblit pass: diffuse * vertex
+					// colour * $ambientAvgColor (minSpecAmbientColor), with no cube,
+					// $ambientScale or specular cube (interaction/basic_fragment.inc).
+					const viewEntity_s* space = surf->space;
+					const bool ambientLit = r_megaDrawMethod.GetInteger() != 0 && space->ambSurf != NULL &&
+						surf->surfID >= 0 && surf->surfID < space->maxSurfID &&
+						( space->ambSurf[ surf->surfID >> 5 ] & ( 1u << ( surf->surfID & 31 ) ) ) != 0;
+					const idVec3 flatAmbient = cubeMap->GetMinSpecAmbientColor();
+					// the additive draw: retail's specular cube term, where there are a
+					// specular map and cube, and the self-illumination
+					specular = specular && !ambientLit && cubeMap->GetSpecularCubeMap() != NULL;
+					const float flat = ambientLit ? 1.0f : 0.0f;
+					const float scaleTerms[ 8 ] = { cubeMap->GetBrightness(), ambientScale, 0.0f, 0.0f,
+						flatAmbient.x, flatAmbient.y, flatAmbient.z, flat };
+					const float addTerms[ 8 ] = { cubeMap->GetBrightness(), ambientScale, 1.0f,
+						selfIllum ? 1.0f : 0.0f, flatAmbient.x, flatAmbient.y, flatAmbient.z, flat };
 					vulkanInstanceSurfaces.ForEach( surf, [&]( const drawSurf_s* drawSurf ) {
 						DrawVulkanLightInteraction( *state, drawSurf, NULL, view, true, NULL, scaleTerms );
-						if ( selfIllum && state->worldAmbientCubeAddPipeline != VK_NULL_HANDLE ) {
-							DrawVulkanLightInteraction( *state, drawSurf, NULL, view, true, NULL, selfIllumTerms );
+						if ( ( selfIllum || specular ) && state->worldAmbientCubeAddPipeline != VK_NULL_HANDLE ) {
+							DrawVulkanLightInteraction( *state, drawSurf, NULL, view, true, NULL, addTerms );
 						}
 					} );
 				}

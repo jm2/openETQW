@@ -25,7 +25,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Next step |
 |---|---|---|---|
-| [#122](https://github.com/jm2/openETQW/issues/122) | GDF rifle viewmodel: dark on raster Vulkan, tan with ray tracing. Retail (coordinator, canyon) is lit tan-brown; raster Vulkan was dark across the whole lit scene. | openETQW-win-arm64 | PR `fix/vk-viewmodel-dark-122`: raster Vulkan ambient from the entity's ambient cube and retail's interaction specular. Follow-ups: the specular cube term of the ambient pass, terrain's bakedamb ambient, the RT path relighting viewmodel pixels as world (lighting.comp). |
+| [#262](https://github.com/jm2/openETQW/issues/262) | Vulkan material descriptor cache never frees orphaned sets (guiDescriptorPool exhaustion after ~300 map loads) | openETQW-win-arm64 | PR `fix/vk-material-descriptor-leak-262`: sets freed with their images, unused sets evicted when full, one-time warning. |
 
 ## 3. Milestone work, in order
 
@@ -134,6 +134,13 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-22/23:
+- #266 Vulkan: image descriptors use the evicting allocator; currentRender material sets purged on swapchain recreate (#264 review)
+- #264 Vulkan: material descriptor sets freed with purged images and evicted when the pool is full (fixes #262)
+- #261 Vulkan: front-end descriptor sets in their own pool, hashed, freed with purged images, evicted when full (fixes #258)
+- #260 OpenGL forceClear follows glConfig.samples; clearer multisample fallback warning (#255 review)
+- #259 OpenGL: retry without multisampling when the requested r_multiSamples fails (fixes #255 on SDL3)
+- #257 Vulkan: sunlit opaque surfaces take retail's amblit ambient (minSpecAmbientColor) via ambSurf; others the cube plus its specular term (fixes #122's ambient gap)
+- #254 OpenGL: load qglSampleCoverageARB; the SDL3 window requests r_multiSamples (fixes #253)
 - #249 Raster Vulkan: retail's ambient cube (multiplicative, before the flat ambient), self-illumination, interaction specular; generated cubes no longer black (part of #122)
 - #252 OpenGL: load qglMultiTexCoord4fARB, so instanced trees and shrubs draw (#246 OpenGL half)
 - #251 No interaction specular in GUI render worlds (limbo model), matched to measured retail; ledger row 079 (owner accepted 2026-10-25; fixes #212 with #250)
