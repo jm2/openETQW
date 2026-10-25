@@ -482,6 +482,12 @@ void RB_DrawElementsWithCounters( const srfTriangles_t* triangles ) {
 			const viewDef_s* viewDef = RB_GetViewDef();
 			for ( int instanceIndex = 0; instanceIndex < space->numInsts; ++instanceIndex ) {
 				const sdInstInfo& instance = space->insts[ instanceIndex ];
+				// Each instance's own maxVisDist/minVisDist, measured from its
+				// fadeOrigin, as the Vulkan raster path does (#246).
+				if ( !R_DistanceVisibility( instance.fadeOrigin, idMath::Ftoi( instance.maxVisDist ),
+						idMath::Ftoi( instance.minVisDist ), viewDef ) ) {
+					continue;
+				}
 				if ( viewDef != NULL && R_CullLocalBoxToViewdef( triangles->bounds,
 						instance.inst.axis, instance.inst.origin, viewDef ) ) {
 					continue;
