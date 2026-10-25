@@ -20,6 +20,9 @@
 // The pass scales what the base pass and the decals left instead of
 // replacing it, so blended decals and extra stages keep their colour:
 //   mode 0, blend 2 * src * dst: the ambient, halved here so up to 2 fits;
+//   mode 2, the same blend where the sun's stencil says shadow: an amblit
+//           surface's minSpecShadowColor (flatAmbient), as retail's
+//           shadow/multiplitive pass (#265);
 //   mode 1, blend dst + src: the specular, plus (ambientParameters.w = 1) the
 //           self-illumination the scale took away,
 //           selfIllum * vertex colour * ( 1 - ambient ).
@@ -65,6 +68,13 @@ void main() {
 	if ( pc.parameters.w > 0.5 && texture( diffuseTexture, fragmentTexCoord ).a < pc.parameters.z ) {
 		discard;
 	}
+	// mode 2: only where the sun's interaction draws (its geometry faces the sun,
+	// color.rgb in model space; color.a 1 for a two-sided material, lit from either
+	// side), as retail scales only the pixels its amblit pass drew
+	if ( pc.ambientParameters.z > 1.5 && pc.color.a < 0.5 &&
+		dot( normalize( fragmentNormal ), pc.color.rgb ) <= 0.0 ) {
+		discard;
+	}
 	// the bumped normal as interaction.frag decodes it, in model space
 	vec2 tangentXY = texture( bumpTexture, fragmentTexCoord ).rg * 2.0 - 1.0;
 	float tangentZ = sqrt( max( 0.0, 1.0 - dot( tangentXY, tangentXY ) ) );
@@ -76,7 +86,7 @@ void main() {
 	vec3 ambient = flatLit ? pc.flatAmbient.rgb :
 		texture( ambientCubeTexture, rotateToWorld( normal, modelRotation ) ).rgb *
 		pc.ambientParameters.x * pc.ambientParameters.y;
-	if ( pc.ambientParameters.z < 0.5 ) {
+	if ( pc.ambientParameters.z < 0.5 || pc.ambientParameters.z > 1.5 ) {	// 0: the ambient, 2: the shadow scale (#265)
 		outColor = vec4( ambient * 0.5, 1.0 );
 	} else {
 		vec3 viewDirection = normalize( pc.color.rgb - fragmentPosition );
