@@ -646,6 +646,14 @@ void idImage::GenerateImageEx(
 				repeatParm == TR_REPEAT ) ) {
 			common->Warning( "Vulkan image upload failed for '%s'", imgName.c_str() );
 		}
+		if ( level > 0 && vulkanBackend.IsInitialized() &&
+			mipmapState.colorType != mipmapState_t::MT_NONE ) {
+			// Vulkan blits the mip chain from level 0.  A mipmap state changes each
+			// CPU level (the megatexture detail's fade toward grey, MT_WATER,
+			// MT_COLORLEVELS), so those levels replace the blitted ones, as OpenGL
+			// uploads them.
+			vulkanBackend.UpdateImage2D( this, level, 0, 0, levelWidth, levelHeight, levelPixels );
+		}
 		if ( !R_UseVulkanBackend() ) {
 			// Retail's ARB programs read a normal's X from alpha and Y from green
 			// (MOV localNormal.x, localNormal.a), the layout of its 3Dc normal maps
