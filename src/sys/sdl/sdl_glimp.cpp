@@ -86,12 +86,47 @@ public:
 				flags
 			);
 		}
+		// A sample count the driver can't provide fails window creation (X11/GLX) or
+		// context creation (Wayland/EGL, macOS). Drop multisampling and retry once,
+		// so an archived r_multiSamples can't stop the game starting (#255).
+		bool multisampled = !R_UseVulkanBackend() && parms.multiSamples.multi > 1;
+		auto dropMultisampling = [&]() {
+			common->Warning( "SDL3: failed with r_multiSamples %d (%s); retrying without multisampling",
+				parms.multiSamples.multi, SDL_GetError() );
+			SDL_GL_SetAttribute( SDL_GL_MULTISAMPLEBUFFERS, 0 );
+			SDL_GL_SetAttribute( SDL_GL_MULTISAMPLESAMPLES, 0 );
+			multisampled = false;
+		};
+		if ( window == NULL && multisampled ) {
+			dropMultisampling();
+			window = SDL_CreateWindow(
+				"Enemy Territory: QUAKE Wars",
+				parms.width,
+				parms.height,
+				flags
+			);
+		}
 		if ( window == NULL ) {
 			common->FatalError( "SDL3: failed to create window: %s", SDL_GetError() );
 		}
 
 		if ( !R_UseVulkanBackend() ) {
 			glContext = SDL_GL_CreateContext( window );
+			if ( glContext == NULL && multisampled ) {
+				// the window's pixel format was chosen with the samples, so make a new one
+				dropMultisampling();
+				SDL_DestroyWindow( window );
+				window = SDL_CreateWindow(
+					"Enemy Territory: QUAKE Wars",
+					parms.width,
+					parms.height,
+					flags
+				);
+				if ( window == NULL ) {
+					common->FatalError( "SDL3: failed to create window: %s", SDL_GetError() );
+				}
+				glContext = SDL_GL_CreateContext( window );
+			}
 			if ( glContext == NULL ) {
 				common->FatalError( "SDL3: failed to create OpenGL context: %s", SDL_GetError() );
 			}
@@ -100,9 +135,11 @@ public:
 			}
 			int depthBits = 0;
 			int stencilBits = 0;
+			int samples = 0;
 			SDL_GL_GetAttribute( SDL_GL_DEPTH_SIZE, &depthBits );
 			SDL_GL_GetAttribute( SDL_GL_STENCIL_SIZE, &stencilBits );
-			common->Printf( "SDL3 OpenGL context: depth %d, stencil %d\n", depthBits, stencilBits );
+			SDL_GL_GetAttribute( SDL_GL_MULTISAMPLESAMPLES, &samples );
+			common->Printf( "SDL3 OpenGL context: depth %d, stencil %d, samples %d\n", depthBits, stencilBits, samples );
 		}
 
 		gameWindowParms = parms;
