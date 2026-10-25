@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5534,
+  "totalFiles": 5535,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 311,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 402
   },
   "postSplitCounts": {
-    "Reconstruction_original": 255,
+    "Reconstruction_original": 256,
     "ThirdParty": 1,
     "Doom3_GPL": 2,
     "SDK": 2
@@ -47780,6 +47780,18 @@
       "spdx": null
     },
     {
+      "path": "base/vkprogs/world/fog.frag",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "42d47cee19af8229904fa404d31237fb75b9654de06733bde18efa5d384973e3",
+      "canonicalSha256": "42d47cee19af8229904fa404d31237fb75b9654de06733bde18efa5d384973e3",
+      "bytes": 1766,
+      "addedAfterSplit": true,
+      "addedIn": "578db1332e6e670a16357c1beb57bc82abf27bec",
+      "spdx": null
+    },
+    {
       "path": "base/vkprogs/world/frontend.frag",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -48036,9 +48048,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "8bd3adc4eb0c8e94c35fa0566459b66265c332423ad2db97b772924ac2fda2b9",
-      "canonicalSha256": "8bd3adc4eb0c8e94c35fa0566459b66265c332423ad2db97b772924ac2fda2b9",
-      "bytes": 23507,
+      "rawSha256": "a0bb9681cc830d3e19859d2c590232d237b254e203e6c5c9c96471d3cf5fc0ea",
+      "canonicalSha256": "a0bb9681cc830d3e19859d2c590232d237b254e203e6c5c9c96471d3cf5fc0ea",
+      "bytes": 23649,
       "addedAfterSplit": true,
       "addedIn": "bcba1a665ec1fe2674896af8cffbb62c5a2de127",
       "spdx": "GPL-3.0-or-later"
