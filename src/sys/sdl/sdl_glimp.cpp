@@ -51,6 +51,11 @@ public:
 		SDL_GL_SetAttribute( SDL_GL_DEPTH_SIZE, 24 );
 		SDL_GL_SetAttribute( SDL_GL_STENCIL_SIZE, 8 );
 		SDL_GL_SetAttribute( SDL_GL_DOUBLEBUFFER, 1 );
+		// r_multiSamples, as win_opengl.cpp requests it; without these the OpenGL
+		// framebuffer was never multisampled, so glConfig.samples stayed 0 and the
+		// sample-coverage fade could not run (#253).
+		SDL_GL_SetAttribute( SDL_GL_MULTISAMPLEBUFFERS, parms.multiSamples.multi > 1 ? 1 : 0 );
+		SDL_GL_SetAttribute( SDL_GL_MULTISAMPLESAMPLES, parms.multiSamples.multi > 1 ? parms.multiSamples.multi : 0 );
 
 		SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
 		if ( R_UseVulkanBackend() ) {
