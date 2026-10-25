@@ -55,6 +55,8 @@ OPENQ4_TOOLING = {
     "tools/build/openETQWInstaller.iss.in": "tools/build/openQ4Installer.iss.in",
     "tools/build/package_linux_appimage.py": "tools/build/package_linux_appimage.py",
     ".github/workflows/manual-release.yml": ".github/workflows/manual-release.yml",
+    # engine code adapted from one function of a donor file
+    "src/sys/sdl/MouseDelta.h": "src/sys/sdl3/sdl3_backend.cpp",
 }
 
 # Untagged files: (repository, path prefix or exact path) -> (tier, license).

@@ -39,9 +39,16 @@
 
 #include <atomic>
 #include <chrono>
+#include <deque>
+#include <unordered_map>
+#include <vector>
+
+void R_AxisToModelMatrix( const idMat3& axis, const idVec3& origin, float* const modelMatrix );
+void R_MultMatrix( const float* a, const float* b, float* output );
 
 extern idCVar r_offsetFactor;
 extern idCVar r_offsetUnits;
+extern idCVar r_megaDrawMethod;
 extern idCVar r_shadows;
 extern idCVar r_shadowPass;
 extern idCVar r_useExternalShadows;
@@ -251,7 +258,8 @@ struct sdVulkanMaterialDescriptor {
 };
 
 struct sdVulkanFrontEndDescriptor {
-	const materialStage_t*	owner;
+	const void*				owner;		// the stage, or the megatexture level
+
 	const void*				imageOwners[ VULKAN_FRONTEND_TEXTURES ];
 	VkImageView				imageViews[ VULKAN_FRONTEND_TEXTURES ];
 	VkDescriptorSet			descriptorSet;
@@ -640,6 +648,7 @@ struct sdVulkanBackendState {
 	VkPipelineLayout			guiPipelineLayout;
 	VkDescriptorSetLayout		frontEndDescriptorSetLayout;
 	VkPipelineLayout			frontEndPipelineLayout;
+	bool					megaDetailPipeline;	// worldMegaPipeline uses the front-end layout
 	VkPipeline				worldFrontEndPipeline;
 	VkPipeline				worldFrontEndAlphaPipeline;
 	VkPipeline				worldFrontEndAddPipeline;
@@ -896,6 +905,7 @@ struct sdVulkanBackendState {
 		guiPipelineLayout = VK_NULL_HANDLE;
 		frontEndDescriptorSetLayout = VK_NULL_HANDLE;
 		frontEndPipelineLayout = VK_NULL_HANDLE;
+		megaDetailPipeline = false;
 		worldFrontEndPipeline = VK_NULL_HANDLE;
 		worldFrontEndAlphaPipeline = VK_NULL_HANDLE;
 		worldFrontEndAddPipeline = VK_NULL_HANDLE;
@@ -1099,6 +1109,17 @@ void EncodeModelRotation( const float modelMatrix[ 16 ], float& encodedXY,
 	modelRotation.Normalize();
 	encodedXY = PackSnorm2x16AsFloat( modelRotation.x, modelRotation.y );
 	encodedZW = PackSnorm2x16AsFloat( modelRotation.z, modelRotation.w );
+}
+
+// Retail's foliage programs colour each vertex by its colour attribute whatever the
+// stage's vertexColor (foliage_vertex.inc: MOV result.color, $colorAttrib); the tree
+// models carry their leaves' green there (#246).
+bool VulkanStageUsesVertexColor( const materialStage_t* stage ) {
+	if ( stage == NULL ) {
+		return false;
+	}
+	return stage->vertexColor == SVC_MODULATE || ( stage->renderProgram != NULL &&
+		idStr::Icmpn( stage->renderProgram->GetName(), "interaction/foliage", 19 ) == 0 );
 }
 
 void ReportMissingVulkanMaterial( sdVulkanBackendState& state,
@@ -3818,6 +3839,26 @@ void CreateFrontEndPipelines( sdVulkanBackendState& state ) {
 	}
 }
 
+// The MegaTexture base pass.  With the front-end layout it binds the level, the
+// detail texture and its mask (mega_detail.frag, retail's detail_fragment.inc);
+// without it, the level alone (mega.frag), as before.
+bool CreateMegaPipeline( sdVulkanBackendState& state ) {
+	state.megaDetailPipeline = false;
+	if ( state.frontEndPipelineLayout != VK_NULL_HANDLE &&
+		CreateWorldPipelineVariant( state, "vkprogs/world/mega.vert",
+			"vkprogs/world/mega_detail.frag", VK_BLEND_FACTOR_SRC_ALPHA,
+			VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, true, true, false,
+			state.worldMegaPipeline, VK_COMPARE_OP_LESS_OR_EQUAL, true,
+			VK_POLYGON_MODE_FILL, false, state.frontEndPipelineLayout ) ) {
+		state.megaDetailPipeline = true;
+		return true;
+	}
+	return CreateWorldPipelineVariant( state, "vkprogs/world/mega.vert",
+		"vkprogs/world/mega.frag", VK_BLEND_FACTOR_SRC_ALPHA,
+		VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, true, true, false,
+		state.worldMegaPipeline );
+}
+
 bool CreateWorldPipeline( sdVulkanBackendState& state ) {
 	CreateFrontEndPipelines( state );
 	return CreateWorldPipelineVariant( state, "vkprogs/world/ambient.vert",
@@ -3840,10 +3881,7 @@ bool CreateWorldPipeline( sdVulkanBackendState& state ) {
 		CreateWorldPipelineVariant( state, "vkprogs/world/trivial.vert",
 			"vkprogs/world/decal_multiply.frag", VK_BLEND_FACTOR_DST_COLOR,
 			VK_BLEND_FACTOR_ZERO, true, false, false, state.worldMultiplyPipeline ) &&
-		CreateWorldPipelineVariant( state, "vkprogs/world/mega.vert",
-			"vkprogs/world/mega.frag", VK_BLEND_FACTOR_SRC_ALPHA,
-			VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, true, true, false,
-			state.worldMegaPipeline ) &&
+		CreateMegaPipeline( state ) &&
 		CreateWorldPipelineVariant( state, "vkprogs/world/atmosphere.vert",
 			"vkprogs/world/atmosphere.frag", VK_BLEND_FACTOR_ONE,
 			VK_BLEND_FACTOR_ONE, true, false, false,
@@ -5258,6 +5296,42 @@ void SetVulkanPolygonOffset( sdVulkanBackendState& state,
 		0.0f, enabled ? r_offsetFactor.GetFloat() : 0.0f );
 }
 
+bool GetVulkanFrontEndLayoutDescriptor( sdVulkanBackendState& state, const void* owner,
+	idImage* images[ VULKAN_FRONTEND_TEXTURES ], idImage* fallbacks[ VULKAN_FRONTEND_TEXTURES ],
+	VkDescriptorSet& descriptorSet );
+
+// The descriptor for a MegaTexture level in the terrain base pass: the level's
+// image, then retail's detail texture and its mask ($megaDetailTexture,
+// $megaDetailTextureMask, as idMegaTexture::UpdateForViewOrigin sets them),
+// mega_detail.frag's bindings 0-2.  The rest of the front-end layout is unused.
+bool GetVulkanMegaDescriptor( sdVulkanBackendState& state, const void* level,
+	idImage* levelImage, VkDescriptorSet& descriptorSet ) {
+	descriptorSet = VK_NULL_HANDLE;
+	if ( globalImages == NULL || levelImage == NULL || rbinds == NULL ) {
+		return false;
+	}
+	idImage* detail = rbinds->megaDetailTexture->GetImage();
+	idImage* detailMask = rbinds->megaDetailTextureMask->GetImage();
+	idImage* images[ VULKAN_FRONTEND_TEXTURES ] = {
+		levelImage,
+		detail != NULL ? detail : globalImages->grayImage,
+		detailMask != NULL ? detailMask : globalImages->defaultDetailMaskImage,
+		globalImages->blackImage,
+		globalImages->blackCubeMapImage,
+		globalImages->blackCubeMapImage
+	};
+	// A gray detail adds nothing (2 x 0.5 - 1 = 0), whatever the mask.
+	idImage* fallbacks[ VULKAN_FRONTEND_TEXTURES ] = {
+		globalImages->blackImage,
+		globalImages->grayImage,
+		globalImages->defaultDetailMaskImage,
+		globalImages->blackImage,
+		globalImages->blackCubeMapImage,
+		globalImages->blackCubeMapImage
+	};
+	return GetVulkanFrontEndLayoutDescriptor( state, level, images, fallbacks, descriptorSet );
+}
+
 // The descriptor for a front-end ambient program: diffuse, bump, specular and
 // self-illumination maps, then the entity's ambient and specular cube maps, bound
 // as the GL path's SetAmbientCubeMapBindings does (black when there are none).
@@ -5304,6 +5378,21 @@ bool GetVulkanFrontEndDescriptor( sdVulkanBackendState& state,
 	for ( int slot = 0; slot < VULKAN_FRONTEND_TEXTURES; ++slot ) {
 		fallbacks[ slot ] = slot >= 4 ? globalImages->blackCubeMapImage :
 			globalImages->blackImage;
+	}
+	return GetVulkanFrontEndLayoutDescriptor( state, &stage, images, fallbacks, descriptorSet );
+}
+
+// A descriptor set of the front-end layout (bindings 0-3 sampler2D, 4-5
+// samplerCube) for these images, cached per owner; an image that isn't uploaded,
+// or whose type doesn't fit its slot, is replaced by its fallback.
+bool GetVulkanFrontEndLayoutDescriptor( sdVulkanBackendState& state, const void* owner,
+	idImage* images[ VULKAN_FRONTEND_TEXTURES ], idImage* fallbacks[ VULKAN_FRONTEND_TEXTURES ],
+	VkDescriptorSet& descriptorSet ) {
+	descriptorSet = VK_NULL_HANDLE;
+	if ( state.frontEndDescriptorSetLayout == VK_NULL_HANDLE ) {
+		return false;
+	}
+	for ( int slot = 0; slot < VULKAN_FRONTEND_TEXTURES; ++slot ) {
 		if ( images[ slot ] == NULL ) {
 			images[ slot ] = fallbacks[ slot ];
 		}
@@ -5332,7 +5421,7 @@ bool GetVulkanFrontEndDescriptor( sdVulkanBackendState& state,
 	for ( int descriptorIndex = 0; descriptorIndex < state.frontEndDescriptors.Num();
 		++descriptorIndex ) {
 		const sdVulkanFrontEndDescriptor& cached = state.frontEndDescriptors[ descriptorIndex ];
-		if ( cached.owner != &stage ) {
+		if ( cached.owner != owner ) {
 			continue;
 		}
 		bool matches = true;
@@ -5350,7 +5439,7 @@ bool GetVulkanFrontEndDescriptor( sdVulkanBackendState& state,
 	}
 	sdVulkanFrontEndDescriptor frontEndDescriptor;
 	memset( &frontEndDescriptor, 0, sizeof( frontEndDescriptor ) );
-	frontEndDescriptor.owner = &stage;
+	frontEndDescriptor.owner = owner;
 	VkDescriptorSetAllocateInfo allocateInfo;
 	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
 	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -9632,6 +9721,74 @@ void DrawVulkanShadowSurface( sdVulkanBackendState& state, const drawSurf_s* sur
 	state.worldShadowDrawCalls++;
 }
 
+// An instanced render entity (sdInstStatic, the maps' misc_instance_spawner trees
+// and shrubs) draws its model once per space->insts entry, at that instance's
+// origin and axis; the entity's own transform is the identity (#246).  OpenGL
+// hands each instance to the *_instance programs (SetInstanceAttributes); the
+// raster path here draws a copy of the surface per instance, whose space carries
+// the instance's model matrix.  The copies live until the next view.
+class sdVulkanInstanceSurfaces {
+public:
+	void Begin( const viewDef_s* drawView ) {
+		view = drawView;
+		spaces.clear();
+		surfaces.clear();
+	}
+	// Calls draw( surface ) for an ordinary surface, or once per visible instance.
+	template< typename DrawFunction >
+	void ForEach( const drawSurf_s* surface, DrawFunction&& draw ) {
+		if ( surface == NULL || surface->space == NULL || surface->space->numInsts <= 0 ||
+			surface->space->insts == NULL || view == NULL ) {
+			draw( surface );
+			return;
+		}
+		const viewEntity_s* space = surface->space;
+		std::vector< viewEntity_s >& instanceSpaces = spaces[ space ];
+		if ( instanceSpaces.empty() ) {
+			instanceSpaces.resize( space->numInsts );
+			for ( int i = 0; i < space->numInsts; ++i ) {
+				const sdInstInfo& instance = space->insts[ i ];
+				viewEntity_s& instanceSpace = instanceSpaces[ i ];
+				instanceSpace = *space;
+				instanceSpace.numInsts = 0;
+				instanceSpace.insts = NULL;
+				float instanceMatrix[ 16 ];
+				R_AxisToModelMatrix( instance.inst.axis, instance.inst.origin, instanceMatrix );
+				R_MultMatrix( instanceMatrix, space->modelMatrix, instanceSpace.modelMatrix );
+				R_MultMatrix( instanceSpace.modelMatrix, view->worldSpace.modelViewMatrix,
+					instanceSpace.modelViewMatrix );
+			}
+		}
+		for ( int i = 0; i < space->numInsts; ++i ) {
+			const sdInstInfo& instance = space->insts[ i ];
+			if ( !R_DistanceVisibility( instance.fadeOrigin, idMath::Ftoi( instance.maxVisDist ),
+				idMath::Ftoi( instance.minVisDist ), view ) ) {
+				continue;
+			}
+			if ( surface->geo != NULL && R_CullLocalBoxToViewdef( surface->geo->bounds,
+				instanceSpaces[ i ].modelMatrix, view ) ) {
+				continue;
+			}
+			surfaces.push_back( *surface );
+			surfaces.back().space = &instanceSpaces[ i ];
+			draw( &surfaces.back() );
+		}
+	}
+private:
+	const viewDef_s* view = NULL;
+	std::unordered_map< const viewEntity_s*, std::vector< viewEntity_s > > spaces;
+	std::deque< drawSurf_s > surfaces;
+};
+static sdVulkanInstanceSurfaces vulkanInstanceSurfaces;
+struct vulkanExpandedSurface_t {
+	int					index;
+	const drawSurf_s*	surface;
+	// the view's own surface; ray tracing expands its instances itself, unculled,
+	// so it takes this once per surface (rayTracingSource) and not each copy
+	const drawSurf_s*	original;
+	bool				rayTracingSource;
+};
+
 // fog != NULL draws the atmosphere fog over the surface instead (no light; fog.frag,
 // #233): fog[ 0..2 ] the fog colour, fog[ 3 ] and fog[ 4 ] fogDepths' z and w.
 void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* surface,
@@ -9867,16 +10024,22 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	pushConstants[ 19 ] = 1.0f;
 	pushConstants[ 20 ] = 1.0f;
 	pushConstants[ 25 ] = 1.0f;
+	pushConstants[ 28 ] = fog == NULL && VulkanStageUsesVertexColor( stage ) ? 1.0f : 0.0f;
 	pushConstants[ 29 ] = surface->material->TestMaterialFlag( MF_LOWRANGEUVCOMPRESS ) ?
 		ST_TO_FLOAT_LOWRANGE : ST_TO_FLOAT;
 	EncodeModelRotation( surface->space->modelMatrix, pushConstants[ 23 ], pushConstants[ 27 ] );
+	bool notLitTerrain = false;
+	bool notLitShadowSplit = false;
+	idVec3 notLitShadowColor( 1.0f, 1.0f, 1.0f );
 	if ( litInteraction ) {
 		// interaction.vert/.frag: the light in the surface's model space, with
 		// the terms of raytracing/lighting.comp (N.L, (1 - d/r)^2, a directional
 		// sun) and retail's specular; the surface colour is the stage's diffuse
 		// only.  The colour slot carries the view origin in model space instead
-		// (the specular's view vector); its w marks scene-albedo terrain.
-		{
+		// (the specular's view vector); for scene-albedo terrain, which has no
+		// specular, it stays 1 (the notlit term's scale) and its w marks it.
+		pushConstants[ 16 ] = pushConstants[ 17 ] = pushConstants[ 18 ] = 1.0f;
+		if ( !sceneAlbedoInteraction ) {
 			const float* m = surface->space->modelMatrix;	// axis rows 0-2, 4-6, 8-10, origin 12-14
 			const idVec3 delta = view->renderView.vieworg - idVec3( m[ 12 ], m[ 13 ], m[ 14 ] );
 			pushConstants[ 16 ] = delta.x * m[ 0 ] + delta.y * m[ 1 ] + delta.z * m[ 2 ];
@@ -9936,7 +10099,29 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 			pushConstants[ 34 ] = localOrigin.z;
 			pushConstants[ 35 ] = radius;
 		}
-		if ( lightPass && megaTextureSurface ) {
+		// Under the atmosphere sun with r_megaDrawMethod != 0 (retail 1.5's default
+		// is 3), retail draws MegaTexture terrain with the bakedamb programs'
+		// amblitVersion, megaTexture/notlit_lit: albedo x lerp( 0.35, $diffuseColor,
+		// 1 ), no N.L and no separate ambient, the megatexture's baked lighting being
+		// the shading (R_DrawMTInteractions).  The light block has already scaled the
+		// pixel to albedo x ambient, so the interaction adds the rest.
+		// Only the view's own sun: a second atmosphere light would add the term twice.
+		notLitTerrain = lightPass && megaTextureSurface && sceneAlbedoInteraction &&
+			light == view->atmosphereLight && r_megaDrawMethod.GetInteger() != 0;
+		if ( notLitTerrain ) {
+			pushConstants[ 30 ] = cvarSystem->GetCVarFloat( "r_rayTracingAmbient" );	// the light block's ambient
+			if ( !unshadowed && light->lightDef != NULL ) {
+				// Retail then multiplies the sun's shadowed pixels by the atmosphere's
+				// minSpecShadowColor (draw_new.cpp, shadow/multiplitive).  Here the
+				// terrain's add is split in two: minSpecShadowColor x notlit_lit
+				// everywhere, then the rest where the stencil says unshadowed.
+				const unsigned int packed = light->lightDef->minSpecShadowColor;	// sdColor4::PackColor
+				notLitShadowColor.Set( ( packed & 0xFF ) / 255.0f, ( ( packed >> 8 ) & 0xFF ) / 255.0f,
+					( ( packed >> 16 ) & 0xFF ) / 255.0f );
+				notLitShadowSplit = true;
+			}
+		}
+		if ( lightPass && megaTextureSurface && !notLitTerrain ) {
 			// Retail's megatexture/interaction_bakedamb* scale the light by the
 			// stage's $parameters.w (valley: 0.5): the terrain's baked lighting
 			// already carries half the sun, and its ambient pass removes
@@ -9960,9 +10145,11 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		pushConstants[ 36 ] = fog != NULL ? fog[ 0 ] : lightColor.x;
 		pushConstants[ 37 ] = fog != NULL ? fog[ 1 ] : lightColor.y;
 		pushConstants[ 38 ] = fog != NULL ? fog[ 2 ] : lightColor.z;
-		// w: 1 for the sun, + 2 for a two-sided material (lit from either side); fog: fogDepths.w
+		// w: 1 for the sun, + 2 for a two-sided material (lit from either side), + 4 for
+		// notlit_lit terrain; fog: fogDepths.w
 		pushConstants[ 39 ] = fog != NULL ? fog[ 4 ] : ( directional ? 1.0f : 0.0f ) +
-			( surface->material->GetCullType() == CT_TWO_SIDED ? 2.0f : 0.0f );
+			( surface->material->GetCullType() == CT_TWO_SIDED ? 2.0f : 0.0f ) +
+			( notLitTerrain ? 4.0f : 0.0f );
 	}
 
 	sdVulkanFrame& frame = state.frames[ state.frameIndex ];
@@ -10005,6 +10192,27 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		state.CmdBindVertexBuffers( frame.commandBuffer, 0, 1, &vertexResource->buffer, &vertexOffset );
 	}
 	state.CmdBindIndexBuffer( frame.commandBuffer, indexResource->buffer, indexOffset, VK_INDEX_TYPE_UINT16 );
+	if ( notLitShadowSplit ) {
+		// notlit_lit terrain under shadows: color.rgb scales the notlit term.  First,
+		// unstenciled, minSpecShadowColor x notlit less the ambient already there ...
+		state.CmdBindPipeline( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+			state.worldInteractionUnshadowedPipeline );
+		pushConstants[ 16 ] = notLitShadowColor.x;
+		pushConstants[ 17 ] = notLitShadowColor.y;
+		pushConstants[ 18 ] = notLitShadowColor.z;
+		state.CmdPushConstants( frame.commandBuffer, state.guiPipelineLayout,
+			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+			sizeof( float ) * 40, pushConstants );
+		state.CmdDrawIndexed( frame.commandBuffer, tri->numIndexes, 1, 0, 0, 0 );
+		state.worldDrawCalls++;
+		state.worldInteractionDrawCalls++;
+		// ... then, where unshadowed, the remaining ( 1 - minSpecShadowColor ) x notlit
+		state.CmdBindPipeline( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
+		pushConstants[ 16 ] = 1.0f - notLitShadowColor.x;
+		pushConstants[ 17 ] = 1.0f - notLitShadowColor.y;
+		pushConstants[ 18 ] = 1.0f - notLitShadowColor.z;
+		pushConstants[ 30 ] = 0.0f;
+	}
 	state.CmdPushConstants( frame.commandBuffer, state.guiPipelineLayout,
 		VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
 		sizeof( float ) * ( litInteraction ? 40 : 32 ), pushConstants );
@@ -10029,6 +10237,7 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 		return;
 	}
 	state->worldViews++;
+	vulkanInstanceSurfaces.Begin( view );
 	sdVulkanFrame& frame = state->frames[ state->frameIndex ];
 	const int viewportWidth = Max( 1, view->viewport.x2 - view->viewport.x1 + 1 );
 	const int viewportHeight = Max( 1, view->viewport.y2 - view->viewport.y1 + 1 );
@@ -10504,7 +10713,8 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 
 				// Render localInteractions
 				for ( const drawSurf_s* surf = light->localInteractions; surf != NULL; surf = surf->nextOnLight ) {
-					DrawVulkanLightInteraction( *state, surf, light, view, !lightHasShadows );
+					vulkanInstanceSurfaces.ForEach( surf, [&]( const drawSurf_s* drawSurf ) {
+						DrawVulkanLightInteraction( *state, drawSurf, light, view, !lightHasShadows ); } );
 				}
 
 				// Render localShadows (a weapon interaction above may have left its
@@ -10517,17 +10727,20 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 
 				// Render mtInteractions (atmosphere interactions on MegaTexture terrains)
 				for ( const drawSurf_s* surf = light->mtInteractions; surf != NULL; surf = surf->nextOnLight ) {
-					DrawVulkanLightInteraction( *state, surf, light, view, !lightHasShadows );
+					vulkanInstanceSurfaces.ForEach( surf, [&]( const drawSurf_s* drawSurf ) {
+						DrawVulkanLightInteraction( *state, drawSurf, light, view, !lightHasShadows ); } );
 				}
 
 				// Render globalInteractions
 				for ( const drawSurf_s* surf = light->globalInteractions; surf != NULL; surf = surf->nextOnLight ) {
-					DrawVulkanLightInteraction( *state, surf, light, view, !lightHasShadows );
+					vulkanInstanceSurfaces.ForEach( surf, [&]( const drawSurf_s* drawSurf ) {
+						DrawVulkanLightInteraction( *state, drawSurf, light, view, !lightHasShadows ); } );
 				}
 
 				// Render translucentInteractions
 				for ( const drawSurf_s* surf = light->translucentInteractions; surf != NULL; surf = surf->nextOnLight ) {
-					DrawVulkanLightInteraction( *state, surf, light, view, true );
+					vulkanInstanceSurfaces.ForEach( surf, [&]( const drawSurf_s* drawSurf ) {
+						DrawVulkanLightInteraction( *state, drawSurf, light, view, true ); } );
 				}
 			}
 			// The atmosphere fog (#233).  Retail fogs inside its lit programs: the
@@ -10582,7 +10795,8 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 						!material->ReceivesLighting() ) ) ) {
 						continue;
 					}
-					DrawVulkanLightInteraction( *state, surf, NULL, view, true, fog );
+					vulkanInstanceSurfaces.ForEach( surf, [&]( const drawSurf_s* drawSurf ) {
+						DrawVulkanLightInteraction( *state, drawSurf, NULL, view, true, fog ); } );
 				}
 			}
 			// _currentRender now holds the unlit snapshot: a later refraction
@@ -10608,8 +10822,26 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			submittedJointOffset = UINT_MAX;
 		}
 	};
+	// the base pass draws an instanced surface once per instance (#246)
+	idList< vulkanExpandedSurface_t > expandedSurfaces;
+	expandedSurfaces.SetGranularity( 1024 );
 	for ( int surfaceIndex = 0; surfaceIndex < view->numDrawSurfs; ++surfaceIndex ) {
-		const drawSurf_s* surface = view->drawSurfs[ surfaceIndex ];
+		const drawSurf_s* original = view->drawSurfs[ surfaceIndex ];
+		bool first = true;
+		vulkanInstanceSurfaces.ForEach( original, [&]( const drawSurf_s* drawSurf ) {
+			vulkanExpandedSurface_t& expanded = expandedSurfaces.Alloc();
+			expanded.index = surfaceIndex;
+			expanded.surface = drawSurf;
+			expanded.original = original;
+			expanded.rayTracingSource = first;
+			first = false;
+		} );
+	}
+	for ( int expandedIndex = 0; expandedIndex < expandedSurfaces.Num(); ++expandedIndex ) {
+		const int surfaceIndex = expandedSurfaces[ expandedIndex ].index;
+		const drawSurf_s* surface = expandedSurfaces[ expandedIndex ].surface;
+		const drawSurf_s* rayTracingSurface = expandedSurfaces[ expandedIndex ].rayTracingSource ?
+			expandedSurfaces[ expandedIndex ].original : NULL;
 		if ( !rasterLightingDone && surface != NULL && surface->material != NULL &&
 			surface->material->GetSort() > static_cast< float >( SS_DECAL ) ) {
 			RunRasterLighting();
@@ -10721,7 +10953,7 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 		// pointer into that growable array.
 		const VkDescriptorSet selectedImageDescriptorSet =
 			imageResource->descriptorSet;
-		if ( !hardwareSkinned && !selectedWaterStage &&
+		if ( rayTracingSurface != NULL && !hardwareSkinned && !selectedWaterStage &&
 			surface->material->Coverage() != MC_TRANSLUCENT &&
 			surface->material->SurfaceCastsShadow() ) {
 			sdRayTracingGeometry geometry;
@@ -10733,11 +10965,11 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 				surface->geo->deformedSurfaceInstance ||
 				surface->geo->hardwareSkinnedSurface ||
 				surface->geo->frameAlloced || surface->geo->weightCache != NULL ||
-				( surface->space->model != NULL && idStr::Icmp(
-					surface->space->model->Name(), "_MD5_Snapshot_" ) == 0 );
+				( rayTracingSurface->space->model != NULL && idStr::Icmp(
+					rayTracingSurface->space->model->Name(), "_MD5_Snapshot_" ) == 0 );
 			geometry.geometryOwner = geometry.deforming &&
-				surface->space->entityDef != NULL ?
-				static_cast< const void* >( surface->space->entityDef ) :
+				rayTracingSurface->space->entityDef != NULL ?
+				static_cast< const void* >( rayTracingSurface->space->entityDef ) :
 				static_cast< const void* >( surface->geo );
 			geometry.surfaceId = surface->surfID;
 			geometry.vertexBuffer = vertexResource->buffer;
@@ -10746,7 +10978,7 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			geometry.indexBuffer = indexResource->buffer;
 			geometry.indexOffset = indexCacheBlock->offset;
 			geometry.indexCount = surface->geo->numIndexes;
-			const float* modelMatrix = surface->space->modelMatrix;
+			const float* modelMatrix = rayTracingSurface->space->modelMatrix;
 			geometry.transform[ 0 ] = modelMatrix[ 0 ];
 			geometry.transform[ 1 ] = modelMatrix[ 4 ];
 			geometry.transform[ 2 ] = modelMatrix[ 8 ];
@@ -10760,7 +10992,7 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			geometry.transform[ 10 ] = modelMatrix[ 10 ];
 			geometry.transform[ 11 ] = modelMatrix[ 14 ];
 			AppendRayTracingInstances( rayTracingGeometries, geometry,
-				surface->space );
+				rayTracingSurface->space );
 		}
 		state->worldResourceReady++;
 		VkDescriptorSet materialDescriptorSet = VK_NULL_HANDLE;
@@ -10782,7 +11014,7 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			// specular lookup.  It is never a meaningful visual fallback.
 			continue;
 		}
-		if ( !hardwareSkinned && selectedWaterStage ) {
+		if ( rayTracingSurface != NULL && !hardwareSkinned && selectedWaterStage ) {
 			sdRayTracingGeometry geometry;
 			memset( &geometry, 0, sizeof( geometry ) );
 			// Streamed surfaces (streamVertexCache) sit at a new frame-arena offset
@@ -10792,11 +11024,11 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 				surface->geo->deformedSurfaceInstance ||
 				surface->geo->hardwareSkinnedSurface ||
 				surface->geo->frameAlloced || surface->geo->weightCache != NULL ||
-				( surface->space->model != NULL && idStr::Icmp(
-					surface->space->model->Name(), "_MD5_Snapshot_" ) == 0 );
+				( rayTracingSurface->space->model != NULL && idStr::Icmp(
+					rayTracingSurface->space->model->Name(), "_MD5_Snapshot_" ) == 0 );
 			geometry.geometryOwner = geometry.deforming &&
-				surface->space->entityDef != NULL ?
-				static_cast< const void* >( surface->space->entityDef ) :
+				rayTracingSurface->space->entityDef != NULL ?
+				static_cast< const void* >( rayTracingSurface->space->entityDef ) :
 				static_cast< const void* >( surface->geo );
 			geometry.surfaceId = surface->surfID;
 			geometry.vertexBuffer = vertexResource->buffer;
@@ -10805,7 +11037,7 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			geometry.indexBuffer = indexResource->buffer;
 			geometry.indexOffset = indexCacheBlock->offset;
 			geometry.indexCount = surface->geo->numIndexes;
-			const float* modelMatrix = surface->space->modelMatrix;
+			const float* modelMatrix = rayTracingSurface->space->modelMatrix;
 			geometry.transform[ 0 ] = modelMatrix[ 0 ];
 			geometry.transform[ 1 ] = modelMatrix[ 4 ];
 			geometry.transform[ 2 ] = modelMatrix[ 8 ];
@@ -10863,7 +11095,7 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			geometry.normal[ 2 ] = worldWaterNormal.z;
 			geometry.normal[ 3 ] = 0.0f;
 			AppendRayTracingInstances( rayTracingWaterGeometries, geometry,
-				surface->space );
+				rayTracingSurface->space );
 		}
 		VkDescriptorSet heatHazeDescriptorSet = VK_NULL_HANDLE;
 		const bool heatHazeTexturesAvailable = selectedHeatHazeStage &&
@@ -11091,8 +11323,7 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 				break;
 			}
 		} else {
-			pushConstants[ 28 ] = selectedStage->vertexColor == SVC_MODULATE ?
-				1.0f : 0.0f;
+			pushConstants[ 28 ] = VulkanStageUsesVertexColor( selectedStage ) ? 1.0f : 0.0f;
 			if ( selectedStage->hasAlphaTest || selectedStuffGrassStage ) {
 				pushConstants[ 30 ] = selectedStage->hasAlphaTest ?
 					surface->materialRegisters[ selectedStage->alphaTestRegister ] : 0.4f;
@@ -11187,16 +11418,42 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 				megaPushConstants[ 26 ] = shaderLevel == 0 ? 0.0f : 1.0f;
 				megaPushConstants[ 30 ] = pushConstants[ 23 ];
 				megaPushConstants[ 31 ] = pushConstants[ 27 ];
+				// megaLevelParams.w: $megaDetailTextureParams.x, the detail texture's
+				// repeat over the megatexture (0: no detail, r_detailTexture 0)
+				megaPushConstants[ 27 ] = idMegaTexture::r_detailTexture.GetBool() && rbinds != NULL ?
+					rbinds->megaDetailTextureParams->GetVector()[ 0 ] : 0.0f;
 				if ( shaderLevel != 0 ) {
 					megaPushConstants[ 25 ] = megaFadeMilliseconds > 0 ?
 						idMath::ClampFloat( 0.0f, 1.0f,
 							( view->renderView.time - level->GetFadeTime() ) /
 							static_cast< float >( megaFadeMilliseconds ) ) : 1.0f;
 				}
-				BindDescriptorSet( levelResource->descriptorSet );
-				state->CmdPushConstants( frame.commandBuffer, state->guiPipelineLayout,
-					VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-					sizeof( megaPushConstants ), megaPushConstants );
+				VkDescriptorSet megaDescriptorSet = VK_NULL_HANDLE;
+				if ( state->megaDetailPipeline && !submitHardwareSkinning &&
+					GetVulkanMegaDescriptor( *state, level, levelImage, megaDescriptorSet ) ) {
+					state->CmdBindDescriptorSets( frame.commandBuffer,
+						VK_PIPELINE_BIND_POINT_GRAPHICS, state->frontEndPipelineLayout, 0, 1,
+						&megaDescriptorSet, 0, NULL );
+					// a set 0 of another layout disturbs the material set and the joint palette
+					submittedDescriptorSet = VK_NULL_HANDLE;
+					submittedJointOffset = UINT_MAX;
+					state->CmdPushConstants( frame.commandBuffer, state->frontEndPipelineLayout,
+						VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+						sizeof( megaPushConstants ), megaPushConstants );
+				} else if ( state->megaDetailPipeline && !submitHardwareSkinning ) {
+					static bool megaDescriptorWarned = false;
+					if ( !megaDescriptorWarned ) {
+						common->Warning( "Vulkan: no MegaTexture detail descriptor for a level of '%s'; the level is skipped",
+							surface->material->GetName() );
+						megaDescriptorWarned = true;
+					}
+					continue;	// the pipeline expects the detail set; draw nothing rather than mismatch
+				} else {
+					BindDescriptorSet( levelResource->descriptorSet );
+					state->CmdPushConstants( frame.commandBuffer, state->guiPipelineLayout,
+						VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+						sizeof( megaPushConstants ), megaPushConstants );
+				}
 				state->CmdDrawIndexed( frame.commandBuffer, surface->geo->numIndexes,
 					1, 0, 0, 0 );
 				state->worldDrawCalls++;

@@ -72,7 +72,8 @@ void main() {
 		dot( pc.textureMatrixT.xyz, vec3( texCoord, 1.0 ) )
 	);
 	// pc.color is not a colour here: rgb carries the view origin in model space
-	// (interaction.frag's specular), a < 0 marks MegaTexture terrain
+	// (interaction.frag's specular), or for MegaTexture terrain (a < 0) the
+	// notlit term's scale
 	fragmentColor = mix( vec4( 1.0 ), inColor, pc.parameters.x );
 	vec3 normal = normalize( skinValue( unpackDirection( inPackedNormal, inNormalSign ), 0.0, row0, row1, row2 ) );
 	vec3 tangent = normalize( skinValue( unpackDirection( inPackedTangent, inTangentSign ), 0.0, row0, row1, row2 ) );
