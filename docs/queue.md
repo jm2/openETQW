@@ -138,6 +138,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-24/25 (the burn-down; the combined run is outstanding, see the top):
+- #274 Docs: state as of 2026-10-25 (burn-down done; sessions parked)
 - Closed since 2026-10-24: #267, #265, #262, #258, #256, #255, #253, #246 (reopened for the deferred part), #239, #233, #232, #219, #218, #216, #212, #211, #196, #193, #186, #185, #162, #148, #141, #122. #270 was split from #256.
 - #273 Vulkan: no interaction specular in GUI render worlds, as OpenGL since #251 (ledger 079)
 - #272 Vulkan draws guis/postprocess's glow natively, with retail's scene alpha (fixes #233 with #263)
