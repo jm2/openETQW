@@ -1,0 +1,8 @@
+# postprocess/glow: _currentRender at full size and the blur buffer at a quarter (y flipped).
+OPTION ARB_position_invariant;
+TEMP	coord;
+MOV	coord, $texCoordAttrib;
+SUB	coord.y, 1, coord.y;
+MUL	result.texcoord[0].xy, coord, $currentRenderTexelSize;
+MUL	coord.xy, coord, $currentRenderTexelSize;
+MUL	result.texcoord[1].xy, coord, 0.25;

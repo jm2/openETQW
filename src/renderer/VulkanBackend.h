@@ -144,6 +144,6 @@ void DrawVulkanShadowSurface( sdVulkanBackendState& state, const drawSurf_s* sur
 	const viewLight_s* light, const viewDef_s* view );
 void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* surface,
 	const viewLight_s* light, const viewDef_s* view, bool unshadowed = false, const float* fog = NULL,
-	const float* ambient = NULL );
+	const float* ambient = NULL, bool amblitShadowSplit = false );
 
 #endif /* !__RENDERER_VULKANBACKEND_H__ */

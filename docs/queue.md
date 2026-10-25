@@ -19,11 +19,13 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
+| PR `fix/postprocess-glare-233` | OpenGL draws the GUI post-process (`guis/postprocess`: glare, saturation, contrast, tint), as retail: ARB ports, the GUI path's destination buffers, render targets found by name (part of #233; the Vulkan half is openETQW-win's) | openETQW-linux-arm64 | 46e56d3+ | Independent review; screenshot sets on other OpenGL platforms; the combined run |
 
 ## 2. Open issues, in priority order
 
 | # | What | Owner | Next step |
 |---|---|---|---|
+| [#262](https://github.com/jm2/openETQW/issues/262) | Vulkan material descriptor cache never frees orphaned sets (guiDescriptorPool exhaustion after ~300 map loads) | openETQW-win-arm64 | PR `fix/vk-material-descriptor-leak-262`: sets freed with their images, unused sets evicted when full, one-time warning. |
 
 ## 3. Milestone work, in order
 
@@ -132,6 +134,15 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-22/23:
+- #272 Vulkan draws guis/postprocess's glow natively, with retail's scene alpha (fixes #233 with #263)
+- #271 Vulkan shadow stencil counts around 128 and lights where 128 >= stencil, as OpenGL (fixes #267)
+- #269 Stuff grass fades with distance on both APIs: _diffusionMask is a 16x16 ordered dither; Vulkan fades per instance (fixes #256; colour gap in #270)
+- #263 OpenGL draws retail's guis/postprocess glow (ARB ports of downsample, glare, blur, glow), the scene lift #233 measured
+- #266 Vulkan: image descriptors use the evicting allocator; currentRender material sets purged on swapchain recreate (#264 review)
+- #264 Vulkan: material descriptor sets freed with purged images and evicted when the pool is full (fixes #262)
+- #261 Vulkan: front-end descriptor sets in their own pool, hashed, freed with purged images, evicted when full (fixes #258)
+- #260 OpenGL forceClear follows glConfig.samples; clearer multisample fallback warning (#255 review)
+- #259 OpenGL: retry without multisampling when the requested r_multiSamples fails (fixes #255 on SDL3)
 - #257 Vulkan: sunlit opaque surfaces take retail's amblit ambient (minSpecAmbientColor) via ambSurf; others the cube plus its specular term (fixes #122's ambient gap)
 - #254 OpenGL: load qglSampleCoverageARB; the SDL3 window requests r_multiSamples (fixes #253)
 - #249 Raster Vulkan: retail's ambient cube (multiplicative, before the flat ambient), self-illumination, interaction specular; generated cubes no longer black (part of #122)
