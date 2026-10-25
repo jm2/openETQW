@@ -2830,6 +2830,12 @@ viewEntity_s* R_SetEntityDefViewEntity( renderEntity_t* entity, idRenderModel* m
 	} else if ( entity != NULL ) {
 		modelBounds = entity->bounds;
 	}
+	if ( numInsts > 0 && entity != NULL && !entity->bounds.IsCleared() ) {
+		// An instanced entity (sdInstStatic: trees, shrubs) has an identity transform
+		// and overridden bounds around all its instances; the model's own bounds sit
+		// at the world origin and gave a scissor rect of a few pixels, or none (#246).
+		modelBounds = entity->bounds;
+	}
 	if ( entity != NULL ) {
 		if ( entity->drawSpec > com_gpuSpec.GetInteger() ) {
 			return NULL;
