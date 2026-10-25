@@ -5,7 +5,7 @@
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
 Updated: 2026-10-25 · session/agent: `openETQW-linux` (Claude Code), coordinator · **all openETQW sessions parked (owner, 2026-10-25)**
-Engine repo `~/openETQW`: `main` b24c565 (#273; `tools/ci/companion.ref` pins game 7fbdf80) · game repo `~/openETQW-game`: `main` 7fbdf80 (game #59) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (upstream last checked 2026-09-24)
+Engine repo `~/openETQW`: `main` 81c7a23 (#276; `tools/ci/companion.ref` pins game 7fbdf80) · game repo `~/openETQW-game`: `main` 7fbdf80 (game #59) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (upstream last checked 2026-09-24)
 
 Engine SHAs quoted in older docs (`CHECKPOINT_STOCK_MAPS_PHASE.md`, ledger rows, earlier STATUS text) may not resolve in the current history, and neither do some of the game's historical `tools/ci/engine.ref` pins.
 
@@ -95,14 +95,14 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 
 2026-10-21 to 10-25, `openETQW-linux` as coordinator and merge role. Owner, 2026-10-24: "burn down all open issues and in-progress PRs across all sessions" (coordination §9). Owner, 2026-10-25: finish the open issues and PRs, update the docs and park every session. **Every openETQW session is now parked**, no PR is open in either repository, and `docs/queue.md` §2 has what is left: #270 (Vulkan stuff grass darker than OpenGL; unowned), #197 (the owner's real-keyboard rename check), #246 (distant-tree imposters and the per-instance cull, deferred by the owner as a large feature) and #133 (the coordinator log). Owner, 2026-10-25: bug fixes first; small features only if they're easy wins.
 
-**Outstanding: the combined run.** #220–#272 merged on targeted tests and independent reviews, under the owner's rule of 2026-10-23 that full retail suites and screenshot sets wait for one combined run at the tail end (kisakcod priority). That run on `main` (the retail suite per platform and the screenshot sets from all five platforms) has not been done.
+**Outstanding: the combined run.** #220–#276 merged on targeted tests and independent reviews, under the owner's rule of 2026-10-23 that full retail suites and screenshot sets wait for one combined run at the tail end (kisakcod priority). That run on `main` (the retail suite per platform and the screenshot sets from all five platforms) has not been done.
 
 **What changed (2026-10-23 to 10-25), in short:**
 - **Scene brightness against retail (#233, closed):** retail's colour-grading post-process (`guis/postprocess`: glare, saturation, contrast, tint) now draws on both APIs, OpenGL through ARB ports (#263, ledger 077) and Vulkan natively (#272). It accounted for the long-standing ~15–20% darkness against retail. Vulkan terrain also gained retail's detail texture (#241), bakedamb scale (#237), notlit_lit under the sun (#242) and per-pixel atmosphere fog (#236, ledger 078).
 - **Vulkan's ambient model is retail's (#122, closed):** the ambient cube and interaction specular (#249), amblit ambient via ambSurf for sun-lit surfaces (#257), and shadowed amblit surfaces scaled by minSpecShadowColor (#268, #265). Shadow stencil counts around 128, as OpenGL (#271, #267).
 - **OpenGL overbright (#212, closed):** light colour clamped to 1 per channel before `r_lightScale` (#250); no interaction specular in GUI render worlds (#251, ledger 079).
 - **Trees and shrubs (#246):** instanced models draw on Vulkan (#248) and OpenGL (#252).
-- **Grass:** stuff grass fades as retail's programs do, on both APIs (#269, #256). The colour gap is #270.
+- **Grass:** stuff grass fades as retail's programs do, on both APIs (#269, #256), and Vulkan's grass draws after the raster lighting block instead of under its flat ambient, matching retail's colour (#275, #270).
 - **Vulkan descriptor caches** no longer leak or exhaust their pools (#261, #264, #266; #258, #262).
 - **OpenGL MSAA:** `qglSampleCoverageARB` loads and SDL3 requests the samples (#254); an unavailable `r_multiSamples` falls back to none (#259, #260).
 - **Other:** the megatexture IDCT, bit-identical and about 2x faster to the finest level (#247); SDL3's sub-pixel mouse motion is carried between events (#244, #141); `seat-poses-listen` re-runs a contended phase once and fails a second as "host contended" (#245, #162, #196). The menu globe (#186), GUI text (#193), sky and grass on OpenGL (#219), Mesa glthread (#218), the default image (#239) and the client challenge flake (#216) were closed too.
@@ -194,7 +194,7 @@ Then every session parked again. `main` was f14cf48.
 
 ### Open and pending
 - **Open PRs (2026-10-25):** none in either repository. Every session is parked.
-- **Open issues, in `docs/queue.md` order (2026-10-25):** #270 (Vulkan stuff grass darker than OpenGL; unowned), #197 (the owner's rename check), #246 (distant trees; deferred by the owner). The combined run for #220–#272 is outstanding.
+- **Open issues, in `docs/queue.md` order (2026-10-25):** #197 (the owner's rename check), #246 (distant trees; deferred by the owner). #270 was fixed by #275. The combined run for #220–#276 is outstanding.
 - **M5 step 14b, the hull lead: plan (2026-10-06, the Mac session; `docs/hull-lead.md`).**
   - A first measurement (`tools/analysis/veh_pred.py` over `g_determinismTest 2`'s `VEH_TRACE`, on this Mac):
     - stage 7's physics step about the centre of mass is essentially exact in free flight (anansi median 0.005 u);
@@ -675,7 +675,7 @@ The shared, owner-ordered list is `docs/queue.md`; this table follows its milest
 | 5 | Provenance labels: the minizip relabel and the other label questions (`docs/provenance.md` §6) | any | none | `provenance_post_split.py` no gap; game `check_spdx.py` passes; §6 rows resolved |
 | 6 | `docs/platform-matrix.md` (release gate, M7) | any | none | Every platform's verified items with evidence level, host and commit |
 
-Before these, the combined run for #220–#272 (the retail suite per platform and the screenshot sets; `docs/queue.md`, top). The open issues (`docs/queue.md` §2: #270, #197, #246) run beside them.
+Before these, the combined run for #220–#276 (the retail suite per platform and the screenshot sets; `docs/queue.md`, top). The open issues (`docs/queue.md` §2: #197, #246) run beside them.
 
 ## Inputs needed from the owner
 - Optional: `Loaded pk4 ... with checksum` lines from other-language editions (`pak000`–`pak004`), so the retail-install check can accept them.
