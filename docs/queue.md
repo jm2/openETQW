@@ -10,7 +10,7 @@ issue for anything newer than this file.
 
 **Outstanding gate work: the combined run.** Owner, 2026-10-23: full retail suites and screenshot sets wait for one combined run at the tail end, so the kisakcod sessions keep priority on shared hosts. That run has not been done for #220–#272 (merged 2026-10-23 to 10-25 on targeted tests and independent reviews). Next: on `main`, the retail suite on each platform's host and the screenshot sets from all five platforms against the 2026-10-23 combined run; file an issue for any regression.
 
-Updated: 2026-10-25 by `openETQW-linux` (coordinator): §1 empty; §2 is #270, #197 and #246; #220–#272 in §5, #268 added.
+Updated: 2026-10-25 by `openETQW-linux` (coordinator): §1 empty; §2 is #197 and #246 (#270 fixed by #275); #220–#272 in §5, #268 added.
 Updated: 2026-10-23 by `openETQW-linux` (coordinator): the combined run merged #202, #204, #206, #207, #210, #213 and #215 (§5). Earlier: #180 (merged 2026-10-22), #198, #199 and #200 are in §5; M4's last item is done.
 Updated: 2026-10-22 by `openETQW-linux` (coordinator): the game #51 row with the Linux arm64
 evidence and the open owner ask, and the review state of §3 items 3, 8 and 9 and of #162.
@@ -26,7 +26,6 @@ None (2026-10-25).
 
 | # | What | Owner | Next step |
 |---|---|---|---|
-| [#270](https://github.com/jm2/openETQW/issues/270) | Vulkan stuff grass about 2.25x darker than OpenGL's (grass to ground: retail 0.83, OpenGL 0.68, Vulkan 0.32); cosmetic | — | Three passes so far, findings on the issue. Next checks: (a) Vulkan's sampled grass texels and the BC3 upload; (b) OpenGL's ambient cube along +Z; (c) the `.clustb` tint scaling, for the gap both APIs share with retail. |
 | [#197](https://github.com/jm2/openETQW/issues/197) | Fresh profile goes straight to the menu as "Player" (owner, 2026-10-23: fine if the name can be changed in-game) | owner | `ui_name` persists across restarts (checked on macOS). Left: the owner's 30-second real-keyboard check: Options > Game Settings > Name, type a name, Apply, restart, look at the field. |
 | [#246](https://github.com/jm2/openETQW/issues/246) | Instanced trees and shrubs: they draw on both APIs since #248 (Vulkan) and #252 (OpenGL) | — | Deferred by the owner (2026-10-25) as a large feature: distant-tree imposters and the per-instance distance cull. Not to be taken until the owner reopens it. |
 | [#133](https://github.com/jm2/openETQW/issues/133) | Coordinator log | `openETQW-linux` | Stays open. |
