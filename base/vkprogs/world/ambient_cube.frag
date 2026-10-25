@@ -20,6 +20,9 @@
 // The pass scales what the base pass and the decals left instead of
 // replacing it, so blended decals and extra stages keep their colour:
 //   mode 0, blend 2 * src * dst: the ambient, halved here so up to 2 fits;
+//   mode 2, the same blend where the sun's stencil says shadow: an amblit
+//           surface's minSpecShadowColor (flatAmbient), as retail's
+//           shadow/multiplitive pass (#265);
 //   mode 1, blend dst + src: the specular, plus (ambientParameters.w = 1) the
 //           self-illumination the scale took away,
 //           selfIllum * vertex colour * ( 1 - ambient ).
@@ -76,7 +79,7 @@ void main() {
 	vec3 ambient = flatLit ? pc.flatAmbient.rgb :
 		texture( ambientCubeTexture, rotateToWorld( normal, modelRotation ) ).rgb *
 		pc.ambientParameters.x * pc.ambientParameters.y;
-	if ( pc.ambientParameters.z < 0.5 ) {
+	if ( pc.ambientParameters.z < 0.5 || pc.ambientParameters.z > 1.5 ) {	// 0: the ambient, 2: the shadow scale (#265)
 		outColor = vec4( ambient * 0.5, 1.0 );
 	} else {
 		vec3 viewDirection = normalize( pc.color.rgb - fragmentPosition );

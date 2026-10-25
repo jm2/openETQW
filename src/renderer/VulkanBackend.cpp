@@ -728,6 +728,10 @@ struct sdVulkanBackendState {
 	VkPipeline				worldAmbientCubeSkinnedPipeline;
 	VkPipeline				worldAmbientCubeAddPipeline;
 	VkPipeline				worldAmbientCubeAddSkinnedPipeline;
+	// #265: an amblit surface's ambient x minSpecShadowColor where the sun's stencil
+	// says shadow (ambient_cube.frag's mode 2)
+	VkPipeline				worldAmbientShadowPipeline;
+	VkPipeline				worldAmbientShadowSkinnedPipeline;
 	// set while the light block's snapshot of the opaque base is in _currentRender
 	bool					sceneAlbedoCopied;
 	VkPipeline				worldLightAmbientPipeline;
@@ -987,6 +991,8 @@ struct sdVulkanBackendState {
 		worldAmbientCubeSkinnedPipeline = VK_NULL_HANDLE;
 		worldAmbientCubeAddPipeline = VK_NULL_HANDLE;
 		worldAmbientCubeAddSkinnedPipeline = VK_NULL_HANDLE;
+		worldAmbientShadowPipeline = VK_NULL_HANDLE;
+		worldAmbientShadowSkinnedPipeline = VK_NULL_HANDLE;
 		sceneAlbedoCopied = false;
 		worldLightAmbientPipeline = VK_NULL_HANDLE;
 		pushConstantFloats = 32;
@@ -3803,6 +3809,14 @@ void DestroyGuiResources( sdVulkanBackendState& state ) {
 		state.DestroyPipeline( state.device, state.worldAmbientCubeAddSkinnedPipeline, NULL );
 		state.worldAmbientCubeAddSkinnedPipeline = VK_NULL_HANDLE;
 	}
+	if ( state.worldAmbientShadowPipeline != VK_NULL_HANDLE ) {
+		state.DestroyPipeline( state.device, state.worldAmbientShadowPipeline, NULL );
+		state.worldAmbientShadowPipeline = VK_NULL_HANDLE;
+	}
+	if ( state.worldAmbientShadowSkinnedPipeline != VK_NULL_HANDLE ) {
+		state.DestroyPipeline( state.device, state.worldAmbientShadowSkinnedPipeline, NULL );
+		state.worldAmbientShadowSkinnedPipeline = VK_NULL_HANDLE;
+	}
 	if ( state.worldLightAmbientPipeline != VK_NULL_HANDLE ) {
 		state.DestroyPipeline( state.device, state.worldLightAmbientPipeline, NULL );
 		state.worldLightAmbientPipeline = VK_NULL_HANDLE;
@@ -4654,7 +4668,8 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 	// called while the unshadowed (no stencil test) state is set up; multiply:
 	// dst * src (the ambient rescale), else dst + src (the specular and the
 	// self-illumination).  The front-end layout: its set carries the specular cube.
-	auto CreateAmbientCubePipeline = [&]( VkPipeline& ambientPipeline, bool multiply, const char* what ) {
+	auto CreateAmbientCubePipeline = [&]( VkPipeline& ambientPipeline, bool multiply, const char* what,
+		bool shadowScale = false ) {
 		if ( !ambientCubeShader || state.frontEndPipelineLayout == VK_NULL_HANDLE ) {
 			return;
 		}
@@ -4676,6 +4691,17 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 			depthStencil.front.failOp = VK_STENCIL_OP_KEEP;
 			depthStencil.front.depthFailOp = VK_STENCIL_OP_KEEP;
 			depthStencil.front.passOp = VK_STENCIL_OP_INCREMENT_AND_CLAMP;
+			depthStencil.back = depthStencil.front;
+		}
+		if ( shadowScale ) {
+			// the same blend, only where the sun's shadow volumes left a count above
+			// zero: the per-light stencil counts around 128 (#267), so 128 < stencil,
+			// as OpenGL's GL_LESS 128 multiply (#265)
+			depthStencil.front.compareOp = VK_COMPARE_OP_LESS;
+			depthStencil.front.reference = 128;
+			depthStencil.front.compareMask = 0xFF;
+			depthStencil.front.writeMask = 0x00;
+			depthStencil.front.passOp = VK_STENCIL_OP_KEEP;
 			depthStencil.back = depthStencil.front;
 		}
 		if ( !CheckVulkanResult( state.CreateGraphicsPipelines( state.device, VK_NULL_HANDLE, 1,
@@ -4712,6 +4738,8 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 			"vkCreateGraphicsPipelines(worldAmbientCube)" );
 		CreateAmbientCubePipeline( state.worldAmbientCubeAddPipeline, false,
 			"vkCreateGraphicsPipelines(worldAmbientCubeAdd)" );
+		CreateAmbientCubePipeline( state.worldAmbientShadowPipeline, true,
+			"vkCreateGraphicsPipelines(worldAmbientShadow)", true );
 		// GPU-skinned variants: skinned vertex shader, plus the vertWeight_t stream
 		VkShaderModule skinnedModule = VK_NULL_HANDLE;
 		if ( created && CompileVulkanShaderModule( state, "vkprogs/world/skinned_interaction.vert",
@@ -4746,6 +4774,8 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 				"vkCreateGraphicsPipelines(worldAmbientCubeSkinned)" );
 			CreateAmbientCubePipeline( state.worldAmbientCubeAddSkinnedPipeline, false,
 				"vkCreateGraphicsPipelines(worldAmbientCubeAddSkinned)" );
+			CreateAmbientCubePipeline( state.worldAmbientShadowSkinnedPipeline, true,
+				"vkCreateGraphicsPipelines(worldAmbientShadowSkinned)", true );
 			depthStencil.stencilTestEnable = VK_TRUE;
 			created = created && CheckVulkanResult( state.CreateGraphicsPipelines(
 				state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
@@ -10039,7 +10069,7 @@ struct vulkanExpandedSurface_t {
 // #233): fog[ 0..2 ] the fog colour, fog[ 3 ] and fog[ 4 ] fogDepths' z and w.
 void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* surface,
 	const viewLight_s* light, const viewDef_s* view, bool unshadowed, const float* fog,
-	const float* ambient ) {
+	const float* ambient, bool amblitShadowSplit ) {
 	// fog (fog.frag) and ambient (ambient_cube.frag) redraw the surface without a light
 	const bool lightPass = fog == NULL && ambient == NULL;
 	if ( surface == NULL || surface->geo == NULL || surface->space == NULL ||
@@ -10102,7 +10132,7 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	}
 
 	idScreenRect scissorRect = surface->scissorRect;
-	if ( lightPass ) {
+	if ( light != NULL ) {	// a light pass, or an amblit surface's shadow scale under it
 		scissorRect.Intersect( light->scissorRect );
 	}
 	int scissorWidth = Max( 0, scissorRect.x2 - scissorRect.x1 + 1 );
@@ -10223,10 +10253,13 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 			return;
 		}
 	} else if ( ambient != NULL ) {
-		const bool selfIllumAdd = ambient[ 2 ] > 0.5f;
+		const bool selfIllumAdd = ambient[ 2 ] > 0.5f && ambient[ 2 ] < 1.5f;
 		pipeline = hardwareSkinned ?
 			( selfIllumAdd ? state.worldAmbientCubeAddSkinnedPipeline : state.worldAmbientCubeSkinnedPipeline ) :
 			( selfIllumAdd ? state.worldAmbientCubeAddPipeline : state.worldAmbientCubePipeline );
+		if ( ambient[ 2 ] > 1.5f ) {
+			pipeline = hardwareSkinned ? state.worldAmbientShadowSkinnedPipeline : state.worldAmbientShadowPipeline;
+		}
 		if ( !litInteraction || pipeline == VK_NULL_HANDLE ) {
 			return;
 		}
@@ -10288,6 +10321,8 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	EncodeModelRotation( surface->space->modelMatrix, pushConstants[ 23 ], pushConstants[ 27 ] );
 	bool notLitTerrain = false;
 	bool notLitShadowSplit = false;
+	bool amblitShadow = false;	// #265: an amblit surface's sun term, split as the terrain's
+	idVec3 amblitShadowColor( 1.0f, 1.0f, 1.0f );
 	idVec3 notLitShadowColor( 1.0f, 1.0f, 1.0f );
 	if ( litInteraction ) {
 		// interaction.vert/.frag: the light in the surface's model space, with
@@ -10391,6 +10426,19 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		// Only the view's own sun: a second atmosphere light would add the term twice.
 		notLitTerrain = lightPass && megaTextureSurface && sceneAlbedoInteraction &&
 			light == view->atmosphereLight && r_megaDrawMethod.GetInteger() != 0;
+		// #265: an amblit surface (not terrain) under the shadowed sun.  Retail draws
+		// its sun term before the shadow volumes and then scales its shadowed pixels,
+		// sun included, by minSpecShadowColor; the light block has already scaled the
+		// ambient there, so the sun term goes in as minSpecShadowColor x sun
+		// everywhere, then the rest where unshadowed.
+		amblitShadow = lightPass && amblitShadowSplit && !unshadowed && !megaTextureSurface &&
+			light->lightDef != NULL && ( hardwareSkinned ? state.worldInteractionSkinnedUnshadowedPipeline :
+				state.worldInteractionUnshadowedPipeline ) != VK_NULL_HANDLE;
+		if ( amblitShadow ) {
+			const unsigned int packed = light->lightDef->minSpecShadowColor;	// sdColor4::PackColor
+			amblitShadowColor.Set( ( packed & 0xFF ) / 255.0f, ( ( packed >> 8 ) & 0xFF ) / 255.0f,
+				( ( packed >> 16 ) & 0xFF ) / 255.0f );
+		}
 		if ( notLitTerrain ) {
 			pushConstants[ 30 ] = cvarSystem->GetCVarFloat( "r_rayTracingAmbient" );	// the light block's ambient
 			if ( !unshadowed && light->lightDef != NULL ) {
@@ -10504,6 +10552,25 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		pushConstants[ 17 ] = 1.0f - notLitShadowColor.y;
 		pushConstants[ 18 ] = 1.0f - notLitShadowColor.z;
 		pushConstants[ 30 ] = 0.0f;
+	}
+	if ( amblitShadow ) {
+		const VkPipeline unshadowedPipeline = hardwareSkinned ?
+			state.worldInteractionSkinnedUnshadowedPipeline : state.worldInteractionUnshadowedPipeline;
+		const idVec3 sunColor( pushConstants[ 36 ], pushConstants[ 37 ], pushConstants[ 38 ] );
+		state.CmdBindPipeline( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, unshadowedPipeline );
+		pushConstants[ 36 ] = sunColor.x * amblitShadowColor.x;
+		pushConstants[ 37 ] = sunColor.y * amblitShadowColor.y;
+		pushConstants[ 38 ] = sunColor.z * amblitShadowColor.z;
+		state.CmdPushConstants( frame.commandBuffer, pipelineLayout,
+			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+			sizeof( float ) * 40, pushConstants );
+		state.CmdDrawIndexed( frame.commandBuffer, tri->numIndexes, 1, 0, 0, 0 );
+		state.worldDrawCalls++;
+		state.worldInteractionDrawCalls++;
+		state.CmdBindPipeline( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
+		pushConstants[ 36 ] = sunColor.x * ( 1.0f - amblitShadowColor.x );
+		pushConstants[ 37 ] = sunColor.y * ( 1.0f - amblitShadowColor.y );
+		pushConstants[ 38 ] = sunColor.z * ( 1.0f - amblitShadowColor.z );
 	}
 	state.CmdPushConstants( frame.commandBuffer, pipelineLayout,
 		VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
@@ -11080,10 +11147,41 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 					}
 				}
 
-				// Render mtInteractions (atmosphere interactions on MegaTexture terrains)
+				// Render mtInteractions (atmosphere interactions on MegaTexture terrains,
+				// and the amblit surfaces under the sun).  Under a shadowed sun retail
+				// draws them unstenciled, then the shadow volumes, then multiplies their
+				// shadowed pixels by minSpecShadowColor (R_DrawMTInteractions,
+				// shadow/multiplitive): (ambient + sun) x minSpecShadowColor (#265).
+				// Here each amblit surface's shadowed ambient is scaled first (not a
+				// decal's: the surface under it scales that pixel once), then its sun
+				// term goes in split; the terrain keeps its own split.
+				const bool amblitShadow = lightHasShadows && light == view->atmosphereLight &&
+					r_megaDrawMethod.GetInteger() != 0 && light->lightDef != NULL &&
+					state->worldAmbientShadowPipeline != VK_NULL_HANDLE;
+				if ( amblitShadow ) {
+					const unsigned int packed = light->lightDef->minSpecShadowColor;	// sdColor4::PackColor
+					const float shadowTerms[ 8 ] = { 1.0f, 1.0f, 2.0f, 0.0f, ( packed & 0xFF ) / 255.0f,
+						( ( packed >> 8 ) & 0xFF ) / 255.0f, ( ( packed >> 16 ) & 0xFF ) / 255.0f, 1.0f };
+					for ( const drawSurf_s* surf = light->mtInteractions; surf != NULL; surf = surf->nextOnLight ) {
+						const idMaterial* material = surf->material;
+						if ( material == NULL || material->GetSort() >= static_cast< float >( SS_DECAL ) ) {
+							continue;
+						}
+						bool megaTexture = false;
+						for ( int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex ) {
+							megaTexture |= material->GetStage( stageIndex )->megaTexture != NULL;
+						}
+						if ( megaTexture ) {
+							continue;
+						}
+						vulkanInstanceSurfaces.ForEach( surf, [&]( const drawSurf_s* drawSurf ) {
+							DrawVulkanLightInteraction( *state, drawSurf, light, view, true, NULL, shadowTerms ); } );
+					}
+				}
 				for ( const drawSurf_s* surf = light->mtInteractions; surf != NULL; surf = surf->nextOnLight ) {
 					vulkanInstanceSurfaces.ForEach( surf, [&]( const drawSurf_s* drawSurf ) {
-						DrawVulkanLightInteraction( *state, drawSurf, light, view, !lightHasShadows ); } );
+						DrawVulkanLightInteraction( *state, drawSurf, light, view, !lightHasShadows,
+							NULL, NULL, amblitShadow ); } );
 				}
 
 				// Render globalInteractions
