@@ -136,6 +136,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-22/23:
+- #242 Vulkan terrain: retail's notlit_lit under the atmosphere sun, with minSpecShadowColor in shadow (part of #233)
 - #243 Owner decisions of 2026-10-24 in coordination §9 (a contended re-run fails on a second failure; burn-down; #141 undeferred) and ledger row 078. Closed with evidence: #186 (macOS globe renders), #148 (no repro).
 - #244 Mouse: carry SDL's sub-pixel motion between events (fixes #141)
 - #241 Vulkan megatexture detail texture, with the CPU mipmap-state levels (part of #233)
