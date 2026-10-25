@@ -1,0 +1,11 @@
+# postprocess/downsample: four taps 2 px apart in _currentRender (pixel coordinates, y flipped).
+OPTION ARB_position_invariant;
+TEMP	coord;
+MOV	coord, $texCoordAttrib;
+MUL	coord.xy, coord, $currentRenderTexelSize;
+SUB	coord.y, $currentRenderTexelSize.y, coord.y;
+MOV	result.texcoord[0], coord;
+ADD	result.texcoord[1], coord, { 2, 0, 0, 0 };
+ADD	result.texcoord[2], coord, { 2, 2, 0, 0 };
+ADD	result.texcoord[3], coord, { 0, 2, 0, 0 };
+MOV	result.color, $colorAttrib;
