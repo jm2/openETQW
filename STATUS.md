@@ -93,7 +93,7 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 
 ## This session
 
-2026-10-21 to 10-25, `openETQW-linux` as coordinator and merge role. Owner, 2026-10-24: "burn down all open issues and in-progress PRs across all sessions" (coordination §9). Owner, 2026-10-25: finish the open issues and PRs, update the docs and park every session. **Every openETQW session is now parked**, no PR is open in either repository, and `docs/queue.md` §2 has what is left: #270 (Vulkan stuff grass darker than OpenGL; unowned), #197 (the owner's real-keyboard rename check), #246 (distant-tree imposters and the per-instance cull, deferred by the owner as a large feature) and #133 (the coordinator log). Owner, 2026-10-25: bug fixes first; small features only if they're easy wins.
+2026-10-21 to 10-25, `openETQW-linux` as coordinator and merge role. Owner, 2026-10-24: "burn down all open issues and in-progress PRs across all sessions" (coordination §9). Owner, 2026-10-25: finish the open issues and PRs, update the docs and park every session. **Every openETQW session is now parked**, no PR is open in either repository, and `docs/queue.md` §2 has what is left: #197 (the owner's real-keyboard rename check), #246 (distant-tree imposters and the per-instance cull, deferred by the owner as a large feature) and #133 (the coordinator log). Owner, 2026-10-25: bug fixes first; small features only if they're easy wins.
 
 **Outstanding: the combined run.** #220–#276 merged on targeted tests and independent reviews, under the owner's rule of 2026-10-23 that full retail suites and screenshot sets wait for one combined run at the tail end (kisakcod priority). That run on `main` (the retail suite per platform and the screenshot sets from all five platforms) has not been done.
 
