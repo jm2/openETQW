@@ -693,6 +693,9 @@ struct sdVulkanBackendState {
 	// the atmosphere fog over the lit opaque surfaces (fog.frag, #233)
 	VkPipeline				worldFogPipeline;
 	VkPipeline				worldFogSkinnedPipeline;
+	// the ambient cube term of the lit opaque surfaces (ambient_cube.frag, #122)
+	VkPipeline				worldAmbientCubePipeline;
+	VkPipeline				worldAmbientCubeSkinnedPipeline;
 	// set while the light block's snapshot of the opaque base is in _currentRender
 	bool					sceneAlbedoCopied;
 	VkPipeline				worldLightAmbientPipeline;
@@ -942,6 +945,8 @@ struct sdVulkanBackendState {
 		worldInteractionSkinnedUnshadowedPipeline = VK_NULL_HANDLE;
 		worldFogPipeline = VK_NULL_HANDLE;
 		worldFogSkinnedPipeline = VK_NULL_HANDLE;
+		worldAmbientCubePipeline = VK_NULL_HANDLE;
+		worldAmbientCubeSkinnedPipeline = VK_NULL_HANDLE;
 		sceneAlbedoCopied = false;
 		worldLightAmbientPipeline = VK_NULL_HANDLE;
 		pushConstantFloats = 32;
@@ -3566,6 +3571,14 @@ void DestroyGuiResources( sdVulkanBackendState& state ) {
 		state.DestroyPipeline( state.device, state.worldFogSkinnedPipeline, NULL );
 		state.worldFogSkinnedPipeline = VK_NULL_HANDLE;
 	}
+	if ( state.worldAmbientCubePipeline != VK_NULL_HANDLE ) {
+		state.DestroyPipeline( state.device, state.worldAmbientCubePipeline, NULL );
+		state.worldAmbientCubePipeline = VK_NULL_HANDLE;
+	}
+	if ( state.worldAmbientCubeSkinnedPipeline != VK_NULL_HANDLE ) {
+		state.DestroyPipeline( state.device, state.worldAmbientCubeSkinnedPipeline, NULL );
+		state.worldAmbientCubeSkinnedPipeline = VK_NULL_HANDLE;
+	}
 	if ( state.worldLightAmbientPipeline != VK_NULL_HANDLE ) {
 		state.DestroyPipeline( state.device, state.worldLightAmbientPipeline, NULL );
 		state.worldLightAmbientPipeline = VK_NULL_HANDLE;
@@ -4378,6 +4391,23 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 		blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
 		depthStencil = interactionDepthStencil;
 	};
+	VkShaderModule ambientCubeModule = VK_NULL_HANDLE;
+	bool ambientCubeShader = false;
+	// called while the unshadowed (no stencil test) state is set up
+	auto CreateAmbientCubePipeline = [&]( VkPipeline& ambientPipeline, const char* what ) {
+		if ( !ambientCubeShader ) {
+			return;
+		}
+		const VkShaderModule interactionModule = shaderStages[ 1 ].module;
+		shaderStages[ 1 ].module = ambientCubeModule;
+		blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+		if ( !CheckVulkanResult( state.CreateGraphicsPipelines( state.device, VK_NULL_HANDLE, 1,
+			&pipelineInfo, NULL, &ambientPipeline ), what ) ) {
+			ambientPipeline = VK_NULL_HANDLE;
+		}
+		shaderStages[ 1 ].module = interactionModule;
+		blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+	};
 	bool created = CheckVulkanResult( state.CreateGraphicsPipelines(
 		state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
 		&state.worldInteractionPipeline ), "vkCreateGraphicsPipelines(worldInteraction)" );
@@ -4394,6 +4424,12 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 		fogShader = created && CompileVulkanShaderModule( state, "vkprogs/world/fog.frag",
 			SPIRV_SHADER_STAGE_FRAGMENT, fogModule );
 		CreateFogPipeline( state.worldFogPipeline, "vkCreateGraphicsPipelines(worldFog)" );
+		// The ambient cube term (#122): the same geometry and alpha test, with
+		// ambient_cube.frag replacing the colour.  Without it the flat ambient stays.
+		ambientCubeShader = created && CompileVulkanShaderModule( state, "vkprogs/world/ambient_cube.frag",
+			SPIRV_SHADER_STAGE_FRAGMENT, ambientCubeModule );
+		CreateAmbientCubePipeline( state.worldAmbientCubePipeline,
+			"vkCreateGraphicsPipelines(worldAmbientCube)" );
 		// GPU-skinned variants: skinned vertex shader, plus the vertWeight_t stream
 		VkShaderModule skinnedModule = VK_NULL_HANDLE;
 		if ( created && CompileVulkanShaderModule( state, "vkprogs/world/skinned_interaction.vert",
@@ -4424,6 +4460,8 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 				&state.worldInteractionSkinnedUnshadowedPipeline ),
 				"vkCreateGraphicsPipelines(worldInteractionSkinnedUnshadowed)" );
 			CreateFogPipeline( state.worldFogSkinnedPipeline, "vkCreateGraphicsPipelines(worldFogSkinned)" );
+			CreateAmbientCubePipeline( state.worldAmbientCubeSkinnedPipeline,
+				"vkCreateGraphicsPipelines(worldAmbientCubeSkinned)" );
 			depthStencil.stencilTestEnable = VK_TRUE;
 			created = created && CheckVulkanResult( state.CreateGraphicsPipelines(
 				state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
@@ -4435,6 +4473,9 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 
 	if ( fogModule != VK_NULL_HANDLE ) {
 		state.DestroyShaderModule( state.device, fogModule, NULL );
+	}
+	if ( ambientCubeModule != VK_NULL_HANDLE ) {
+		state.DestroyShaderModule( state.device, ambientCubeModule, NULL );
 	}
 	state.DestroyShaderModule( state.device, vertexModule, NULL );
 	state.DestroyShaderModule( state.device, fragmentModule, NULL );
@@ -5364,17 +5405,6 @@ bool GetVulkanMaterialDescriptor( sdVulkanBackendState& state,
 		space->ambientCubeMap->GetAmbientCubeMap() != NULL ) {
 		images[ 4 ] = space->ambientCubeMap->GetAmbientCubeMap();
 	}
-	// Bindings 0–3 are sampler2D; binding 4 is samplerCube.  A cube map in a
-	// 2D slot (or vice versa) is a spec violation (VUID-vkCmdDrawIndexed-
-	// viewType-07752).  Replace mismatched images with matching-type fallbacks.
-	for ( int slot = 0; slot < 4; ++slot ) {
-		if ( images[ slot ] != NULL && images[ slot ]->cubeFiles != CF_2D ) {
-			images[ slot ] = globalImages->blackImage;
-		}
-	}
-	if ( images[ 4 ] != NULL && images[ 4 ]->cubeFiles == CF_2D ) {
-		images[ 4 ] = globalImages->blackCubeMapImage;
-	}
 	for ( int textureIndex = 0; textureIndex < stage.numTextures; ++textureIndex ) {
 		const stageTexture_t& texture = stage.textures[ textureIndex ];
 		if ( texture.image == NULL || texture.image->defaulted ) {
@@ -5392,21 +5422,37 @@ bool GetVulkanMaterialDescriptor( sdVulkanBackendState& state,
 		}
 	}
 	const sdVulkanImageResource* resources[ VULKAN_MATERIAL_TEXTURES ];
+	idImage* fallbacks[ VULKAN_MATERIAL_TEXTURES ];
 	for ( int imageIndex = 0; imageIndex < VULKAN_MATERIAL_TEXTURES; ++imageIndex ) {
 		if ( images[ imageIndex ] == NULL ) {
 			return false;
 		}
+		fallbacks[ imageIndex ] = imageIndex == 4 ? globalImages->blackCubeMapImage :
+			globalImages->blackImage;
 		if ( !images[ imageIndex ]->IsLoaded() ) {
 			images[ imageIndex ]->BindFragment();
+		}
+		if ( !fallbacks[ imageIndex ]->IsLoaded() ) {
+			fallbacks[ imageIndex ]->BindFragment();
 		}
 	}
 	// BindFragment can append to state.imageResources and reallocate its idList.
 	// Resolve every resource pointer only after all requested images have been
 	// loaded so no pointer retained here can be invalidated by a later binding.
+	// Bindings 0–3 are sampler2D; binding 4 is samplerCube.  A cube map in a
+	// 2D slot (or vice versa) is a spec violation (VUID-vkCmdDrawIndexed-
+	// viewType-07752), so a mismatch takes the slot's fallback.  As the front
+	// end's descriptor, the type is checked on the uploaded resource: a generated
+	// cube map (the ambient cubes) keeps cubeFiles CF_2D.
 	for ( int imageIndex = 0; imageIndex < VULKAN_MATERIAL_TEXTURES; ++imageIndex ) {
+		const bool cubeSlot = imageIndex == 4;
 		resources[ imageIndex ] = FindVulkanImageResource( state,
 			images[ imageIndex ] );
-		if ( resources[ imageIndex ] == NULL ) {
+		if ( resources[ imageIndex ] != NULL && resources[ imageIndex ]->cubeMap != cubeSlot ) {
+			images[ imageIndex ] = fallbacks[ imageIndex ];
+			resources[ imageIndex ] = FindVulkanImageResource( state, images[ imageIndex ] );
+		}
+		if ( resources[ imageIndex ] == NULL || resources[ imageIndex ]->cubeMap != cubeSlot ) {
 			return false;
 		}
 	}
@@ -9589,9 +9635,12 @@ void DrawVulkanShadowSurface( sdVulkanBackendState& state, const drawSurf_s* sur
 // fog != NULL draws the atmosphere fog over the surface instead (no light; fog.frag,
 // #233): fog[ 0..2 ] the fog colour, fog[ 3 ] and fog[ 4 ] fogDepths' z and w.
 void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* surface,
-	const viewLight_s* light, const viewDef_s* view, bool unshadowed, const float* fog ) {
+	const viewLight_s* light, const viewDef_s* view, bool unshadowed, const float* fog,
+	const float* ambient ) {
+	// fog (fog.frag) and ambient (ambient_cube.frag) redraw the surface without a light
+	const bool lightPass = fog == NULL && ambient == NULL;
 	if ( surface == NULL || surface->geo == NULL || surface->space == NULL ||
-		 surface->material == NULL || ( light == NULL && fog == NULL ) || view == NULL ) {
+		 surface->material == NULL || ( light == NULL && lightPass ) || view == NULL ) {
 		return;
 	}
 	const srfTriangles_t* tri = surface->geo;
@@ -9650,7 +9699,7 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	}
 
 	idScreenRect scissorRect = surface->scissorRect;
-	if ( fog == NULL ) {
+	if ( lightPass ) {
 		scissorRect.Intersect( light->scissorRect );
 	}
 	int scissorWidth = Max( 0, scissorRect.x2 - scissorRect.x1 + 1 );
@@ -9730,9 +9779,9 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	}
 	// MegaTexture terrain reads its albedo from the light block's snapshot
 	VkDescriptorSet sceneAlbedoSet = VK_NULL_HANDLE;
-	const bool sceneAlbedoInteraction = fog == NULL && litInteraction && megaTextureSurface &&
+	const bool sceneAlbedoInteraction = lightPass && litInteraction && megaTextureSurface &&
 		state.sceneAlbedoCopied && GetVulkanSceneAlbedoDescriptor( state, sceneAlbedoSet );
-	if ( fog == NULL && litInteraction && megaTextureSurface && !sceneAlbedoInteraction ) {
+	if ( lightPass && litInteraction && megaTextureSurface && !sceneAlbedoInteraction ) {
 		return;	// no albedo snapshot (no TRANSFER_SRC swapchain): ambient only, not white
 	}
 	VkPipeline pipeline = unshadowed ?
@@ -9762,6 +9811,11 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		if ( !litInteraction || pipeline == VK_NULL_HANDLE ) {
 			return;
 		}
+	} else if ( ambient != NULL ) {
+		pipeline = hardwareSkinned ? state.worldAmbientCubeSkinnedPipeline : state.worldAmbientCubePipeline;
+		if ( !litInteraction || pipeline == VK_NULL_HANDLE ) {
+			return;
+		}
 	}
 	if ( pipeline == VK_NULL_HANDLE ) {
 		pipeline = state.worldMaterialAddPipeline != VK_NULL_HANDLE ?
@@ -9779,8 +9833,8 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	memset( pushConstants, 0, sizeof( pushConstants ) );
 	memcpy( pushConstants, mvp, sizeof( mvp ) );
 	idVec3 lightColor( 1.0f, 1.0f, 1.0f );
-	bool lightColorResolved = fog != NULL;
-	if ( fog == NULL && light->material != NULL && light->lightRegisters != NULL ) {
+	bool lightColorResolved = !lightPass;
+	if ( lightPass && light->material != NULL && light->lightRegisters != NULL ) {
 		for ( int stageIndex = 0; stageIndex < light->material->GetNumStages(); ++stageIndex ) {
 			const materialStage_t* lightStage = light->material->GetStage( stageIndex );
 			if ( lightStage == NULL || lightStage->depthStage ||
@@ -9819,8 +9873,16 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	if ( litInteraction ) {
 		// interaction.vert/.frag: the light in the surface's model space, with
 		// the terms of raytracing/lighting.comp (N.L, (1 - d/r)^2, a directional
-		// sun); the surface colour is the stage's diffuse only
-		pushConstants[ 16 ] = pushConstants[ 17 ] = pushConstants[ 18 ] = 1.0f;
+		// sun) and retail's specular; the surface colour is the stage's diffuse
+		// only.  The colour slot carries the view origin in model space instead
+		// (the specular's view vector); its w marks scene-albedo terrain.
+		{
+			const float* m = surface->space->modelMatrix;	// axis rows 0-2, 4-6, 8-10, origin 12-14
+			const idVec3 delta = view->renderView.vieworg - idVec3( m[ 12 ], m[ 13 ], m[ 14 ] );
+			pushConstants[ 16 ] = delta.x * m[ 0 ] + delta.y * m[ 1 ] + delta.z * m[ 2 ];
+			pushConstants[ 17 ] = delta.x * m[ 4 ] + delta.y * m[ 5 ] + delta.z * m[ 6 ];
+			pushConstants[ 18 ] = delta.x * m[ 8 ] + delta.y * m[ 9 ] + delta.z * m[ 10 ];
+		}
 		if ( sceneAlbedoInteraction ) {
 			pushConstants[ 19 ] = -1.0f;
 		}
@@ -9828,7 +9890,7 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 			pushConstants[ 30 ] = surface->materialRegisters[ stage->alphaTestRegister ];
 			pushConstants[ 31 ] = 1.0f;
 		}
-		const bool directional = fog == NULL && ( light == view->atmosphereLight ||
+		const bool directional = lightPass && ( light == view->atmosphereLight ||
 			( light->lightDef != NULL && light->lightDef->flags.atmosphereLight ) );
 		if ( fog != NULL ) {
 			// fog.frag: the view origin in model space, fogDepths and the fog colour
@@ -9838,6 +9900,10 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 			pushConstants[ 33 ] = delta.x * m[ 4 ] + delta.y * m[ 5 ] + delta.z * m[ 6 ];
 			pushConstants[ 34 ] = delta.x * m[ 8 ] + delta.y * m[ 9 ] + delta.z * m[ 10 ];
 			pushConstants[ 35 ] = fog[ 3 ];
+		} else if ( ambient != NULL ) {
+			// ambient_cube.frag: $ambientBrightness and $ambientScale.x
+			pushConstants[ 32 ] = ambient[ 0 ];
+			pushConstants[ 33 ] = ambient[ 1 ];
 		} else if ( directional ) {
 			idVec3 sunDirection( 0.35f, 0.45f, 0.82f );
 			if ( view->atmosphere != NULL ) {
@@ -9870,7 +9936,7 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 			pushConstants[ 34 ] = localOrigin.z;
 			pushConstants[ 35 ] = radius;
 		}
-		if ( fog == NULL && megaTextureSurface ) {
+		if ( lightPass && megaTextureSurface ) {
 			// Retail's megatexture/interaction_bakedamb* scale the light by the
 			// stage's $parameters.w (valley: 0.5): the terrain's baked lighting
 			// already carries half the sun, and its ambient pass removes
@@ -9944,7 +10010,7 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		sizeof( float ) * ( litInteraction ? 40 : 32 ), pushConstants );
 	state.CmdDrawIndexed( frame.commandBuffer, tri->numIndexes, 1, 0, 0, 0 );
 	state.worldDrawCalls++;
-	if ( fog == NULL ) {
+	if ( lightPass ) {
 		state.worldInteractionDrawCalls++;
 	}
 }
@@ -10320,6 +10386,38 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 					sizeof( ambientConstants ), ambientConstants );
 				state->CmdDraw( frame.commandBuffer, 3, 1, 0, 0 );
 				submittedPipeline = VK_NULL_HANDLE;
+				// Retail's ambient pass (interaction/basic_ambient_fragment.inc): a lit
+				// surface whose entity has an ambient cube map takes albedo * the cube along
+				// its normal * $ambientBrightness * $ambientScale.x instead of the flat
+				// scale above.  MegaTexture terrain keeps the flat scale: its retail ambient
+				// (megatexture/ambient_fragment.inc, bakedamb) takes no cube.
+				const float ambientScale = cvarSystem->GetCVarFloat( "r_ambientScale" );
+				for ( int surfaceIndex = 0; state->worldAmbientCubePipeline != VK_NULL_HANDLE &&
+					surfaceIndex < view->numDrawSurfs; ++surfaceIndex ) {
+					const drawSurf_s* surf = view->drawSurfs[ surfaceIndex ];
+					if ( surf == NULL || surf->material == NULL || surf->space == NULL ) {
+						continue;
+					}
+					const idMaterial* material = surf->material;
+					if ( material->GetSort() >= static_cast< float >( SS_DECAL ) ) {
+						break;
+					}
+					const sdDeclAmbientCubeMap* cubeMap = surf->space->ambientCubeMap;
+					if ( cubeMap == NULL || cubeMap->GetAmbientCubeMap() == NULL ||
+						material->GetSort() == SS_SUBVIEW || material->Coverage() == MC_TRANSLUCENT ||
+						!material->ReceivesLighting() ) {
+						continue;
+					}
+					bool megaTexture = false;
+					for ( int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex ) {
+						megaTexture |= material->GetStage( stageIndex )->megaTexture != NULL;
+					}
+					if ( megaTexture ) {
+						continue;
+					}
+					const float ambientTerms[ 2 ] = { cubeMap->GetBrightness(), ambientScale };
+					DrawVulkanLightInteraction( *state, surf, NULL, view, true, NULL, ambientTerms );
+				}
 			}
 			for ( const viewLight_s* light = view->viewLights; light != NULL; light = light->next ) {
 				if ( light->culled || light->material == NULL || light->material->IsFogLight() || light->material->IsBlendLight() ) {
