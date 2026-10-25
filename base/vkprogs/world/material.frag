@@ -22,6 +22,10 @@ layout( location = 4 ) in vec3 fragmentBitangent;
 layout( location = 5 ) in vec3 fragmentNormal;
 layout( location = 0 ) out vec4 outColor;
 
+// 1 in an opaque base pass: alpha is then the postprocess glow's weight, 0 as
+// retail's lit replace writes it, or 1 (the clear's) for an alpha-tested surface
+layout( constant_id = 0 ) const bool OPAQUE_BASE = false;
+
 void main() {
 	vec4 diffuse = texture( diffuseTexture, fragmentTexCoord );
 	if ( pc.parameters.w > 0.5 && diffuse.a < pc.parameters.z ) {
@@ -34,4 +38,7 @@ void main() {
 	// read the bump map (binding 1).
 	outColor = vec4( ( diffuse.rgb + selfIllum ) * fragmentColor.rgb,
 		diffuse.a * fragmentColor.a );
+	if ( OPAQUE_BASE ) {
+		outColor.a = ( pc.parameters.w > 0.5 ? 1.0 : 0.0 );
+	}
 }
