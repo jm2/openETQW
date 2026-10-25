@@ -22,7 +22,8 @@ Steps, in order (each can be skipped where it makes sense):
   4. skips: meson test --suite integration without ETQW_DATA_PATH, every test
      must SKIP (tools/ci/check_meson_testlog.py)
   5. install: meson install into <build-dir>/install, then the staged-payload
-     checks (below)
+     checks (below); the installed game module is then linked (copied on
+     Windows) beside the build's binaries, where the retail suite loads it
   6. smoke: tools/ci/dedicated_server_smoke.py on the staged dedicated server
      and game module
 
@@ -284,6 +285,31 @@ def validate_payload(install: Path, arch: str, system: str, client_expected: boo
 
 # ---------------------------------------------------------------- main
 
+def stage_game_module(build: Path, install: Path, arch: str, system: str) -> None:
+    """put the installed game module beside the build's binaries.
+
+    The retail suite runs the client and server from the build directory, and
+    FindDLL tries the executable's directory before the module root and the
+    search paths (<fs_basepath>/base among them).  Without a module here a test
+    loads whatever module the data directory holds, an older game than the
+    PR's (#188).  On Windows the copy is refreshed only by the next validate run.
+    """
+    name = module_name(arch, system)
+    source = install / name
+    target = build / name
+    try:
+        if target.is_symlink() or target.exists():
+            target.unlink()
+        if system == "windows":
+            # symlinks need a privilege on Windows
+            shutil.copy2(source, target)
+        else:
+            target.symlink_to(Path("install") / name)
+    except OSError as error:
+        raise CheckFailed(f"could not stage the game module at {target}: {error}") from error
+    print(f"staged {target} -> {source}")
+
+
 def check_dirty(root: Path) -> None:
     status = subprocess.run(["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all"],
                             capture_output=True, text=True).stdout.strip()
@@ -385,6 +411,7 @@ def main(argv: list[str]) -> int:
             run(meson_command() + ["install", "-C", str(build), "--no-rebuild", "--quiet"], cwd=ROOT, dry_run=args.dry_run)
             if not args.dry_run:
                 validate_payload(install, arch, system, client_expected=not args.no_client)
+                stage_game_module(build, install, arch, system)
 
             if not args.no_smoke:
                 section("assetless dedicated-server smoke on the staged tree")

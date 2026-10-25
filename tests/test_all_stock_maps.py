@@ -38,6 +38,16 @@ For every stock map a FRESH dedicated server process is started with
               sample from a bot that still rides a vehicle (PLAYER_POS
               'vehicle=' >= 0) reports the vehicle's position and ground state,
               where the player AAS does not apply, and is counted separately.
+              So is a sample in a teleporter's transit (PLAYER_POS 'tele=1'):
+              the player waits at the teleporter's storage location (on
+              slipgate, below the map at z -4352), outside the AAS (#126);
+              those samples also stay out of the displacement, speed and stuck
+              numbers, since the jumps in and out of storage are not walking.
+              A sample with no area inside a recorded gap in retail's own
+              player AAS (RETAIL_AAS_GAPS; owner decision on #159, 2026-10-23:
+              match retail) is left out of the AAS tally and counted
+              separately: retail's file has no area there, so retail bots that
+              reach the spot have none either.
   f) think    'botThreadStats' at the start and end of the bot window:
               gameHz = dGameFrame / dWall must be within 27..33.5,
               thinkRatio = dBotFrames / dGameFrame is reported (and must be
@@ -88,6 +98,18 @@ ENTITY_CRITERION = 500          # the old phase threshold, recorded only (owner 
 MIN_DISPLACEMENT = 50.0
 STUCK_SPEED = 10.0
 AREA_VALID_MIN_FRACTION = 0.90
+# Gaps in retail 1.5's own player AAS (maps/<map>.aas_playerb), as boxes
+# (xmin, xmax, ymin, ymax, zmin, zmax) that were measured to hold no area.
+# Area-0 samples inside one are left out of aas_area_validity (owner decision
+# on #159, 2026-10-23: match retail). Add a box only with the measurement.
+RETAIL_AAS_GAPS: dict[str, list[tuple[float, float, float, float, float, float]]] = {
+    # #159 (issuecomment-6306739573): a strip about 64 u wide between areas
+    # 3297 (y <= 3208) and 2747 (y >= 3272), no reachability in or out. Area 0
+    # was measured on a 24 u grid over x -816.5..-720.5, y 3215..3263, and at
+    # the stuck point from z 2990.9 to +32; the y edges are the two areas'
+    # bounds and z starts at 3297's floor (2983).
+    "salvage": [(-817.0, -720.0, 3208.0, 3272.0, 2983.0, 3023.0)],
+}
 GAME_HZ_RANGE = (27.0, 33.5)
 THINK_RATIO_MIN = 0.9
 BOT_TEAMS = ("gdf", "strogg")
@@ -135,8 +157,9 @@ class BotTracker:
     """Per-client sample bookkeeping: per-life displacement, stuck time and
     AAS area validity."""
 
-    def __init__(self, client: int):
+    def __init__(self, client: int, gaps: list | None = None):
         self.client = client
+        self.gaps = gaps or []
         self.team: str | None = None
         self.name: str | None = None
         self.real_spawns: list[dict] = []
@@ -152,6 +175,8 @@ class BotTracker:
         self.alive_samples = 0
         self.grounded_alive = 0
         self.vehicle_samples = 0
+        self.transit_samples = 0
+        self.gap_samples = 0
         self.area_known = 0
         self.area_valid = 0
         self.nonfinite = 0
@@ -213,9 +238,19 @@ class BotTracker:
         riding = s.get("vehicle") is not None and s["vehicle"] >= 0
         if riding:
             self.vehicle_samples += 1
+        elif s.get("tele") == 1:
+            # at the teleporter's storage spot: keep it out of the AAS tally and the
+            # movement numbers (the jumps in and out are not walking); restart the speed pair
+            self.transit_samples += 1
+            self.prev = None
+            self.stuck_run_start = None
+            return
         elif s["ground"] == 1:
             self.grounded_alive += 1
-            if s["area"] is not None:
+            if s["area"] == 0 and self.in_gap(x, y, z):
+                # in a recorded gap of retail's AAS: retail has no area here either
+                self.gap_samples += 1
+            elif s["area"] is not None:
                 self.area_known += 1
                 if s["area"] > 0:
                     self.area_valid += 1
@@ -250,6 +285,10 @@ class BotTracker:
             return None
         return self.area_valid / self.area_known
 
+    def in_gap(self, x: float, y: float, z: float) -> bool:
+        return any(x0 <= x <= x1 and y0 <= y <= y1 and z0 <= z <= z1
+                   for x0, x1, y0, y1, z0, z1 in self.gaps)
+
     def to_json(self) -> dict:
         frac = self.area_fraction()
         return {
@@ -261,6 +300,8 @@ class BotTracker:
             "samples": self.samples, "alive_samples": self.alive_samples,
             "grounded_alive_samples": self.grounded_alive,
             "vehicle_samples": self.vehicle_samples,
+            "transit_samples": self.transit_samples,
+            "retail_aas_gap_samples": self.gap_samples,
             "area_samples": self.area_known, "area_valid_samples": self.area_valid,
             "area_valid_fraction": round(frac, 4) if frac is not None else None,
             "stuck_longest_s": round(self.stuck_longest, 2),
@@ -381,13 +422,13 @@ def run_map(map_name: str, map_index: int, cfg: argparse.Namespace, ctx: dict) -
             for ln in server.snapshot(processed, upto):
                 sp = H.parse_spawn(ln.text)
                 if sp is not None:
-                    trackers.setdefault(sp["client"], BotTracker(sp["client"])).on_spawn(sp)
+                    trackers.setdefault(sp["client"], BotTracker(sp["client"], RETAIL_AAS_GAPS.get(map_name))).on_spawn(sp)
                     poll_clients.add(sp["client"])
                     continue
                 if ln.text.startswith("PLAYER_POS:"):
                     s = H.parse_player_pos(ln.text)
                     if s is not None:
-                        trackers.setdefault(s["client"], BotTracker(s["client"])).on_sample(s, ln.t)
+                        trackers.setdefault(s["client"], BotTracker(s["client"], RETAIL_AAS_GAPS.get(map_name))).on_sample(s, ln.t)
                     continue
                 m = H.SIM_HASH_TICK_RE.search(ln.text)
                 if m and window_start <= ln.t:
@@ -578,14 +619,20 @@ def run_map(map_name: str, map_index: int, cfg: argparse.Namespace, ctx: dict) -
             known = sum(tr.area_known for tr in trs)
             valid = sum(tr.area_valid for tr in trs)
             riding = sum(tr.vehicle_samples for tr in trs)
-            riding_note = f"; {riding} samples in a vehicle left out" if riding else ""
+            transit = sum(tr.transit_samples for tr in trs)
+            gap = sum(tr.gap_samples for tr in trs)
+            left_out_note = f"; {riding} samples in a vehicle left out" if riding else ""
+            if transit:
+                left_out_note += f"; {transit} samples in teleport transit left out"
+            if gap:
+                left_out_note += f"; {gap} samples in a recorded retail AAS gap left out (#159)"
             if known == 0:
                 res.check(f"bots.{team}.aas_area_validity", FAIL,
-                          f"no grounded+alive on-foot samples with an area value{riding_note}")
+                          f"no grounded+alive on-foot samples with an area value{left_out_note}")
             else:
                 frac = valid / known
                 res.check_bool(f"bots.{team}.aas_area_validity", frac >= AREA_VALID_MIN_FRACTION,
-                               f"area>0 in {valid}/{known} grounded+alive on-foot samples ({frac:.1%}, need >= {AREA_VALID_MIN_FRACTION:.0%}){riding_note}")
+                               f"area>0 in {valid}/{known} grounded+alive on-foot samples ({frac:.1%}, need >= {AREA_VALID_MIN_FRACTION:.0%}){left_out_note}")
 
     # ---------------- f) think rate ----------------
     think: dict = {"start": bts0, "end": bts1, "start_status": bts0_status, "end_status": bts1_status}

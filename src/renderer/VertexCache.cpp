@@ -312,6 +312,8 @@ void idVertexCache::Alloc( void *data, int size, vertCache_t **buffer, bool inde
 		if ( indexBuffer ) {
 			qglBindBufferARB( GL_ELEMENT_ARRAY_BUFFER_ARB, block->vbo );
 			qglBufferDataARB( GL_ELEMENT_ARRAY_BUFFER_ARB, (GLsizeiptrARB)size, data, GL_STATIC_DRAW_ARB );
+			// don't leave it bound for draws that use client indexes (#218)
+			qglBindBufferARB( GL_ELEMENT_ARRAY_BUFFER_ARB, 0 );
 		} else {
 			qglBindBufferARB( GL_ARRAY_BUFFER_ARB, block->vbo );
 			if ( allocatingTempBuffer ) {

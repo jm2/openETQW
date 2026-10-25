@@ -150,6 +150,7 @@ CLIENT_RE = re.compile(r" c(\d+)=([^:\s]+):aor=(-?\d+):hid=(\d):veh=(-?\d+)")
 # M5 step 14b: the hull lead a seat draw used (alpha ticks past the last tick, the tick's lead)
 LEAD_RE = re.compile(r" lead=(-?[\d.]+),(-?[\d.]+),(-?[\d.]+),(-?[\d.]+)")
 JNT_RE = re.compile(r" jnt=(-?[\d.]+)")   # M5 step 14, gunner views: a checksum of the hull's drawn joints
+CKP_RE = re.compile(r" ckp=([-\d.,]+)")   # M5 step 3, seats: the cockpit model's drawn pose
 
 EDGE_S = 0.25
 CHANGED = 0.99        # A4-A7: the fraction of draw pairs that must show a change
@@ -189,7 +190,10 @@ def parse_pose(line):
             "veh": None if m.group(13) == "-" else [float(v) for v in m.group(13).split(",")],
             "lead": (lambda g: None if g is None else (float(g.group(1)), [float(g.group(i)) for i in (2, 3, 4)]))(
                 LEAD_RE.search(m.group(14))),
-            "jnt": (lambda g: None if g is None else [float(g.group(1))])(JNT_RE.search(m.group(14)))}
+            "jnt": (lambda g: None if g is None else [float(g.group(1))])(JNT_RE.search(m.group(14))),
+            # ckp=- : a seated draw without a cockpit (a few draws as the husky's seat is entered)
+            "ckp": (lambda g: None if g is None or g.group(1) == "-" else [float(v) for v in g.group(1).split(",")])(
+                CKP_RE.search(m.group(14)))}
 
 
 def spectate_round(poses, host_slot, peer_slot):

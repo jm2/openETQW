@@ -8,6 +8,7 @@
 
 #include "DeviceContext.h"
 #include "GuiModel.h"
+#include "GuiFont.h"
 #include "Material.h"
 
 namespace {
@@ -104,7 +105,6 @@ private:
 	bool				overrideAspectRatio;
 };
 
-idStrList recoveredFontNames;
 sdDeviceContextLocal deviceContextLocal;
 
 }
@@ -630,22 +630,17 @@ void sdDeviceContextLocal::DrawTimer(
 }
 
 qhandle_t sdDeviceContextLocal::FindFont( const char* fontName ) {
-	if ( fontName == NULL || fontName[ 0 ] == '\0' ) {
-		return -1;
-	}
-	for ( int i = 0; i < recoveredFontNames.Num(); i++ ) {
-		if ( !recoveredFontNames[ i ].Icmp( fontName ) ) {
-			return i;
-		}
-	}
-	return recoveredFontNames.Append( fontName );
+	return guiFonts.FindFont( fontName );
 }
 
 void sdDeviceContextLocal::FreeFont( qhandle_t ) {
 }
 
-const int sdDeviceContextLocal::GetFontHeight( qhandle_t, int pointSize ) {
-	return Max( 0, pointSize );
+const int sdDeviceContextLocal::GetFontHeight( qhandle_t font, int pointSize ) {
+	// one line of the font, in virtual units
+	static sdGuiTextLayout layout;
+	guiFonts.Layout( font, pointSize, L"", sdBounds2D( 0.0f, 0.0f, 0.0f, 0.0f ), 0, 0xFFFFFFFF, layout );
+	return idMath::Ftoi( idMath::Ceil( layout.height ) );
 }
 
 void sdDeviceContextLocal::SetFont( qhandle_t font ) {
@@ -666,11 +661,14 @@ void sdDeviceContextLocal::DrawText( const wchar_t* text, const sdBounds2D& rect
 	guiModel.DrawTextA( text, rect, flags );
 }
 
+// measured with the layout the GUI model draws with (docs/gui-text.md): the
+// size in virtual units, scale as screen pixels per virtual unit, each source
+// character's advance in 1/64 screen pixel and the line breaks
 void sdDeviceContextLocal::GetTextDimensions(
 	const wchar_t* text,
 	const sdBounds2D& rect,
 	unsigned int flags,
-	qhandle_t,
+	qhandle_t font,
 	int pointSize,
 	int& width,
 	int& height,
@@ -678,47 +676,23 @@ void sdDeviceContextLocal::GetTextDimensions(
 	int** charAdvances,
 	idList< int >* lineBreaks
 ) {
-	width = 0;
-	height = Max( 0, pointSize );
+	static sdGuiTextLayout layout;
+	guiFonts.Layout( font, pointSize, text != NULL ? text : L"", rect, flags, 0xFFFFFFFF, layout );
+	width = idMath::Ftoi( idMath::Ceil( layout.width ) );
+	height = idMath::Ftoi( idMath::Ceil( layout.height ) );
 	if ( scale != NULL ) {
-		*scale = 1.0f;
+		*scale = layout.scale;
 	}
-	if ( charAdvances != NULL ) {
-		*charAdvances = NULL;
+	if ( charAdvances != NULL && *charAdvances != NULL ) {
+		// the caller's buffer holds one entry per character of text
+		for ( int i = 0; i < layout.advances.Num(); i++ ) {
+			( *charAdvances )[ i ] = layout.advances[ i ];
+		}
 	}
 	if ( lineBreaks != NULL ) {
-		lineBreaks->Clear();
+		lineBreaks->SetNum( 0, false );
+		lineBreaks->Append( layout.lineBreaks );
 	}
-	if ( text == NULL ) {
-		return;
-	}
-
-	const int advance = Max( 1, pointSize / 2 );
-	int lineWidth = 0;
-	int lines = 1;
-	const int maxWidth = Max( 0, static_cast< int >( rect.GetWidth() ) );
-	for ( int i = 0; text[ i ] != L'\0'; i++ ) {
-		if ( text[ i ] == L'\n' && ( flags & DTF_SINGLELINE ) == 0 ) {
-			width = Max( width, lineWidth );
-			lineWidth = 0;
-			lines++;
-			if ( lineBreaks != NULL ) {
-				lineBreaks->Append( i );
-			}
-			continue;
-		}
-		if ( ( flags & DTF_WORDWRAP ) != 0 && maxWidth > 0 && lineWidth + advance > maxWidth ) {
-			width = Max( width, lineWidth );
-			lineWidth = 0;
-			lines++;
-			if ( lineBreaks != NULL ) {
-				lineBreaks->Append( i );
-			}
-		}
-		lineWidth += advance;
-	}
-	width = Max( width, lineWidth );
-	height = lines * Max( 0, pointSize );
 }
 
 void sdDeviceContextLocal::OverrideAspectRationCorrection( bool setOverride ) {

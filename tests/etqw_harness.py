@@ -445,6 +445,10 @@ PLAYER_POS_RE = re.compile(
     r"(?:\s*hp=(-?\d+)\s*dead=(\d+)\s*area=(-?\d+))?"
     r"(?:\s*yaw=" + _F + r")?"
     r"(?:\s*vehicle=(-?\d+))?"
+    r"(?:\s*tele=(\d+))?"
+    # fields a newer game prints that this harness doesn't know yet (the game PR of a
+    # cross-repo pair merges first, so the line can be ahead of the parser)
+    r"(?:\s+\w+=[^\s)]*)*"
     r"\s*\)",
     re.IGNORECASE,
 )
@@ -452,8 +456,8 @@ PLAYER_POS_RE = re.compile(
 
 def parse_player_pos(line: str) -> Optional[dict]:
     """Parse a PLAYER_POS line. The optional ' hp=%d dead=%d area=%d',
-    ' yaw=%.2f' and ' vehicle=%d' suffixes (before the closing ')') yield
-    hp/dead/area/yaw/vehicle; they are None when the build does not print them."""
+    ' yaw=%.2f', ' vehicle=%d' and ' tele=%d' suffixes (before the closing ')') yield
+    hp/dead/area/yaw/vehicle/tele; they are None when the build does not print them."""
     m = PLAYER_POS_RE.search(line)
     if not m:
         return None
@@ -476,6 +480,9 @@ def parse_player_pos(line: str) -> Optional[dict]:
         # the entity number of the vehicle (or other proxy) the player rides, -1 on foot
         # (game builds from 2026-09-25)
         "vehicle": int(g[25]) if g[25] is not None else None,
+        # 1 while the player is in a teleporter's transit, held at its storage location
+        # (game builds from 2026-10-20)
+        "tele": int(g[26]) if g[26] is not None else None,
     }
 
 

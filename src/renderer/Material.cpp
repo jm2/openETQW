@@ -1022,10 +1022,26 @@ void idMaterial::ParseStage( idParser& src ) {
 			if ( stage->renderProgram != NULL && stage->renderProgram->IsInteraction() ) {
 				CompleteInterationStage( stage, spd );
 			} else if ( stage->renderProgram != NULL ) {
+				// The ambient, sun, specular and environment cube maps and the gradient
+				// map belong to the entity being drawn (SetAmbientCubeMapBindings), and
+				// the dither mask to its coverage (RB_ARB2_SetSpace).  Filling them with
+				// the binding's default image here (_normalCubeMap, _white) made every
+				// stage overwrite them, so retail's front-end ambient programs (the menu
+				// globe, #186) and window glass sampled the wrong image under OpenGL.
+				// The sky gradient is left to the default fill for now: the atmosphere
+				// loads it as a 2D image while skies/skycolor samples it as a cube.
 				const int count = stage->renderProgram->GetNumTextureBindings();
 				const sdDeclRenderBinding* defaults[ MAX_STAGE_TEXTURES ];
-				for ( int i = 0; i < count; ++i ) defaults[ i ] = stage->renderProgram->GetTextureBinding( i );
-				CompleteStage( stage, spd, defaults, count );
+				int numDefaults = 0;
+				for ( int i = 0; i < count; ++i ) {
+					const sdDeclRenderBinding* binding = stage->renderProgram->GetTextureBinding( i );
+					if ( binding == rbinds->ambientCubeMap || binding == rbinds->ambientCubeMapSun || binding == rbinds->specularCubeMap ||
+						binding == rbinds->environmentCubeMap || binding == rbinds->gradientMap || binding == rbinds->dithermask ) {
+						continue;
+					}
+					defaults[ numDefaults++ ] = binding;
+				}
+				CompleteStage( stage, spd, defaults, numDefaults );
 			}
 			FinishStage( stage, spd );
 			return;

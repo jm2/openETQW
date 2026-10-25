@@ -68,7 +68,8 @@ namespace {
 	}
 
 	void GenerateFlatNormalImage( idImage* image ) {
-		GenerateSolidImage( image, 128, 128, 255, 255 );
+		// X also in alpha, where retail's ARB programs read it (see GenerateImageEx)
+		GenerateSolidImage( image, 128, 128, 255, 128 );
 	}
 
 	void GenerateBorderClampImage( idImage* image ) {

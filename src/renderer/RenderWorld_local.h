@@ -124,6 +124,8 @@ public:
 
 	virtual void SetAtmosphere( const sdDeclAtmosphere* atmosphere );
 	virtual const sdDeclAtmosphere* GetAtmosphere() const;
+	// false for a world made without a map (InitFromMap( NULL )), such as a GUI's
+	bool HasMap() const { return !mapName.IsEmpty(); }
 	virtual void SetupMatrices( const renderView_t* renderView, float* projectionMatrix, float* modelViewMatrix, const bool allowJitter );
 	virtual void SetMegaTextureSTGrid( const idBounds& bounds, const idVec2* grid, int width, int height );
 	virtual atmosLightProjection_t *FindAtmosLightProjection( int lightID );

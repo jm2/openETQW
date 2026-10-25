@@ -1631,6 +1631,7 @@ void R_RemoveUnecessaryViewLights( void ) {
 #include "Image.h"
 #include "Material.h"
 
+#include <algorithm>
 #include <unordered_map>
 #include "Model.h"
 #include "Model_Stuff.h"
@@ -1726,7 +1727,8 @@ namespace {
 		unsigned long long depthFail;
 		unsigned long long volumes;
 		unsigned long long indexes;
-	} shadowVolumeStats = { 0, 0, 0, 0, 0, 0 };
+		unsigned long long offView;		// volumes of casters the view culled (#128)
+	} shadowVolumeStats = { 0, 0, 0, 0, 0, 0, 0 };
 	idList< idRenderModel* > frontEndDynamicModels;
 	struct ambientSurfaceCandidate_t {
 		viewEntity_s*			space;
@@ -1739,7 +1741,6 @@ namespace {
 	};
 	idList< viewEntity_s* > frontEndModelSpaces;
 	idList< ambientSurfaceCandidate_t > frontEndSurfaceCandidates;
-	viewEntity_s* lastViewEntity = NULL;
 	viewLight_s* lastViewLight = NULL;
 	struct materialRegisterCacheEntry_t {
 		const idMaterial*	material;
@@ -1887,11 +1888,54 @@ namespace {
 		return interaction;
 	}
 
-	int DrawSurfaceSortCompare( drawSurf_s* const* left, drawSurf_s* const* right ) {
-		if ( ( *left )->sort < ( *right )->sort ) return -1;
-		if ( ( *left )->sort > ( *right )->sort ) return 1;
-		if ( ( *left )->material < ( *right )->material ) return -1;
-		return ( *left )->material != ( *right )->material;
+	// Equal sorts keep the order the surfaces were added in, as the SDK's
+	// R_AddDrawSurf did with its growing tr.sortOffset (above, line ~1198): a
+	// stable merge sort on sort alone.  Then, inside each run of equal sort,
+	// each stretch of consecutive opaque surfaces is grouped by material; under
+	// the depth test their order is not visible, and blended surfaces never move
+	// past one another.
+	idList< drawSurf_s* > drawSurfaceSortScratch;
+
+	// stable bottom-up merge sort of surfaces[ begin, end ) by less(), through
+	// the persistent scratch list (no allocation once it has grown)
+	template< typename Less >
+	void MergeSortDrawSurfaces( drawSurf_s** surfaces, int count, Less less ) {
+		if ( count < 2 ) return;
+		if ( drawSurfaceSortScratch.Num() < count ) drawSurfaceSortScratch.SetNum( count, false );
+		drawSurf_s** from = surfaces;
+		drawSurf_s** to = drawSurfaceSortScratch.Begin();
+		for ( int width = 1; width < count; width *= 2 ) {
+			for ( int start = 0; start < count; start += 2 * width ) {
+				const int middle = Min( start + width, count );
+				const int end = Min( start + 2 * width, count );
+				int left = start, right = middle, out = start;
+				while ( left < middle && right < end ) {
+					// take from the right only when strictly smaller: stable
+					to[ out++ ] = less( from[ right ], from[ left ] ) ? from[ right++ ] : from[ left++ ];
+				}
+				while ( left < middle ) to[ out++ ] = from[ left++ ];
+				while ( right < end ) to[ out++ ] = from[ right++ ];
+			}
+			idSwap( from, to );
+		}
+		if ( from != surfaces ) memcpy( surfaces, from, count * sizeof( from[ 0 ] ) );
+	}
+
+	void SortDrawSurfaces( idList< drawSurf_s* >& surfaces ) {
+		const int count = surfaces.Num();
+		MergeSortDrawSurfaces( surfaces.Begin(), count,
+			[]( const drawSurf_s* left, const drawSurf_s* right ) { return left->sort < right->sort; } );
+		const auto opaque = []( const drawSurf_s* surface ) {
+			return surface->material != NULL && surface->material->Coverage() == MC_OPAQUE;
+		};
+		for ( int first = 0; first < count; ) {
+			if ( !opaque( surfaces[ first ] ) ) { ++first; continue; }
+			int end = first + 1;
+			while ( end < count && surfaces[ end ]->sort == surfaces[ first ]->sort && opaque( surfaces[ end ] ) ) ++end;
+			MergeSortDrawSurfaces( surfaces.Begin() + first, end - first,
+				[]( const drawSurf_s* left, const drawSurf_s* right ) { return left->material < right->material; } );
+			first = end;
+		}
 	}
 
 	bool SurfaceIntersectsLight( const drawSurf_s* surface, const viewLight_s* light ) {
@@ -2466,6 +2510,308 @@ namespace {
 		}
 		return true;
 	}
+
+	// An entity's shadow limits, as retail 1.5 applies them to each of a light's
+	// interactions (#134): no shadow when com_gpuSpec is below the entity's shadowSpec, or
+	// beyond its shadow distance, maxVisDist × shadowVisDistMult (r_useMaxVisDist > 1
+	// replaces the distance), with the fov, r_visDistMult and r_visDistOfs scaling of its
+	// visibility distance.  A multiplier of 0 or less (the game's default) sets no limit.
+	// r_useShadowVisDistMult below 1 replaces every entity's multiplier (0 lifts the limits).
+	// Retail measures from the centre of the entity's world bounds and keeps the shadow
+	// while its distance fade is above 0.001; this tests the range itself.
+	idCVar r_useShadowVisDistMult( "r_useShadowVisDistMult", "1.0", CVAR_RENDERER | CVAR_FLOAT,
+		"below 1, replaces every entity's shadow distance multiplier (shadowVisDistMult); 0 lifts the shadow distance limits" );
+
+	bool EntityShadowInRange( const renderEntity_t* entity, const viewLight_s* light, const float modelMatrix[ 16 ],
+			const viewDef_s* view ) {
+		if ( entity->shadowSpec > com_gpuSpec.GetInteger() ) return false;
+		// retail 1.5: an entity flagged dontCastFromAtmosLight casts nothing from the atmosphere light (#170)
+		if ( entity->flags.dontCastFromAtmosLight && light->lightDef->flags.atmosphereLight ) return false;
+		const float override = r_useShadowVisDistMult.GetFloat();
+		const float mult = override < 1.0f ? override : entity->shadowVisDistMult;
+		if ( mult <= 0.0f ) return true;
+		const int maxDist = r_useMaxVisDist.GetInteger() > 1 ? r_useMaxVisDist.GetInteger() :
+			static_cast< int >( entity->maxVisDist * mult );
+		const idBounds& bounds = entity->bounds;
+		const idVec3 center = bounds.IsCleared() ? idVec3( modelMatrix[ 12 ], modelMatrix[ 13 ], modelMatrix[ 14 ] ) :
+			MatrixTransformPoint( modelMatrix, bounds.GetCenter() );
+		return R_DistanceVisibility( center, maxDist, entity->minVisDist, view );
+	}
+
+	// Off-view shadow casters (#128).  The view's draw surfaces are only the casters it
+	// sees.  Doom 3 takes a light's casters from the light's side, so a surface the view
+	// culled still casts when its shadow may fall in view.  Static geometry gets that here:
+	// the world's surfaces and static entity models the view culled, each entity on a
+	// shadow-only space that is not linked into the view's entities, so nothing else
+	// draws it.  Left out: dynamic models (built only for a view that sees them; animated
+	// ones are GPU-skinned and cast no volume yet), stuff models, entities with a render
+	// callback, and entities whose surfaces this view suppresses or only another allows.
+	// For the atmosphere light, which has no areas, world areas the view culls whole are
+	// left out too: there they are mostly indoor and underground areas, whose sun volumes
+	// reach the view's frustum below ground and cost valley's aerial view a third of its
+	// frame rate on Adreno for no visible shadow.
+	idCVar r_offViewShadows( "r_offViewShadows", "1", CVAR_RENDERER | CVAR_BOOL,
+		"raster stencil shadows: static casters outside the view cast when their shadow may reach it" );
+	struct offViewCasterGroup_t {
+		viewEntity_s*	space;
+		idBounds		bounds;			// local; cleared when unknown
+		int				firstCaster;
+		int				numCasters;
+		bool			wholeArea;		// a world area the view culled whole
+	};
+	struct offViewCaster_t {
+		const modelSurface_t*	surface;
+		const idMaterial*		material;
+	};
+	idList< offViewCasterGroup_t > offViewGroups;
+	idList< offViewCaster_t > offViewCasters;
+	idList< int > offViewEntityViewed;	// per entity index, 1 when it has a view space
+
+	viewEntity_s* AllocShadowOnlySpace( renderEntity_t* entity, idRenderModel* model, int entityIndex ) {
+		const viewDef_s* view = RB_GetViewDef();
+		viewEntity_s* space = frontEndViewEntityAllocator.Alloc();
+		memset( space, 0, sizeof( *space ) );
+		space->entityDef = entity;
+		space->entityIndex = entityIndex;
+		space->model = model;
+		space->coverage = 1.0f;
+		SetEntityMatrix( entity, space->modelMatrix );
+		MultiplyModelView( view->worldSpace.modelViewMatrix, space->modelMatrix, space->modelViewMatrix );
+		space->scissorRect = view->scissor;
+		frontEndViewEntities.Append( space );	// freed with the view's spaces
+		return space;
+	}
+
+	void BeginOffViewGroup( viewEntity_s* space, const idBounds& bounds, bool wholeArea = false ) {
+		offViewCasterGroup_t group;
+		group.space = space;
+		group.bounds = bounds;
+		group.firstCaster = offViewCasters.Num();
+		group.numCasters = 0;
+		group.wholeArea = wholeArea;
+		offViewGroups.Append( group );
+	}
+
+	void AddOffViewCaster( const renderEntity_t* entity, const modelSurface_t* modelSurface ) {
+		offViewCasterGroup_t& group = offViewGroups[ offViewGroups.Num() - 1 ];
+		if ( modelSurface == NULL || modelSurface->geometry == NULL ) return;
+		if ( entity != NULL && modelSurface->id >= 0 && modelSurface->id < MAX_SURFACE_BITS - 1 &&
+				entity->hideSurfaceMask.Get( modelSurface->id ) != 0 ) {
+			return;
+		}
+		const idMaterial* material = modelSurface->material;
+		if ( entity != NULL ) {
+			material = R_RemapShaderBySkin( material, entity->customSkin, entity->customShader );
+		}
+		R_GlobalShaderOverride( &material );
+		// as a drawn caster: R_AddDrawSurf takes only drawn materials
+		if ( material == NULL || !material->IsDrawn() || !material->SurfaceCastsShadow() ) return;
+		offViewCaster_t caster;
+		caster.surface = modelSurface;
+		caster.material = material;
+		offViewCasters.Append( caster );
+		group.numCasters++;
+	}
+
+	void EndOffViewGroup() {
+		if ( offViewGroups[ offViewGroups.Num() - 1 ].numCasters == 0 ) {
+			offViewGroups.SetNum( offViewGroups.Num() - 1, false );
+		}
+	}
+
+	// R_AddLightSurfaces' suppression for a whole entity; instanced entities are always in view
+	bool OffViewEntityCasts( const renderEntity_t* entity ) {
+		return entity == NULL || ( !entity->flags.noShadow && !entity->flags.weaponDepthHack &&
+			entity->modelDepthHack == 0.0f && entity->numInsts <= 0 );
+	}
+
+	// The casters the view culled, from R_AddModelSurfaces' spaces and candidates, the
+	// world models it culled whole, and the static entities it culled.
+	void GatherOffViewCasters( const viewDef_s* view, idRenderWorldLocal* world ) {
+		offViewGroups.SetNum( 0, false );
+		offViewCasters.SetNum( 0, false );
+		// surfaces of spaces in view that the view culled
+		viewEntity_s* runSpace = NULL;
+		for ( int index = 0; index < frontEndSurfaceCandidates.Num(); ++index ) {
+			const ambientSurfaceCandidate_t& candidate = frontEndSurfaceCandidates[ index ];
+			if ( candidate.space != runSpace ) {
+				if ( runSpace != NULL ) EndOffViewGroup();
+				runSpace = candidate.space;
+				BeginOffViewGroup( runSpace, runSpace->model->Bounds( runSpace->entityDef ) );
+			}
+			if ( !candidate.visible && OffViewEntityCasts( runSpace->entityDef ) ) {
+				AddOffViewCaster( runSpace->entityDef, candidate.modelSurface );
+			}
+		}
+		if ( runSpace != NULL ) EndOffViewGroup();
+
+		// spaces culled whole by their scissor, and world models culled whole
+		idList< const idRenderModel* > worldModelsInView;
+		for ( int index = 0; index < frontEndModelSpaces.Num(); ++index ) {
+			viewEntity_s* space = frontEndModelSpaces[ index ];
+			if ( space == NULL || space->model == NULL ) continue;
+			if ( space->entityDef == NULL ) worldModelsInView.Append( space->model );
+			if ( !space->culled || space->numInsts > 0 ) continue;
+			if ( !OffViewEntityCasts( space->entityDef ) ) continue;
+			BeginOffViewGroup( space, space->model->Bounds( space->entityDef ), space->entityDef == NULL );
+			for ( int surfaceIndex = 0; surfaceIndex < space->model->NumSurfaces(); ++surfaceIndex ) {
+				AddOffViewCaster( space->entityDef, space->model->Surface( surfaceIndex ) );
+			}
+			EndOffViewGroup();
+		}
+		for ( int modelIndex = 0; modelIndex < world->BackendNumLocalModels(); ++modelIndex ) {
+			idRenderModel* model = world->BackendLocalModel( modelIndex );
+			if ( model == NULL || !model->IsStaticWorldModel() || worldModelsInView.FindIndex( model ) >= 0 ) continue;
+			BeginOffViewGroup( NULL, model->Bounds(), true );
+			for ( int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex ) {
+				AddOffViewCaster( NULL, model->Surface( surfaceIndex ) );
+			}
+			if ( offViewGroups[ offViewGroups.Num() - 1 ].numCasters > 0 ) {
+				offViewGroups[ offViewGroups.Num() - 1 ].space = AllocShadowOnlySpace( NULL, model, -1 );
+			}
+			EndOffViewGroup();
+		}
+
+		// static entities the view culled (R_BuildDrawView made no space for them)
+		offViewEntityViewed.SetNum( world->BackendNumEntityDefs(), false );
+		memset( offViewEntityViewed.Begin(), 0, offViewEntityViewed.Num() * sizeof( int ) );
+		for ( int index = 0; index < frontEndViewEntities.Num(); ++index ) {
+			const viewEntity_s* space = frontEndViewEntities[ index ];
+			if ( space->entityDef != NULL && space->entityIndex >= 0 && space->entityIndex < offViewEntityViewed.Num() ) {
+				offViewEntityViewed[ space->entityIndex ] = 1;
+			}
+		}
+		for ( int entityIndex = 0; entityIndex < world->BackendNumEntityDefs(); ++entityIndex ) {
+			if ( offViewEntityViewed[ entityIndex ] != 0 ) continue;
+			renderEntity_t* entity = world->BackendEntityDef( entityIndex );
+			if ( entity == NULL || entity->hModel == NULL || entity->callback != NULL ) continue;
+			if ( entity->suppressSurfaceInViewID != 0 && entity->suppressSurfaceInViewID == view->renderView.viewID ) continue;
+			if ( entity->allowSurfaceInViewID != 0 && entity->allowSurfaceInViewID != view->renderView.viewID ) continue;
+			if ( entity->drawSpec > com_gpuSpec.GetInteger() || !OffViewEntityCasts( entity ) ) continue;
+			idRenderModel* model = entity->hModel;
+			if ( model->IsDynamicModel() != DM_STATIC || R_IsStuffModel( model ) ) continue;
+			const idBounds bounds = !entity->bounds.IsCleared() ? entity->bounds : model->Bounds( entity );
+			if ( entity->maxVisDist > 0 && r_useMaxVisDist.GetInteger() > 0 ) {
+				// not drawn at this distance, as EntityVisibleBeforeSnapshot
+				const int maxVisDist = r_useMaxVisDist.GetInteger() > 1 ? r_useMaxVisDist.GetInteger() : entity->maxVisDist;
+				const idVec3 center = bounds.IsCleared() ? vec3_origin : bounds.GetCenter();
+				if ( !R_DistanceVisibility( entity->origin + center, maxVisDist, entity->minVisDist, view ) ) continue;
+			}
+			BeginOffViewGroup( NULL, bounds );
+			for ( int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex ) {
+				AddOffViewCaster( entity, model->Surface( surfaceIndex ) );
+			}
+			if ( offViewGroups[ offViewGroups.Num() - 1 ].numCasters > 0 ) {
+				offViewGroups[ offViewGroups.Num() - 1 ].space = AllocShadowOnlySpace( entity, model, entityIndex );
+			}
+			EndOffViewGroup();
+		}
+	}
+
+	// Whether the shadow of local bounds can reach the view: the box and its copy scaled
+	// about the light's origin until it holds every shadow point within the light's
+	// bounds are not all outside one view frustum plane.  A shadow point within those
+	// bounds is at most `farthest` (the bounds' farthest corner) from the light, and the box
+	// is at least `nearest` from it, so scaling by farthest / nearest covers it; the hull of
+	// the box and its scaled copy holds every point between them.  Conservative, as
+	// R_CullLocalBox (per-corner exits were not: rays leaving through different faces
+	// miss the light box's edges, #149 review).
+	bool ShadowMayReachView( const idBounds& localBounds, const float modelMatrix[ 16 ],
+			const viewLight_s* light, const viewDef_s* view ) {
+		if ( localBounds.IsCleared() || light->frustumTris == NULL || light->frustumTris->bounds.IsCleared() ) return true;
+		const idBounds& lightBounds = light->frustumTris->bounds;
+		const idVec3& origin = light->globalLightOrigin;
+		idVec3 points[ 16 ];
+		idBounds world;
+		world.Clear();
+		for ( int corner = 0; corner < 8; ++corner ) {
+			const idVec3 local( localBounds[ ( corner >> 0 ) & 1 ].x, localBounds[ ( corner >> 1 ) & 1 ].y,
+				localBounds[ ( corner >> 2 ) & 1 ].z );
+			points[ corner ] = MatrixTransformPoint( modelMatrix, local );
+			world.AddPoint( points[ corner ] );
+		}
+		// the world box holds the transformed box, so its nearest point is no farther
+		idVec3 closest;
+		for ( int axis = 0; axis < 3; ++axis ) {
+			closest[ axis ] = idMath::ClampFloat( world[ 0 ][ axis ], world[ 1 ][ axis ], origin[ axis ] );
+		}
+		const float nearest = ( closest - origin ).Length();
+		if ( nearest < 1.0f ) return true;	// the light is in the box: its shadow goes every way
+		float farthest = 0.0f;
+		for ( int corner = 0; corner < 8; ++corner ) {
+			const idVec3 lightCorner( lightBounds[ ( corner >> 0 ) & 1 ].x, lightBounds[ ( corner >> 1 ) & 1 ].y,
+				lightBounds[ ( corner >> 2 ) & 1 ].z );
+			farthest = Max( farthest, ( lightCorner - origin ).Length() );
+		}
+		const float scale = Max( farthest / nearest, 1.0f );
+		for ( int corner = 0; corner < 8; ++corner ) {
+			points[ 8 + corner ] = origin + ( points[ corner ] - origin ) * scale;
+		}
+		for ( int planeIndex = 0; planeIndex < view->numPlanes; ++planeIndex ) {
+			int outside = 0;
+			for ( ; outside < 16; ++outside ) {
+				if ( view->frustum[ planeIndex ].Distance( points[ outside ] ) <= 0.0f ) break;
+			}
+			if ( outside == 16 ) return false;
+		}
+		return true;
+	}
+
+	// Volumes for the light's off-view casters whose shadow may reach the view, linked
+	// as R_AddLightSurfaces links a drawn caster's; true if any was added.
+	bool AddOffViewShadows( viewLight_s* light, const viewDef_s* view ) {
+		bool added = false;
+		for ( int groupIndex = 0; groupIndex < offViewGroups.Num(); ++groupIndex ) {
+			const offViewCasterGroup_t& group = offViewGroups[ groupIndex ];
+			if ( group.wholeArea && light->lightDef->flags.atmosphereLight ) continue;
+			const viewEntity_s* space = group.space;
+			const renderEntity_t* entity = space->entityDef;
+			if ( entity != NULL && ( ( entity->suppressShadowInViewID != 0 &&
+					entity->suppressShadowInViewID == view->renderView.viewID ) ||
+					( entity->suppressShadowInLightID != 0 &&
+					entity->suppressShadowInLightID == light->lightDef->lightId ) ||
+					!EntityShadowInRange( entity, light, space->modelMatrix, view ) ) ) {
+				continue;
+			}
+			if ( !group.bounds.IsCleared() && ( R_CullLocalBox( group.bounds, space->modelMatrix, 6, light->frustum ) ||
+					!ShadowMayReachView( group.bounds, space->modelMatrix, light, view ) ) ) {
+				continue;
+			}
+			drawSurf_s caster;
+			memset( &caster, 0, sizeof( caster ) );
+			caster.space = space;
+			caster.scissorRect = light->scissorRect;
+			for ( int casterIndex = group.firstCaster; casterIndex < group.firstCaster + group.numCasters; ++casterIndex ) {
+				const offViewCaster_t& source = offViewCasters[ casterIndex ];
+				caster.geo = source.surface->geometry;
+				caster.material = source.material;
+				caster.sort = source.material->GetSort();
+				caster.surfID = source.surface->id;
+				caster.dsFlags = caster.geo->dsFlags;
+				if ( casterIndex == group.firstCaster && !SurfaceSharesLightArea( &caster, light ) ) break;	// per space
+				if ( !SurfaceIntersectsLight( &caster, light ) ) continue;
+				if ( !ShadowMayReachView( caster.geo->bounds, space->modelMatrix, light, view ) ) continue;
+				const srfTriangles_t* volume = CreateShadowVolumeGeometry( &caster, light );
+				if ( volume == NULL ) continue;
+				drawSurf_s* shadow = AllocInteractionSurface( &caster );
+				shadow->geo = volume;
+				shadow->dsFlags = ViewPotentiallyInsideShadow( &caster, light, view ) ? DSF_VIEW_INSIDE_SHADOW : 0;
+				if ( shadow->dsFlags != 0 ) {
+					shadowVolumeStats.depthFail++;
+				}
+				shadowVolumeStats.offView++;
+				added = true;
+				if ( entity != NULL ) {
+					shadow->nextOnLight = light->localShadows;
+					light->localShadows = shadow;
+				} else {
+					shadow->nextOnLight = light->globalShadows;
+					light->globalShadows = shadow;
+				}
+			}
+		}
+		return added;
+	}
 }
 
 viewEntity_s* R_SetEntityDefViewEntity( renderEntity_t* entity, idRenderModel* model,
@@ -2538,9 +2884,12 @@ viewEntity_s* R_SetEntityDefViewEntity( renderEntity_t* entity, idRenderModel* m
 	space->scissorRect = model != NULL && !modelBounds.IsCleared() ?
 		ScreenRectForBounds( modelBounds, space->modelMatrix ) : view->scissor;
 	space->culled = space->scissorRect.IsEmpty();
-	if ( lastViewEntity != NULL ) lastViewEntity->next = space;
-	else view->viewEntities = space;
-	lastViewEntity = space;
+	// prepended, as the SDK's R_SetEntityDefViewEntity does: surfaces are added
+	// entity by entity in this list's order, and with the add-order tie-break in
+	// SortDrawSurfaces that decides which of two equal-sort blended surfaces
+	// draws first (#208)
+	space->next = view->viewEntities;
+	view->viewEntities = space;
 	frontEndViewEntities.Append( space );
 	return space;
 }
@@ -2627,7 +2976,12 @@ drawSurf_s* R_AddDrawSurf( const srfTriangles_t* triangles, const viewEntity_s* 
 	surface->geo = triangles;
 	surface->space = space;
 	surface->material = material;
-	surface->sort = material->GetSort();
+	// the entity's sort override (renderEntity_t::sortOffset; the game offsets
+	// each sky layer by it, and an effect's distanceOffset arrives in it, #211).
+	// Clamped to [0, 1): a surface stays inside its material's sort, so the
+	// back ends' pass boundaries, which test the material's sort, still hold.
+	const float entitySortOffset = renderEntity != NULL ? idMath::ClampFloat( 0.0f, 0.999f, renderEntity->sortOffset ) : 0.0f;
+	surface->sort = material->GetSort() + entitySortOffset;
 	surface->surfID = surfID;
 	surface->dsFlags = triangles->dsFlags;
 	surface->scissorRect = scissor;
@@ -2751,7 +3105,7 @@ void R_AddModelSurfaces() {
 			entity = entity->next ) {
 			if ( entity->entityDef != NULL ) R_AddAmbientDrawsurfs( entity );
 		}
-		sortedDrawSurfaces.Sort( DrawSurfaceSortCompare );
+		SortDrawSurfaces( sortedDrawSurfaces );
 		view->drawSurfs = sortedDrawSurfaces.Begin();
 		view->numDrawSurfs = sortedDrawSurfaces.Num();
 		return;
@@ -2819,7 +3173,7 @@ void R_AddModelSurfaces() {
 	}
 	{
 		RENDER_METRIC_SCOPE( "Sort draw surfaces" );
-		sortedDrawSurfaces.Sort( DrawSurfaceSortCompare );
+		SortDrawSurfaces( sortedDrawSurfaces );
 	}
 	view->drawSurfs = sortedDrawSurfaces.Begin();
 	view->numDrawSurfs = sortedDrawSurfaces.Num();
@@ -2873,9 +3227,12 @@ void R_AddLightSurfaces() {
 			}
 		}
 	}
+	bool offViewGathered = false;
 	for ( viewLight_s* light = view->viewLights; light != NULL; light = light->next ) {
 		if ( light->culled || light->material == NULL || IsSkippedWaterFog( light->material ) ) continue;
-		const bool shadowLight = !light->lightDef->flags.noShadows && light->material->LightCastsShadows();
+		// retail 1.5 also makes no volumes for a light whose shadowSpec is above com_gpuSpec (#170)
+		const bool shadowLight = !light->lightDef->flags.noShadows && light->material->LightCastsShadows() &&
+			light->lightDef->shadowSpec <= com_gpuSpec.GetInteger();
 		if ( shadowLight ) {
 			r_shadowLightViews++;
 		}
@@ -2894,10 +3251,10 @@ void R_AddLightSurfaces() {
 				( casterEntity->suppressShadowInViewID != 0 &&
 					casterEntity->suppressShadowInViewID == view->renderView.viewID ) ||
 				  ( casterEntity->suppressShadowInLightID != 0 &&
-					casterEntity->suppressShadowInLightID == light->lightDef->lightId ) );
+					casterEntity->suppressShadowInLightID == light->lightDef->lightId ) ||
+				  !EntityShadowInRange( casterEntity, light, surface->space->modelMatrix, view ) );
 			const srfTriangles_t* volume = NULL;
-			if ( !light->lightDef->flags.noShadows && light->material->LightCastsShadows() &&
-					surface->material->SurfaceCastsShadow() && surface->geo != NULL && !suppressed ) {
+			if ( shadowLight && surface->material->SurfaceCastsShadow() && surface->geo != NULL && !suppressed ) {
 				volume = CreateShadowVolumeGeometry( surface, light );
 			}
 			if ( volume != NULL ) {
@@ -2952,6 +3309,16 @@ void R_AddLightSurfaces() {
 				light->globalInteractions = interaction;
 			}
 		}
+		if ( shadowLight && R_UseVulkanBackend() && r_offViewShadows.GetBool() ) {
+			if ( !offViewGathered ) {
+				RENDER_METRIC_SCOPE( "Gather off-view shadow casters" );
+				GatherOffViewCasters( view, RB_GetDrawWorld() );
+				offViewGathered = true;
+			}
+			if ( AddOffViewShadows( light, view ) ) {
+				hadCaster = true;
+			}
+		}
 		if ( shadowLight && hadCaster ) {
 			r_shadowLightViewsWithCasters++;
 		}
@@ -2972,8 +3339,8 @@ void R_PrintInteractionCacheMetrics() {
 		interactionCacheStats.hits, interactionCacheStats.misses,
 		cached > 0 ? 100.0 * interactionCacheStats.hits / cached : 0.0,
 		interactionCacheStats.uncached, static_cast< unsigned int >( interactionCache.size() ) );
-	common->Printf( "Vulkan shadow volumes: %llu drawn (%llu depth-fail), %llu reused, %llu built, %llu silhouette builds, %.0f indexes per volume, %u cached\n",
-		shadowVolumeStats.volumes, shadowVolumeStats.depthFail, shadowVolumeStats.hits, shadowVolumeStats.built,
+	common->Printf( "Vulkan shadow volumes: %llu drawn (%llu depth-fail, %llu off-view casters), %llu reused, %llu built, %llu silhouette builds, %.0f indexes per volume, %u cached\n",
+		shadowVolumeStats.volumes, shadowVolumeStats.depthFail, shadowVolumeStats.offView, shadowVolumeStats.hits, shadowVolumeStats.built,
 		shadowVolumeStats.silBuilds, shadowVolumeStats.volumes > 0 ? static_cast< double >( shadowVolumeStats.indexes ) / shadowVolumeStats.volumes : 0.0,
 		static_cast< unsigned int >( shadowVolumeCache.size() ) );
 }
@@ -3030,7 +3397,6 @@ void R_FreeBuiltDrawView() {
 	frontEndModelSpaces.SetNum( 0, false );
 	frontEndSurfaceCandidates.SetNum( 0, false );
 	memset( materialRegisterCache, 0, sizeof( materialRegisterCache ) );
-	lastViewEntity = NULL;
 	lastViewLight = NULL;
 }
 
@@ -3108,7 +3474,6 @@ void R_BuildDrawView( idRenderWorldLocal* renderWorld, const renderView_t* rende
 	if ( renderWorld->BackendNumLocalModels() > 0 || view->viewEntities != NULL ) {
 		view->worldSpace.next = view->viewEntities;
 		view->viewEntities = &view->worldSpace;
-		lastViewEntity = frontEndViewEntities.Num() > 0 ? frontEndViewEntities[ frontEndViewEntities.Num() - 1 ] : &view->worldSpace;
 	}
 	{
 		RENDER_METRIC_SCOPE( "Add model surfaces" );

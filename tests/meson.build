@@ -167,6 +167,23 @@ retail_discovery_test = executable(
 )
 test('retail-discovery', retail_discovery_test, suite: 'unit', timeout: 30)
 
+# 5d. GUI text layout (#181, docs/gui-text.md): alignment, colour escapes, line
+#     ends, word wrap, truncation, kerning, the screen scale, pixel snapping and
+#     the advances and line breaks the game reads, on a stand-in face
+gui_text_layout_test = executable(
+  'openetqw-gui-text-layout-test',
+  files(
+    'GuiTextLayoutTest.cpp',
+    meson.project_source_root() / 'src' / 'renderer' / 'GuiTextLayout.cpp',
+  ),
+  include_directories: engine_include_dirs + [include_directories('../src/renderer')],
+  cpp_args: common_engine_defs + ['-DID_DEDICATED'] + engine_pch_args,
+  dependencies: test_deps + [zlib_dep, threads_dep],
+  link_args: test_link_args,
+  install: false,
+)
+test('gui-text-layout', gui_text_layout_test, suite: 'unit', timeout: 30)
+
 # Every package carries the licence texts (GPL, SDK EULA, third-party notices)
 test(
   'install-licenses',
@@ -201,6 +218,15 @@ test(
   args: [meson.project_source_root() / 'tests' / 'test_packaging_tools.py'],
   suite: 'unit',
   timeout: 60,
+)
+
+# The build helpers (scripts/build-*): option conflicts, step order, one build type
+test(
+  'build-scripts',
+  py,
+  args: [meson.project_source_root() / 'tests' / 'test_build_scripts.py'],
+  suite: 'unit',
+  timeout: 120,
 )
 
 # 6. Client lifecycle & graphics verification test
@@ -367,6 +393,23 @@ if build_engine
     timeout: 600,
     is_parallel: false,
   )
+  # game #51: a GUI owned by a HUD module is freed by MapShutdown while its
+  # Load is still on the stack; the catch must not read through the freed this
+  test(
+    'gui-hud-reload-error',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_gui_hud_reload_error.py',
+      '--client-binary', campaign_client,
+      '--port', '29989',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'gui-hud-reload-error',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
 endif
 
 
@@ -441,6 +484,38 @@ if build_dedicated
     args: [
       meson.project_source_root() / 'tests' / 'test_protocol_clean_break.py',
       '--ded-binary', all_stock_maps_ded,
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration'],
+    protocol: 'exitcode',
+    timeout: 300,
+    is_parallel: false,
+  )
+  # a connected client ignores a late, duplicate challengeResponse (#216)
+  test(
+    'client-stray-challenge',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_client_stray_challenge.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--port', '29860',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'client-stray-challenge',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration'],
+    protocol: 'exitcode',
+    timeout: 300,
+    is_parallel: false,
+  )
+  # a client whose challenge the server forgot asks for a new one (may fix #216)
+  test(
+    'client-bad-challenge',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_client_bad_challenge.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--port', '29870',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'client-bad-challenge',
     ],
     workdir: meson.project_source_root(),
     suite: ['integration'],
@@ -693,6 +768,40 @@ if build_dedicated
     timeout: 900,
     is_parallel: false,
   )
+  # M4: two live bots play a full time-limited match and complete no objective
+  # (the game's MATCH and OBJECTIVE_STATUS lines, positions during the match)
+  test(
+    'm4-bot-match',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_m4_bot_match.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--port', '29992',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'm4-bot-match',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration', 'm4'],
+    protocol: 'exitcode',
+    timeout: 400,
+    is_parallel: false,
+  )
+  # M4: a started match runs to its time limit on maps beyond the campaign's
+  # three (quarry and island), each read from the game's MATCH lines
+  test(
+    'm4-offcampaign-match',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_m4_offcampaign_match.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--port', '29993',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'm4-offcampaign-match',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration', 'm4'],
+    protocol: 'exitcode',
+    timeout: 800,
+    is_parallel: false,
+  )
   # the charter's M3 soak: 10 minutes at 2% loss and 40 +/- 20 ms delay without
   # a disconnect (skip it in quick runs with 'meson test --no-suite soak')
   test(
@@ -922,6 +1031,30 @@ if build_engine and build_dedicated
   endforeach
 endif
 
+# 8b. The M2 render-world parity test (queue §3 item 8): the same three scripted scenes
+#    on a Vulkan listen host (the real render world) and a dedicated server
+#    (idRenderWorldHeadless); the outcomes are compared and the numbers are the
+#    evidence for the owner's headless-render-world question (queue §4)
+if build_engine and build_dedicated
+  test(
+    'm2-render-world-parity',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_m2_render_world_parity.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--client-binary', campaign_client,
+      '--ded-port', '29982',
+      '--listen-port', '29984',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'm2-render-world-parity',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration', 'm2'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
+endif
+
 # 9a. What the Vulkan client draws from a vehicle seat the seat gate allows (M5 step 14,
 #     stage 3): single player and a joined client, the badger's driver seat driving at caps 60/120/240, with
 #     an unlisted negative control and the chase camera and icarus as guards
@@ -938,6 +1071,29 @@ if build_engine and build_dedicated
         '--client-binary', campaign_client,
         '--port', seat_poses_ports[mode],
         '--log-dir', meson.project_build_root() / 'meson-logs' / 'seat-poses',
+      ],
+      workdir: meson.project_source_root(),
+      suite: ['client', 'integration'],
+      protocol: 'exitcode',
+      timeout: 600,
+      is_parallel: false,
+    )
+  endforeach
+  # M5 step 14b: the hull-lead measurement driven by the player's own commands, on a
+  #     network client and a listen host (g_determinismTest 4 with g_leadMeasureDrive 0):
+  #     every class entered and driven, and each presented class's VEH_PRED table
+  lead_measure_ports = {'join': '29840', 'listen': '29844'}
+  foreach mode : ['join', 'listen']
+    test(
+      'lead-measure-' + mode,
+      py,
+      args: [
+        meson.project_source_root() / 'tests' / 'test_lead_measure_client.py',
+        '--mode', mode,
+        '--ded-binary', all_stock_maps_ded,
+        '--client-binary', campaign_client,
+        '--port', lead_measure_ports[mode],
+        '--log-dir', meson.project_build_root() / 'meson-logs' / 'lead-measure',
       ],
       workdir: meson.project_source_root(),
       suite: ['client', 'integration'],

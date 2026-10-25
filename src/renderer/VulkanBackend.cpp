@@ -93,6 +93,9 @@ const VkDeviceSize VULKAN_JOINT_BUFFER_BYTES = 4 * 1024 * 1024;
 const VkDeviceSize VULKAN_JOINT_PALETTE_BYTES =
 	MAX_JOINTS_PER_MESH * sizeof( idJointMat );
 const int VULKAN_MATERIAL_TEXTURES = 5;
+// retail's front-end ambient programs (sfx/feAmbDecal and the programs built on its
+// vertex program) also read the ambient cube map's specular cube map
+const int VULKAN_FRONTEND_TEXTURES = 6;
 
 // Off by default: where the layer is installed it costs most of the frame rate
 // (56 against ~370 fps uncapped on an RX 6400), and players do not need it.
@@ -108,7 +111,7 @@ idCVar r_vkScreenshot(
 	"r_vkScreenshot",
 	"",
 	CVAR_RENDERER | CVAR_NOCHEAT,
-	"write the next presented Vulkan frame to this path as a 32-bit TGA, then clear itself"
+	"write the next presented frame (Vulkan or OpenGL) to this path as a 32-bit TGA, then clear itself"
 );
 
 idCVar r_vkSkipGui(
@@ -244,6 +247,13 @@ struct sdVulkanMaterialDescriptor {
 	const materialStage_t*	owner;
 	const void*				imageOwners[ VULKAN_MATERIAL_TEXTURES ];
 	VkImageView				imageViews[ VULKAN_MATERIAL_TEXTURES ];
+	VkDescriptorSet			descriptorSet;
+};
+
+struct sdVulkanFrontEndDescriptor {
+	const materialStage_t*	owner;
+	const void*				imageOwners[ VULKAN_FRONTEND_TEXTURES ];
+	VkImageView				imageViews[ VULKAN_FRONTEND_TEXTURES ];
 	VkDescriptorSet			descriptorSet;
 };
 
@@ -476,6 +486,7 @@ struct sdVulkanBackendState {
 	char					versionString[ 32 + VK_MAX_DRIVER_NAME_SIZE + VK_MAX_DRIVER_INFO_SIZE ];
 	bool					fillModeNonSolid;
 	bool					textureCompressionBC;
+	bool					imageViewFormatSwizzle;	// false on a portability subset (MoltenVK) without it
 	bool					rayTracingDeviceEnabled;
 	VkDeviceSize			jointUniformAlignment;
 
@@ -613,6 +624,7 @@ struct sdVulkanBackendState {
 	sdVulkanResourceLookup		bufferResourceLookup;
 	idList< sdVulkanMaterialDescriptor > materialDescriptors;
 	idHashIndex				materialDescriptorHash;
+	idList< sdVulkanFrontEndDescriptor > frontEndDescriptors;
 	// Resources removed while a frame is being recorded must remain alive until
 	// that command buffer has been submitted and completed.  ETQW retires vertex
 	// cache blocks in idRenderSystemLocal::EndFrame before the Vulkan backend
@@ -626,6 +638,11 @@ struct sdVulkanBackendState {
 	VkDescriptorSetLayout		jointDescriptorSetLayout;
 	VkDescriptorPool			guiDescriptorPool;
 	VkPipelineLayout			guiPipelineLayout;
+	VkDescriptorSetLayout		frontEndDescriptorSetLayout;
+	VkPipelineLayout			frontEndPipelineLayout;
+	VkPipeline				worldFrontEndPipeline;
+	VkPipeline				worldFrontEndAlphaPipeline;
+	VkPipeline				worldFrontEndAddPipeline;
 	VkPipeline				guiPipeline;
 	VkPipeline				guiOpaquePipeline;
 	VkPipeline				guiAddPipeline;
@@ -673,6 +690,9 @@ struct sdVulkanBackendState {
 	// GPU-skinned surfaces: skinned_interaction.vert with the weight stream
 	VkPipeline				worldInteractionSkinnedPipeline;
 	VkPipeline				worldInteractionSkinnedUnshadowedPipeline;
+	// the atmosphere fog over the lit opaque surfaces (fog.frag, #233)
+	VkPipeline				worldFogPipeline;
+	VkPipeline				worldFogSkinnedPipeline;
 	// set while the light block's snapshot of the opaque base is in _currentRender
 	bool					sceneAlbedoCopied;
 	VkPipeline				worldLightAmbientPipeline;
@@ -800,6 +820,7 @@ struct sdVulkanBackendState {
 		versionString[ 0 ] = '\0';
 		fillModeNonSolid = false;
 		textureCompressionBC = false;
+		imageViewFormatSwizzle = true;
 		rayTracingDeviceEnabled = false;
 		jointUniformAlignment = 1;
 		swapchain = VK_NULL_HANDLE;
@@ -870,6 +891,11 @@ struct sdVulkanBackendState {
 		jointDescriptorSetLayout = VK_NULL_HANDLE;
 		guiDescriptorPool = VK_NULL_HANDLE;
 		guiPipelineLayout = VK_NULL_HANDLE;
+		frontEndDescriptorSetLayout = VK_NULL_HANDLE;
+		frontEndPipelineLayout = VK_NULL_HANDLE;
+		worldFrontEndPipeline = VK_NULL_HANDLE;
+		worldFrontEndAlphaPipeline = VK_NULL_HANDLE;
+		worldFrontEndAddPipeline = VK_NULL_HANDLE;
 		guiPipeline = VK_NULL_HANDLE;
 		guiOpaquePipeline = VK_NULL_HANDLE;
 		guiAddPipeline = VK_NULL_HANDLE;
@@ -914,6 +940,8 @@ struct sdVulkanBackendState {
 		worldInteractionUnshadowedPipeline = VK_NULL_HANDLE;
 		worldInteractionSkinnedPipeline = VK_NULL_HANDLE;
 		worldInteractionSkinnedUnshadowedPipeline = VK_NULL_HANDLE;
+		worldFogPipeline = VK_NULL_HANDLE;
+		worldFogSkinnedPipeline = VK_NULL_HANDLE;
 		sceneAlbedoCopied = false;
 		worldLightAmbientPipeline = VK_NULL_HANDLE;
 		pushConstantFloats = 32;
@@ -1120,10 +1148,13 @@ void ReportVulkanDrawMaterial( sdVulkanBackendState& state,
 		}
 	}
 	state.reportedDrawMaterials.Append( surface.material );
-	common->Printf( "Vulkan material draw: '%s' (%d stages, coverage=%d, sort=%g)\n",
+	common->Printf( "Vulkan material draw: '%s' (%d stages, coverage=%d, sort=%g, cull=%d, ambient cube map %s)\n",
 		materialName, surface.material->GetNumStages(),
 		static_cast< int >( surface.material->Coverage() ),
-		surface.material->GetSort() );
+		surface.material->GetSort(),
+		static_cast< int >( surface.material->GetCullType() ),
+		surface.space != NULL && surface.space->ambientCubeMap != NULL ?
+			surface.space->ambientCubeMap->GetName() : "<none>" );
 	if ( importantEffect && surface.geo != NULL && surface.space != NULL ) {
 		common->Printf( "  effect geometry: model=%s, %d verts, %d indexes, bounds "
 			"(%g %g %g)-(%g %g %g), scissor (%d %d)-(%d %d), "
@@ -1148,6 +1179,15 @@ void ReportVulkanDrawMaterial( sdVulkanBackendState& state,
 			stageIndex, enabled ? "enabled" : "disabled", stage->drawStateBits,
 			stage->numTextures, stage->renderProgram != NULL ?
 			stage->renderProgram->GetName() : "<none>" );
+		for ( int vectorIndex = 0; vectorIndex < stage->numVectors; ++vectorIndex ) {
+			const stageVector_t& vector = stage->vectors[ vectorIndex ];
+			common->Printf( "    vector %s = (%g %g %g %g)\n",
+				vector.renderBinding != NULL ? vector.renderBinding->GetName() : "<binding>",
+				surface.materialRegisters != NULL ? surface.materialRegisters[ vector.registers[ 0 ] ] : 0.0f,
+				surface.materialRegisters != NULL ? surface.materialRegisters[ vector.registers[ 1 ] ] : 0.0f,
+				surface.materialRegisters != NULL ? surface.materialRegisters[ vector.registers[ 2 ] ] : 0.0f,
+				surface.materialRegisters != NULL ? surface.materialRegisters[ vector.registers[ 3 ] ] : 0.0f );
+		}
 		for ( int textureIndex = 0; textureIndex < stage->numTextures; ++textureIndex ) {
 			const stageTexture_t& texture = stage->textures[ textureIndex ];
 			common->Printf( "    %s = %s%s (%dx%d, type %d)\n",
@@ -1676,6 +1716,9 @@ bool CreateLogicalDevice( sdVulkanBackendState& state,
 		features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
 		features2.pNext = &portabilityFeatures;
 		state.GetPhysicalDeviceFeatures2( state.physicalDevice, &features2 );
+		// Without it, image views must use the identity swizzle, so the block
+		// formats that need one (RXGB, ATI1, ATI2) take the decode path instead.
+		state.imageViewFormatSwizzle = portabilityFeatures.imageViewFormatSwizzle == VK_TRUE;
 
 		portabilityFeatures.pNext = features13.pNext;
 		features13.pNext = &portabilityFeatures;
@@ -3307,6 +3350,30 @@ bool CompileVulkanShaderModule( sdVulkanBackendState& state,
 void DestroyGuiResources( sdVulkanBackendState& state ) {
 	state.materialDescriptors.Clear();
 	state.materialDescriptorHash.Clear();
+	state.frontEndDescriptors.Clear();
+	VkPipeline* frontEndPipelines[] = {
+		&state.worldFrontEndPipeline,
+		&state.worldFrontEndAlphaPipeline,
+		&state.worldFrontEndAddPipeline
+	};
+	for ( unsigned int pipelineIndex = 0;
+		pipelineIndex < sizeof( frontEndPipelines ) / sizeof( frontEndPipelines[ 0 ] );
+		++pipelineIndex ) {
+		if ( *frontEndPipelines[ pipelineIndex ] != VK_NULL_HANDLE ) {
+			state.DestroyPipeline( state.device,
+				*frontEndPipelines[ pipelineIndex ], NULL );
+			*frontEndPipelines[ pipelineIndex ] = VK_NULL_HANDLE;
+		}
+	}
+	if ( state.frontEndPipelineLayout != VK_NULL_HANDLE ) {
+		state.DestroyPipelineLayout( state.device, state.frontEndPipelineLayout, NULL );
+		state.frontEndPipelineLayout = VK_NULL_HANDLE;
+	}
+	if ( state.frontEndDescriptorSetLayout != VK_NULL_HANDLE ) {
+		state.DestroyDescriptorSetLayout( state.device,
+			state.frontEndDescriptorSetLayout, NULL );
+		state.frontEndDescriptorSetLayout = VK_NULL_HANDLE;
+	}
 	VkPipeline* skinnedPipelines[] = {
 		&state.worldSkinnedPipeline,
 		&state.worldSkinnedDepthPipeline,
@@ -3491,6 +3558,14 @@ void DestroyGuiResources( sdVulkanBackendState& state ) {
 		state.DestroyPipeline( state.device, state.worldInteractionSkinnedUnshadowedPipeline, NULL );
 		state.worldInteractionSkinnedUnshadowedPipeline = VK_NULL_HANDLE;
 	}
+	if ( state.worldFogPipeline != VK_NULL_HANDLE ) {
+		state.DestroyPipeline( state.device, state.worldFogPipeline, NULL );
+		state.worldFogPipeline = VK_NULL_HANDLE;
+	}
+	if ( state.worldFogSkinnedPipeline != VK_NULL_HANDLE ) {
+		state.DestroyPipeline( state.device, state.worldFogSkinnedPipeline, NULL );
+		state.worldFogSkinnedPipeline = VK_NULL_HANDLE;
+	}
 	if ( state.worldLightAmbientPipeline != VK_NULL_HANDLE ) {
 		state.DestroyPipeline( state.device, state.worldLightAmbientPipeline, NULL );
 		state.worldLightAmbientPipeline = VK_NULL_HANDLE;
@@ -3527,7 +3602,8 @@ bool CreateWorldPipelineVariant( sdVulkanBackendState& state,
 	VkPipeline& pipeline, VkCompareOp depthCompare = VK_COMPARE_OP_LESS_OR_EQUAL,
 	bool colorWrite = true,
 	VkPolygonMode polygonMode = VK_POLYGON_MODE_FILL,
-	bool skinned = false ) {
+	bool skinned = false, VkPipelineLayout layout = VK_NULL_HANDLE,
+	VkCullModeFlags cullMode = VK_CULL_MODE_NONE ) {
 	VkShaderModule vertexModule = VK_NULL_HANDLE;
 	VkShaderModule fragmentModule = VK_NULL_HANDLE;
 	if ( !CompileVulkanShaderModule( state, vertexShader,
@@ -3622,7 +3698,7 @@ bool CreateWorldPipelineVariant( sdVulkanBackendState& state,
 	memset( &rasterization, 0, sizeof( rasterization ) );
 	rasterization.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
 	rasterization.polygonMode = polygonMode;
-	rasterization.cullMode = VK_CULL_MODE_NONE;
+	rasterization.cullMode = cullMode;
 	rasterization.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	rasterization.depthBiasEnable = VK_TRUE;
 	rasterization.lineWidth = 1.0f;
@@ -3686,7 +3762,7 @@ bool CreateWorldPipelineVariant( sdVulkanBackendState& state,
 	pipelineInfo.pDepthStencilState = &depthStencil;
 	pipelineInfo.pColorBlendState = &blendState;
 	pipelineInfo.pDynamicState = &dynamicState;
-	pipelineInfo.layout = state.guiPipelineLayout;
+	pipelineInfo.layout = layout != VK_NULL_HANDLE ? layout : state.guiPipelineLayout;
 	const bool created = CheckVulkanResult( state.CreateGraphicsPipelines(
 		state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
 		&pipeline ), "vkCreateGraphicsPipelines(world)" );
@@ -3695,7 +3771,42 @@ bool CreateWorldPipelineVariant( sdVulkanBackendState& state,
 	return created;
 }
 
+void CreateFrontEndPipelines( sdVulkanBackendState& state ) {
+	if ( state.frontEndPipelineLayout == VK_NULL_HANDLE ) {
+		return;
+	}
+	// sfx/feAmbDecal (opaque), sfx/feAmbDecal_cloud (blend) and sfx/atmos (add;
+	// its material is blend GL_ONE, GL_ONE without depth writes).  Optional:
+	// without them these surfaces fall back to the generic pipelines.  Culled as
+	// GL_Cull culls a front-sided material, so the far side of the cloud shell
+	// does not draw over the globe.  The atmosphere is culled as GL_Cull culls a
+	// back-sided stage: retail's atmosphere stage says "cullFace front", which
+	// ParseStage reads as CT_BACK_SIDED, so only the shell's far side draws, a soft
+	// glow outside the globe's limb (#186).  The draw uses a pipeline only when the
+	// stage's cull matches the one it was built with.
+	const VkCullModeFlags frontSidedCull = VK_CULL_MODE_FRONT_BIT;
+	const VkCullModeFlags backSidedCull = VK_CULL_MODE_BACK_BIT;
+	if ( !CreateWorldPipelineVariant( state, "vkprogs/world/frontend.vert",
+			"vkprogs/world/frontend.frag", VK_BLEND_FACTOR_ONE,
+			VK_BLEND_FACTOR_ZERO, true, true, false, state.worldFrontEndPipeline,
+			VK_COMPARE_OP_LESS_OR_EQUAL, true, VK_POLYGON_MODE_FILL, false,
+			state.frontEndPipelineLayout, frontSidedCull ) ||
+		!CreateWorldPipelineVariant( state, "vkprogs/world/frontend.vert",
+			"vkprogs/world/frontend.frag", VK_BLEND_FACTOR_SRC_ALPHA,
+			VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, true, false, false,
+			state.worldFrontEndAlphaPipeline, VK_COMPARE_OP_LESS_OR_EQUAL, true,
+			VK_POLYGON_MODE_FILL, false, state.frontEndPipelineLayout, frontSidedCull ) ||
+		!CreateWorldPipelineVariant( state, "vkprogs/world/frontend.vert",
+			"vkprogs/world/frontend.frag", VK_BLEND_FACTOR_ONE,
+			VK_BLEND_FACTOR_ONE, true, false, false,
+			state.worldFrontEndAddPipeline, VK_COMPARE_OP_LESS_OR_EQUAL, true,
+			VK_POLYGON_MODE_FILL, false, state.frontEndPipelineLayout, backSidedCull ) ) {
+		common->Warning( "Vulkan: the front-end pipelines (globe, clouds, atmosphere) failed; the menu globe uses the generic material path" );
+	}
+}
+
 bool CreateWorldPipeline( sdVulkanBackendState& state ) {
+	CreateFrontEndPipelines( state );
 	return CreateWorldPipelineVariant( state, "vkprogs/world/ambient.vert",
 		"vkprogs/world/ambient.frag", VK_BLEND_FACTOR_ONE,
 		VK_BLEND_FACTOR_ZERO, true, true, false, state.worldDepthPipeline,
@@ -4239,6 +4350,34 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 	pipelineInfo.pDynamicState = &dynamicState;
 	pipelineInfo.layout = state.guiPipelineLayout;
 
+	VkShaderModule fogModule = VK_NULL_HANDLE;
+	bool fogShader = false;
+	auto CreateFogPipeline = [&]( VkPipeline& fogPipeline, const char* what ) {
+		if ( !fogShader ) {
+			return;
+		}
+		const VkShaderModule interactionModule = shaderStages[ 1 ].module;
+		const VkPipelineDepthStencilStateCreateInfo interactionDepthStencil = depthStencil;
+		shaderStages[ 1 ].module = fogModule;
+		blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+		// fog a pixel once: pass on stencil 0 (cleared before the fog) and mark it
+		depthStencil.stencilTestEnable = VK_TRUE;
+		depthStencil.front.compareOp = VK_COMPARE_OP_EQUAL;
+		depthStencil.front.reference = 0;
+		depthStencil.front.compareMask = 0xFF;
+		depthStencil.front.writeMask = 0xFF;
+		depthStencil.front.failOp = VK_STENCIL_OP_KEEP;
+		depthStencil.front.depthFailOp = VK_STENCIL_OP_KEEP;
+		depthStencil.front.passOp = VK_STENCIL_OP_INCREMENT_AND_CLAMP;
+		depthStencil.back = depthStencil.front;
+		if ( !CheckVulkanResult( state.CreateGraphicsPipelines( state.device, VK_NULL_HANDLE, 1,
+			&pipelineInfo, NULL, &fogPipeline ), what ) ) {
+			fogPipeline = VK_NULL_HANDLE;
+		}
+		shaderStages[ 1 ].module = interactionModule;
+		blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+		depthStencil = interactionDepthStencil;
+	};
 	bool created = CheckVulkanResult( state.CreateGraphicsPipelines(
 		state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
 		&state.worldInteractionPipeline ), "vkCreateGraphicsPipelines(worldInteraction)" );
@@ -4249,6 +4388,12 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 			state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
 			&state.worldInteractionUnshadowedPipeline ),
 			"vkCreateGraphicsPipelines(worldInteractionUnshadowed)" );
+		// The atmosphere fog (#233): an unshadowed interaction's geometry, depth test
+		// and alpha test, with fog.frag blending the lit colour toward the fog colour
+		// (dst * (1 - f) + fogColor * f).  Without it the view has no fog, nothing else.
+		fogShader = created && CompileVulkanShaderModule( state, "vkprogs/world/fog.frag",
+			SPIRV_SHADER_STAGE_FRAGMENT, fogModule );
+		CreateFogPipeline( state.worldFogPipeline, "vkCreateGraphicsPipelines(worldFog)" );
 		// GPU-skinned variants: skinned vertex shader, plus the vertWeight_t stream
 		VkShaderModule skinnedModule = VK_NULL_HANDLE;
 		if ( created && CompileVulkanShaderModule( state, "vkprogs/world/skinned_interaction.vert",
@@ -4278,6 +4423,7 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 				state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
 				&state.worldInteractionSkinnedUnshadowedPipeline ),
 				"vkCreateGraphicsPipelines(worldInteractionSkinnedUnshadowed)" );
+			CreateFogPipeline( state.worldFogSkinnedPipeline, "vkCreateGraphicsPipelines(worldFogSkinned)" );
 			depthStencil.stencilTestEnable = VK_TRUE;
 			created = created && CheckVulkanResult( state.CreateGraphicsPipelines(
 				state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
@@ -4287,6 +4433,9 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 		}
 	}
 
+	if ( fogModule != VK_NULL_HANDLE ) {
+		state.DestroyShaderModule( state.device, fogModule, NULL );
+	}
 	state.DestroyShaderModule( state.device, vertexModule, NULL );
 	state.DestroyShaderModule( state.device, fragmentModule, NULL );
 	if ( created ) {
@@ -4552,6 +4701,35 @@ bool CreateGuiResources( sdVulkanBackendState& state ) {
 		"vkCreatePipelineLayout(gui)" ) ) {
 		DestroyGuiResources( state );
 		return false;
+	}
+	// The front-end ambient programs' set: the material set's five bindings plus
+	// the specular cube map.  Same push constant range, so pushes stay compatible.
+	VkDescriptorSetLayoutBinding frontEndBindings[ VULKAN_FRONTEND_TEXTURES ];
+	memset( frontEndBindings, 0, sizeof( frontEndBindings ) );
+	for ( int bindingIndex = 0; bindingIndex < VULKAN_FRONTEND_TEXTURES;
+		++bindingIndex ) {
+		frontEndBindings[ bindingIndex ].binding = bindingIndex;
+		frontEndBindings[ bindingIndex ].descriptorType =
+			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		frontEndBindings[ bindingIndex ].descriptorCount = 1;
+		frontEndBindings[ bindingIndex ].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	}
+	VkDescriptorSetLayoutCreateInfo frontEndSetLayoutInfo = setLayoutInfo;
+	frontEndSetLayoutInfo.bindingCount = VULKAN_FRONTEND_TEXTURES;
+	frontEndSetLayoutInfo.pBindings = frontEndBindings;
+	VkDescriptorSetLayout frontEndSetLayouts[ 2 ] = {
+		VK_NULL_HANDLE,
+		state.jointDescriptorSetLayout
+	};
+	if ( CheckVulkanResult( state.CreateDescriptorSetLayout( state.device,
+		&frontEndSetLayoutInfo, NULL, &state.frontEndDescriptorSetLayout ),
+		"vkCreateDescriptorSetLayout(front end)" ) ) {
+		frontEndSetLayouts[ 0 ] = state.frontEndDescriptorSetLayout;
+		VkPipelineLayoutCreateInfo frontEndLayoutInfo = pipelineLayoutInfo;
+		frontEndLayoutInfo.pSetLayouts = frontEndSetLayouts;
+		CheckVulkanResult( state.CreatePipelineLayout( state.device,
+			&frontEndLayoutInfo, NULL, &state.frontEndPipelineLayout ),
+			"vkCreatePipelineLayout(front end)" );
 	}
 
 	VkShaderModule vertexModule = VK_NULL_HANDLE;
@@ -4840,6 +5018,31 @@ bool StageUsesVulkanMaterialTextures( const materialStage_t& stage ) {
 	return false;
 }
 
+// Retail 1.5's front-end ambient programs, lit by the entity's ambient cube map
+// (the main menu's globe), and sfx/atmos, the globe's atmosphere shell, which
+// shares their vertex program.  The values match frontend.frag's mode.
+enum vulkanFrontEndProgram_t {
+	FRONTEND_AMBIENT_DECAL,		// sfx/feAmbDecal
+	FRONTEND_AMBIENT_CLOUD,		// sfx/feAmbDecal_cloud
+	FRONTEND_ATMOSPHERE			// sfx/atmos
+};
+
+int VulkanFrontEndMode( const char* programName ) {
+	if ( programName == NULL ) {
+		return 0;
+	}
+	if ( idStr::Icmp( programName, "sfx/feAmbDecal" ) == 0 ) {
+		return FRONTEND_AMBIENT_DECAL + 1;
+	}
+	if ( idStr::Icmp( programName, "sfx/feAmbDecal_cloud" ) == 0 ) {
+		return FRONTEND_AMBIENT_CLOUD + 1;
+	}
+	if ( idStr::Icmp( programName, "sfx/atmos" ) == 0 ) {
+		return FRONTEND_ATMOSPHERE + 1;
+	}
+	return 0;
+}
+
 enum vulkanSurfacePreparationStatus_t {
 	VULKAN_SURFACE_MISSING_GEOMETRY,
 	VULKAN_SURFACE_MISSING_CACHE,
@@ -4858,6 +5061,7 @@ struct vulkanSurfaceSelection_t {
 	bool			skybox;
 	bool			foggyWaterUnderside;
 	bool			materialTextures;
+	int				frontEndMode;	// FRONTEND_* + 1 for retail's front-end ambient programs, else 0
 };
 
 struct vulkanSurfaceSelectionCacheEntry_t {
@@ -4981,6 +5185,7 @@ void AnalyzeVulkanSurfaces( void* opaqueContext, int firstItem, int itemCount,
 				idStr::Icmp( programName, "sfx/foggyWaterSurface" ) == 0;
 			selection.materialTextures =
 				StageUsesVulkanMaterialTextures( *selection.stage );
+			selection.frontEndMode = VulkanFrontEndMode( programName );
 		}
 		cached.material = surface->material;
 		cached.registers = surface->materialRegisters;
@@ -5010,6 +5215,134 @@ void SetVulkanPolygonOffset( sdVulkanBackendState& state,
 	state.CmdSetDepthBias( commandBuffer,
 		enabled ? r_offsetUnits.GetFloat() * polygonOffset : 0.0f,
 		0.0f, enabled ? r_offsetFactor.GetFloat() : 0.0f );
+}
+
+// The descriptor for a front-end ambient program: diffuse, bump, specular and
+// self-illumination maps, then the entity's ambient and specular cube maps, bound
+// as the GL path's SetAmbientCubeMapBindings does (black when there are none).
+bool GetVulkanFrontEndDescriptor( sdVulkanBackendState& state,
+	const materialStage_t& stage, idImage* selectedImage,
+	const viewEntity_s* space, VkDescriptorSet& descriptorSet ) {
+	descriptorSet = VK_NULL_HANDLE;
+	if ( globalImages == NULL || selectedImage == NULL ||
+		state.frontEndDescriptorSetLayout == VK_NULL_HANDLE ) {
+		return false;
+	}
+	idImage* images[ VULKAN_FRONTEND_TEXTURES ] = {
+		selectedImage,
+		globalImages->flatNormalMap,
+		globalImages->blackImage,
+		globalImages->blackImage,
+		globalImages->blackCubeMapImage,
+		globalImages->blackCubeMapImage
+	};
+	const sdDeclAmbientCubeMap* cubeMap = space != NULL ? space->ambientCubeMap : NULL;
+	if ( cubeMap != NULL && cubeMap->GetAmbientCubeMap() != NULL ) {
+		images[ 4 ] = cubeMap->GetAmbientCubeMap();
+	}
+	if ( cubeMap != NULL && cubeMap->GetSpecularCubeMap() != NULL ) {
+		images[ 5 ] = cubeMap->GetSpecularCubeMap();
+	}
+	for ( int textureIndex = 0; textureIndex < stage.numTextures; ++textureIndex ) {
+		const stageTexture_t& texture = stage.textures[ textureIndex ];
+		if ( texture.image == NULL || texture.image->defaulted ) {
+			continue;
+		}
+		if ( rbinds != NULL && texture.renderBinding == rbinds->diffuseMap ) {
+			images[ 0 ] = texture.image;
+		} else if ( rbinds != NULL && texture.renderBinding == rbinds->bumpMap ) {
+			images[ 1 ] = texture.image;
+		} else if ( rbinds != NULL && texture.renderBinding == rbinds->specularMap ) {
+			images[ 2 ] = texture.image;
+		} else if ( texture.renderBinding != NULL &&
+			idStr::Icmp( texture.renderBinding->GetName(), "selfillummap" ) == 0 ) {
+			images[ 3 ] = texture.image;
+		}
+	}
+	idImage* fallbacks[ VULKAN_FRONTEND_TEXTURES ];
+	for ( int slot = 0; slot < VULKAN_FRONTEND_TEXTURES; ++slot ) {
+		fallbacks[ slot ] = slot >= 4 ? globalImages->blackCubeMapImage :
+			globalImages->blackImage;
+		if ( images[ slot ] == NULL ) {
+			images[ slot ] = fallbacks[ slot ];
+		}
+		if ( !images[ slot ]->IsLoaded() ) {
+			images[ slot ]->BindFragment();
+		}
+		if ( !fallbacks[ slot ]->IsLoaded() ) {
+			fallbacks[ slot ]->BindFragment();
+		}
+	}
+	// BindFragment can reallocate state.imageResources: resolve afterwards.  A
+	// generated cube map keeps cubeFiles CF_2D, so the slot type is checked on
+	// the uploaded resource: binding 4 and 5 are samplerCube, the rest sampler2D.
+	const sdVulkanImageResource* resources[ VULKAN_FRONTEND_TEXTURES ];
+	for ( int slot = 0; slot < VULKAN_FRONTEND_TEXTURES; ++slot ) {
+		const bool cubeSlot = slot >= 4;
+		resources[ slot ] = FindVulkanImageResource( state, images[ slot ] );
+		if ( resources[ slot ] == NULL || resources[ slot ]->cubeMap != cubeSlot ) {
+			images[ slot ] = fallbacks[ slot ];
+			resources[ slot ] = FindVulkanImageResource( state, images[ slot ] );
+		}
+		if ( resources[ slot ] == NULL || resources[ slot ]->cubeMap != cubeSlot ) {
+			return false;
+		}
+	}
+	for ( int descriptorIndex = 0; descriptorIndex < state.frontEndDescriptors.Num();
+		++descriptorIndex ) {
+		const sdVulkanFrontEndDescriptor& cached = state.frontEndDescriptors[ descriptorIndex ];
+		if ( cached.owner != &stage ) {
+			continue;
+		}
+		bool matches = true;
+		for ( int slot = 0; slot < VULKAN_FRONTEND_TEXTURES; ++slot ) {
+			if ( cached.imageOwners[ slot ] != images[ slot ] ||
+				cached.imageViews[ slot ] != resources[ slot ]->view ) {
+				matches = false;
+				break;
+			}
+		}
+		if ( matches ) {
+			descriptorSet = cached.descriptorSet;
+			return true;
+		}
+	}
+	sdVulkanFrontEndDescriptor frontEndDescriptor;
+	memset( &frontEndDescriptor, 0, sizeof( frontEndDescriptor ) );
+	frontEndDescriptor.owner = &stage;
+	VkDescriptorSetAllocateInfo allocateInfo;
+	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
+	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocateInfo.descriptorPool = state.guiDescriptorPool;
+	allocateInfo.descriptorSetCount = 1;
+	allocateInfo.pSetLayouts = &state.frontEndDescriptorSetLayout;
+	if ( !CheckVulkanResult( state.AllocateDescriptorSets( state.device,
+		&allocateInfo, &frontEndDescriptor.descriptorSet ),
+		"vkAllocateDescriptorSets(front end)" ) ) {
+		return false;
+	}
+	VkDescriptorImageInfo imageInfos[ VULKAN_FRONTEND_TEXTURES ];
+	VkWriteDescriptorSet writes[ VULKAN_FRONTEND_TEXTURES ];
+	memset( imageInfos, 0, sizeof( imageInfos ) );
+	memset( writes, 0, sizeof( writes ) );
+	for ( int slot = 0; slot < VULKAN_FRONTEND_TEXTURES; ++slot ) {
+		frontEndDescriptor.imageOwners[ slot ] = images[ slot ];
+		frontEndDescriptor.imageViews[ slot ] = resources[ slot ]->view;
+		imageInfos[ slot ].sampler = resources[ slot ]->sampler;
+		imageInfos[ slot ].imageView = resources[ slot ]->view;
+		imageInfos[ slot ].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		writes[ slot ].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		writes[ slot ].dstSet = frontEndDescriptor.descriptorSet;
+		writes[ slot ].dstBinding = slot;
+		writes[ slot ].descriptorCount = 1;
+		writes[ slot ].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		writes[ slot ].pImageInfo = &imageInfos[ slot ];
+	}
+	state.UpdateDescriptorSets( state.device, VULKAN_FRONTEND_TEXTURES,
+		writes, 0, NULL );
+	state.frontEndDescriptors.Append( frontEndDescriptor );
+	descriptorSet = frontEndDescriptor.descriptorSet;
+	return true;
 }
 
 bool GetVulkanMaterialDescriptor( sdVulkanBackendState& state,
@@ -8115,7 +8448,10 @@ struct vulkanBlockFormatInfo_t {
 	VkComponentMapping	swizzle;
 };
 
-// The view swizzles make each format sample as DecodeDDSLevelRGBA's RGBA does.
+// The view swizzles make each format sample as DecodeDDSLevelRGBA's RGBA does (RXGB
+// with its alpha moved into red, ATI1 as luminance), except ATI2, whose two blocks
+// are swapped so a normal's X is in red; the Vulkan decode fallback swaps likewise.
+// Without imageViewFormatSwizzle, SupportsBlockFormat refuses the swizzled formats.
 bool GetVulkanBlockFormat( vulkanBlockFormat_t blockFormat, vulkanBlockFormatInfo_t& info ) {
 	const VkComponentSwizzle I = VK_COMPONENT_SWIZZLE_IDENTITY;
 	info.swizzle.r = info.swizzle.g = info.swizzle.b = info.swizzle.a = I;
@@ -8140,9 +8476,14 @@ bool GetVulkanBlockFormat( vulkanBlockFormat_t blockFormat, vulkanBlockFormatInf
 			info.swizzle.a = VK_COMPONENT_SWIZZLE_ONE;
 			return true;
 		case VBF_BC5:
-			// ATI2 decodes to (X, Y, 0, 1), as BC5 samples
+			// ATI2 keeps a normal's Y in its first block and X in its second: retail
+			// uploads it as LATC2, and its programs read X from alpha (the second
+			// block) and Y from green (the first).  BC5 samples the blocks as (R, G),
+			// so swap them to give (X, Y, 0, 1).
 			info.format = VK_FORMAT_BC5_UNORM_BLOCK;
 			info.blockBytes = 16;
+			info.swizzle.r = VK_COMPONENT_SWIZZLE_G;
+			info.swizzle.g = VK_COMPONENT_SWIZZLE_R;
 			return true;
 		default:
 			return false;
@@ -8220,6 +8561,11 @@ bool sdVulkanBackend::SupportsBlockFormat( vulkanBlockFormat_t blockFormat, bool
 	vulkanBlockFormatInfo_t info;
 	if ( state == NULL || state->device == VK_NULL_HANDLE ||
 		!state->textureCompressionBC || !GetVulkanBlockFormat( blockFormat, info ) ) {
+		return false;
+	}
+	const VkComponentSwizzle I = VK_COMPONENT_SWIZZLE_IDENTITY;
+	if ( !state->imageViewFormatSwizzle && ( info.swizzle.r != I || info.swizzle.g != I ||
+		info.swizzle.b != I || info.swizzle.a != I ) ) {
 		return false;
 	}
 	VkFormatProperties properties;
@@ -8918,6 +9264,28 @@ void sdVulkanBackend::DestroyImage( const void* owner ) {
 						sizeof( descriptor.imageViews ) );
 				}
 			}
+			// the same for the front-end ambient programs' sets
+			for ( int descriptorIndex = 0;
+				descriptorIndex < state->frontEndDescriptors.Num(); ++descriptorIndex ) {
+				sdVulkanFrontEndDescriptor& descriptor =
+					state->frontEndDescriptors[ descriptorIndex ];
+				bool usesRemovedImage = false;
+				for ( int imageIndex = 0; imageIndex < VULKAN_FRONTEND_TEXTURES;
+					++imageIndex ) {
+					if ( descriptor.imageOwners[ imageIndex ] == owner ||
+						descriptor.imageViews[ imageIndex ] == removed.view ) {
+						usesRemovedImage = true;
+						break;
+					}
+				}
+				if ( usesRemovedImage ) {
+					descriptor.owner = NULL;
+					memset( descriptor.imageOwners, 0,
+						sizeof( descriptor.imageOwners ) );
+					memset( descriptor.imageViews, 0,
+						sizeof( descriptor.imageViews ) );
+				}
+			}
 			const int lastIndex = state->imageResources.Num() - 1;
 			const void* movedOwner = i != lastIndex ?
 				state->imageResources[ lastIndex ].owner : NULL;
@@ -9218,10 +9586,12 @@ void DrawVulkanShadowSurface( sdVulkanBackendState& state, const drawSurf_s* sur
 	state.worldShadowDrawCalls++;
 }
 
+// fog != NULL draws the atmosphere fog over the surface instead (no light; fog.frag,
+// #233): fog[ 0..2 ] the fog colour, fog[ 3 ] and fog[ 4 ] fogDepths' z and w.
 void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* surface,
-	const viewLight_s* light, const viewDef_s* view, bool unshadowed ) {
+	const viewLight_s* light, const viewDef_s* view, bool unshadowed, const float* fog ) {
 	if ( surface == NULL || surface->geo == NULL || surface->space == NULL ||
-		 surface->material == NULL || light == NULL || view == NULL ) {
+		 surface->material == NULL || ( light == NULL && fog == NULL ) || view == NULL ) {
 		return;
 	}
 	const srfTriangles_t* tri = surface->geo;
@@ -9280,7 +9650,9 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	}
 
 	idScreenRect scissorRect = surface->scissorRect;
-	scissorRect.Intersect( light->scissorRect );
+	if ( fog == NULL ) {
+		scissorRect.Intersect( light->scissorRect );
+	}
 	int scissorWidth = Max( 0, scissorRect.x2 - scissorRect.x1 + 1 );
 	int scissorHeight = Max( 0, scissorRect.y2 - scissorRect.y1 + 1 );
 	if ( scissorWidth <= 0 || scissorHeight <= 0 ) {
@@ -9358,9 +9730,9 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	}
 	// MegaTexture terrain reads its albedo from the light block's snapshot
 	VkDescriptorSet sceneAlbedoSet = VK_NULL_HANDLE;
-	const bool sceneAlbedoInteraction = litInteraction && megaTextureSurface &&
+	const bool sceneAlbedoInteraction = fog == NULL && litInteraction && megaTextureSurface &&
 		state.sceneAlbedoCopied && GetVulkanSceneAlbedoDescriptor( state, sceneAlbedoSet );
-	if ( litInteraction && megaTextureSurface && !sceneAlbedoInteraction ) {
+	if ( fog == NULL && litInteraction && megaTextureSurface && !sceneAlbedoInteraction ) {
 		return;	// no albedo snapshot (no TRANSFER_SRC swapchain): ambient only, not white
 	}
 	VkPipeline pipeline = unshadowed ?
@@ -9385,6 +9757,12 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		pipeline = unshadowed ? state.worldInteractionSkinnedUnshadowedPipeline :
 			state.worldInteractionSkinnedPipeline;
 	}
+	if ( fog != NULL ) {
+		pipeline = hardwareSkinned ? state.worldFogSkinnedPipeline : state.worldFogPipeline;
+		if ( !litInteraction || pipeline == VK_NULL_HANDLE ) {
+			return;
+		}
+	}
 	if ( pipeline == VK_NULL_HANDLE ) {
 		pipeline = state.worldMaterialAddPipeline != VK_NULL_HANDLE ?
 			state.worldMaterialAddPipeline : state.worldAddPipeline;
@@ -9401,8 +9779,8 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	memset( pushConstants, 0, sizeof( pushConstants ) );
 	memcpy( pushConstants, mvp, sizeof( mvp ) );
 	idVec3 lightColor( 1.0f, 1.0f, 1.0f );
-	bool lightColorResolved = false;
-	if ( light->material != NULL && light->lightRegisters != NULL ) {
+	bool lightColorResolved = fog != NULL;
+	if ( fog == NULL && light->material != NULL && light->lightRegisters != NULL ) {
 		for ( int stageIndex = 0; stageIndex < light->material->GetNumStages(); ++stageIndex ) {
 			const materialStage_t* lightStage = light->material->GetStage( stageIndex );
 			if ( lightStage == NULL || lightStage->depthStage ||
@@ -9450,9 +9828,17 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 			pushConstants[ 30 ] = surface->materialRegisters[ stage->alphaTestRegister ];
 			pushConstants[ 31 ] = 1.0f;
 		}
-		const bool directional = light == view->atmosphereLight ||
-			( light->lightDef != NULL && light->lightDef->flags.atmosphereLight );
-		if ( directional ) {
+		const bool directional = fog == NULL && ( light == view->atmosphereLight ||
+			( light->lightDef != NULL && light->lightDef->flags.atmosphereLight ) );
+		if ( fog != NULL ) {
+			// fog.frag: the view origin in model space, fogDepths and the fog colour
+			const float* m = surface->space->modelMatrix;	// axis rows 0-2, 4-6, 8-10, origin 12-14
+			const idVec3 delta = view->renderView.vieworg - idVec3( m[ 12 ], m[ 13 ], m[ 14 ] );
+			pushConstants[ 32 ] = delta.x * m[ 0 ] + delta.y * m[ 1 ] + delta.z * m[ 2 ];
+			pushConstants[ 33 ] = delta.x * m[ 4 ] + delta.y * m[ 5 ] + delta.z * m[ 6 ];
+			pushConstants[ 34 ] = delta.x * m[ 8 ] + delta.y * m[ 9 ] + delta.z * m[ 10 ];
+			pushConstants[ 35 ] = fog[ 3 ];
+		} else if ( directional ) {
 			idVec3 sunDirection( 0.35f, 0.45f, 0.82f );
 			if ( view->atmosphere != NULL ) {
 				sunDirection = view->atmosphere->GetSunDirection();
@@ -9484,11 +9870,32 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 			pushConstants[ 34 ] = localOrigin.z;
 			pushConstants[ 35 ] = radius;
 		}
-		pushConstants[ 36 ] = lightColor.x;
-		pushConstants[ 37 ] = lightColor.y;
-		pushConstants[ 38 ] = lightColor.z;
-		// w: 1 for the sun, + 2 for a two-sided material (lit from either side)
-		pushConstants[ 39 ] = ( directional ? 1.0f : 0.0f ) +
+		if ( fog == NULL && megaTextureSurface ) {
+			// Retail's megatexture/interaction_bakedamb* scale the light by the
+			// stage's $parameters.w (valley: 0.5): the terrain's baked lighting
+			// already carries half the sun, and its ambient pass removes
+			// $parameters.z of it where the sun faces (the 0.34 ambient here).
+			for ( int stageIndex = 0; stageIndex < surface->material->GetNumStages(); ++stageIndex ) {
+				const materialStage_t* megaStage = surface->material->GetStage( stageIndex );
+				if ( megaStage == NULL || megaStage->megaTexture == NULL || megaStage->renderProgram == NULL ||
+					idStr::FindText( megaStage->renderProgram->GetName(), "bakedamb", false ) < 0 ) {
+					continue;
+				}
+				for ( int vectorIndex = 0; vectorIndex < megaStage->numVectors; ++vectorIndex ) {
+					const stageVector_t& vector = megaStage->vectors[ vectorIndex ];
+					if ( vector.renderBinding != NULL && surface->materialRegisters != NULL &&
+						idStr::Icmp( vector.renderBinding->GetName(), "parameters" ) == 0 ) {
+						lightColor *= surface->materialRegisters[ vector.registers[ 3 ] ];
+					}
+				}
+				break;
+			}
+		}
+		pushConstants[ 36 ] = fog != NULL ? fog[ 0 ] : lightColor.x;
+		pushConstants[ 37 ] = fog != NULL ? fog[ 1 ] : lightColor.y;
+		pushConstants[ 38 ] = fog != NULL ? fog[ 2 ] : lightColor.z;
+		// w: 1 for the sun, + 2 for a two-sided material (lit from either side); fog: fogDepths.w
+		pushConstants[ 39 ] = fog != NULL ? fog[ 4 ] : ( directional ? 1.0f : 0.0f ) +
 			( surface->material->GetCullType() == CT_TWO_SIDED ? 2.0f : 0.0f );
 	}
 
@@ -9537,7 +9944,9 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		sizeof( float ) * ( litInteraction ? 40 : 32 ), pushConstants );
 	state.CmdDrawIndexed( frame.commandBuffer, tri->numIndexes, 1, 0, 0, 0 );
 	state.worldDrawCalls++;
-	state.worldInteractionDrawCalls++;
+	if ( fog == NULL ) {
+		state.worldInteractionDrawCalls++;
+	}
 }
 
 void sdVulkanBackend::DrawView( const viewDef_s* view ) {
@@ -9570,7 +9979,11 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 	// Establish the authored sky gradient first so pixels not covered by world
 	// geometry no longer expose the swapchain clear color.  This intentionally
 	// precedes depth-tested surfaces; clouds and the sun remain later passes.
-	if ( view->atmosphere != NULL && state->skyPipeline != VK_NULL_HANDLE ) {
+	// Only a map's world has a sky: a GUI's render world (the limbo menu's player
+	// model, UIRenderWorld) has an atmosphere for its lighting but no sky, and
+	// filling its viewport drew an opaque box behind the model (#187).
+	if ( view->atmosphere != NULL && state->skyPipeline != VK_NULL_HANDLE &&
+		view->renderWorld != NULL && view->renderWorld->HasMap() ) {
 		RENDER_METRIC_SCOPE( "Vulkan sky" );
 		idImage* skyImage = view->atmosphere->GetSkyGradientImage();
 		if ( skyImage != NULL && !skyImage->IsLoaded() ) {
@@ -10017,6 +10430,61 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 				// Render translucentInteractions
 				for ( const drawSurf_s* surf = light->translucentInteractions; surf != NULL; surf = surf->nextOnLight ) {
 					DrawVulkanLightInteraction( *state, surf, light, view, true );
+				}
+			}
+			// The atmosphere fog (#233).  Retail fogs inside its lit programs: the
+			// ambient pass lerps toward the fog colour by f = (distance - fogStart) /
+			// (fogEnd - fogStart) and every additive light pass scales by 1 - f, so a
+			// lit pixel ends as lit * (1 - f) + fogColor * f.  Draw that over the summed
+			// lighting of each surface the lighting covered (sorted up to SS_DECAL),
+			// with retail's choice of surfaces (draw_atmosphere.cpp's
+			// SurfaceReceivesAtmosphere).  r_AtmospherePostprocess zeroes the
+			// programs' fog in retail, as here.
+			if ( view->atmosphere != NULL && state->worldFogPipeline != VK_NULL_HANDLE &&
+				!cvarSystem->GetCVarBool( "r_AtmospherePostprocess" ) &&
+				view->atmosphere->GetFogEnd() > view->atmosphere->GetFogStart() ) {
+				const idVec3& fogColor = view->atmosphere->GetFogColor();
+				const float fogStart = view->atmosphere->GetFogStart();
+				const float fogRange = view->atmosphere->GetFogEnd() - fogStart;
+				const float fog[ 5 ] = { fogColor.x, fogColor.y, fogColor.z, 1.0f / fogRange, -fogStart / fogRange };
+				// each pixel is fogged once, by the first surface that reaches it (the
+				// fog pipelines test stencil 0 and increment it): a decal or another
+				// coplanar lit surface over it would fog it a second time.  Retail's
+				// atmosphere pass does the same (r_noDoubleAtmosphere).
+				VkClearAttachment stencilClear;
+				memset( &stencilClear, 0, sizeof( stencilClear ) );
+				stencilClear.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
+				stencilClear.clearValue.depthStencil.stencil = 0;
+				VkClearRect stencilRect;
+				memset( &stencilRect, 0, sizeof( stencilRect ) );
+				const int viewX1 = view->viewport.x1;
+				const int viewX2 = view->viewport.x2;
+				const int viewY1 = view->viewport.y1;
+				const int viewY2 = view->viewport.y2;
+				stencilRect.rect.offset.x = Max( 0, viewX1 );
+				stencilRect.rect.offset.y = Max( 0, static_cast< int >( state->extent.height ) - ( viewY2 + 1 ) );
+				stencilRect.rect.extent.width = static_cast< uint32_t >( Max( 0, Min( viewX2 - viewX1 + 1,
+					static_cast< int >( state->extent.width ) - stencilRect.rect.offset.x ) ) );
+				stencilRect.rect.extent.height = static_cast< uint32_t >( Max( 0, Min( viewY2 - viewY1 + 1,
+					static_cast< int >( state->extent.height ) - stencilRect.rect.offset.y ) ) );
+				stencilRect.layerCount = 1;
+				state->CmdClearAttachments( frame.commandBuffer, 1, &stencilClear, 1, &stencilRect );
+				for ( int i = 0; i < view->numDrawSurfs; ++i ) {
+					const drawSurf_s* surf = view->drawSurfs[ i ];
+					if ( surf == NULL || surf->material == NULL ) {
+						continue;
+					}
+					const idMaterial* material = surf->material;
+					if ( material->GetSort() > static_cast< float >( SS_DECAL ) ) {
+						break;
+					}
+					if ( material->TestMaterialFlag( MF_NOATMOSPHERE ) ||
+						( !material->TestMaterialFlag( MF_FORCEATMOSPHERE ) &&
+						( material->GetSort() == SS_SUBVIEW || material->Coverage() == MC_TRANSLUCENT ||
+						!material->ReceivesLighting() ) ) ) {
+						continue;
+					}
+					DrawVulkanLightInteraction( *state, surf, NULL, view, true, fog );
 				}
 			}
 			// _currentRender now holds the unlit snapshot: a later refraction
@@ -10640,6 +11108,84 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			VkPipeline materialPipeline = state->worldPipeline;
 			VkDescriptorSet drawDescriptorSet = selectedImageDescriptorSet;
 			const int blendBits = selectedStage->drawStateBits & 0xFF;
+			// Retail's front-end ambient programs light themselves from the entity's
+			// ambient cube map (frontend.frag); the rest of this path expects lights.
+			const int frontEndMode = preparedSelection.frontEndMode;
+			VkPipeline frontEndPipeline = VK_NULL_HANDLE;
+			if ( frontEndMode == FRONTEND_AMBIENT_DECAL + 1 ) {
+				frontEndPipeline = state->worldFrontEndPipeline;
+			} else if ( frontEndMode == FRONTEND_AMBIENT_CLOUD + 1 ) {
+				frontEndPipeline = state->worldFrontEndAlphaPipeline;
+			} else if ( frontEndMode == FRONTEND_ATMOSPHERE + 1 ) {
+				frontEndPipeline = state->worldFrontEndAddPipeline;
+			}
+			// Each pipeline bakes one cull: a stage's own cullFace overrides the
+			// material's (retail's atmosphere stage says cullFace front, parsed as
+			// CT_BACK_SIDED).  Any other cull takes the generic path.
+			const cullType_t frontEndCull = selectedStage->cullType != CT_INVALID ?
+				selectedStage->cullType : surface->material->GetCullType();
+			const cullType_t frontEndPipelineCull =
+				frontEndMode == FRONTEND_ATMOSPHERE + 1 ? CT_BACK_SIDED : CT_FRONT_SIDED;
+			VkDescriptorSet frontEndDescriptorSet = VK_NULL_HANDLE;
+			if ( frontEndPipeline != VK_NULL_HANDLE && !submitHardwareSkinning &&
+				frontEndCull == frontEndPipelineCull &&
+				!view->isMirror &&
+				GetVulkanFrontEndDescriptor( *state, *selectedStage, selectedImage,
+					surface->space, frontEndDescriptorSet ) ) {
+				float frontEndPushConstants[ 32 ];
+				memcpy( frontEndPushConstants, pushConstants, sizeof( frontEndPushConstants ) );
+				// $parameters (retail's default binding value is 1)
+				frontEndPushConstants[ 16 ] = frontEndPushConstants[ 17 ] =
+					frontEndPushConstants[ 18 ] = frontEndPushConstants[ 19 ] = 1.0f;
+				for ( int vectorIndex = 0; vectorIndex < selectedStage->numVectors;
+					++vectorIndex ) {
+					const stageVector_t& vector = selectedStage->vectors[ vectorIndex ];
+					if ( vector.renderBinding != NULL &&
+						idStr::Icmp( vector.renderBinding->GetName(), "parameters" ) == 0 ) {
+						for ( int component = 0; component < 4; ++component ) {
+							frontEndPushConstants[ 16 + component ] =
+								surface->materialRegisters[ vector.registers[ component ] ];
+						}
+					}
+				}
+				frontEndPushConstants[ 20 ] = 1.0f;
+				frontEndPushConstants[ 21 ] = 0.0f;
+				frontEndPushConstants[ 22 ] = 0.0f;
+				frontEndPushConstants[ 24 ] = 0.0f;
+				frontEndPushConstants[ 25 ] = 1.0f;
+				frontEndPushConstants[ 26 ] = 0.0f;
+				if ( selectedStage->diffuseTextureMatrix != NULL ) {
+					const int ( *matrix )[ 3 ] = selectedStage->diffuseTextureMatrix->matrix;
+					for ( int column = 0; column < 3; ++column ) {
+						frontEndPushConstants[ 20 + column ] =
+							surface->materialRegisters[ matrix[ 0 ][ column ] ];
+						frontEndPushConstants[ 24 + column ] =
+							surface->materialRegisters[ matrix[ 1 ][ column ] ];
+					}
+				}
+				frontEndPushConstants[ 23 ] = spaceCache.modelRotation[ 0 ];
+				frontEndPushConstants[ 27 ] = spaceCache.modelRotation[ 1 ];
+				// 0: no vertex colour, 1: modulate, 2: inverse modulate (1 - colour)
+				frontEndPushConstants[ 28 ] = selectedStage->vertexColor == SVC_MODULATE ? 1.0f :
+					( selectedStage->vertexColor == SVC_INVERSE_MODULATE ? 2.0f : 0.0f );
+				const sdDeclAmbientCubeMap* cubeMap = surface->space->ambientCubeMap;
+				frontEndPushConstants[ 30 ] = cubeMap != NULL ? cubeMap->GetBrightness() : 1.0f;
+				frontEndPushConstants[ 31 ] = static_cast< float >( frontEndMode - 1 );
+				BindPipeline( frontEndPipeline );
+				state->CmdBindDescriptorSets( frame.commandBuffer,
+					VK_PIPELINE_BIND_POINT_GRAPHICS, state->frontEndPipelineLayout, 0, 1,
+					&frontEndDescriptorSet, 0, NULL );
+				// a set 0 of another layout disturbs the material set and the joint palette
+				submittedDescriptorSet = VK_NULL_HANDLE;
+				submittedJointOffset = UINT_MAX;
+				state->CmdPushConstants( frame.commandBuffer, state->frontEndPipelineLayout,
+					VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+					sizeof( frontEndPushConstants ), frontEndPushConstants );
+				state->CmdDrawIndexed( frame.commandBuffer, surface->geo->numIndexes,
+					1, 0, 0, 0 );
+				state->worldDrawCalls++;
+				continue;
+			}
 			if ( skyboxTexturesAvailable ) {
 				materialPipeline = state->worldSkyboxPipeline;
 				if ( blendBits == 0x65 &&
@@ -10909,7 +11455,7 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 
 bool sdVulkanBackend::DrawGuiFan( const void* imageOwner,
 	const sdVulkanGuiVertex* vertices, int vertexCount, const float* color,
-	int drawStateBits ) {
+	int drawStateBits, bool makeAlpha ) {
 	if ( state == NULL || !state->frameActive || state->guiPipeline == VK_NULL_HANDLE ||
 		imageOwner == NULL || vertices == NULL || vertexCount < 3 ||
 		r_vkSkipGui.GetBool() ) {
@@ -10964,9 +11510,11 @@ bool sdVulkanBackend::DrawGuiFan( const void* imageOwner,
 	state->CmdBindDescriptorSets( frame.commandBuffer,
 		VK_PIPELINE_BIND_POINT_GRAPHICS, state->guiPipelineLayout, 0, 1,
 		&imageResource->descriptorSet, 0, NULL );
-	float pushConstants[ 8 ] = {
+	// the third vec4 selects retail's trivialMakeAlpha* fragment program
+	float pushConstants[ 12 ] = {
 		2.0f / 640.0f, -2.0f / 480.0f, -1.0f, 1.0f,
-		1.0f, 1.0f, 1.0f, 1.0f
+		1.0f, 1.0f, 1.0f, 1.0f,
+		makeAlpha ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f
 	};
 	if ( color != NULL ) {
 		memcpy( pushConstants + 4, color, sizeof( float ) * 4 );

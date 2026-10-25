@@ -278,6 +278,10 @@ def run_determinism_schedule(
         "+set", "com_logFrameTiming", "1",
         "+set", "g_determinismTest", "1",
         "+set", "g_simHash", "1",
+        # no tooltips: retail drops any tooltip spawned in the first 10 s of process uptime
+        # (sys->Milliseconds()), and map scripts wait on isToolTipPlaying(), so a slower start
+        # services other script events and SIM_HASH's event count differs (#150)
+        "+set", "g_tooltipTimeScale", "0",
     ]
     if listen_port is None:
         args += ["+devmap", "valley"]

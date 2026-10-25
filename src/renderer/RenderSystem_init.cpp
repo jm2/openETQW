@@ -19,6 +19,7 @@
 #include "renderbindings.h"
 #include "tr_render.h"
 #include "Image.h"
+#include "GuiFont.h"
 #include "ModelManager.h"
 #include "VertexCache.h"
 #include "megatexture/megatexture.h"
@@ -686,6 +687,8 @@ void idRenderSystemLocal::Shutdown() {
 		renderModelManager->Shutdown();
 	}
 	R_RenderMetricsShutdown();
+	// the GUI font atlases are images
+	guiFonts.Shutdown();
 	if ( globalImages != NULL ) {
 		globalImages->Shutdown();
 	}

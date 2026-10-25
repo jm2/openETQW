@@ -479,6 +479,8 @@ if build_engine or build_dedicated
     install_dir: install_root / 'base',
     exclude_directories: ['cache'],
   )
+  # OpenGL's ARB ports of retail's Cg programs (#219)
+  install_subdir('base' / 'glprogs', install_dir: install_root / 'base')
   # the game module, from the companion's build (engine and module ship together)
   game_module_suffix = '.so'
   if host_system == 'windows'
@@ -572,7 +574,7 @@ if build_tests
     env: {'OPENETQW_DED_BINARY': bot_test_ded},
     workdir: meson.project_source_root(),
     suite: 'integration',
-    timeout: 120,
+    timeout: 180,  # the script's own worst case is ~160 s (test_bot_gameplay.py)
   )
   test(
     'valley-match',
