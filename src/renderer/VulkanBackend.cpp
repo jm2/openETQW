@@ -12312,6 +12312,12 @@ bool sdVulkanBackend::DrawPostProcessGlow() {
 		state->glowScreenPipeline == VK_NULL_HANDLE || r_vkSkipGui.GetBool() ) {
 		return false;
 	}
+	// the glow samples _currentRender: without a TRANSFER_SRC swapchain there is no
+	// copy, and its descriptor sets would name a null view (#272 review)
+	if ( !state->swapchainTransferSource || state->currentRenderResource.view == VK_NULL_HANDLE ||
+		state->currentRenderResource.sampler == VK_NULL_HANDLE ) {
+		return false;
+	}
 	if ( !EnsureGlowBuffers( *state ) || !CopyCurrentRender( *state ) ) {
 		return false;
 	}
