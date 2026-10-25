@@ -11,6 +11,12 @@
 // the surface to the eye, N the bumped world normal), is added before the
 // $ambientScale.x and taken times the vertex colour.
 //
+// Under the atmosphere sun with r_megaDrawMethod != 0, retail draws a lit
+// surface's ambient in the sun's own pass instead (R_DrawMTInteractions, the
+// amblit variant of interaction/basic_fragment.inc): diffuse * vertex colour *
+// $ambientAvgColor, a flat colour with no cube, $ambientScale or specular cube.
+// flatAmbient carries that colour for those surfaces.
+//
 // The pass scales what the base pass and the decals left instead of
 // replacing it, so blended decals and extra stages keep their colour:
 //   mode 0, blend 2 * src * dst: the ambient, halved here so up to 2 fits;
@@ -35,7 +41,7 @@ layout( push_constant ) uniform AmbientCubePushConstants {
 	vec4 parameters;		// z: alpha test reference, w: 1 when the stage alpha tests
 	vec4 ambientParameters;		// x: $ambientBrightness, y: $ambientScale.x, z: mode,
 					// w: 1 to add the self-illumination
-	vec4 unused;
+	vec4 flatAmbient;		// rgb: the flat ambient colour, w: 1 to use it instead of the cube
 } pc;
 
 layout( location = 0 ) in vec2 fragmentTexCoord;
@@ -66,7 +72,9 @@ void main() {
 		fragmentBitangent * tangentXY.y + normalize( fragmentNormal ) * tangentZ );
 	vec4 modelRotation = normalize( vec4( unpackSnorm2x16( pc.packedRotationXY ),
 		unpackSnorm2x16( pc.packedRotationZW ) ) );
-	vec3 ambient = texture( ambientCubeTexture, rotateToWorld( normal, modelRotation ) ).rgb *
+	const bool flatLit = pc.flatAmbient.w > 0.5;
+	vec3 ambient = flatLit ? pc.flatAmbient.rgb :
+		texture( ambientCubeTexture, rotateToWorld( normal, modelRotation ) ).rgb *
 		pc.ambientParameters.x * pc.ambientParameters.y;
 	if ( pc.ambientParameters.z < 0.5 ) {
 		outColor = vec4( ambient * 0.5, 1.0 );
@@ -75,7 +83,7 @@ void main() {
 		vec3 reflection = viewDirection - 2.0 * dot( viewDirection, normal ) * normal;
 		vec3 specular = 2.0 * texture( specularTexture, fragmentTexCoord ).rgb *
 			texture( specularCubeTexture, rotateToWorld( reflection, modelRotation ) ).rgb;
-		vec3 color = specular * pc.ambientParameters.y * fragmentColor.rgb;
+		vec3 color = flatLit ? vec3( 0.0 ) : specular * pc.ambientParameters.y * fragmentColor.rgb;
 		if ( pc.ambientParameters.w > 0.5 ) {
 			vec3 selfIllum = texture( selfIllumTexture, fragmentTexCoord ).rgb;
 			color += selfIllum * fragmentColor.rgb * max( 1.0 - ambient, vec3( 0.0 ) );

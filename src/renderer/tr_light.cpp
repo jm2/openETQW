@@ -2864,13 +2864,12 @@ viewEntity_s* R_SetEntityDefViewEntity( renderEntity_t* entity, idRenderModel* m
 	space->numInsts = numInsts;
 	space->insts = entity != NULL ? entity->insts : NULL;
 	// Retail reserves at least 128 surface ids and an additional 33 ids beyond
-	// the model's surface count, then stores the bit set through ambSurf.
+	// the model's surface count, then stores the bit set through ambSurf.  Both
+	// back ends read it: a set bit means the sun's amblit pass draws the ambient.
 	space->maxSurfID = Max( model != NULL ? model->NumSurfaces() + 33 : 128, 128 );
-	if ( !R_UseVulkanBackend() ) {
-		space->ambSurf = new unsigned int[ ( space->maxSurfID + 31 ) >> 5 ];
-		memset( space->ambSurf, 0,
-			sizeof( unsigned int ) * ( ( space->maxSurfID + 31 ) >> 5 ) );
-	}
+	space->ambSurf = new unsigned int[ ( space->maxSurfID + 31 ) >> 5 ];
+	memset( space->ambSurf, 0,
+		sizeof( unsigned int ) * ( ( space->maxSurfID + 31 ) >> 5 ) );
 	space->weaponDepthHack = entity != NULL && entity->flags.weaponDepthHack;
 	space->foliageDepthHack = entity != NULL && entity->flags.foliageDepthHack;
 	space->modelDepthHack = entity != NULL ? entity->modelDepthHack : 0.0f;

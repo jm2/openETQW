@@ -10149,7 +10149,8 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		} else if ( ambient != NULL ) {
 			// ambient_cube.frag: $ambientBrightness, $ambientScale.x, the mode
 			// (0: the ambient scale, 1: the specular) and 1 to add the
-			// self-illumination; the colour slot holds the view origin, as above
+			// self-illumination; the colour slot holds the view origin, as above,
+			// and ambient[ 4..7 ] the flat amblit ambient (below)
 			pushConstants[ 32 ] = ambient[ 0 ];
 			pushConstants[ 33 ] = ambient[ 1 ];
 			pushConstants[ 34 ] = ambient[ 2 ];
@@ -10237,6 +10238,13 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		pushConstants[ 39 ] = fog != NULL ? fog[ 4 ] : ( directional ? 1.0f : 0.0f ) +
 			( surface->material->GetCullType() == CT_TWO_SIDED ? 2.0f : 0.0f ) +
 			( notLitTerrain ? 4.0f : 0.0f );
+		if ( ambient != NULL ) {
+			// ambient_cube.frag's flatAmbient: the amblit colour, and 1 to use it
+			pushConstants[ 36 ] = ambient[ 4 ];
+			pushConstants[ 37 ] = ambient[ 5 ];
+			pushConstants[ 38 ] = ambient[ 6 ];
+			pushConstants[ 39 ] = ambient[ 7 ];
+		}
 	}
 
 	sdVulkanFrame& frame = state.frames[ state.frameIndex ];
@@ -10728,12 +10736,24 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 					if ( megaTexture ) {
 						continue;
 					}
+					// Under the sun with r_megaDrawMethod != 0, retail draws the ambient of
+					// a surface the sun lights (its ambSurf bit, which OpenGL's
+					// R_FillDepthAmbient skips) in the sun's amblit pass: diffuse * vertex
+					// colour * $ambientAvgColor (minSpecAmbientColor), with no cube,
+					// $ambientScale or specular cube (interaction/basic_fragment.inc).
+					const viewEntity_s* space = surf->space;
+					const bool ambientLit = r_megaDrawMethod.GetInteger() != 0 && space->ambSurf != NULL &&
+						surf->surfID >= 0 && surf->surfID < space->maxSurfID &&
+						( space->ambSurf[ surf->surfID >> 5 ] & ( 1u << ( surf->surfID & 31 ) ) ) != 0;
+					const idVec3 flatAmbient = cubeMap->GetMinSpecAmbientColor();
 					// the additive draw: retail's specular cube term, where there are a
 					// specular map and cube, and the self-illumination
-					specular = specular && cubeMap->GetSpecularCubeMap() != NULL;
-					const float scaleTerms[ 4 ] = { cubeMap->GetBrightness(), ambientScale, 0.0f, 0.0f };
-					const float addTerms[ 4 ] = { cubeMap->GetBrightness(), ambientScale, 1.0f,
-						selfIllum ? 1.0f : 0.0f };
+					specular = specular && !ambientLit && cubeMap->GetSpecularCubeMap() != NULL;
+					const float flat = ambientLit ? 1.0f : 0.0f;
+					const float scaleTerms[ 8 ] = { cubeMap->GetBrightness(), ambientScale, 0.0f, 0.0f,
+						flatAmbient.x, flatAmbient.y, flatAmbient.z, flat };
+					const float addTerms[ 8 ] = { cubeMap->GetBrightness(), ambientScale, 1.0f,
+						selfIllum ? 1.0f : 0.0f, flatAmbient.x, flatAmbient.y, flatAmbient.z, flat };
 					vulkanInstanceSurfaces.ForEach( surf, [&]( const drawSurf_s* drawSurf ) {
 						DrawVulkanLightInteraction( *state, drawSurf, NULL, view, true, NULL, scaleTerms );
 						if ( ( selfIllum || specular ) && state->worldAmbientCubeAddPipeline != VK_NULL_HANDLE ) {
