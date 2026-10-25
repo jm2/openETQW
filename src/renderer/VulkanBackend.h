@@ -71,6 +71,8 @@ public:
 		bool indexBuffer, bool frameTemporary = false );
 	bool UpdateBuffer( const void* owner, int offset, const void* data, int bytes );
 	void DestroyBuffer( const void* owner );
+	// guis/postprocess's postprocess/glow, from the frame's scene so far (#233)
+	bool DrawPostProcessGlow();
 	bool DrawGuiFan( const void* imageOwner, const sdVulkanGuiVertex* vertices,
 		int vertexCount, const float* color, int drawStateBits, bool makeAlpha = false );
 	bool DrawGuiTriangles( const void* imageOwner,

@@ -760,6 +760,16 @@ void sdGuiModel::SubmitFrameVulkan() {
 		if ( primitive.material == NULL || primitive.numVerts < 3 ) {
 			return;
 		}
+		// guis/postprocess's postprocess/glow (the blur template's three stages and
+		// the glow) is one native chain on Vulkan; its programs are Cg (#233)
+		for ( int stageIndex = 0; stageIndex < primitive.material->GetNumStages(); ++stageIndex ) {
+			const sdDeclRenderProgram* program = primitive.material->GetStage( stageIndex )->renderProgram;
+			if ( program != NULL && idStr::Icmp( program->GetName(), "postprocess/glow" ) == 0 ) {
+				flushBatch();
+				vulkanBackend.DrawPostProcessGlow();
+				return;
+			}
+		}
 		idImage* overrideImage = primitive.referenceSound != NULL ?
 			ResolveGuiImage( primitive.material, primitive.referenceSound ) : NULL;
 		evaluated.SetNum( primitive.material->GetNumRegisters(), false );
