@@ -4694,8 +4694,12 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 			depthStencil.back = depthStencil.front;
 		}
 		if ( shadowScale ) {
-			// the same blend, only where the sun's shadow volumes left a count (#265)
-			depthStencil.front.compareOp = VK_COMPARE_OP_NOT_EQUAL;
+			// the same blend, only where the sun's shadow volumes left a count above
+			// zero: the per-light stencil counts around 128 (#267), so 128 < stencil,
+			// as OpenGL's GL_LESS 128 multiply (#265)
+			depthStencil.front.compareOp = VK_COMPARE_OP_LESS;
+			depthStencil.front.reference = 128;
+			depthStencil.front.compareMask = 0xFF;
 			depthStencil.front.writeMask = 0x00;
 			depthStencil.front.passOp = VK_STENCIL_OP_KEEP;
 			depthStencil.back = depthStencil.front;
