@@ -795,6 +795,13 @@ void RB_ARB2_DrawSurface( const drawSurf_s* surface, const idMaterial* material,
 		}
 		idMaterial::SetRenderBindings( stage, materialRegisters, surface->geo->texCoordScale );
 		if ( activePass == RBP_INTERACTION ) {
+			// a view of a world with no map (a GUI's: the limbo and menu models) draws no
+			// interaction specular, matching retail 1.5 as measured (#212, compat-ledger row 079)
+			const viewDef_s* drawView = RB_GetViewDef();
+			if ( drawView != NULL && drawView->renderWorld != NULL && !drawView->renderWorld->HasMap() &&
+				 globalImages != NULL ) {
+				rbinds->specularMap->Set( globalImages->blackImage );
+			}
 			const bool bakedAtmosphereColor = material->TestMaterialFlag( MF_BAKEDINATMOSLIGHTCOL ) &&
 				activeViewLight != NULL && activeViewLight->lightDef != NULL && activeViewLight->lightDef->flags.atmosphereLight;
 			if ( !bakedAtmosphereColor ) {
