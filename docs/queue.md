@@ -8,6 +8,35 @@ issue for anything newer than this file.
 
 **Parked (2026-10-25).** Owner, 2026-10-24: "burn down all open issues and in-progress PRs across all sessions" (coordination §9). That burn-down is done: #220–#276 merged (§5), and no PR is open in either repository. Owner, 2026-10-25: finish the open issues and PRs, update the docs and park every session. The open issues left (§2) are unowned or wait on the owner. Owner, 2026-10-25: "focus specifically on bug fixes rather than large feature requests from the issues"; "small features are ok if they're easy wins, just not long/large feature efforts".
 
+**Resumption point (2026-10-25, all openETQW sessions stopped for quota).** Any session,
+including Switchworks or DeepSeek ones, can resume from this file and `main` alone:
+- **State:** `main` has everything. No PR is open in either repository, no session holds a
+  host claim, and no openETQW process is running. The last coordinator was
+  `openETQW-linux`; pick the next one by `docs/coordination.md` §2, and log on #133.
+- **Unmerged work on branches:** only `fix/instance-distance-cull-246` (openETQW-win). It adds
+  a per-instance distance cull for OpenGL and ray tracing, and is part of the deferred #246
+  feature, so leave it until the owner reopens #246. Every other non-`main` branch in both
+  repositories is older and either merged or abandoned; don't resume from it.
+- **Next work, in order:**
+  1. the combined run below, on all five platforms, when the owner allows long runs (the
+     kisakcod sessions keep priority on shared hosts);
+  2. #197, the owner's check;
+  3. §3's milestone items.
+  Owner direction (2026-10-25): bug fixes first; small easy features are fine; no large
+  feature efforts.
+- **Before touching rendering,** read `docs/render-path.md`; before comparing with retail,
+  `docs/retail-comparison.md`. Per-platform traps are in `docs/coordination.md` §5.
+- **The merge procedure** is `docs/coordination.md` §8. The coordinator's helper that ran
+  it was a local script, not in the repository. Its steps:
+  1. merge `main` into the PR branch, taking `main`'s `docs/queue.md` and
+     `docs/provenance-manifest.json` on conflict, and resolving any code conflict by hand;
+  2. add the PR's line to §5;
+  3. regenerate the manifest with
+     `tools/build/provenance_post_split.py --game-repo <game checkout at the pin> --update`
+     and check that it reports 0 files missing;
+  4. push, wait about 5 s, then `gh pr merge N --merge --match-head-commit <head>`;
+  5. delete the branch.
+
 **Outstanding gate work: the combined run.** Owner, 2026-10-23: full retail suites and screenshot sets wait for one combined run at the tail end, so the kisakcod sessions keep priority on shared hosts. That run has not been done for #220–#276 (merged 2026-10-23 to 10-25 on targeted tests and independent reviews). Next: on `main`, the retail suite on each platform's host and the screenshot sets from all five platforms against the 2026-10-23 combined run; file an issue for any regression.
 
 Updated: 2026-10-25 by `openETQW-linux` (coordinator): §1 empty; §2 is #197 and #246 (#270 fixed by #275); #220–#276 in §5, #268 added.
