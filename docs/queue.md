@@ -133,6 +133,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-22/23:
+- #266 Vulkan: image descriptors use the evicting allocator; currentRender material sets purged on swapchain recreate (#264 review)
 - #264 Vulkan: material descriptor sets freed with purged images and evicted when the pool is full (fixes #262)
 - #261 Vulkan: front-end descriptor sets in their own pool, hashed, freed with purged images, evicted when full (fixes #258)
 - #260 OpenGL forceClear follows glConfig.samples; clearer multisample fallback warning (#255 review)

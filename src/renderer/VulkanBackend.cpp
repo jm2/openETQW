@@ -2002,7 +2002,10 @@ void DestroyDepthResources( sdVulkanBackendState& state ) {
 void DestroySemaphoreList( sdVulkanBackendState& state,
 	idList< VkSemaphore >& semaphores );
 
+void PurgeCurrentRenderDescriptors( sdVulkanBackendState& state );
+
 void DestroySwapchain( sdVulkanBackendState& state ) {
+	PurgeCurrentRenderDescriptors( state );
 	DestroyCurrentRenderResource( state, state.currentRenderResource );
 	state.currentRenderInitialized = false;
 	state.swapchainTransferSource = false;
@@ -2328,6 +2331,7 @@ bool CreateSwapchain( sdVulkanBackendState& state, int requestedWidth,
 		return false;
 	}
 
+	PurgeCurrentRenderDescriptors( state );
 	DestroyCurrentRenderResource( state, state.currentRenderResource );
 	DestroyDepthResources( state );
 	DestroySemaphoreList( state, state.presentSemaphores );
@@ -2957,7 +2961,31 @@ bool AllocateMaterialDescriptorSet( sdVulkanBackendState& state, VkDescriptorSet
 		descriptorSet = VK_NULL_HANDLE;
 		return false;
 	}
+	state.materialPoolExhaustedWarned = false;	// warn once per exhaustion
 	return true;
+}
+
+// The water, heat-haze and scene-albedo sets sample the current-render copy,
+// cached under its fixed address (&state.currentRenderResource).  When the copy is
+// recreated with the swapchain, its new view can reuse the old handle's value, so
+// the cache would return a set holding the destroyed view: drop those entries and
+// free their sets once the frame that may use them has completed.
+void PurgeCurrentRenderDescriptors( sdVulkanBackendState& state ) {
+	const void* owner = &state.currentRenderResource;
+	const unsigned int retireFrame = state.frameActive || state.toolFrameActive ? state.frameIndex :
+		( state.frameIndex + NUM_VULKAN_FRAMES - 1 ) % NUM_VULKAN_FRAMES;
+	for ( int index = state.materialDescriptors.Num() - 1; index >= 0; --index ) {
+		const sdVulkanMaterialDescriptor& descriptor = state.materialDescriptors[ index ];
+		for ( int imageIndex = 0; imageIndex < VULKAN_MATERIAL_TEXTURES; ++imageIndex ) {
+			if ( descriptor.imageOwners[ imageIndex ] == owner ||
+				( state.currentRenderResource.view != VK_NULL_HANDLE &&
+				  descriptor.imageViews[ imageIndex ] == state.currentRenderResource.view ) ) {
+				state.frameRetiredMaterialSets[ retireFrame ].Append( descriptor.descriptorSet );
+				RemoveMaterialDescriptor( state, index );
+				break;
+			}
+		}
+	}
 }
 
 void DestroyFrameRetiredResources( sdVulkanBackendState& state,
@@ -5209,15 +5237,8 @@ const sdVulkanImageResource* FindVulkanImageResource(
 
 bool AllocateImageDescriptor( sdVulkanBackendState& state,
 	sdVulkanImageResource& resource ) {
-	VkDescriptorSetAllocateInfo allocateInfo;
-	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
-	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocateInfo.descriptorPool = state.guiDescriptorPool;
-	allocateInfo.descriptorSetCount = 1;
-	allocateInfo.pSetLayouts = &state.guiDescriptorSetLayout;
-	if ( !CheckVulkanResult( state.AllocateDescriptorSets( state.device,
-		&allocateInfo, &resource.descriptorSet ),
-		"vkAllocateDescriptorSets(image)" ) ) {
+	// through the material allocator, so a full pool evicts unused material sets
+	if ( !AllocateMaterialDescriptorSet( state, resource.descriptorSet, "image" ) ) {
 		return false;
 	}
 	VkDescriptorImageInfo imageInfo;
@@ -5688,6 +5709,7 @@ bool GetVulkanFrontEndLayoutDescriptor( sdVulkanBackendState& state, const void*
 	}
 	if ( result == VK_SUCCESS ) {
 		state.frontEndDescriptorSetsLive++;
+		state.frontEndPoolExhaustedWarned = false;	// warn once per exhaustion
 	} else {
 		if ( !state.frontEndPoolExhaustedWarned ) {
 			common->Warning( "vkAllocateDescriptorSets(front end) failed: %s (%d sets in use); "
