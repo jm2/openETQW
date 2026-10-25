@@ -4457,13 +4457,16 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 	VkShaderModule ambientCubeModule = VK_NULL_HANDLE;
 	bool ambientCubeShader = false;
 	// called while the unshadowed (no stencil test) state is set up; multiply:
-	// dst * src (the ambient rescale), else dst + src (the self-illumination)
+	// dst * src (the ambient rescale), else dst + src (the specular and the
+	// self-illumination).  The front-end layout: its set carries the specular cube.
 	auto CreateAmbientCubePipeline = [&]( VkPipeline& ambientPipeline, bool multiply, const char* what ) {
-		if ( !ambientCubeShader ) {
+		if ( !ambientCubeShader || state.frontEndPipelineLayout == VK_NULL_HANDLE ) {
 			return;
 		}
 		const VkShaderModule interactionModule = shaderStages[ 1 ].module;
 		shaderStages[ 1 ].module = ambientCubeModule;
+		const VkPipelineLayout interactionLayout = pipelineInfo.layout;
+		pipelineInfo.layout = state.frontEndPipelineLayout;
 		const VkPipelineDepthStencilStateCreateInfo interactionDepthStencil = depthStencil;
 		if ( multiply ) {
 			// 2 * src * dst, so the scale reaches twice the base; scale a pixel once
@@ -4485,6 +4488,7 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 			ambientPipeline = VK_NULL_HANDLE;
 		}
 		shaderStages[ 1 ].module = interactionModule;
+		pipelineInfo.layout = interactionLayout;
 		blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
 		blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
 		depthStencil = interactionDepthStencil;
@@ -9950,7 +9954,12 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	}
 	VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
 	if ( stage != NULL && selectedImage != NULL ) {
-		GetVulkanMaterialDescriptor( state, *stage, selectedImage, surface->space, descriptorSet );
+		// the ambient pass takes the front-end set, which adds the specular cube
+		if ( ambient != NULL ) {
+			GetVulkanFrontEndDescriptor( state, *stage, selectedImage, surface->space, descriptorSet );
+		} else {
+			GetVulkanMaterialDescriptor( state, *stage, selectedImage, surface->space, descriptorSet );
+		}
 	}
 	if ( ambient != NULL && descriptorSet == VK_NULL_HANDLE ) {
 		return;	// the fallback sets carry a black cube: keep the flat ambient
@@ -10138,11 +10147,13 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 			pushConstants[ 34 ] = delta.x * m[ 8 ] + delta.y * m[ 9 ] + delta.z * m[ 10 ];
 			pushConstants[ 35 ] = fog[ 3 ];
 		} else if ( ambient != NULL ) {
-			// ambient_cube.frag: $ambientBrightness, $ambientScale.x and the mode
-			// (0: the ambient scale, 1: the self-illumination)
+			// ambient_cube.frag: $ambientBrightness, $ambientScale.x, the mode
+			// (0: the ambient scale, 1: the specular) and 1 to add the
+			// self-illumination; the colour slot holds the view origin, as above
 			pushConstants[ 32 ] = ambient[ 0 ];
 			pushConstants[ 33 ] = ambient[ 1 ];
 			pushConstants[ 34 ] = ambient[ 2 ];
+			pushConstants[ 35 ] = ambient[ 3 ];
 		} else if ( directional ) {
 			idVec3 sunDirection( 0.35f, 0.45f, 0.82f );
 			if ( view->atmosphere != NULL ) {
@@ -10233,8 +10244,10 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	state.CmdSetScissor( frame.commandBuffer, 0, 1, &vkScissor );
 	state.CmdSetDepthBias( frame.commandBuffer, 0.0f, 0.0f, 0.0f );
 	state.CmdBindPipeline( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
+	const VkPipelineLayout pipelineLayout = ambient != NULL ? state.frontEndPipelineLayout :
+		state.guiPipelineLayout;
 	state.CmdBindDescriptorSets( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-		state.guiPipelineLayout, 0, 1, sceneAlbedoInteraction ? &sceneAlbedoSet : &descriptorSet,
+		pipelineLayout, 0, 1, sceneAlbedoInteraction ? &sceneAlbedoSet : &descriptorSet,
 		0, NULL );
 	if ( hardwareSkinned ) {
 		// the palette goes into this frame's joint arena, bound at set 1 as the
@@ -10258,7 +10271,7 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 			tri->numJoints * sizeof( idJointMat ) );
 		const unsigned int dynamicOffset = static_cast< unsigned int >( jointOffset );
 		state.CmdBindDescriptorSets( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-			state.guiPipelineLayout, 1, 1, &frame.jointDescriptorSet, 1, &dynamicOffset );
+			pipelineLayout, 1, 1, &frame.jointDescriptorSet, 1, &dynamicOffset );
 		frame.jointOffset += stride;
 		const VkBuffer buffers[ 2 ] = { vertexResource->buffer, weightResource->buffer };
 		const VkDeviceSize offsets[ 2 ] = { vertexOffset,
@@ -10289,7 +10302,7 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		pushConstants[ 18 ] = 1.0f - notLitShadowColor.z;
 		pushConstants[ 30 ] = 0.0f;
 	}
-	state.CmdPushConstants( frame.commandBuffer, state.guiPipelineLayout,
+	state.CmdPushConstants( frame.commandBuffer, pipelineLayout,
 		VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
 		sizeof( float ) * ( litInteraction ? 40 : 32 ), pushConstants );
 	state.CmdDrawIndexed( frame.commandBuffer, tri->numIndexes, 1, 0, 0, 0 );
@@ -10702,23 +10715,29 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 					}
 					bool megaTexture = false;
 					bool selfIllum = false;
+					bool specular = false;
 					for ( int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex ) {
 						const materialStage_t* stage = material->GetStage( stageIndex );
 						megaTexture |= stage->megaTexture != NULL;
 						for ( int textureIndex = 0; textureIndex < stage->numTextures; ++textureIndex ) {
 							const sdDeclRenderBinding* binding = stage->textures[ textureIndex ].renderBinding;
 							selfIllum |= binding != NULL && idStr::Icmp( binding->GetName(), "selfillummap" ) == 0;
+							specular |= binding != NULL && rbinds != NULL && binding == rbinds->specularMap;
 						}
 					}
 					if ( megaTexture ) {
 						continue;
 					}
-					const float scaleTerms[ 3 ] = { cubeMap->GetBrightness(), ambientScale, 0.0f };
-					const float selfIllumTerms[ 3 ] = { cubeMap->GetBrightness(), ambientScale, 1.0f };
+					// the additive draw: retail's specular cube term, where there are a
+					// specular map and cube, and the self-illumination
+					specular = specular && cubeMap->GetSpecularCubeMap() != NULL;
+					const float scaleTerms[ 4 ] = { cubeMap->GetBrightness(), ambientScale, 0.0f, 0.0f };
+					const float addTerms[ 4 ] = { cubeMap->GetBrightness(), ambientScale, 1.0f,
+						selfIllum ? 1.0f : 0.0f };
 					vulkanInstanceSurfaces.ForEach( surf, [&]( const drawSurf_s* drawSurf ) {
 						DrawVulkanLightInteraction( *state, drawSurf, NULL, view, true, NULL, scaleTerms );
-						if ( selfIllum && state->worldAmbientCubeAddPipeline != VK_NULL_HANDLE ) {
-							DrawVulkanLightInteraction( *state, drawSurf, NULL, view, true, NULL, selfIllumTerms );
+						if ( ( selfIllum || specular ) && state->worldAmbientCubeAddPipeline != VK_NULL_HANDLE ) {
+							DrawVulkanLightInteraction( *state, drawSurf, NULL, view, true, NULL, addTerms );
 						}
 					} );
 				}
