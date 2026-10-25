@@ -19,7 +19,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
-| Mega detail PR (fix/vk-mega-detail-233) | Vulkan terrain: retail's megatexture detail texture in the base pass (part of #233) | openETQW-win | see PR | Windows x64 Vulkan sets RT on/off done, validate passed; review; the near-ground brightness gap to OpenGL stays (#233) |
+| IDCT PR (perf/mega-idct) | MegaTexture tile decoder: bit-identical IDCT over nonzero coefficients; finest level complete after a teleport in about half the time | openETQW-win | see PR | Windows x64 time-to-valid measured, validate passed; review |
 
 ## 2. Open issues, in priority order
 
