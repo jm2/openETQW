@@ -11628,13 +11628,45 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			first = false;
 		} );
 	}
+	// Stuff grass sorts as a decal (SS_DECAL) but lights itself, as retail's
+	// stuff/grass program does (the ambient cube plus the sun, times its tint).  The
+	// raster lighting block scales everything drawn before it by the flat ambient,
+	// which left the grass about a third as bright as OpenGL's (#270), so the grass
+	// moves after the other opaque and decal surfaces and starts the lighting.
+	{
+		// one pass: the opaque and decal surfaces, then the grass among them, then the rest
+		idList< vulkanExpandedSurface_t > ordered;
+		idList< vulkanExpandedSurface_t > grass;
+		ordered.SetGranularity( 1024 );
+		int firstAfterDecals = 0;
+		for ( ; firstAfterDecals < expandedSurfaces.Num(); ++firstAfterDecals ) {
+			const vulkanExpandedSurface_t& expanded = expandedSurfaces[ firstAfterDecals ];
+			if ( expanded.surface != NULL && expanded.surface->material != NULL &&
+				expanded.surface->material->GetSort() > static_cast< float >( SS_DECAL ) ) {
+				break;
+			}
+			if ( vulkanSurfaceSelections[ expanded.index ].stuffGrass ) {
+				grass.Append( expanded );
+			} else {
+				ordered.Append( expanded );
+			}
+		}
+		if ( grass.Num() > 0 ) {
+			ordered.Append( grass );
+			for ( int expandedIndex = firstAfterDecals; expandedIndex < expandedSurfaces.Num(); ++expandedIndex ) {
+				ordered.Append( expandedSurfaces[ expandedIndex ] );
+			}
+			expandedSurfaces = ordered;
+		}
+	}
 	for ( int expandedIndex = 0; expandedIndex < expandedSurfaces.Num(); ++expandedIndex ) {
 		const int surfaceIndex = expandedSurfaces[ expandedIndex ].index;
 		const drawSurf_s* surface = expandedSurfaces[ expandedIndex ].surface;
 		const drawSurf_s* rayTracingSurface = expandedSurfaces[ expandedIndex ].rayTracingSource ?
 			expandedSurfaces[ expandedIndex ].original : NULL;
 		if ( !rasterLightingDone && surface != NULL && surface->material != NULL &&
-			surface->material->GetSort() > static_cast< float >( SS_DECAL ) ) {
+			( surface->material->GetSort() > static_cast< float >( SS_DECAL ) ||
+			  vulkanSurfaceSelections[ surfaceIndex ].stuffGrass ) ) {
 			RunRasterLighting();
 			rasterLightingDone = true;
 		}
