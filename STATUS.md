@@ -5,7 +5,7 @@
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
 Updated: 2026-10-25 · session/agent: `openETQW-linux` (Claude Code), coordinator · **all openETQW sessions parked (owner, 2026-10-25)**
-Engine repo `~/openETQW`: `main` 623150a (#272; `tools/ci/companion.ref` pins game 7fbdf80) · game repo `~/openETQW-game`: `main` 7fbdf80 (game #59) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (upstream last checked 2026-09-24)
+Engine repo `~/openETQW`: `main` b24c565 (#273; `tools/ci/companion.ref` pins game 7fbdf80) · game repo `~/openETQW-game`: `main` 7fbdf80 (game #59) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (upstream last checked 2026-09-24)
 
 Engine SHAs quoted in older docs (`CHECKPOINT_STOCK_MAPS_PHASE.md`, ledger rows, earlier STATUS text) may not resolve in the current history, and neither do some of the game's historical `tools/ci/engine.ref` pins.
 
