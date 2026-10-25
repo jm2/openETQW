@@ -137,6 +137,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-24/25 (the burn-down; the combined run is outstanding, see the top):
+- #277 Docs: STATUS and the queue as of #276
 - #276 Queue: #270 fixed by #275
 - #275 Vulkan stuff grass draws after the raster lighting block, not under its flat ambient (fixes #270)
 - #274 Docs: state as of 2026-10-25 (burn-down done; sessions parked)
