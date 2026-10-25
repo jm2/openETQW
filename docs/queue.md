@@ -166,6 +166,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-24/25 (the burn-down; the combined run is outstanding, see the top):
+- #280 Docs: resumption point for any session (sessions stopped for quota)
 - #279 Docs: the sessions' tribal knowledge (docs/render-path.md, docs/retail-comparison.md, coordination §5 platform notes)
 - #278 Docs: STATUS summary no longer lists #270 as open
 - #277 Docs: STATUS and the queue as of #276
