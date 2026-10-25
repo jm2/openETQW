@@ -91,7 +91,7 @@ public:
 		// so an archived r_multiSamples can't stop the game starting (#255).
 		bool multisampled = !R_UseVulkanBackend() && parms.multiSamples.multi > 1;
 		auto dropMultisampling = [&]() {
-			common->Warning( "SDL3: r_multiSamples %d is not supported here (%s); starting without multisampling",
+			common->Warning( "SDL3: failed with r_multiSamples %d (%s); retrying without multisampling",
 				parms.multiSamples.multi, SDL_GetError() );
 			SDL_GL_SetAttribute( SDL_GL_MULTISAMPLEBUFFERS, 0 );
 			SDL_GL_SetAttribute( SDL_GL_MULTISAMPLESAMPLES, 0 );
