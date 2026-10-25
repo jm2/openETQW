@@ -287,31 +287,58 @@ bool idBareDctDecoder::HuffmanDecode( short *coefficients, const idBareDCTHuffma
 	return !bitError;
 }
 
-void idBareDctDecoder::InverseDCT( const short *coefficients, const unsigned short *quant, short *output ) const {
-	static bool initialized = false;
-	static double basis[8][8];
-	if ( !initialized ) {
-		const double pi = 3.14159265358979323846;
-		for ( int frequency = 0; frequency < 8; ++frequency ) {
-			const double scale = frequency == 0 ? 0.7071067811865475244 : 1.0;
-			for ( int position = 0; position < 8; ++position ) {
-				basis[frequency][position] = scale * cos( ( ( 2 * position + 1 ) * frequency * pi ) / 16.0 );
-			}
-		}
-		initialized = true;
-	}
-
-	for ( int y = 0; y < 8; ++y ) {
-		for ( int x = 0; x < 8; ++x ) {
-			double sum = 0.0;
-			for ( int v = 0; v < 8; ++v ) {
-				for ( int u = 0; u < 8; ++u ) {
-					sum += basis[u][x] * basis[v][y] * coefficients[v * 8 + u] * quant[v * 8 + u];
+namespace {
+	// basis[u][x] * basis[v][y] for every output (y, x) and coefficient (v, u),
+	// computed once (thread-safe static initialisation: the decoder may run on
+	// several threads).
+	struct idctProductTable_t {
+		double product[64][64];	// [y * 8 + x][v * 8 + u]
+		idctProductTable_t() {
+			const double pi = 3.14159265358979323846;
+			double basis[8][8];
+			for ( int frequency = 0; frequency < 8; ++frequency ) {
+				const double scale = frequency == 0 ? 0.7071067811865475244 : 1.0;
+				for ( int position = 0; position < 8; ++position ) {
+					basis[frequency][position] = scale * cos( ( ( 2 * position + 1 ) * frequency * pi ) / 16.0 );
 				}
 			}
-			sum *= 0.25;
-			output[y * 8 + x] = (short)( sum < 0.0 ? ceil( sum - 0.5 ) : floor( sum + 0.5 ) );
+			for ( int y = 0; y < 8; ++y ) {
+				for ( int x = 0; x < 8; ++x ) {
+					for ( int v = 0; v < 8; ++v ) {
+						for ( int u = 0; u < 8; ++u ) {
+							product[y * 8 + x][v * 8 + u] = basis[u][x] * basis[v][y];
+						}
+					}
+				}
+			}
 		}
+	};
+}
+
+void idBareDctDecoder::InverseDCT( const short *coefficients, const unsigned short *quant, short *output ) const {
+	static const idctProductTable_t table;
+
+	// The direct 8x8 inverse DCT, as before, but summing only the nonzero
+	// coefficients, in the same order and with the same operations
+	// ( ( basis * basis ) * coefficient ) * quant.  A zero coefficient adds +0 or
+	// -0 to a sum that is never -0, so the output is bit-identical; most blocks
+	// have only a few nonzero coefficients.
+	int nonZero[64];
+	int numNonZero = 0;
+	for ( int i = 0; i < 64; ++i ) {
+		if ( coefficients[i] != 0 ) {
+			nonZero[numNonZero++] = i;
+		}
+	}
+	for ( int position = 0; position < 64; ++position ) {
+		const double *product = table.product[position];
+		double sum = 0.0;
+		for ( int k = 0; k < numNonZero; ++k ) {
+			const int i = nonZero[k];
+			sum += product[i] * coefficients[i] * quant[i];
+		}
+		sum *= 0.25;
+		output[position] = (short)( sum < 0.0 ? ceil( sum - 0.5 ) : floor( sum + 0.5 ) );
 	}
 }
 
