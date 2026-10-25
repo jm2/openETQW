@@ -119,7 +119,9 @@ every seat and leads every class, so the presentation runs during the seat tour,
 SIM_VIEW must equal the run with nothing listed.
 
 Host contention (#162, #196): every drive phase and late-look run prints the share of its draw
-intervals that took at least two frame periods. Above CONTENDED_SHARE the host was contended:
+intervals that took at least two frame periods (the longer of 1 / com_maxFPS and the window's
+median draw interval, since a display-limited client presents slower than its cap). Above
+CONTENDED_SHARE the host was contended:
 the phase or run is driven once more, like a launch, and a second contended attempt fails the
 test as "host contended". Every bound above stays as it is.
 
@@ -154,19 +156,30 @@ DRIVE_LEG_S = 1.2     # each drive leg: short, so the badger stays clear of obst
 STEP_RATIO = 2.5
 SHAPE_TOL = 0.05     # per_tick shape: at most this fraction of pairs may disagree
 # a window of draws ran on a contended host when more than this share of its draw intervals
-# took at least two frame periods (1 / com_maxFPS): on an idle Linux arm64 host no phase of
-# 150 went over 0.2%, under CPU load many went far over it (#162). Such a window is driven
-# again; a second contended window fails the test as "host contended", and no bound changes
+# took at least two frame periods (contention()): on an idle Linux arm64 host no phase of 150
+# went over 0.2%, under CPU load up to 29% did (#162). Such a window is driven again; a second
+# contended window fails the test as "host contended", and no bound changes
 CONTENDED_SHARE = 0.02
 
 
 def contention(poses):
-    """The share of a window's draw intervals that took at least two frame periods of the
-    later draw's cap (0.0 for fewer than two draws)."""
+    """The share of a window's draw intervals that took at least two frame periods (0.0 for
+    fewer than two draws). The period is the longer of the cap's (1 / com_maxFPS) and the
+    window's median draw interval: a client the display holds below its cap (cap 240 on a
+    120 Hz macOS panel presents every ~8.3 ms) draws at the display's period, and only a draw
+    late against that is a stall (review of #245)."""
     pairs = [(a, b) for a, b in zip(poses, poses[1:]) if b["cap"] > 0]
     if not pairs:
         return 0.0
-    return sum(1 for a, b in pairs if b["us"] - a["us"] >= 2e6 / b["cap"]) / len(pairs)
+    median = statistics.median(b["us"] - a["us"] for a, b in pairs)
+    return sum(1 for a, b in pairs if b["us"] - a["us"] >= 2.0 * max(1e6 / b["cap"], median)) / len(pairs)
+
+
+def median_interval_ms(poses):
+    """The window's median draw interval in milliseconds (0.0 for fewer than two draws): a
+    client slowed on every frame (not counted as contention) shows here against the cap's."""
+    intervals = [b["us"] - a["us"] for a, b in zip(poses, poses[1:])]
+    return statistics.median(intervals) / 1000.0 if intervals else 0.0
 
 
 def contended_reason(busy):
@@ -531,8 +544,8 @@ def main(argv):
                                               or seat_fields(p["seat"])[1:] != (0, mode))
             stall = stalled(poses) if stalled is not None and jump is None and off == 0 else None
             busy = contention(poses)
-            print(f"[seat] phase {name} at cap {cap}: {busy:.1%} of draw intervals took at least two frame periods",
-                  flush=True)
+            print(f"[seat] phase {name} at cap {cap}: {busy:.1%} of draw intervals took at least two frame periods;"
+                  f" median draw interval {median_interval_ms(poses):.2f} ms (the cap's {1000.0 / cap:.2f} ms)", flush=True)
             if jump is None and off == 0 and stall is None and busy <= CONTENDED_SHARE:
                 return poses
             why = (f"the hull moved {jump:.0f} u vertically in one tick (launched or falling)" if jump is not None
@@ -646,9 +659,9 @@ def main(argv):
             # and held turns are driven again once, and a second contended run fails as such
             reasons = []
             for attempt in range(2):
-                results_look, busy = look_run(hold_speed)
+                results_look, busy, median = look_run(hold_speed)
                 print(f"[seat] late look, {label}, at cap {cap}: {busy:.1%} of draw intervals took at least two"
-                      f" frame periods", flush=True)
+                      f" frame periods; median draw interval {median:.2f} ms (the cap's {1000.0 / cap:.2f} ms)", flush=True)
                 if busy <= CONTENDED_SHARE:
                     break
                 why = contended_reason(busy)
@@ -664,7 +677,7 @@ def main(argv):
 
         def look_run(hold_speed):
             """One run of the taps and held turns with the late look on, then off: each setting's
-            seats, held-turn poses, tap responses and held-turn fraction, and the run's contention."""
+            seats, held-turn poses, tap responses and held-turn fraction, the run's contention and its longest median draw interval."""
             results_look = {}
             window = []
             for setting in ("1", "0"):
@@ -702,7 +715,7 @@ def main(argv):
                     "view yaw"))
                 window.append([p for ln in lines if (p := parse_pose(ln)) is not None])
             obs.send("set g_unlock_vehicleLook 1")
-            return results_look, max(contention(w) for w in window)
+            return results_look, max(contention(w) for w in window), max(median_interval_ms(w) for w in window)
 
         def look_checks(label, want_seat, orbit, results_look, counted=True):
             """L0-L4 on one look run; counted=False prints a discarded (contended) run's results
