@@ -6699,10 +6699,12 @@ bool EnsureGlowBuffers( sdVulkanBackendState& state ) {
 			return false;
 		}
 	}
+	// binding 1 (blurImage) is read by the glow only; the buffer passes bind
+	// _currentRender there, never the buffer they render to
 	const sdVulkanImageResource* sources[ 4 ][ 2 ] = {
-		{ &state.currentRenderResource, &state.glowBuffers[ 1 ] },
-		{ &state.glowBuffers[ 1 ], &state.glowBuffers[ 1 ] },
-		{ &state.glowBuffers[ 0 ], &state.glowBuffers[ 0 ] },
+		{ &state.currentRenderResource, &state.currentRenderResource },
+		{ &state.glowBuffers[ 1 ], &state.currentRenderResource },
+		{ &state.glowBuffers[ 0 ], &state.currentRenderResource },
 		{ &state.currentRenderResource, &state.glowBuffers[ 1 ] }
 	};
 	for ( int setIndex = 0; setIndex < 4; ++setIndex ) {
