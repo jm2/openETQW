@@ -11634,30 +11634,29 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 	// which left the grass about a third as bright as OpenGL's (#270), so the grass
 	// moves after the other opaque and decal surfaces and starts the lighting.
 	{
+		// one pass: the opaque and decal surfaces, then the grass among them, then the rest
+		idList< vulkanExpandedSurface_t > ordered;
 		idList< vulkanExpandedSurface_t > grass;
-		int insertAt = -1;
-		for ( int expandedIndex = 0; expandedIndex < expandedSurfaces.Num(); ++expandedIndex ) {
-			const vulkanExpandedSurface_t& expanded = expandedSurfaces[ expandedIndex ];
-			const float sort = expanded.surface != NULL && expanded.surface->material != NULL ?
-				expanded.surface->material->GetSort() : 0.0f;
-			if ( sort > static_cast< float >( SS_DECAL ) ) {
-				insertAt = expandedIndex;
+		ordered.SetGranularity( 1024 );
+		int firstAfterDecals = 0;
+		for ( ; firstAfterDecals < expandedSurfaces.Num(); ++firstAfterDecals ) {
+			const vulkanExpandedSurface_t& expanded = expandedSurfaces[ firstAfterDecals ];
+			if ( expanded.surface != NULL && expanded.surface->material != NULL &&
+				expanded.surface->material->GetSort() > static_cast< float >( SS_DECAL ) ) {
 				break;
 			}
 			if ( vulkanSurfaceSelections[ expanded.index ].stuffGrass ) {
 				grass.Append( expanded );
-				expandedSurfaces.RemoveIndex( expandedIndex-- );
+			} else {
+				ordered.Append( expanded );
 			}
 		}
 		if ( grass.Num() > 0 ) {
-			if ( insertAt < 0 ) {
-				insertAt = expandedSurfaces.Num();
-			} else {
-				insertAt -= grass.Num();
+			ordered.Append( grass );
+			for ( int expandedIndex = firstAfterDecals; expandedIndex < expandedSurfaces.Num(); ++expandedIndex ) {
+				ordered.Append( expandedSurfaces[ expandedIndex ] );
 			}
-			for ( int grassIndex = 0; grassIndex < grass.Num(); ++grassIndex ) {
-				expandedSurfaces.Insert( grass[ grassIndex ], insertAt + grassIndex );
-			}
+			expandedSurfaces = ordered;
 		}
 	}
 	for ( int expandedIndex = 0; expandedIndex < expandedSurfaces.Num(); ++expandedIndex ) {
