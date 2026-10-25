@@ -19,6 +19,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
+| PR `fix/postprocess-glare-233` | OpenGL draws the GUI post-process (`guis/postprocess`: glare, saturation, contrast, tint), as retail: ARB ports, the GUI path's destination buffers, render targets found by name (part of #233; the Vulkan half is openETQW-win's) | openETQW-linux-arm64 | 46e56d3+ | Independent review; screenshot sets on other OpenGL platforms; the combined run |
 
 ## 2. Open issues, in priority order
 
@@ -133,6 +134,10 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-22/23:
+- #271 Vulkan shadow stencil counts around 128 and lights where 128 >= stencil, as OpenGL (fixes #267)
+- #269 Stuff grass fades with distance on both APIs: _diffusionMask is a 16x16 ordered dither; Vulkan fades per instance (fixes #256; colour gap in #270)
+- #263 OpenGL draws retail's guis/postprocess glow (ARB ports of downsample, glare, blur, glow), the scene lift #233 measured
+- #266 Vulkan: image descriptors use the evicting allocator; currentRender material sets purged on swapchain recreate (#264 review)
 - #264 Vulkan: material descriptor sets freed with purged images and evicted when the pool is full (fixes #262)
 - #261 Vulkan: front-end descriptor sets in their own pool, hashed, freed with purged images, evicted when full (fixes #258)
 - #260 OpenGL forceClear follows glConfig.samples; clearer multisample fallback warning (#255 review)

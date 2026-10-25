@@ -1149,13 +1149,15 @@ void EncodeModelRotation( const float modelMatrix[ 16 ], float& encodedXY,
 
 // Retail's foliage programs colour each vertex by its colour attribute whatever the
 // stage's vertexColor (foliage_vertex.inc: MOV result.color, $colorAttrib); the tree
-// models carry their leaves' green there (#246).
+// models carry their leaves' green there (#246).  stuff/grass reads it the same way:
+// its rgb is the instance tint, and under Vulkan its alpha the fade (#256).
 bool VulkanStageUsesVertexColor( const materialStage_t* stage ) {
 	if ( stage == NULL ) {
 		return false;
 	}
 	return stage->vertexColor == SVC_MODULATE || ( stage->renderProgram != NULL &&
-		idStr::Icmpn( stage->renderProgram->GetName(), "interaction/foliage", 19 ) == 0 );
+		( idStr::Icmpn( stage->renderProgram->GetName(), "interaction/foliage", 19 ) == 0 ||
+		  idStr::Icmpn( stage->renderProgram->GetName(), "stuff/grass", 11 ) == 0 ) );
 }
 
 void ReportMissingVulkanMaterial( sdVulkanBackendState& state,
@@ -2008,7 +2010,10 @@ void DestroyDepthResources( sdVulkanBackendState& state ) {
 void DestroySemaphoreList( sdVulkanBackendState& state,
 	idList< VkSemaphore >& semaphores );
 
+void PurgeCurrentRenderDescriptors( sdVulkanBackendState& state );
+
 void DestroySwapchain( sdVulkanBackendState& state ) {
+	PurgeCurrentRenderDescriptors( state );
 	DestroyCurrentRenderResource( state, state.currentRenderResource );
 	state.currentRenderInitialized = false;
 	state.swapchainTransferSource = false;
@@ -2334,6 +2339,7 @@ bool CreateSwapchain( sdVulkanBackendState& state, int requestedWidth,
 		return false;
 	}
 
+	PurgeCurrentRenderDescriptors( state );
 	DestroyCurrentRenderResource( state, state.currentRenderResource );
 	DestroyDepthResources( state );
 	DestroySemaphoreList( state, state.presentSemaphores );
@@ -2963,7 +2969,31 @@ bool AllocateMaterialDescriptorSet( sdVulkanBackendState& state, VkDescriptorSet
 		descriptorSet = VK_NULL_HANDLE;
 		return false;
 	}
+	state.materialPoolExhaustedWarned = false;	// warn once per exhaustion
 	return true;
+}
+
+// The water, heat-haze and scene-albedo sets sample the current-render copy,
+// cached under its fixed address (&state.currentRenderResource).  When the copy is
+// recreated with the swapchain, its new view can reuse the old handle's value, so
+// the cache would return a set holding the destroyed view: drop those entries and
+// free their sets once the frame that may use them has completed.
+void PurgeCurrentRenderDescriptors( sdVulkanBackendState& state ) {
+	const void* owner = &state.currentRenderResource;
+	const unsigned int retireFrame = state.frameActive || state.toolFrameActive ? state.frameIndex :
+		( state.frameIndex + NUM_VULKAN_FRAMES - 1 ) % NUM_VULKAN_FRAMES;
+	for ( int index = state.materialDescriptors.Num() - 1; index >= 0; --index ) {
+		const sdVulkanMaterialDescriptor& descriptor = state.materialDescriptors[ index ];
+		for ( int imageIndex = 0; imageIndex < VULKAN_MATERIAL_TEXTURES; ++imageIndex ) {
+			if ( descriptor.imageOwners[ imageIndex ] == owner ||
+				( state.currentRenderResource.view != VK_NULL_HANDLE &&
+				  descriptor.imageViews[ imageIndex ] == state.currentRenderResource.view ) ) {
+				state.frameRetiredMaterialSets[ retireFrame ].Append( descriptor.descriptorSet );
+				RemoveMaterialDescriptor( state, index );
+				break;
+			}
+		}
+	}
 }
 
 void DestroyFrameRetiredResources( sdVulkanBackendState& state,
@@ -4574,13 +4604,18 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 	depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 	depthStencil.stencilTestEnable = VK_TRUE;
 
+	// lit where the light's shadow count is at most 0: the stencil is cleared to
+	// 128 and the volumes count around it, so 128 >= stencil, as OpenGL's
+	// glStencilFunc( GL_GEQUAL, 128, 255 ).  Testing for exactly 0 shadowed every
+	// pixel whose count went below 0 (a front face without its cap), which wraps
+	// to 255: valley's distant buildings lost the sun (#267).
 	depthStencil.front.failOp = VK_STENCIL_OP_KEEP;
 	depthStencil.front.passOp = VK_STENCIL_OP_KEEP;
 	depthStencil.front.depthFailOp = VK_STENCIL_OP_KEEP;
-	depthStencil.front.compareOp = VK_COMPARE_OP_EQUAL;
+	depthStencil.front.compareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
 	depthStencil.front.compareMask = 0xFF;
 	depthStencil.front.writeMask = 0x00;
-	depthStencil.front.reference = 0;
+	depthStencil.front.reference = 128;
 
 	depthStencil.back = depthStencil.front;
 
@@ -5235,15 +5270,8 @@ const sdVulkanImageResource* FindVulkanImageResource(
 
 bool AllocateImageDescriptor( sdVulkanBackendState& state,
 	sdVulkanImageResource& resource ) {
-	VkDescriptorSetAllocateInfo allocateInfo;
-	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
-	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocateInfo.descriptorPool = state.guiDescriptorPool;
-	allocateInfo.descriptorSetCount = 1;
-	allocateInfo.pSetLayouts = &state.guiDescriptorSetLayout;
-	if ( !CheckVulkanResult( state.AllocateDescriptorSets( state.device,
-		&allocateInfo, &resource.descriptorSet ),
-		"vkAllocateDescriptorSets(image)" ) ) {
+	// through the material allocator, so a full pool evicts unused material sets
+	if ( !AllocateMaterialDescriptorSet( state, resource.descriptorSet, "image" ) ) {
 		return false;
 	}
 	VkDescriptorImageInfo imageInfo;
@@ -5714,6 +5742,7 @@ bool GetVulkanFrontEndLayoutDescriptor( sdVulkanBackendState& state, const void*
 	}
 	if ( result == VK_SUCCESS ) {
 		state.frontEndDescriptorSetsLive++;
+		state.frontEndPoolExhaustedWarned = false;	// warn once per exhaustion
 	} else {
 		if ( !state.frontEndPoolExhaustedWarned ) {
 			common->Warning( "vkAllocateDescriptorSets(front end) failed: %s (%d sets in use); "
@@ -11066,7 +11095,9 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 					VkClearAttachment clearAttachment;
 					memset( &clearAttachment, 0, sizeof( clearAttachment ) );
 					clearAttachment.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
-					clearAttachment.clearValue.depthStencil.stencil = 0;
+					// OpenGL's glClearStencil( 1 << ( stencilBits - 1 ) ): the shadow
+					// count's 0, which the interaction pipeline tests against
+					clearAttachment.clearValue.depthStencil.stencil = 128;
 
 					VkClearRect clearRect;
 					memset( &clearRect, 0, sizeof( clearRect ) );
@@ -11728,7 +11759,28 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			if ( selectedStage->hasAlphaTest || selectedStuffGrassStage ) {
 				pushConstants[ 30 ] = selectedStage->hasAlphaTest ?
 					surface->materialRegisters[ selectedStage->alphaTestRegister ] : 0.4f;
-				pushConstants[ 31 ] = 1.0f;
+				// 2: also discard the grass's vertex-alpha fade against the dither
+				pushConstants[ 31 ] = selectedStuffGrassStage ? 2.0f : 1.0f;
+			}
+			if ( selectedStuffGrassStage ) {
+				// retail's stuff/grass light, for the up-facing grass normals: the ambient
+				// cube times its brightness (its flat colour here) plus the sun term
+				// clamp( ( N.sun * 0.5 + 0.5 ) * sunColor * r_lightScale ), which the ARB
+				// program passes in the clamped primary colour (#256)
+				const sdDeclAmbientCubeMap* cubeMap = surface->space->ambientCubeMap;
+				idVec3 light = cubeMap != NULL ? cubeMap->GetMinSpecAmbientColor() * cubeMap->GetBrightness() : vec3_zero;
+				if ( view->atmosphere != NULL ) {
+					idVec3 sunDirection = view->atmosphere->GetSunDirection();
+					sunDirection.Normalize();
+					const idVec3 sun = view->atmosphere->GetSunColor() *
+						( cvarSystem->GetCVarFloat( "r_lightScale" ) * ( sunDirection.z * 0.5f + 0.5f ) );
+					for ( int component = 0; component < 3; ++component ) {
+						light[ component ] += idMath::ClampFloat( 0.0f, 1.0f, sun[ component ] );
+					}
+				}
+				for ( int component = 0; component < 3; ++component ) {
+					pushConstants[ 16 + component ] *= light[ component ];
+				}
 			}
 		}
 
