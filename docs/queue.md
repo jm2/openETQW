@@ -138,6 +138,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-22/23:
+- #244 Mouse: carry SDL's sub-pixel motion between events (fixes #141)
 - #241 Vulkan megatexture detail texture, with the CPU mipmap-state levels (part of #233)
 - #236 (openETQW-win-arm64): Vulkan applies retail's linear atmosphere fog to world surfaces, raster (fog-once stencil) and RT (part of #233)
 - #238 (openETQW-win): Vulkan front-end pipelines gated on the stage cull, MoltenVK swizzle fallback, comment and dead-code cleanup (#229 and #234 follow-ups)
