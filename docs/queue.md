@@ -19,6 +19,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Head | Left to do |
 |---|---|---|---|---|
+| PR `fix/postprocess-glare-233` | OpenGL draws the GUI post-process (`guis/postprocess`: glare, saturation, contrast, tint), as retail: ARB ports, the GUI path's destination buffers, render targets found by name (part of #233; the Vulkan half is openETQW-win's) | openETQW-linux-arm64 | 46e56d3+ | Independent review; screenshot sets on other OpenGL platforms; the combined run |
 
 ## 2. Open issues, in priority order
 
