@@ -118,6 +118,11 @@ Safety (nothing presented reaches tick state) is shown by meson seat-gate: its r
 every seat and leads every class, so the presentation runs during the seat tour, and SIM_HASH, VEH_TRACE and
 SIM_VIEW must equal the run with nothing listed.
 
+Host contention (#162, #196): every drive phase and late-look run prints the share of its draw
+intervals that took at least two frame periods. Above CONTENDED_SHARE the host was contended:
+the phase or run is driven once more, like a launch, and a second contended attempt fails the
+test as "host contended". Every bound above stays as it is.
+
 Exit 77 when ETQW_DATA_PATH is unset/invalid or the client binary is missing.
 """
 
@@ -148,6 +153,20 @@ THROTTLE = 96
 DRIVE_LEG_S = 1.2     # each drive leg: short, so the badger stays clear of obstacles
 STEP_RATIO = 2.5
 SHAPE_TOL = 0.05     # per_tick shape: at most this fraction of pairs may disagree
+# a window of draws ran on a contended host when more than this share of its draw intervals
+# took at least two frame periods (1 / com_maxFPS): on an idle Linux arm64 host no phase of
+# 150 went over 0.2%, under CPU load many went far over it (#162). Such a window is driven
+# again; a second contended window fails the test as "host contended", and no bound changes
+CONTENDED_SHARE = 0.02
+
+
+def contention(poses):
+    """The share of a window's draw intervals that took at least two frame periods of the
+    later draw's cap (0.0 for fewer than two draws)."""
+    pairs = [(a, b) for a, b in zip(poses, poses[1:]) if b["cap"] > 0]
+    if not pairs:
+        return 0.0
+    return sum(1 for a, b in pairs if b["us"] - a["us"] >= 2e6 / b["cap"]) / len(pairs)
 
 
 def seat_fields(seat):
@@ -494,16 +513,23 @@ def main(argv):
             off = 0 if mode is None else sum(1 for p in poses if p["seat"] is None
                                               or seat_fields(p["seat"])[1:] != (0, mode))
             stall = stalled(poses) if stalled is not None and jump is None and off == 0 else None
-            if jump is None and off == 0 and stall is None:
+            busy = contention(poses)
+            print(f"[seat] phase {name} at cap {cap}: {busy:.1%} of draw intervals took at least two frame periods",
+                  flush=True)
+            if jump is None and off == 0 and stall is None and busy <= CONTENDED_SHARE:
                 return poses
             why = (f"the hull moved {jump:.0f} u vertically in one tick (launched or falling)" if jump is not None
                    else f"{off} of {len(poses)} draws were not from the driver's seat in view mode {mode}" if off
-                   else stall)
+                   else stall if stall is not None
+                   else f"host contended: {busy:.1%} of draw intervals took at least two frame periods"
+                        f" (more than {CONTENDED_SHARE:.0%})")
             print(f"[seat] phase {name} at cap {cap}: {why}; attempt {attempt + 1}", flush=True)
             if attempt == 0:
                 time.sleep(5.0)
                 if reseat is not None:
                     reseat()
+        if why.startswith("host contended"):
+            raise Failed(f"host contended: phase {name} at cap {cap}, in both attempts ({why})")
         raise Failed(f"phase {name} at cap {cap}: disturbed in both attempts ({why})")
 
     def peer_walk():
@@ -587,7 +613,27 @@ def main(argv):
         obs.send(f"set com_maxFPS {cap}")
 
         def late_look(label, want_seat, orbit=False, hold_speed=60):
+            # a contended host draws too few frames for draw-counted checks (L1c, L3): the taps
+            # and held turns are driven again once, and a second contended run fails as such
+            for attempt in range(2):
+                results_look, busy = look_run(hold_speed)
+                print(f"[seat] late look, {label}, at cap {cap}: {busy:.1%} of draw intervals took at least two"
+                      f" frame periods", flush=True)
+                if busy <= CONTENDED_SHARE:
+                    break
+                print(f"[seat] late look, {label}, at cap {cap}: host contended (more than {CONTENDED_SHARE:.0%});"
+                      f" attempt {attempt + 1}", flush=True)
+            else:
+                failures.append(f"host contended: late look, {label}, at cap {cap}, in both attempts"
+                                f" ({busy:.1%} of draw intervals took at least two frame periods)")
+                return
+            look_checks(label, want_seat, orbit, results_look)
+
+        def look_run(hold_speed):
+            """One run of the taps and held turns with the late look on, then off: each setting's
+            seats, held-turn poses, tap responses and held-turn fraction, and the run's contention."""
             results_look = {}
+            window = []
             for setting in ("1", "0"):
                 obs.send(f"set g_unlock_vehicleLook {setting}")
                 time.sleep(0.5)
@@ -621,7 +667,11 @@ def main(argv):
                 results_look[setting] = (seats, held, look_response(lines), fraction_check(
                     held[len(held) // 8:], lambda a, b: abs((a["view"][4] - b["view"][4] + 180.0) % 360.0 - 180.0) > 0.01,
                     "view yaw"))
+                window.append([p for ln in lines if (p := parse_pose(ln)) is not None])
             obs.send("set g_unlock_vehicleLook 1")
+            return results_look, max(contention(w) for w in window)
+
+        def look_checks(label, want_seat, orbit, results_look):
             look_seats, on_held, on, on_turn = results_look["1"]
             off_seats, _, off, off_turn = results_look["0"]
             # L0: every draw of the phase is from the expected seat and view, so an on-foot
