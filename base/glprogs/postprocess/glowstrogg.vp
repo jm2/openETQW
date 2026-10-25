@@ -1,0 +1,13 @@
+# postprocess/glowstrogg: glow's two lookups, plus the noise lookup at
+# ( s, ( 1 - t + $parameters.z ) * 2 ).
+OPTION ARB_position_invariant;
+TEMP	coord, noise;
+MOV	coord, $texCoordAttrib;
+SUB	coord.y, 1, coord.y;
+MUL	result.texcoord[0].xy, coord, $currentRenderTexelSize;
+MOV	noise, coord;
+ADD	noise.y, noise.y, $parameters.z;
+MUL	noise.y, noise.y, 2;
+MOV	result.texcoord[2].xy, noise;
+MUL	coord.xy, coord, $currentRenderTexelSize;
+MUL	result.texcoord[1].xy, coord, 0.25;

@@ -596,7 +596,11 @@ idImage* idImageManager::ImageFromFile( const char* name, imageParams_t params )
 		if ( idStr::Icmp( image->imgName, normalized ) != 0 ) {
 			continue;
 		}
-		if ( image->filter != params.tf || image->repeat != params.trp || image->cubeFiles != params.cubeMap ) {
+		// a render target (_currentRender, _postProcessBuffer_0/1 …) has no file to
+		// load: a material naming it means that image, whatever its own filter and
+		// clamp keywords.  Matching them made a second, defaulted image of the same
+		// name, so the GUI post-process stages drew nothing (#233).
+		if ( !image->fromParams && ( image->filter != params.tf || image->repeat != params.trp || image->cubeFiles != params.cubeMap ) ) {
 			continue;
 		}
 		image->levelLoadReferenced = true;
