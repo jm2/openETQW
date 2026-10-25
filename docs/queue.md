@@ -24,7 +24,6 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Next step |
 |---|---|---|---|
-| [#122](https://github.com/jm2/openETQW/issues/122) | GDF rifle viewmodel: dark on raster Vulkan, tan with ray tracing. Retail (coordinator, canyon) is lit tan-brown; raster Vulkan was dark across the whole lit scene. | openETQW-win-arm64 | PR `fix/vk-viewmodel-dark-122`: raster Vulkan ambient from the entity's ambient cube and retail's interaction specular. Follow-ups: the specular cube term of the ambient pass, terrain's bakedamb ambient, the RT path relighting viewmodel pixels as world (lighting.comp). |
 
 ## 3. Milestone work, in order
 
@@ -133,6 +132,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-22/23:
+- #257 Vulkan: sunlit opaque surfaces take retail's amblit ambient (minSpecAmbientColor) via ambSurf; others the cube plus its specular term (fixes #122's ambient gap)
 - #254 OpenGL: load qglSampleCoverageARB; the SDL3 window requests r_multiSamples (fixes #253)
 - #249 Raster Vulkan: retail's ambient cube (multiplicative, before the flat ambient), self-illumination, interaction specular; generated cubes no longer black (part of #122)
 - #252 OpenGL: load qglMultiTexCoord4fARB, so instanced trees and shrubs draw (#246 OpenGL half)
