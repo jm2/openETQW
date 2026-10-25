@@ -169,6 +169,18 @@ def contention(poses):
     return sum(1 for a, b in pairs if b["us"] - a["us"] >= 2e6 / b["cap"]) / len(pairs)
 
 
+def contended_reason(busy):
+    """The reason a contended window gives. The share comes from the client's own frame
+    times, so a stalled client (a renderer stall, a limiter oversleeping) reads the same as
+    a busy host; the load average tells them apart."""
+    try:
+        load = "/".join(f"{x:.2f}" for x in os.getloadavg())
+    except (AttributeError, OSError):
+        load = "n/a"
+    return (f"host contended: long draw intervals (a busy host or a stalled client): {busy:.1%} of draw intervals"
+            f" took at least two frame periods (more than {CONTENDED_SHARE:.0%}); load average {load}")
+
+
 def seat_fields(seat):
     """FRAME_POSE seat= as (entity, position, view mode), or None on foot."""
     if seat is None:
@@ -482,15 +494,20 @@ def main(argv):
             time.sleep(1.5)
         return False
 
-    def phase(name, cap, drive, check_launch=True, mode=0, stalled=None, reseat=None):
+    def phase(name, cap, drive, check_launch=True, mode=0, stalled=None, reseat=None, rerun=None):
         """One drive phase's draws, from the driver's seat in view mode `mode` (None: whatever
         seat the caller set up, unchecked). A disturbed phase is driven again once the badger
         has settled: the hull launched or fell (issue #84: a collision can throw the badger
         thousands of units up, and then the guards rightly refuse some ticks), or some draws
         were not from that seat and mode (the player thrown out, or respawned on foot), or
-        stalled(poses) gives a reason (the jetpack's flight stalled, #151); reseat() then seats
-        the player afresh before the second attempt. A second disturbed attempt fails the test
-        with that reason."""
+        stalled(poses) gives a reason (the jetpack's flight stalled, #151), or the host was
+        contended (#162); reseat() then seats the player afresh before the second attempt. A
+        second disturbed attempt fails the test with both attempts' reasons, as "host contended"
+        when both were contended. A phase gets one contention re-run: rerun ({"left": 1}) is
+        shared by the calls of one phase that its caller repeats (peer_phase), so a contended
+        window with none left fails at once."""
+        rerun = {"left": 1} if rerun is None else rerun
+        reasons = []
         for attempt in range(2):
             if mode is not None:
                 # the badger back where the test marked it, at rest: the drive legs leave it further
@@ -521,16 +538,28 @@ def main(argv):
             why = (f"the hull moved {jump:.0f} u vertically in one tick (launched or falling)" if jump is not None
                    else f"{off} of {len(poses)} draws were not from the driver's seat in view mode {mode}" if off
                    else stall if stall is not None
-                   else f"host contended: {busy:.1%} of draw intervals took at least two frame periods"
-                        f" (more than {CONTENDED_SHARE:.0%})")
+                   else contended_reason(busy))
             print(f"[seat] phase {name} at cap {cap}: {why}; attempt {attempt + 1}", flush=True)
+            if why.startswith("host contended"):
+                # what the discarded window showed, not counted: a stalled client and a busy host
+                # can then be told apart from the log
+                for key, what in (("veh", "hull step"), ("view", "view step")):
+                    res = step_check(poses, key, what)
+                    print(f"[seat] phase {name} at cap {cap}, attempt {attempt + 1} (not counted): {len(poses)} draws;"
+                          f" {res['detail']}", flush=True)
+            reasons.append(why)
+            if why.startswith("host contended"):
+                if rerun["left"] == 0:
+                    break
+                rerun["left"] -= 1
             if attempt == 0:
                 time.sleep(5.0)
                 if reseat is not None:
                     reseat()
-        if why.startswith("host contended"):
-            raise Failed(f"host contended: phase {name} at cap {cap}, in both attempts ({why})")
-        raise Failed(f"phase {name} at cap {cap}: disturbed in both attempts ({why})")
+        detail = "; ".join(f"attempt {i + 1}: {r}" for i, r in enumerate(reasons))
+        if all(r.startswith("host contended") for r in reasons):
+            raise Failed(f"host contended: phase {name} at cap {cap}, with no contention re-run left ({detail})")
+        raise Failed(f"phase {name} at cap {cap}: disturbed in both attempts ({detail})")
 
     def peer_walk():
         peer.send("clientMove 127 0 0")
@@ -615,17 +644,21 @@ def main(argv):
         def late_look(label, want_seat, orbit=False, hold_speed=60):
             # a contended host draws too few frames for draw-counted checks (L1c, L3): the taps
             # and held turns are driven again once, and a second contended run fails as such
+            reasons = []
             for attempt in range(2):
                 results_look, busy = look_run(hold_speed)
                 print(f"[seat] late look, {label}, at cap {cap}: {busy:.1%} of draw intervals took at least two"
                       f" frame periods", flush=True)
                 if busy <= CONTENDED_SHARE:
                     break
-                print(f"[seat] late look, {label}, at cap {cap}: host contended (more than {CONTENDED_SHARE:.0%});"
-                      f" attempt {attempt + 1}", flush=True)
+                why = contended_reason(busy)
+                print(f"[seat] late look, {label}, at cap {cap}: {why}; attempt {attempt + 1}", flush=True)
+                # what the discarded run showed, not counted
+                look_checks(label, want_seat, orbit, results_look, counted=False)
+                reasons.append(why)
             else:
-                failures.append(f"host contended: late look, {label}, at cap {cap}, in both attempts"
-                                f" ({busy:.1%} of draw intervals took at least two frame periods)")
+                detail = "; ".join(f"attempt {i + 1}: {r}" for i, r in enumerate(reasons))
+                failures.append(f"host contended: late look, {label}, at cap {cap}, in both attempts ({detail})")
                 return
             look_checks(label, want_seat, orbit, results_look)
 
@@ -671,7 +704,9 @@ def main(argv):
             obs.send("set g_unlock_vehicleLook 1")
             return results_look, max(contention(w) for w in window)
 
-        def look_checks(label, want_seat, orbit, results_look):
+        def look_checks(label, want_seat, orbit, results_look, counted=True):
+            """L0-L4 on one look run; counted=False prints a discarded (contended) run's results
+            without adding failures."""
             look_seats, on_held, on, on_turn = results_look["1"]
             off_seats, _, off, off_turn = results_look["0"]
             # L0: every draw of the phase is from the expected seat and view, so an on-foot
@@ -694,8 +729,8 @@ def main(argv):
                                       ("L2", on_turn["ok"], on_turn["detail"]),
                                       ("L1c", l1c, f"with g_unlock_vehicleLook 0 the turn shows at least a draw later on average"
                                                    f" (mean {mean(off):.2f} against {mean(on):.2f})")) + tuple(checks):
-                print(f"  {cap:3} {label} {check}  {'pass' if ok else 'FAIL'}  {detail}")
-                if not ok:
+                print(f"  {cap:3} {label} {check}  {'pass' if ok else 'FAIL'}  {detail}{'' if counted else ' (not counted)'}")
+                if not ok and counted:
                     failures.append(f"late look, {label}, {check}: {detail}")
 
         def edge_check(label, want_seat, key, back_key, index, sign, note=""):
@@ -976,9 +1011,10 @@ def main(argv):
                 elsewhere ('kill'), before one retry. A jump of more than 200 u between draws
                 is a respawn mid-phase (the interpolation smears a teleport across a tick, as in
                 the SDK), also retried."""
+                rerun = {"left": 1}   # one contention re-run for the phase, across these calls
                 for attempt in range(3):
                     before = player_pos(srv, peer.slot)["org"]
-                    poses = phase(name, cap, peer_walk)
+                    poses = phase(name, cap, peer_walk, rerun=rerun)
                     after = player_pos(srv, peer.slot)["org"]
                     moving = sum(1 for a, b in zip(poses, poses[1:]) if moved(peer_pose_of(a), peer_pose_of(b)))
                     jumped = any(peer_pose_of(a) and peer_pose_of(b) and
