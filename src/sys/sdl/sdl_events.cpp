@@ -5,10 +5,20 @@
 #include <SDL3/SDL.h>
 #include "sys_local.h"
 #include "keynum.h"
+#include "MouseDelta.h"
 
 SDL_Window* Sys_GetGameSDLWindow( void );
 
 namespace {
+
+// the sub-unit motion not yet sent (MouseDelta.h); dropped when the grab or focus changes
+float mouseRemainderX = 0.0f;
+float mouseRemainderY = 0.0f;
+
+void ResetMouseRemainder() {
+	mouseRemainderX = 0.0f;
+	mouseRemainderY = 0.0f;
+}
 
 keyNum_t MapSDLScancode( SDL_Scancode scancode ) {
 	if ( scancode == SDL_SCANCODE_GRAVE ) return K_CONSOLE;
@@ -121,6 +131,7 @@ public:
 		if ( window != NULL ) {
 			SDL_SetWindowRelativeMouseMode( window, grab );
 		}
+		ResetMouseRemainder();
 	}
 
 	virtual int PollInputEvents( bool ) override { return 0; }
@@ -198,6 +209,7 @@ void Sys_ProcessSDLEvents( void ) {
 
 			case SDL_EVENT_WINDOW_FOCUS_LOST:
 				sys->Keyboard().Deactivate();
+				ResetMouseRemainder();
 				IN_Frame();
 				break;
 
@@ -234,8 +246,14 @@ void Sys_ProcessSDLEvents( void ) {
 			}
 
 			case SDL_EVENT_MOUSE_MOTION: {
-				if ( sys->Mouse().IsActive() && ( event.motion.xrel != 0.0f || event.motion.yrel != 0.0f ) ) {
-					sys->QueEvent( SE_MOUSE, static_cast< int >( event.motion.xrel ), static_cast< int >( event.motion.yrel ), 0, NULL );
+				if ( !sys->Mouse().IsActive() ) {
+					ResetMouseRemainder();
+					break;
+				}
+				const int dx = Sys_ConsumeMouseDelta( event.motion.xrel, mouseRemainderX );
+				const int dy = Sys_ConsumeMouseDelta( event.motion.yrel, mouseRemainderY );
+				if ( dx != 0 || dy != 0 ) {
+					sys->QueEvent( SE_MOUSE, dx, dy, 0, NULL );
 				}
 				break;
 			}
