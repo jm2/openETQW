@@ -263,7 +263,12 @@ struct sdVulkanFrontEndDescriptor {
 	const void*				imageOwners[ VULKAN_FRONTEND_TEXTURES ];
 	VkImageView				imageViews[ VULKAN_FRONTEND_TEXTURES ];
 	VkDescriptorSet			descriptorSet;
+	unsigned int			lastUsedFrame;	// frameSerial when last returned
 };
+
+// The front-end sets (6 samplers each) have their own pool, so the cube-ambient
+// pass's sets, one per stage and cube, cannot exhaust the material pool (#258).
+const int VULKAN_FRONTEND_DESCRIPTOR_SETS = 4096;
 
 const char* VkResultName( VkResult result ) {
 	switch ( result ) {
@@ -275,6 +280,8 @@ const char* VkResultName( VkResult result ) {
 		case VK_INCOMPLETE: return "VK_INCOMPLETE";
 		case VK_ERROR_OUT_OF_HOST_MEMORY: return "VK_ERROR_OUT_OF_HOST_MEMORY";
 		case VK_ERROR_OUT_OF_DEVICE_MEMORY: return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
+		case VK_ERROR_OUT_OF_POOL_MEMORY: return "VK_ERROR_OUT_OF_POOL_MEMORY";
+		case VK_ERROR_FRAGMENTED_POOL: return "VK_ERROR_FRAGMENTED_POOL";
 		case VK_ERROR_INITIALIZATION_FAILED: return "VK_ERROR_INITIALIZATION_FAILED";
 		case VK_ERROR_DEVICE_LOST: return "VK_ERROR_DEVICE_LOST";
 		case VK_ERROR_MEMORY_MAP_FAILED: return "VK_ERROR_MEMORY_MAP_FAILED";
@@ -633,6 +640,14 @@ struct sdVulkanBackendState {
 	idList< sdVulkanMaterialDescriptor > materialDescriptors;
 	idHashIndex				materialDescriptorHash;
 	idList< sdVulkanFrontEndDescriptor > frontEndDescriptors;
+	idHashIndex				frontEndDescriptorHash;	// by owner
+	VkDescriptorPool			frontEndDescriptorPool;
+	// sets of front-end descriptors whose image went away, freed with that frame's
+	// retired images
+	idList< VkDescriptorSet > frameRetiredFrontEndSets[ NUM_VULKAN_FRAMES ];
+	unsigned int				frameSerial;	// counts frames, for evicting unused sets
+	int					frontEndDescriptorSetsLive;	// allocated from frontEndDescriptorPool, not yet freed
+	bool					frontEndPoolExhaustedWarned;
 	// Resources removed while a frame is being recorded must remain alive until
 	// that command buffer has been submitted and completed.  ETQW retires vertex
 	// cache blocks in idRenderSystemLocal::EndFrame before the Vulkan backend
@@ -908,6 +923,10 @@ struct sdVulkanBackendState {
 		guiPipelineLayout = VK_NULL_HANDLE;
 		frontEndDescriptorSetLayout = VK_NULL_HANDLE;
 		frontEndPipelineLayout = VK_NULL_HANDLE;
+		frontEndDescriptorPool = VK_NULL_HANDLE;
+		frameSerial = 0;
+		frontEndDescriptorSetsLive = 0;
+		frontEndPoolExhaustedWarned = false;
 		megaDetailPipeline = false;
 		worldFrontEndPipeline = VK_NULL_HANDLE;
 		worldFrontEndAlphaPipeline = VK_NULL_HANDLE;
@@ -2816,8 +2835,55 @@ void DestroyRetiredResources( sdVulkanBackendState& state ) {
 	state.retiredToolDepthResources.Clear();
 }
 
+int FrontEndDescriptorKey( const sdVulkanBackendState& state, const void* owner ) {
+	return sdVulkanPointerHash::Hash( state.frontEndDescriptorHash, owner );
+}
+
+// Removes a front-end descriptor from the cache (the last one takes its index);
+// the caller frees or retires its set.
+void RemoveFrontEndDescriptor( sdVulkanBackendState& state, int index ) {
+	const int lastIndex = state.frontEndDescriptors.Num() - 1;
+	state.frontEndDescriptorHash.Remove(
+		FrontEndDescriptorKey( state, state.frontEndDescriptors[ index ].owner ), index );
+	if ( index != lastIndex ) {
+		state.frontEndDescriptorHash.Remove(
+			FrontEndDescriptorKey( state, state.frontEndDescriptors[ lastIndex ].owner ), lastIndex );
+	}
+	state.frontEndDescriptors.RemoveIndexFast( index );
+	if ( index != lastIndex ) {
+		state.frontEndDescriptorHash.Add(
+			FrontEndDescriptorKey( state, state.frontEndDescriptors[ index ].owner ), index );
+	}
+}
+
+void FreeFrontEndDescriptorSets( sdVulkanBackendState& state, idList< VkDescriptorSet >& sets ) {
+	if ( sets.Num() > 0 && state.frontEndDescriptorPool != VK_NULL_HANDLE ) {
+		state.FreeDescriptorSets( state.device, state.frontEndDescriptorPool,
+			static_cast< uint32_t >( sets.Num() ), &sets[ 0 ] );
+		state.frontEndDescriptorSetsLive -= sets.Num();
+	}
+	sets.Clear();
+}
+
+// Frees the sets no frame has used for longer than the frames in flight, so no
+// command buffer can still reference them.  Returns how many it freed.
+int EvictUnusedFrontEndDescriptors( sdVulkanBackendState& state ) {
+	idList< VkDescriptorSet > unused;
+	for ( int index = state.frontEndDescriptors.Num() - 1; index >= 0; --index ) {
+		const sdVulkanFrontEndDescriptor& descriptor = state.frontEndDescriptors[ index ];
+		if ( state.frameSerial - descriptor.lastUsedFrame > static_cast< unsigned int >( NUM_VULKAN_FRAMES ) ) {
+			unused.Append( descriptor.descriptorSet );
+			RemoveFrontEndDescriptor( state, index );
+		}
+	}
+	const int evicted = unused.Num();
+	FreeFrontEndDescriptorSets( state, unused );
+	return evicted;
+}
+
 void DestroyFrameRetiredResources( sdVulkanBackendState& state,
 	unsigned int frameIndex ) {
+	FreeFrontEndDescriptorSets( state, state.frameRetiredFrontEndSets[ frameIndex ] );
 	for ( int i = 0; i < state.frameRetiredImageResources[ frameIndex ].Num(); ++i ) {
 		DestroyImageResource( state,
 			state.frameRetiredImageResources[ frameIndex ][ i ] );
@@ -3382,6 +3448,16 @@ void DestroyGuiResources( sdVulkanBackendState& state ) {
 	state.materialDescriptors.Clear();
 	state.materialDescriptorHash.Clear();
 	state.frontEndDescriptors.Clear();
+	state.frontEndDescriptorHash.Clear();
+	for ( int frameIndex = 0; frameIndex < NUM_VULKAN_FRAMES; ++frameIndex ) {
+		state.frameRetiredFrontEndSets[ frameIndex ].Clear();	// freed with the pool
+	}
+	if ( state.frontEndDescriptorPool != VK_NULL_HANDLE ) {
+		state.DestroyDescriptorPool( state.device, state.frontEndDescriptorPool, NULL );
+		state.frontEndDescriptorPool = VK_NULL_HANDLE;
+	}
+	state.frontEndDescriptorSetsLive = 0;
+	state.frontEndPoolExhaustedWarned = false;
 	VkPipeline* frontEndPipelines[] = {
 		&state.worldFrontEndPipeline,
 		&state.worldFrontEndAlphaPipeline,
@@ -4860,6 +4936,16 @@ bool CreateGuiResources( sdVulkanBackendState& state ) {
 		CheckVulkanResult( state.CreatePipelineLayout( state.device,
 			&frontEndLayoutInfo, NULL, &state.frontEndPipelineLayout ),
 			"vkCreatePipelineLayout(front end)" );
+		VkDescriptorPoolSize frontEndPoolSize;
+		frontEndPoolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		frontEndPoolSize.descriptorCount = VULKAN_FRONTEND_DESCRIPTOR_SETS * VULKAN_FRONTEND_TEXTURES;
+		VkDescriptorPoolCreateInfo frontEndPoolInfo = poolInfo;
+		frontEndPoolInfo.maxSets = VULKAN_FRONTEND_DESCRIPTOR_SETS;
+		frontEndPoolInfo.poolSizeCount = 1;
+		frontEndPoolInfo.pPoolSizes = &frontEndPoolSize;
+		CheckVulkanResult( state.CreateDescriptorPool( state.device,
+			&frontEndPoolInfo, NULL, &state.frontEndDescriptorPool ),
+			"vkCreateDescriptorPool(front end)" );
 	}
 
 	VkShaderModule vertexModule = VK_NULL_HANDLE;
@@ -5469,9 +5555,11 @@ bool GetVulkanFrontEndLayoutDescriptor( sdVulkanBackendState& state, const void*
 			return false;
 		}
 	}
-	for ( int descriptorIndex = 0; descriptorIndex < state.frontEndDescriptors.Num();
-		++descriptorIndex ) {
-		const sdVulkanFrontEndDescriptor& cached = state.frontEndDescriptors[ descriptorIndex ];
+	const int descriptorHashKey = FrontEndDescriptorKey( state, owner );
+	for ( int descriptorIndex = state.frontEndDescriptorHash.GetFirst( descriptorHashKey );
+		descriptorIndex != -1;
+		descriptorIndex = state.frontEndDescriptorHash.GetNext( descriptorIndex ) ) {
+		sdVulkanFrontEndDescriptor& cached = state.frontEndDescriptors[ descriptorIndex ];
 		if ( cached.owner != owner ) {
 			continue;
 		}
@@ -5484,22 +5572,45 @@ bool GetVulkanFrontEndLayoutDescriptor( sdVulkanBackendState& state, const void*
 			}
 		}
 		if ( matches ) {
+			cached.lastUsedFrame = state.frameSerial;
 			descriptorSet = cached.descriptorSet;
 			return true;
 		}
 	}
+	if ( state.frontEndDescriptorPool == VK_NULL_HANDLE ) {
+		return false;
+	}
 	sdVulkanFrontEndDescriptor frontEndDescriptor;
 	memset( &frontEndDescriptor, 0, sizeof( frontEndDescriptor ) );
 	frontEndDescriptor.owner = owner;
+	frontEndDescriptor.lastUsedFrame = state.frameSerial;
 	VkDescriptorSetAllocateInfo allocateInfo;
 	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
 	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocateInfo.descriptorPool = state.guiDescriptorPool;
+	allocateInfo.descriptorPool = state.frontEndDescriptorPool;
 	allocateInfo.descriptorSetCount = 1;
 	allocateInfo.pSetLayouts = &state.frontEndDescriptorSetLayout;
-	if ( !CheckVulkanResult( state.AllocateDescriptorSets( state.device,
-		&allocateInfo, &frontEndDescriptor.descriptorSet ),
-		"vkAllocateDescriptorSets(front end)" ) ) {
+	// A full pool (a long session over many maps): drop the sets no recent frame
+	// used and try once more.  The pool's size is kept in software as well, since
+	// a driver may let allocations run past maxSets.
+	const bool full = state.frontEndDescriptorSetsLive >= VULKAN_FRONTEND_DESCRIPTOR_SETS;
+	VkResult result = full ? VK_ERROR_OUT_OF_POOL_MEMORY :
+		state.AllocateDescriptorSets( state.device, &allocateInfo, &frontEndDescriptor.descriptorSet );
+	if ( ( result == VK_ERROR_OUT_OF_POOL_MEMORY || result == VK_ERROR_FRAGMENTED_POOL ) &&
+		EvictUnusedFrontEndDescriptors( state ) > 0 &&
+		state.frontEndDescriptorSetsLive < VULKAN_FRONTEND_DESCRIPTOR_SETS ) {
+		result = state.AllocateDescriptorSets( state.device,
+			&allocateInfo, &frontEndDescriptor.descriptorSet );
+	}
+	if ( result == VK_SUCCESS ) {
+		state.frontEndDescriptorSetsLive++;
+	} else {
+		if ( !state.frontEndPoolExhaustedWarned ) {
+			common->Warning( "vkAllocateDescriptorSets(front end) failed: %s (%d sets in use); "
+				"draws needing a new set are skipped until sets are freed (warned once)",
+				VkResultName( result ), state.frontEndDescriptorSetsLive );
+			state.frontEndPoolExhaustedWarned = true;
+		}
 		return false;
 	}
 	VkDescriptorImageInfo imageInfos[ VULKAN_FRONTEND_TEXTURES ];
@@ -5521,7 +5632,8 @@ bool GetVulkanFrontEndLayoutDescriptor( sdVulkanBackendState& state, const void*
 	}
 	state.UpdateDescriptorSets( state.device, VULKAN_FRONTEND_TEXTURES,
 		writes, 0, NULL );
-	state.frontEndDescriptors.Append( frontEndDescriptor );
+	state.frontEndDescriptorHash.Add( descriptorHashKey,
+		state.frontEndDescriptors.Append( frontEndDescriptor ) );
 	descriptorSet = frontEndDescriptor.descriptorSet;
 	return true;
 }
@@ -7143,6 +7255,7 @@ void sdVulkanBackend::EndFrame( bool ) {
 	}
 	state->frameActive = false;
 	state->frameIndex = ( state->frameIndex + 1 ) % NUM_VULKAN_FRAMES;
+	state->frameSerial++;
 
 	// r_vkPrepareAhead: the next frame's fence wait and command-pool reset happen now, before
 	// the next frame samples input and ClientUpdateView computes its fraction, not in BeginFrame
@@ -8143,6 +8256,7 @@ void sdVulkanBackend::EndToolWindow() {
 	state->toolRenderExtent.width = state->toolRenderExtent.height = 0;
 	state->toolImageOwner = NULL;
 	state->frameIndex = ( state->frameIndex + 1 ) % NUM_VULKAN_FRAMES;
+	state->frameSerial++;
 }
 
 bool sdVulkanBackend::IsToolWindowActive() const {
@@ -9450,10 +9564,15 @@ void sdVulkanBackend::DestroyImage( const void* owner ) {
 						sizeof( descriptor.imageViews ) );
 				}
 			}
-			// the same for the front-end ambient programs' sets
-			for ( int descriptorIndex = 0;
-				descriptorIndex < state->frontEndDescriptors.Num(); ++descriptorIndex ) {
-				sdVulkanFrontEndDescriptor& descriptor =
+			// The front-end ambient programs' sets have their own pool: drop them from
+			// the cache now, and free each set once this frame has completed, with the
+			// image itself (#258).
+			const unsigned int setRetireFrame = state->frameActive ||
+				state->toolFrameActive ? state->frameIndex :
+				( state->frameIndex + NUM_VULKAN_FRAMES - 1 ) % NUM_VULKAN_FRAMES;
+			for ( int descriptorIndex = state->frontEndDescriptors.Num() - 1;
+				descriptorIndex >= 0; --descriptorIndex ) {
+				const sdVulkanFrontEndDescriptor& descriptor =
 					state->frontEndDescriptors[ descriptorIndex ];
 				bool usesRemovedImage = false;
 				for ( int imageIndex = 0; imageIndex < VULKAN_FRONTEND_TEXTURES;
@@ -9465,11 +9584,8 @@ void sdVulkanBackend::DestroyImage( const void* owner ) {
 					}
 				}
 				if ( usesRemovedImage ) {
-					descriptor.owner = NULL;
-					memset( descriptor.imageOwners, 0,
-						sizeof( descriptor.imageOwners ) );
-					memset( descriptor.imageViews, 0,
-						sizeof( descriptor.imageViews ) );
+					state->frameRetiredFrontEndSets[ setRetireFrame ].Append( descriptor.descriptorSet );
+					RemoveFrontEndDescriptor( *state, descriptorIndex );
 				}
 			}
 			const int lastIndex = state->imageResources.Num() - 1;

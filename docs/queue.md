@@ -24,6 +24,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Next step |
 |---|---|---|---|
+| [#258](https://github.com/jm2/openETQW/issues/258) | Vulkan front-end descriptor cache: linear scan, no eviction, shares the material pool | openETQW-win-arm64 | PR `fix/vk-frontend-descriptor-cache-258`: own pool, hashed, sets freed with their images, unused sets evicted when full, one-time warning. Follow-up: the material cache's orphaned sets are never freed either. |
 
 ## 3. Milestone work, in order
 
@@ -132,6 +133,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-22/23:
+- #261 Vulkan: front-end descriptor sets in their own pool, hashed, freed with purged images, evicted when full (fixes #258)
 - #260 OpenGL forceClear follows glConfig.samples; clearer multisample fallback warning (#255 review)
 - #259 OpenGL: retry without multisampling when the requested r_multiSamples fails (fixes #255 on SDL3)
 - #257 Vulkan: sunlit opaque surfaces take retail's amblit ambient (minSpecAmbientColor) via ambSurf; others the cube plus its specular term (fixes #122's ambient gap)
