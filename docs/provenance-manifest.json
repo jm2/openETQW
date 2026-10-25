@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5535,
+  "totalFiles": 5536,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 311,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 402
   },
   "postSplitCounts": {
-    "Reconstruction_original": 256,
+    "Reconstruction_original": 257,
     "ThirdParty": 1,
     "Doom3_GPL": 2,
     "SDK": 2
@@ -47852,6 +47852,18 @@
       "spdx": null
     },
     {
+      "path": "base/vkprogs/world/mega_detail.frag",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "056dbfc514deb4d9595641f0fec1a43e7fb2f87dc8c71a77ef825bd0693e5218",
+      "canonicalSha256": "056dbfc514deb4d9595641f0fec1a43e7fb2f87dc8c71a77ef825bd0693e5218",
+      "bytes": 1651,
+      "addedAfterSplit": true,
+      "addedIn": "afca50d37935ca85c201565a7d646d2a9a61dbac",
+      "spdx": null
+    },
+    {
       "path": "base/vkprogs/world/skinned_interaction.vert",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -48048,9 +48060,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "a0bb9681cc830d3e19859d2c590232d237b254e203e6c5c9c96471d3cf5fc0ea",
-      "canonicalSha256": "a0bb9681cc830d3e19859d2c590232d237b254e203e6c5c9c96471d3cf5fc0ea",
-      "bytes": 23649,
+      "rawSha256": "5ba5a1d87e66a486ccd45b91f0a2b3cf134cc35963e8a03aa7bab89659a0838d",
+      "canonicalSha256": "5ba5a1d87e66a486ccd45b91f0a2b3cf134cc35963e8a03aa7bab89659a0838d",
+      "bytes": 23684,
       "addedAfterSplit": true,
       "addedIn": "bcba1a665ec1fe2674896af8cffbb62c5a2de127",
       "spdx": "GPL-3.0-or-later"

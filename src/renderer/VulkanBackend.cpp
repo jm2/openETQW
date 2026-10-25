@@ -251,7 +251,8 @@ struct sdVulkanMaterialDescriptor {
 };
 
 struct sdVulkanFrontEndDescriptor {
-	const materialStage_t*	owner;
+	const void*				owner;		// the stage, or the megatexture level
+
 	const void*				imageOwners[ VULKAN_FRONTEND_TEXTURES ];
 	VkImageView				imageViews[ VULKAN_FRONTEND_TEXTURES ];
 	VkDescriptorSet			descriptorSet;
@@ -640,6 +641,7 @@ struct sdVulkanBackendState {
 	VkPipelineLayout			guiPipelineLayout;
 	VkDescriptorSetLayout		frontEndDescriptorSetLayout;
 	VkPipelineLayout			frontEndPipelineLayout;
+	bool					megaDetailPipeline;	// worldMegaPipeline uses the front-end layout
 	VkPipeline				worldFrontEndPipeline;
 	VkPipeline				worldFrontEndAlphaPipeline;
 	VkPipeline				worldFrontEndAddPipeline;
@@ -893,6 +895,7 @@ struct sdVulkanBackendState {
 		guiPipelineLayout = VK_NULL_HANDLE;
 		frontEndDescriptorSetLayout = VK_NULL_HANDLE;
 		frontEndPipelineLayout = VK_NULL_HANDLE;
+		megaDetailPipeline = false;
 		worldFrontEndPipeline = VK_NULL_HANDLE;
 		worldFrontEndAlphaPipeline = VK_NULL_HANDLE;
 		worldFrontEndAddPipeline = VK_NULL_HANDLE;
@@ -3805,6 +3808,26 @@ void CreateFrontEndPipelines( sdVulkanBackendState& state ) {
 	}
 }
 
+// The MegaTexture base pass.  With the front-end layout it binds the level, the
+// detail texture and its mask (mega_detail.frag, retail's detail_fragment.inc);
+// without it, the level alone (mega.frag), as before.
+bool CreateMegaPipeline( sdVulkanBackendState& state ) {
+	state.megaDetailPipeline = false;
+	if ( state.frontEndPipelineLayout != VK_NULL_HANDLE &&
+		CreateWorldPipelineVariant( state, "vkprogs/world/mega.vert",
+			"vkprogs/world/mega_detail.frag", VK_BLEND_FACTOR_SRC_ALPHA,
+			VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, true, true, false,
+			state.worldMegaPipeline, VK_COMPARE_OP_LESS_OR_EQUAL, true,
+			VK_POLYGON_MODE_FILL, false, state.frontEndPipelineLayout ) ) {
+		state.megaDetailPipeline = true;
+		return true;
+	}
+	return CreateWorldPipelineVariant( state, "vkprogs/world/mega.vert",
+		"vkprogs/world/mega.frag", VK_BLEND_FACTOR_SRC_ALPHA,
+		VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, true, true, false,
+		state.worldMegaPipeline );
+}
+
 bool CreateWorldPipeline( sdVulkanBackendState& state ) {
 	CreateFrontEndPipelines( state );
 	return CreateWorldPipelineVariant( state, "vkprogs/world/ambient.vert",
@@ -3827,10 +3850,7 @@ bool CreateWorldPipeline( sdVulkanBackendState& state ) {
 		CreateWorldPipelineVariant( state, "vkprogs/world/trivial.vert",
 			"vkprogs/world/decal_multiply.frag", VK_BLEND_FACTOR_DST_COLOR,
 			VK_BLEND_FACTOR_ZERO, true, false, false, state.worldMultiplyPipeline ) &&
-		CreateWorldPipelineVariant( state, "vkprogs/world/mega.vert",
-			"vkprogs/world/mega.frag", VK_BLEND_FACTOR_SRC_ALPHA,
-			VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, true, true, false,
-			state.worldMegaPipeline ) &&
+		CreateMegaPipeline( state ) &&
 		CreateWorldPipelineVariant( state, "vkprogs/world/atmosphere.vert",
 			"vkprogs/world/atmosphere.frag", VK_BLEND_FACTOR_ONE,
 			VK_BLEND_FACTOR_ONE, true, false, false,
@@ -5217,6 +5237,42 @@ void SetVulkanPolygonOffset( sdVulkanBackendState& state,
 		0.0f, enabled ? r_offsetFactor.GetFloat() : 0.0f );
 }
 
+bool GetVulkanFrontEndLayoutDescriptor( sdVulkanBackendState& state, const void* owner,
+	idImage* images[ VULKAN_FRONTEND_TEXTURES ], idImage* fallbacks[ VULKAN_FRONTEND_TEXTURES ],
+	VkDescriptorSet& descriptorSet );
+
+// The descriptor for a MegaTexture level in the terrain base pass: the level's
+// image, then retail's detail texture and its mask ($megaDetailTexture,
+// $megaDetailTextureMask, as idMegaTexture::UpdateForViewOrigin sets them),
+// mega_detail.frag's bindings 0-2.  The rest of the front-end layout is unused.
+bool GetVulkanMegaDescriptor( sdVulkanBackendState& state, const void* level,
+	idImage* levelImage, VkDescriptorSet& descriptorSet ) {
+	descriptorSet = VK_NULL_HANDLE;
+	if ( globalImages == NULL || levelImage == NULL || rbinds == NULL ) {
+		return false;
+	}
+	idImage* detail = rbinds->megaDetailTexture->GetImage();
+	idImage* detailMask = rbinds->megaDetailTextureMask->GetImage();
+	idImage* images[ VULKAN_FRONTEND_TEXTURES ] = {
+		levelImage,
+		detail != NULL ? detail : globalImages->grayImage,
+		detailMask != NULL ? detailMask : globalImages->defaultDetailMaskImage,
+		globalImages->blackImage,
+		globalImages->blackCubeMapImage,
+		globalImages->blackCubeMapImage
+	};
+	// A gray detail adds nothing (2 x 0.5 - 1 = 0), whatever the mask.
+	idImage* fallbacks[ VULKAN_FRONTEND_TEXTURES ] = {
+		globalImages->blackImage,
+		globalImages->grayImage,
+		globalImages->defaultDetailMaskImage,
+		globalImages->blackImage,
+		globalImages->blackCubeMapImage,
+		globalImages->blackCubeMapImage
+	};
+	return GetVulkanFrontEndLayoutDescriptor( state, level, images, fallbacks, descriptorSet );
+}
+
 // The descriptor for a front-end ambient program: diffuse, bump, specular and
 // self-illumination maps, then the entity's ambient and specular cube maps, bound
 // as the GL path's SetAmbientCubeMapBindings does (black when there are none).
@@ -5263,6 +5319,21 @@ bool GetVulkanFrontEndDescriptor( sdVulkanBackendState& state,
 	for ( int slot = 0; slot < VULKAN_FRONTEND_TEXTURES; ++slot ) {
 		fallbacks[ slot ] = slot >= 4 ? globalImages->blackCubeMapImage :
 			globalImages->blackImage;
+	}
+	return GetVulkanFrontEndLayoutDescriptor( state, &stage, images, fallbacks, descriptorSet );
+}
+
+// A descriptor set of the front-end layout (bindings 0-3 sampler2D, 4-5
+// samplerCube) for these images, cached per owner; an image that isn't uploaded,
+// or whose type doesn't fit its slot, is replaced by its fallback.
+bool GetVulkanFrontEndLayoutDescriptor( sdVulkanBackendState& state, const void* owner,
+	idImage* images[ VULKAN_FRONTEND_TEXTURES ], idImage* fallbacks[ VULKAN_FRONTEND_TEXTURES ],
+	VkDescriptorSet& descriptorSet ) {
+	descriptorSet = VK_NULL_HANDLE;
+	if ( state.frontEndDescriptorSetLayout == VK_NULL_HANDLE ) {
+		return false;
+	}
+	for ( int slot = 0; slot < VULKAN_FRONTEND_TEXTURES; ++slot ) {
 		if ( images[ slot ] == NULL ) {
 			images[ slot ] = fallbacks[ slot ];
 		}
@@ -5291,7 +5362,7 @@ bool GetVulkanFrontEndDescriptor( sdVulkanBackendState& state,
 	for ( int descriptorIndex = 0; descriptorIndex < state.frontEndDescriptors.Num();
 		++descriptorIndex ) {
 		const sdVulkanFrontEndDescriptor& cached = state.frontEndDescriptors[ descriptorIndex ];
-		if ( cached.owner != &stage ) {
+		if ( cached.owner != owner ) {
 			continue;
 		}
 		bool matches = true;
@@ -5309,7 +5380,7 @@ bool GetVulkanFrontEndDescriptor( sdVulkanBackendState& state,
 	}
 	sdVulkanFrontEndDescriptor frontEndDescriptor;
 	memset( &frontEndDescriptor, 0, sizeof( frontEndDescriptor ) );
-	frontEndDescriptor.owner = &stage;
+	frontEndDescriptor.owner = owner;
 	VkDescriptorSetAllocateInfo allocateInfo;
 	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
 	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -11089,16 +11160,42 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 				megaPushConstants[ 26 ] = shaderLevel == 0 ? 0.0f : 1.0f;
 				megaPushConstants[ 30 ] = pushConstants[ 23 ];
 				megaPushConstants[ 31 ] = pushConstants[ 27 ];
+				// megaLevelParams.w: $megaDetailTextureParams.x, the detail texture's
+				// repeat over the megatexture (0: no detail, r_detailTexture 0)
+				megaPushConstants[ 27 ] = idMegaTexture::r_detailTexture.GetBool() && rbinds != NULL ?
+					rbinds->megaDetailTextureParams->GetVector()[ 0 ] : 0.0f;
 				if ( shaderLevel != 0 ) {
 					megaPushConstants[ 25 ] = megaFadeMilliseconds > 0 ?
 						idMath::ClampFloat( 0.0f, 1.0f,
 							( view->renderView.time - level->GetFadeTime() ) /
 							static_cast< float >( megaFadeMilliseconds ) ) : 1.0f;
 				}
-				BindDescriptorSet( levelResource->descriptorSet );
-				state->CmdPushConstants( frame.commandBuffer, state->guiPipelineLayout,
-					VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-					sizeof( megaPushConstants ), megaPushConstants );
+				VkDescriptorSet megaDescriptorSet = VK_NULL_HANDLE;
+				if ( state->megaDetailPipeline && !submitHardwareSkinning &&
+					GetVulkanMegaDescriptor( *state, level, levelImage, megaDescriptorSet ) ) {
+					state->CmdBindDescriptorSets( frame.commandBuffer,
+						VK_PIPELINE_BIND_POINT_GRAPHICS, state->frontEndPipelineLayout, 0, 1,
+						&megaDescriptorSet, 0, NULL );
+					// a set 0 of another layout disturbs the material set and the joint palette
+					submittedDescriptorSet = VK_NULL_HANDLE;
+					submittedJointOffset = UINT_MAX;
+					state->CmdPushConstants( frame.commandBuffer, state->frontEndPipelineLayout,
+						VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+						sizeof( megaPushConstants ), megaPushConstants );
+				} else if ( state->megaDetailPipeline && !submitHardwareSkinning ) {
+					static bool megaDescriptorWarned = false;
+					if ( !megaDescriptorWarned ) {
+						common->Warning( "Vulkan: no MegaTexture detail descriptor for a level of '%s'; the level is skipped",
+							surface->material->GetName() );
+						megaDescriptorWarned = true;
+					}
+					continue;	// the pipeline expects the detail set; draw nothing rather than mismatch
+				} else {
+					BindDescriptorSet( levelResource->descriptorSet );
+					state->CmdPushConstants( frame.commandBuffer, state->guiPipelineLayout,
+						VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+						sizeof( megaPushConstants ), megaPushConstants );
+				}
 				state->CmdDrawIndexed( frame.commandBuffer, surface->geo->numIndexes,
 					1, 0, 0, 0 );
 				state->worldDrawCalls++;
