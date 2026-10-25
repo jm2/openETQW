@@ -35,6 +35,10 @@ layout( location = 4 ) in vec3 fragmentBitangent;
 layout( location = 5 ) in vec3 fragmentNormal;
 layout( location = 0 ) out vec4 outColor;
 
+// 1 in an opaque base pass: alpha is then the postprocess glow's weight, 0 as
+// retail's lit replace writes it, or 1 (the clear's) for an alpha-tested surface
+layout( constant_id = 0 ) const bool OPAQUE_BASE = false;
+
 vec3 WorldNormal() {
 	// Normal maps reach Vulkan with X and Y in red and green (see interaction.frag);
 	// Z is rebuilt, as the ARB programs do under r_normalizeNormalMaps.
@@ -87,4 +91,7 @@ void main() {
 	float lit = clamp( ambient.r * 8.0, 0.0, 1.0 );
 	glow += max( night - night * lit, 0.0 );
 	outColor = vec4( color.rgb + glow, diffuse.a );
+	if ( OPAQUE_BASE ) {
+		outColor.a = 0.0;
+	}
 }

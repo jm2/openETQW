@@ -3725,6 +3725,23 @@ bool CreateWorldPipelineVariant( sdVulkanBackendState& state,
 	shaderStages[ 1 ].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
 	shaderStages[ 1 ].module = fragmentModule;
 	shaderStages[ 1 ].pName = "main";
+	// The framebuffer's alpha is the postprocess glow's source weight (#233), so it
+	// follows retail's OpenGL.  An opaque surface's lit replace pass writes 0 there
+	// (megatexture/notlit_lit and the interaction ambients: MOV result.color.a, 0),
+	// while an alpha-tested one leaves the clear's 1: constant 0 (OPAQUE_BASE) tells
+	// the base pass's shader it is that replace.
+	const VkBool32 opaqueBase = depthWrite && colorWrite &&
+		sourceBlend == VK_BLEND_FACTOR_ONE && destinationBlend == VK_BLEND_FACTOR_ZERO;
+	VkSpecializationMapEntry specializationEntry;
+	specializationEntry.constantID = 0;
+	specializationEntry.offset = 0;
+	specializationEntry.size = sizeof( opaqueBase );
+	VkSpecializationInfo specializationInfo;
+	specializationInfo.mapEntryCount = 1;
+	specializationInfo.pMapEntries = &specializationEntry;
+	specializationInfo.dataSize = sizeof( opaqueBase );
+	specializationInfo.pData = &opaqueBase;
+	shaderStages[ 1 ].pSpecializationInfo = &specializationInfo;
 
 	VkVertexInputBindingDescription vertexBindings[ 2 ];
 	vertexBindings[ 0 ].binding = 0;
@@ -3830,8 +3847,12 @@ bool CreateWorldPipelineVariant( sdVulkanBackendState& state,
 		blendAttachment.srcColorBlendFactor = sourceBlend;
 		blendAttachment.dstColorBlendFactor = destinationBlend;
 		blendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
-		blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-		blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+		// glBlendFunc's factors apply to alpha too.  A blended pass that writes
+		// depth is the MegaTexture's levels, whose alpha is the level weight; retail
+		// draws the terrain in one notlit_lit replace that writes alpha 0.
+		const bool levelBlend = depthWrite;
+		blendAttachment.srcAlphaBlendFactor = levelBlend ? VK_BLEND_FACTOR_ZERO : sourceBlend;
+		blendAttachment.dstAlphaBlendFactor = levelBlend ? VK_BLEND_FACTOR_ZERO : destinationBlend;
 		blendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
 	}
 	VkPipelineColorBlendStateCreateInfo blendState;
@@ -4486,6 +4507,9 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 		const VkPipelineDepthStencilStateCreateInfo interactionDepthStencil = depthStencil;
 		shaderStages[ 1 ].module = fogModule;
 		blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+		// atmospherelinear blends alpha as colour (glBlendFunc), which the glow reads
+		blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+		blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
 		// fog a pixel once: pass on stencil 0 (cleared before the fog) and mark it
 		depthStencil.stencilTestEnable = VK_TRUE;
 		depthStencil.front.compareOp = VK_COMPARE_OP_EQUAL;
@@ -4502,6 +4526,8 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 		}
 		shaderStages[ 1 ].module = interactionModule;
 		blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+		blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+		blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
 		depthStencil = interactionDepthStencil;
 	};
 	VkShaderModule ambientCubeModule = VK_NULL_HANDLE;
