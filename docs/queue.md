@@ -24,8 +24,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | What | Owner | Next step |
 |---|---|---|---|
-| [#258](https://github.com/jm2/openETQW/issues/258) | Vulkan front-end descriptor cache: linear scan, no eviction, shares the material pool | openETQW-win-arm64 | PR `fix/vk-frontend-descriptor-cache-258`: own pool, hashed, sets freed with their images, unused sets evicted when full, one-time warning. |
-| [#262](https://github.com/jm2/openETQW/issues/262) | Vulkan material descriptor cache never frees orphaned sets (guiDescriptorPool exhaustion after ~300 map loads) | openETQW-win-arm64 | PR `fix/vk-material-descriptor-leak-262` (stacked on #261): sets freed with their images, unused sets evicted when full, one-time warning. |
+| [#262](https://github.com/jm2/openETQW/issues/262) | Vulkan material descriptor cache never frees orphaned sets (guiDescriptorPool exhaustion after ~300 map loads) | openETQW-win-arm64 | PR `fix/vk-material-descriptor-leak-262`: sets freed with their images, unused sets evicted when full, one-time warning. |
 
 ## 3. Milestone work, in order
 
