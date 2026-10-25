@@ -47,9 +47,9 @@ post-process (#219, #223, #263). Other Cg programs are skipped (ledger 077).
   - Missing `qglSampleCoverageARB` (#253): the coverage fade never ran.
   - Audit by comparing the declarations in `qgllib.cpp` with the `LOAD_QGL` list.
 - **The window:** every client creates its window through the SDL3 path
-  (`src/sys/sdl/sdl_glimp.cpp`), Windows included. Multisample attributes are set there;
-  the log prints "GL multisample: N samples" (#254). An unsupported count retries
-  without multisampling (#259).
+  (`src/sys/sdl/sdl_glimp.cpp`), Windows included. Multisample attributes are set there,
+  and `RenderSystem_init.cpp` logs "GL multisample: N samples" (#254). An unsupported count
+  retries without multisampling (#255, #259).
   - Apple's OpenGL never refuses a sample count; it quietly clamps it (3, 32, 64 → 4).
   - Apple's OpenGL 2.1 has no LATC, so retail's ATI1/ATI2 normal maps are decoded on the
     CPU (#220).
@@ -82,8 +82,8 @@ post-process (#219, #223, #263). Other Cg programs are skipped (ledger 077).
   All of it is retail-derived, so keep it in scratch.
 - **Finding which draw wrote a pixel:** read the pixel back before and after each draw in
   `RB_DrawElementsWithCounters`, and log the blend state with `glGet*`, armed by a temporary
-  cvar for one frame. `tr_render.cpp` doesn't include `tr_local.h`, and `tr_backend.cpp`
-  isn't linked into the client, so use `glGet*` for state.
+  cvar for one frame. `tr_render.cpp` doesn't include `tr_local.h`, and `tr_backend.cpp`'s Doom 3 `backEnd` state is
+  compiled out (`#if 0`), so use `glGet*` for state.
 
 ## 2. Vulkan raster, in order (`sdVulkanBackend::DrawView`)
 
@@ -111,14 +111,15 @@ post-process (#219, #223, #263). Other Cg programs are skipped (ledger 077).
       pixels the cube pass didn't mark (the stencil-zero-only pipeline). It also covers
       MegaTexture terrain.
    4. **Per light:** clear the light's scissor in the stencil to 128, draw the shadow
-      volumes (z-fail, INCR/DECR_AND_WRAP), then the interactions.
+      volumes (INCR/DECR_AND_WRAP; z-fail, or z-pass for an external volume), then the interactions.
       - Shadowed interactions test GREATER_OR_EQUAL against 128, as OpenGL does (#271).
       - Terrain lit by the sun uses retail's `notlit_lit` and its shadow split
         (`minSpecShadowColor`) (#242).
       - Sunlit models are scaled by m where the count is above zero (LESS against 128)
         (#268).
    5. **Fog:** clear the stencil to 0 again, then fog each lit, non-translucent surface
-      once (stencil) (#236). Translucent surfaces, grass among them, aren't fogged here.
+      once (stencil) (#236). Translucent surfaces, grass among them (`valley_stuff`'s coverage is
+      MC_TRANSLUCENT), aren't fogged here.
 4. **The rest of the base pass:** surfaces sorted after `SS_DECAL`, translucent ones,
    then the viewmodel. Each draws with its own depth range.
 5. **The GUI and post-process.** `sdGuiModel::SubmitFrameVulkan` hands the post-process
