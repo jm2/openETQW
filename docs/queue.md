@@ -134,6 +134,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-22/23:
+- #269 Stuff grass fades with distance on both APIs: _diffusionMask is a 16x16 ordered dither; Vulkan fades per instance (fixes #256; colour gap in #270)
 - #263 OpenGL draws retail's guis/postprocess glow (ARB ports of downsample, glare, blur, glow), the scene lift #233 measured
 - #266 Vulkan: image descriptors use the evicting allocator; currentRender material sets purged on swapchain recreate (#264 review)
 - #264 Vulkan: material descriptor sets freed with purged images and evicted when the pool is full (fixes #262)

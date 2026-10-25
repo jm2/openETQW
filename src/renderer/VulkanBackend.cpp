@@ -1143,13 +1143,15 @@ void EncodeModelRotation( const float modelMatrix[ 16 ], float& encodedXY,
 
 // Retail's foliage programs colour each vertex by its colour attribute whatever the
 // stage's vertexColor (foliage_vertex.inc: MOV result.color, $colorAttrib); the tree
-// models carry their leaves' green there (#246).
+// models carry their leaves' green there (#246).  stuff/grass reads it the same way:
+// its rgb is the instance tint, and under Vulkan its alpha the fade (#256).
 bool VulkanStageUsesVertexColor( const materialStage_t* stage ) {
 	if ( stage == NULL ) {
 		return false;
 	}
 	return stage->vertexColor == SVC_MODULATE || ( stage->renderProgram != NULL &&
-		idStr::Icmpn( stage->renderProgram->GetName(), "interaction/foliage", 19 ) == 0 );
+		( idStr::Icmpn( stage->renderProgram->GetName(), "interaction/foliage", 19 ) == 0 ||
+		  idStr::Icmpn( stage->renderProgram->GetName(), "stuff/grass", 11 ) == 0 ) );
 }
 
 void ReportMissingVulkanMaterial( sdVulkanBackendState& state,
@@ -11656,7 +11658,28 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			if ( selectedStage->hasAlphaTest || selectedStuffGrassStage ) {
 				pushConstants[ 30 ] = selectedStage->hasAlphaTest ?
 					surface->materialRegisters[ selectedStage->alphaTestRegister ] : 0.4f;
-				pushConstants[ 31 ] = 1.0f;
+				// 2: also discard the grass's vertex-alpha fade against the dither
+				pushConstants[ 31 ] = selectedStuffGrassStage ? 2.0f : 1.0f;
+			}
+			if ( selectedStuffGrassStage ) {
+				// retail's stuff/grass light, for the up-facing grass normals: the ambient
+				// cube times its brightness (its flat colour here) plus the sun term
+				// clamp( ( N.sun * 0.5 + 0.5 ) * sunColor * r_lightScale ), which the ARB
+				// program passes in the clamped primary colour (#256)
+				const sdDeclAmbientCubeMap* cubeMap = surface->space->ambientCubeMap;
+				idVec3 light = cubeMap != NULL ? cubeMap->GetMinSpecAmbientColor() * cubeMap->GetBrightness() : vec3_zero;
+				if ( view->atmosphere != NULL ) {
+					idVec3 sunDirection = view->atmosphere->GetSunDirection();
+					sunDirection.Normalize();
+					const idVec3 sun = view->atmosphere->GetSunColor() *
+						( cvarSystem->GetCVarFloat( "r_lightScale" ) * ( sunDirection.z * 0.5f + 0.5f ) );
+					for ( int component = 0; component < 3; ++component ) {
+						light[ component ] += idMath::ClampFloat( 0.0f, 1.0f, sun[ component ] );
+					}
+				}
+				for ( int component = 0; component < 3; ++component ) {
+					pushConstants[ 16 + component ] *= light[ component ];
+				}
 			}
 		}
 
