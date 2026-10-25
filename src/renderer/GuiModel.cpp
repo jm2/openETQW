@@ -33,6 +33,28 @@ extern glconfig_t glConfig;
 
 namespace {
 
+// The finished frame as _currentRender, and _postProcessBuffer_0/1 at a quarter
+// of it (RB_ARB2_SetupPostProcessingFrameBuffer's sizes), for a GUI post-process
+// material.  The GUI is submitted after the views, so there is no view def here.
+void GuiCopyFrameForPostProcess( int width, int height ) {
+	if ( globalImages == NULL || globalImages->currentRenderImage == NULL ) {
+		return;
+	}
+	const int bufferWidth = Max( 1, width >> 2 );
+	const int bufferHeight = Max( 1, height >> 2 );
+	for ( int index = 0; index < 2; ++index ) {
+		idImage* image = globalImages->postProcessBuffer[ index ];
+		if ( image != NULL && ( image->uploadWidth != bufferWidth || image->uploadHeight != bufferHeight ) ) {
+			image->FromParameters( bufferWidth, bufferHeight, GL_RGBA8, TT_RECT, TF_LINEAR, TR_CLAMP );
+		}
+	}
+	if ( rbinds != NULL ) {
+		rbinds->currentRenderTexelSize->Set( static_cast< float >( width ), static_cast< float >( height ),
+			1.0f / Max( width, 1 ), 1.0f / Max( height, 1 ) );
+	}
+	globalImages->currentRenderImage->CopyFramebuffer( 0, 0, width, height, false );
+}
+
 byte ClampCinematicChannel( int value ) {
 	return static_cast< byte >( idMath::ClampInt( 0, 255, value ) );
 }
@@ -543,6 +565,16 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 		idList< float > evaluated;
 		evaluated.SetNum( primitive.material->GetNumRegisters(), false );
 		primitive.material->EvaluateRegisters( evaluated.Begin(), primitive.materialParms, NULL, primitive.referenceSound, 0 );
+		// guis/postprocess draws postprocess/glow: stages that render into the
+		// quarter-size _postProcessBuffer_0/1 (destinationBuffer), all reading the
+		// finished frame as _currentRender (#233)
+		bool postProcess = false;
+		for ( int stageIndex = 0; stageIndex < primitive.material->GetNumStages(); ++stageIndex ) {
+			postProcess |= primitive.material->GetStage( stageIndex )->destinationBuffer >= 0;
+		}
+		if ( postProcess ) {
+			GuiCopyFrameForPostProcess( windowWidth, windowHeight );
+		}
 		for ( int stageIndex = 0; stageIndex < primitive.material->GetNumStages(); ++stageIndex ) {
 			const materialStage_t* stage = primitive.material->GetStage( stageIndex );
 			if ( evaluated[ stage->conditionRegister ] == 0.0f ) continue;
@@ -618,6 +650,11 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 			if ( qglVertexAttrib4fvARB != NULL && rbinds != NULL ) {
 				qglVertexAttrib4fvARB( rbinds->colorAttrib->GetAttribIndex(), vertexColor );
 			}
+			idImage* destination = stage->destinationBuffer >= 0 && stage->destinationBuffer < 2 && globalImages != NULL ?
+				globalImages->postProcessBuffer[ stage->destinationBuffer ] : NULL;
+			if ( destination != NULL ) {
+				glViewport( 0, 0, destination->uploadWidth, destination->uploadHeight );
+			}
 			glBegin( GL_TRIANGLE_FAN );
 			for ( int j = 0; j < primitive.numVerts; j++ ) {
 				const idVec2& st = primitive.verts[ j ].st;
@@ -632,6 +669,10 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 				glVertex2f( primitive.verts[ j ].xy.x, primitive.verts[ j ].xy.y );
 			}
 			glEnd();
+			if ( destination != NULL ) {
+				destination->CopyFramebuffer( 0, 0, destination->uploadWidth, destination->uploadHeight, false );
+				glViewport( 0, 0, windowWidth, windowHeight );
+			}
 		}
 	};
 
