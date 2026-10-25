@@ -9715,9 +9715,8 @@ public:
 		}
 		for ( int i = 0; i < space->numInsts; ++i ) {
 			const sdInstInfo& instance = space->insts[ i ];
-			const float distance = ( instance.fadeOrigin - view->renderView.vieworg ).Length();
-			if ( ( instance.maxVisDist > 0.0f && distance > instance.maxVisDist ) ||
-				( instance.minVisDist > 0.0f && distance < instance.minVisDist ) ) {
+			if ( !R_DistanceVisibility( instance.fadeOrigin, idMath::Ftoi( instance.maxVisDist ),
+				idMath::Ftoi( instance.minVisDist ), view ) ) {
 				continue;
 			}
 			if ( surface->geo != NULL && R_CullLocalBoxToViewdef( surface->geo->bounds,
@@ -9738,6 +9737,10 @@ static sdVulkanInstanceSurfaces vulkanInstanceSurfaces;
 struct vulkanExpandedSurface_t {
 	int					index;
 	const drawSurf_s*	surface;
+	// the view's own surface; ray tracing expands its instances itself, unculled,
+	// so it takes this once per surface (rayTracingSource) and not each copy
+	const drawSurf_s*	original;
+	bool				rayTracingSource;
 };
 
 // fog != NULL draws the atmosphere fog over the surface instead (no light; fog.frag,
@@ -9944,10 +9947,11 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 			const float lightScale = cvarSystem != NULL ?
 				cvarSystem->GetCVarFloat( "r_lightScale" ) * light->fadeFraction : light->fadeFraction;
 			if ( lightStage->colorVector != NULL ) {
+				// each channel limited to 1 before r_lightScale, as the OpenGL interaction (#212)
 				lightColor.Set(
-					light->lightRegisters[ lightStage->colorVector->registers[ 0 ] ] * lightScale,
-					light->lightRegisters[ lightStage->colorVector->registers[ 1 ] ] * lightScale,
-					light->lightRegisters[ lightStage->colorVector->registers[ 2 ] ] * lightScale );
+					idMath::ClampFloat( 0.0f, 1.0f, light->lightRegisters[ lightStage->colorVector->registers[ 0 ] ] ) * lightScale,
+					idMath::ClampFloat( 0.0f, 1.0f, light->lightRegisters[ lightStage->colorVector->registers[ 1 ] ] ) * lightScale,
+					idMath::ClampFloat( 0.0f, 1.0f, light->lightRegisters[ lightStage->colorVector->registers[ 2 ] ] ) * lightScale );
 			} else {
 				lightColor.Set( lightScale, lightScale, lightScale );
 			}
@@ -10723,15 +10727,22 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 	idList< vulkanExpandedSurface_t > expandedSurfaces;
 	expandedSurfaces.SetGranularity( 1024 );
 	for ( int surfaceIndex = 0; surfaceIndex < view->numDrawSurfs; ++surfaceIndex ) {
-		vulkanInstanceSurfaces.ForEach( view->drawSurfs[ surfaceIndex ], [&]( const drawSurf_s* drawSurf ) {
+		const drawSurf_s* original = view->drawSurfs[ surfaceIndex ];
+		bool first = true;
+		vulkanInstanceSurfaces.ForEach( original, [&]( const drawSurf_s* drawSurf ) {
 			vulkanExpandedSurface_t& expanded = expandedSurfaces.Alloc();
 			expanded.index = surfaceIndex;
 			expanded.surface = drawSurf;
+			expanded.original = original;
+			expanded.rayTracingSource = first;
+			first = false;
 		} );
 	}
 	for ( int expandedIndex = 0; expandedIndex < expandedSurfaces.Num(); ++expandedIndex ) {
 		const int surfaceIndex = expandedSurfaces[ expandedIndex ].index;
 		const drawSurf_s* surface = expandedSurfaces[ expandedIndex ].surface;
+		const drawSurf_s* rayTracingSurface = expandedSurfaces[ expandedIndex ].rayTracingSource ?
+			expandedSurfaces[ expandedIndex ].original : NULL;
 		if ( !rasterLightingDone && surface != NULL && surface->material != NULL &&
 			surface->material->GetSort() > static_cast< float >( SS_DECAL ) ) {
 			RunRasterLighting();
@@ -10843,7 +10854,7 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 		// pointer into that growable array.
 		const VkDescriptorSet selectedImageDescriptorSet =
 			imageResource->descriptorSet;
-		if ( !hardwareSkinned && !selectedWaterStage &&
+		if ( rayTracingSurface != NULL && !hardwareSkinned && !selectedWaterStage &&
 			surface->material->Coverage() != MC_TRANSLUCENT &&
 			surface->material->SurfaceCastsShadow() ) {
 			sdRayTracingGeometry geometry;
@@ -10855,11 +10866,11 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 				surface->geo->deformedSurfaceInstance ||
 				surface->geo->hardwareSkinnedSurface ||
 				surface->geo->frameAlloced || surface->geo->weightCache != NULL ||
-				( surface->space->model != NULL && idStr::Icmp(
-					surface->space->model->Name(), "_MD5_Snapshot_" ) == 0 );
+				( rayTracingSurface->space->model != NULL && idStr::Icmp(
+					rayTracingSurface->space->model->Name(), "_MD5_Snapshot_" ) == 0 );
 			geometry.geometryOwner = geometry.deforming &&
-				surface->space->entityDef != NULL ?
-				static_cast< const void* >( surface->space->entityDef ) :
+				rayTracingSurface->space->entityDef != NULL ?
+				static_cast< const void* >( rayTracingSurface->space->entityDef ) :
 				static_cast< const void* >( surface->geo );
 			geometry.surfaceId = surface->surfID;
 			geometry.vertexBuffer = vertexResource->buffer;
@@ -10868,7 +10879,7 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			geometry.indexBuffer = indexResource->buffer;
 			geometry.indexOffset = indexCacheBlock->offset;
 			geometry.indexCount = surface->geo->numIndexes;
-			const float* modelMatrix = surface->space->modelMatrix;
+			const float* modelMatrix = rayTracingSurface->space->modelMatrix;
 			geometry.transform[ 0 ] = modelMatrix[ 0 ];
 			geometry.transform[ 1 ] = modelMatrix[ 4 ];
 			geometry.transform[ 2 ] = modelMatrix[ 8 ];
@@ -10882,7 +10893,7 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			geometry.transform[ 10 ] = modelMatrix[ 10 ];
 			geometry.transform[ 11 ] = modelMatrix[ 14 ];
 			AppendRayTracingInstances( rayTracingGeometries, geometry,
-				surface->space );
+				rayTracingSurface->space );
 		}
 		state->worldResourceReady++;
 		VkDescriptorSet materialDescriptorSet = VK_NULL_HANDLE;
@@ -10904,7 +10915,7 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			// specular lookup.  It is never a meaningful visual fallback.
 			continue;
 		}
-		if ( !hardwareSkinned && selectedWaterStage ) {
+		if ( rayTracingSurface != NULL && !hardwareSkinned && selectedWaterStage ) {
 			sdRayTracingGeometry geometry;
 			memset( &geometry, 0, sizeof( geometry ) );
 			// Streamed surfaces (streamVertexCache) sit at a new frame-arena offset
@@ -10914,11 +10925,11 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 				surface->geo->deformedSurfaceInstance ||
 				surface->geo->hardwareSkinnedSurface ||
 				surface->geo->frameAlloced || surface->geo->weightCache != NULL ||
-				( surface->space->model != NULL && idStr::Icmp(
-					surface->space->model->Name(), "_MD5_Snapshot_" ) == 0 );
+				( rayTracingSurface->space->model != NULL && idStr::Icmp(
+					rayTracingSurface->space->model->Name(), "_MD5_Snapshot_" ) == 0 );
 			geometry.geometryOwner = geometry.deforming &&
-				surface->space->entityDef != NULL ?
-				static_cast< const void* >( surface->space->entityDef ) :
+				rayTracingSurface->space->entityDef != NULL ?
+				static_cast< const void* >( rayTracingSurface->space->entityDef ) :
 				static_cast< const void* >( surface->geo );
 			geometry.surfaceId = surface->surfID;
 			geometry.vertexBuffer = vertexResource->buffer;
@@ -10927,7 +10938,7 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			geometry.indexBuffer = indexResource->buffer;
 			geometry.indexOffset = indexCacheBlock->offset;
 			geometry.indexCount = surface->geo->numIndexes;
-			const float* modelMatrix = surface->space->modelMatrix;
+			const float* modelMatrix = rayTracingSurface->space->modelMatrix;
 			geometry.transform[ 0 ] = modelMatrix[ 0 ];
 			geometry.transform[ 1 ] = modelMatrix[ 4 ];
 			geometry.transform[ 2 ] = modelMatrix[ 8 ];
@@ -10985,7 +10996,7 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			geometry.normal[ 2 ] = worldWaterNormal.z;
 			geometry.normal[ 3 ] = 0.0f;
 			AppendRayTracingInstances( rayTracingWaterGeometries, geometry,
-				surface->space );
+				rayTracingSurface->space );
 		}
 		VkDescriptorSet heatHazeDescriptorSet = VK_NULL_HANDLE;
 		const bool heatHazeTexturesAvailable = selectedHeatHazeStage &&
