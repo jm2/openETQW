@@ -10352,20 +10352,6 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 			pushConstants[ 33 ] = ambient[ 1 ];
 			pushConstants[ 34 ] = ambient[ 2 ];
 			pushConstants[ 35 ] = ambient[ 3 ];
-			if ( ambient[ 2 ] > 1.5f ) {
-				// the shadow scale (#265): the sun's direction in model space, and 1
-				// for a two-sided material, in the colour slot
-				idVec3 sunDirection( 0.35f, 0.45f, 0.82f );	// as the directional light below
-				if ( view->atmosphere != NULL ) {
-					sunDirection = view->atmosphere->GetSunDirection();
-				}
-				sunDirection.Normalize();
-				const float* m = surface->space->modelMatrix;	// axis rows 0-2, 4-6, 8-10
-				pushConstants[ 16 ] = sunDirection.x * m[ 0 ] + sunDirection.y * m[ 1 ] + sunDirection.z * m[ 2 ];
-				pushConstants[ 17 ] = sunDirection.x * m[ 4 ] + sunDirection.y * m[ 5 ] + sunDirection.z * m[ 6 ];
-				pushConstants[ 18 ] = sunDirection.x * m[ 8 ] + sunDirection.y * m[ 9 ] + sunDirection.z * m[ 10 ];
-				pushConstants[ 19 ] = surface->material->GetCullType() == CT_TWO_SIDED ? 1.0f : 0.0f;
-			}
 		} else if ( directional ) {
 			idVec3 sunDirection( 0.35f, 0.45f, 0.82f );
 			if ( view->atmosphere != NULL ) {
@@ -10413,7 +10399,8 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		// ambient there, so the sun term goes in as minSpecShadowColor x sun
 		// everywhere, then the rest where unshadowed.
 		amblitShadow = lightPass && amblitShadowSplit && !unshadowed && !megaTextureSurface &&
-			light->lightDef != NULL;
+			light->lightDef != NULL && ( hardwareSkinned ? state.worldInteractionSkinnedUnshadowedPipeline :
+				state.worldInteractionUnshadowedPipeline ) != VK_NULL_HANDLE;
 		if ( amblitShadow ) {
 			const unsigned int packed = light->lightDef->minSpecShadowColor;	// sdColor4::PackColor
 			amblitShadowColor.Set( ( packed & 0xFF ) / 255.0f, ( ( packed >> 8 ) & 0xFF ) / 255.0f,

@@ -68,13 +68,6 @@ void main() {
 	if ( pc.parameters.w > 0.5 && texture( diffuseTexture, fragmentTexCoord ).a < pc.parameters.z ) {
 		discard;
 	}
-	// mode 2: only where the sun's interaction draws (its geometry faces the sun,
-	// color.rgb in model space; color.a 1 for a two-sided material, lit from either
-	// side), as retail scales only the pixels its amblit pass drew
-	if ( pc.ambientParameters.z > 1.5 && pc.color.a < 0.5 &&
-		dot( normalize( fragmentNormal ), pc.color.rgb ) <= 0.0 ) {
-		discard;
-	}
 	// the bumped normal as interaction.frag decodes it, in model space
 	vec2 tangentXY = texture( bumpTexture, fragmentTexCoord ).rg * 2.0 - 1.0;
 	float tangentZ = sqrt( max( 0.0, 1.0 - dot( tangentXY, tangentXY ) ) );
