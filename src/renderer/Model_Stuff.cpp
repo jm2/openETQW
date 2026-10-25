@@ -11,6 +11,8 @@
 #include "Model_Stuff.h"
 #include "Material.h"
 #include "draw_local.h"
+#include "VulkanBackend.h"
+#include "../decllib/declRenderProgram.h"
 #include "../decllib/declStuffType.h"
 #include "../decllib/declTypeHolder.h"
 
@@ -194,6 +196,22 @@ byte PackAngle( float value ) {
 		value -= 360.0f;
 	}
 	return static_cast< byte >( idMath::ClampInt( 0, 255, static_cast< int >( value * ( 255.0f / 360.0f ) ) ) );
+}
+
+// Retail's stuff/grass programs fade grass between r_stuffFadeStart and r_stuffFadeEnd
+// per pixel, by discarding where the fade is below the _diffusionMask dither.  Vulkan
+// doesn't run those programs: under Vulkan the instance's fade goes in the vertex alpha
+// (retail's wind amount, which Vulkan doesn't use) and ambient.frag discards it against
+// the same dither (#256).
+bool MaterialUsesStuffGrassProgram( const idMaterial* material ) {
+	for ( int stageIndex = 0; material != NULL && stageIndex < material->GetNumStages(); ++stageIndex ) {
+		const materialStage_t* stage = material->GetStage( stageIndex );
+		if ( stage != NULL && stage->renderProgram != NULL &&
+			idStr::Icmpn( stage->renderProgram->GetName(), "stuff/grass", 11 ) == 0 ) {
+			return true;
+		}
+	}
+	return false;
 }
 
 float DistanceSqrToBounds( const idBounds& bounds, const idVec3& point ) {
@@ -427,6 +445,9 @@ idRenderModel* BuildSnapshot( stuffModelData_t* data, stuffSnapshot_t* snapshot,
 	const idVec3 localViewOrigin = ( view->renderView.vieworg - entity->origin ) * entity->axis.Transpose();
 	const float fadeEnd = Max( 0.0f, snapshot->fadeEnd );
 	const float fadeEndSqr = fadeEnd * fadeEnd;
+	const bool fadeGrass = R_UseVulkanBackend();
+	const float fadeStart = Min( r_stuffFadeStart.GetFloat(), fadeEnd );
+	const float fadeRange = Max( 1.0f, fadeEnd - fadeStart );
 	idList< stuffBuildGroup_t* > groups;
 
 	for ( int surfaceIndex = 0; surfaceIndex < data->surfaces.Num(); ++surfaceIndex ) {
@@ -446,6 +467,7 @@ idRenderModel* BuildSnapshot( stuffModelData_t* data, stuffSnapshot_t* snapshot,
 				if ( distanceSqr > fadeEndSqr ) {
 					continue;
 				}
+				const float fade = fadeGrass ? 1.0f - ( idMath::Sqrt( distanceSqr ) - fadeStart ) / fadeRange : 1.0f;
 
 				if ( instance.modelIndex >= stuffSurface->models.Num() ) {
 					continue;
@@ -463,7 +485,14 @@ idRenderModel* BuildSnapshot( stuffModelData_t* data, stuffSnapshot_t* snapshot,
 
 					stuffBuildGroup_t* group = FindBuildGroup( groups, modelSurface->material,
 						stuffSurface->distanceScale, cell.cellX, cell.cellY, modelSurface->geometry->numVerts );
+					const int firstVertex = group->verts.Num();
 					AppendInstanceSurface( group, modelSurface->geometry, instance, instanceAxis );
+					if ( fadeGrass && MaterialUsesStuffGrassProgram( modelSurface->material ) ) {
+						const byte fadeAlpha = PackColor( fade );
+						for ( int v = firstVertex; v < group->verts.Num(); ++v ) {
+							group->verts[ v ].color[ 3 ] = fadeAlpha;
+						}
+					}
 				}
 			}
 		}
