@@ -4590,13 +4590,18 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 	depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 	depthStencil.stencilTestEnable = VK_TRUE;
 
+	// lit where the light's shadow count is at most 0: the stencil is cleared to
+	// 128 and the volumes count around it, so 128 >= stencil, as OpenGL's
+	// glStencilFunc( GL_GEQUAL, 128, 255 ).  Testing for exactly 0 shadowed every
+	// pixel whose count went below 0 (a front face without its cap), which wraps
+	// to 255: valley's distant buildings lost the sun (#267).
 	depthStencil.front.failOp = VK_STENCIL_OP_KEEP;
 	depthStencil.front.passOp = VK_STENCIL_OP_KEEP;
 	depthStencil.front.depthFailOp = VK_STENCIL_OP_KEEP;
-	depthStencil.front.compareOp = VK_COMPARE_OP_EQUAL;
+	depthStencil.front.compareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
 	depthStencil.front.compareMask = 0xFF;
 	depthStencil.front.writeMask = 0x00;
-	depthStencil.front.reference = 0;
+	depthStencil.front.reference = 128;
 
 	depthStencil.back = depthStencil.front;
 
@@ -11027,7 +11032,9 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 					VkClearAttachment clearAttachment;
 					memset( &clearAttachment, 0, sizeof( clearAttachment ) );
 					clearAttachment.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
-					clearAttachment.clearValue.depthStencil.stencil = 0;
+					// OpenGL's glClearStencil( 1 << ( stencilBits - 1 ) ): the shadow
+					// count's 0, which the interaction pipeline tests against
+					clearAttachment.clearValue.depthStencil.stencil = 128;
 
 					VkClearRect clearRect;
 					memset( &clearRect, 0, sizeof( clearRect ) );
