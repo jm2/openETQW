@@ -7,7 +7,7 @@ this file is the release-gate evidence register. A row is added only by a sessio
 the raw log or the PR it points at. Historical rows stay in their own table and are not
 evidence for `main` today.
 
-Last updated: 2026-10-26 (UTC). `main` at the time of writing: engine `6361385` (#283 merged).
+Last updated: 2026-10-26 (UTC). `main` at the time of writing: engine `51f7449` (#295 merged).
 
 ## Evidence levels
 
@@ -40,6 +40,21 @@ real-GPU work on the Linux hosts uses `swk-gpu-run` (`AGENTS.md` § GPU runs).
 | M4 `m4-bot-match` + `m4-offcampaign-match`: 2/2 PASS, exit 0 (30.0 s time limit, no objectives, gamereview reached) | Windows 11 x64 | `antec-win` | runtime (match-tested) | `9818c52` / `7fbdf80` | retail 1.5 | PR #283; `antec-win:.tmp\swk\engine-m3\builddir-swk\meson-logs\{m4-bot-match,m4-offcampaign-match}\`. Same build/run caveat as the M3 row |
 | M3 `weapon-fire-observer` 8/8/8 tracers, 3D drift 0.00 u; M2 `m2-render-world-parity`; M4 bot + offcampaign match: 4/4 PASS, exit 0, zero skips | Windows 11 arm64 (10.0.26200, Snapdragon X / Adreno X1-85) | `yoga-slim7x` | runtime (match-tested for the M4 pair, map-loaded for M3/M2); M2 listen side is a real Adreno Vulkan window and render world (raster; no RT), so M2 is GPU evidence here | tree `bada9b03` = the published tree of `9818c52` / `7fbdf80` | retail 1.5 | PR #283; `yoga-slim7x:.tmp\swk-work\openETQW\builddir-vs\meson-logs\{weapon-fire-observer,m2-render-world-parity,m4-bot-match,m4-offcampaign-match}\`. Built with Meson's VS backend (`meson setup --backend=vs`) and `msbuild /m:1 /p:Configuration=debug /p:Platform=arm64`; each test was then run as the registered python command line, because ninja hangs and `meson test` cannot open its pipe in that sandbox (so there is no `testlog.txt` result and no Meson timeout accounting) |
 
+## M7 combined run (2026-10-25/26)
+
+One run per host of the same 77 of 78 registered tests (the `soak` suite, which holds only
+`lossy-session`, excluded), engine `0a44150` / game `7fbdf80` (`tools/ci/companion.ref`).
+`main` has since moved docs-only (`9852f34`) plus the #292 test fix (`51f7449`); the engine
+`src` and `tests` trees at `0a44150`, `9852f34` and `4b4ad98` are identical. Each row is
+host-local evidence for the commit named in it; none of the five legs is a clean pass.
+
+| Verified thing | Platform (OS/arch) | Host | Evidence | Engine / game | Data set | Where the raw log or PR lives |
+|---|---|---|---|---|---|---|
+| M7 combined run, 77 of 78 tests: 70 OK, 6 FAIL, 1 SKIP. FAIL: #292; `high-refresh-determinism` + `-listen` (load-affected, both pass on the quiet rerun); #299 (`client-network-join`/`-listen`); `mixed-caps` (quiet rerun turn 58.0 fps vs 58.8, A10 -1.56 ms, every other check pass) | Linux x86_64 (Fedora 44) | `antec` | runtime (map-loaded; M4 legs match-tested); real GPU `AMD Radeon RX 6400 (RADV NAVI24)` through `swk-gpu-run`, `SDL_VIDEO_DRIVER=offscreen`, `SDL_AUDIODRIVER=dummy`; not a clean pass | `4b4ad98` (`src`/`tests` identical to `0a44150`) / `7fbdf80` | retail 1.5, `/home/jmulesa/etqw_data` | `antec:/home/jmulesa/openETQW/build/meson-logs/m7-linux-x64-e.txt` (loaded) and `m7-linux-x64-quiet.txt` (rerun of the five failures); `meson test -C build --no-suite soak -j 1 --timeout-multiplier 3`; binaries `openETQW 0.1.0-dev+g4b4ad987` |
+| M7 combined run, 77 of 78 tests: 73 OK, 3 FAIL, 1 SKIP. FAIL: #292; `client-lifecycle` (ALSA "Host is down", OK 1/1 with `SDL_AUDIODRIVER=dummy`); `high-refresh-determinism` one {151} tick flake at 30 Hz, passed on rerun | Linux arm64 (Fedora 44 Asahi, Apple M1) | `macmini-m1` | runtime (map-loaded; M4 legs match-tested); real GPU (Mesa Honeykrisp) through `swk-gpu-run`, offscreen video, no display; not a clean pass | `0a44150` (GIT_SHA `0a44150d`, rebuilt that day) / `7fbdf80` | retail 1.5, `/home/jmulesa/etqw_data` | `macmini-m1:build/meson-logs/m7-linux-arm64-gpu.txt`; `SDL_VIDEO_DRIVER=offscreen ETQW_DATA_PATH=... swk-gpu-run meson test -C build --no-suite soak --no-rebuild -j 1 --timeout-multiplier 3 --logbase m7-linux-arm64-gpu` |
+| M7 combined run, 77 of 77 attempted: 70 OK, 5 FAIL, 2 SKIP. FAIL: #292 and the four cap-60 turn phases (#293). SKIP: `cross-os` (no remote server), `client-server-timeout` (no SIGSTOP) | Windows 11 x64 (10.0.26300, MSVC 19.51) | `antec-win` | runtime (map-loaded; M4 legs match-tested); real GPU (`AMD Radeon RX 6400`); not a clean pass. Meson's runner cannot start (WinError 5 on its named pipe), so every test ran its exact registered argv/cwd/env from `builddir-swk\meson-info\intro-tests.json`; no Meson timeout accounting, `testlog.txt` is Ok 0 / Fail 0 | `0a44150` (binaries built from `9818c52`; `git diff 9818c52 0a44150 -- src tests` empty) / `7fbdf80` | retail 1.5, `C:\Users\jmulesa\etqw_data` | `antec-win:.tmp\m7\logs\<test>.log`, one JSON line per test in `.tmp\m7\results.jsonl` |
+| M7 combined run, 77 of 78 tests: 43 OK, 32 FAIL, 2 SKIP. The 32: 12 sandbox `mkdtemp(0o700)` setup failures (no product claim), 19 no-display (no frames presented), and #294 (`m4-campaign` "Waiting on BotThread" marker). The 43 OK include every M4 test except campaign | Windows 11 arm64 (10.0.26200, Snapdragon X / Adreno X1-85) | `yoga-slim7x` | runtime (map-loaded) for the 43 OK; the 12 sandbox and 19 no-display failures are environment, not product evidence either way; not a clean pass. Tests replayed from `builddir-vs\meson-info\intro-tests.json` (same argv/cwd/env); no Meson timeout accounting | `0a44150` (binaries built at `9818c52`; `src` tree `7e7b6065` and `tests` tree `41ed8cc6` identical at both commits) / `7fbdf80` | retail 1.5, `C:\Users\thesa\etqw_data` | `yoga-slim7x:builddir-vs\meson-logs\<test>\capture.out|err`, summary `.tmp\swk-work\suite\results.jsonl` |
+
 ## Historical rows
 
 | Verified thing | Platform (OS/arch) | Host | Evidence | Engine / game | Data set | Where the raw log or PR lives |
@@ -66,19 +81,23 @@ These runs are recorded so they are not mistaken for gate evidence.
 | M3 `weapon-fire-observer`, macOS arm64, engine `be49e04` / game `7fbdf80` | macOS arm64 | `mbp16-m1max` | 1/1 FAIL, exit 1, 48.09 s | The test's equipment check still required the whole kit to equal `{inventory/weapons/sniperrifle}`, and GDF covertops also carried `inventory/tools/gdf_parachute` on this spawn. The check was fixed in `a3b0db1`; this is the failure that found the bug. Log: `mbp16-m1max:/private/tmp/oe-m3-fresh-20261021/engine-equipped/build/meson-logs/m3-weapon-fire-mac-37e3c8c.txt` (sha256 `0c5a9ef6`) |
 | M3 `weapon-fire-observer` at test revision `ed6735b7`, two runs, engine `1ff001f` / game `bb8e0c5` (withdrawn) | macOS arm64 | `mbp16-m1max` | PASS lines, exit 0, but withdrawn as evidence | The revision hardcoded client 0 (the observer, not the shooter) and measured 2D drift; the revised test identifies the shooter by team and needs 3D drift. Receipt counts 6/6/6 and `playerPos=48` stand only as history. Logs: `mbp16-m1max:/private/tmp/oe-162.YFvqlt/m3-mac.out` and `m3-mac-run2.out` (sha256 `57e45a8d`) |
 
+| Full retail suite, 2026-10-25, engine `0a44150` / game `7fbdf80` | macOS arm64 (macOS 27.0.1, M1 Max) | `mbp16-m1max` | 59 OK, 17 FAIL, 1 SKIP of 77 | No GPU evidence: the sandbox has no WindowServer or Metal, so clients ran on `SDL_VIDEO_DRIVER=offscreen` with MoltenVK unavailable and `GL_RENDERER: llvmpipe`. All 17 failures are client frame-pacing/draw-pair assertions (e.g. `render-api-fallback`, `frame-poses-*`, `seat-poses-*`, `mixed-caps`); engine and game logic tests (all unit, all 8 M4, `all-stock-maps`, `m2-render-world-parity`, `weapon-fire-observer`) passed. A `run-m7.command` exists for a Terminal.app run; the owner decision is open. Log: `mbp16-m1max:/private/tmp/oe-m7/engine/build/meson-logs/m7-mac-arm64.txt` |
+
 ## Platform coverage
 
 | Platform | Latest full retail suite on record | Date | Commits | Result |
 |---|---|---|---|---|
-| Linux arm64 | 69 tests | 2026-10-22 | `99261aa` / `e4c6d3f` | 64 OK, 4 FAIL, 1 SKIP; not clean (see above) |
-| Linux x86_64 | 69/70 with M2 (#178) | 2026-10-22 | merged #178 / game #60 | 69 OK, 1 FAIL (details in #178) |
-| Windows 11 x64 | 43 tests, optimized | 2026-10-01 | `a1428cf` / `8710165` | 42 OK, 1 FAIL (`mixed-caps` spawn-spot assertion) |
-| Windows 11 arm64 | 49 tests | 2026-10-07 | `e3244b2` + `8de6f8e` / `81f43a5` | 48 OK, 1 FAIL (`all-stock-maps` AAS flake) |
-| macOS arm64 | 34 tests | 2026-09-29 | `cba54bb` / `2485998` | 34 OK |
+| Linux arm64 | 77 tests | 2026-10-26 | `0a44150` / `7fbdf80` | 73 OK, 3 FAIL, 1 SKIP; not clean (M7 rows above) |
+| Linux x86_64 | 77 tests | 2026-10-26 | `4b4ad98` / `7fbdf80` | 70 OK, 6 FAIL, 1 SKIP; not clean (M7 rows above) |
+| Windows 11 x64 | 77 tests | 2026-10-26 | `0a44150` / `7fbdf80` | 70 OK, 5 FAIL, 2 SKIP; not clean (M7 rows above) |
+| Windows 11 arm64 | 77 tests | 2026-10-26 | `0a44150` / `7fbdf80` | 43 OK, 32 FAIL (12 sandbox, 19 no-display, 1 #294), 2 SKIP |
+| macOS arm64 | 77 tests | 2026-10-26 | `0a44150` / `7fbdf80` | 59 OK, 17 FAIL, 1 SKIP; software raster only, not GPU evidence (Not a pass) |
 
-The M7 gate stays open: there has been no combined five-platform run at current `main`
-(`f4d3d74`) covering the merged work from #220 to #276. Every row above is host-local
-evidence for the commit named in it, not for `main` today.
+The M7 gate stays open. A combined five-platform run now exists at `0a44150` / `7fbdf80`
+(2026-10-25/26, section above), covering the merged work from #220 to #276, but three of
+the five legs are not clean passes (each row lists its failures) and the macOS arm64 leg
+has no GPU evidence until the owner decides how it is run or recorded. Every row is
+host-local evidence for the commit named in it, not for `main` today.
 
 ## Adding a row
 
