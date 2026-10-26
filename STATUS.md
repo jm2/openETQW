@@ -628,7 +628,7 @@ Both repositories are private and have no releases.
    - Both histories were scanned against the retail 1.5 data: the only matches are the SDK script text in `src/compiledscript/scripts/` (`docs/provenance.md` §7).
    - Before publishing, check that no ref on the host, including GitHub's pull-request refs, reaches retail content. The owner expects to recreate the repositories.
    - No `.exe`, `.pdb`, `.pk4` or capture files and no raw decompiler output were found.
-   - Third-party binary blobs remain: `src/openal/lib/openal32.lib`, `eaxguid.lib` (2 copies) and zlib contrib `.obj` files. They are not retail content, but they are unreviewed restricted dependencies (§11).
+   - Third-party code binaries: resolved 2026-10-26. `src/openal/lib/openal32.lib`, `src/openal/lib/eaxguid.lib`, `src/sys/win32/eaxguid.lib`, zlib's four `contrib/masmx{64,86}/*.obj` and the PowerPC `src/openal/osx/OpenAL.framework` binary were deleted because no build target references them — OpenAL is compiled out everywhere (`ID_OPENAL` is defined nowhere) and zlib is the system dependency. What remains binary is documentation and vendored UI/media assets, no prebuilt code; see `docs/provenance.md` §6.
 6. **SDK EULA with the game repo and every package; retail-install check enforced; nothing sold: not cleared (both safeguards are in place; no package exists yet to carry them).**
    - The owner accepted the EULA §2 risk as openQ4 does (A3, 2026-09-25), with two safeguards (`docs/decisions/0002-sdk-eula-risk-and-retail-install-check.md`):
      - the retail-install check, openQ4's design (A7): enforced since engine PR #19 (`fs_validateOfficialPaks`, meson `retail-install-check`);
