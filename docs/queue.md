@@ -75,7 +75,7 @@ Each item names its acceptance test. Details are in the linked plan.
    which seats join the default list (§4).
 3. **M4, what is left**: done (#199, §5). Every M4 item listed in `STATUS.md` § Milestones now has a meson test.
 4. **Retail data discovery** (`STATUS.md` § Next steps, item 7): the Linux folder picker
-   is done (`feat/linux-retail-folder-picker`): `Sys_PromptForRetailData` on Linux asks
+   is done (#297, issue #296): `Sys_PromptForRetailData` on Linux asks
    through the first helper of zenity, kdialog and yad that is installed, with the
    macOS/Windows semantics — a Cancel stores nothing, an absent helper is skipped, and the
    folder is written once it is accepted. The `retail-discovery` unit test covers each
