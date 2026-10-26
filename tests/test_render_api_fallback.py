@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -105,6 +106,24 @@ def max_texture_size(output: str) -> int:
     return 0
 
 
+def context_field(line: str, field: str) -> int | None:
+    """One labelled value from the engine's SDL3 context line, whatever the field order."""
+    match = re.search(rf"\b{field}\s+(\d+)", line)
+    return int(match.group(1)) if match else None
+
+
+def stencil_bits(output: str) -> int | None:
+    """The stencil field of "SDL3 OpenGL context: depth N, stencil N, samples N".
+
+    The line is printed by src/sys/sdl/sdl_glimp.cpp, which gained the trailing
+    samples field in a87d1d7 (#255). Reading the last number on the line was
+    therefore the stencil value only by accident (#292: it read samples 0 and
+    failed the >= 8 check on a context with 8 stencil bits).
+    """
+    line = next((l for l in output.splitlines() if l.startswith("SDL3 OpenGL context:")), None)
+    return context_field(line, "stencil") if line is not None else None
+
+
 def check_gl_initialised(output: str, phase: str) -> None:
     """The legacy GL path ran against a real context: no null-context failure."""
     assert "GL_VENDOR:" in output, f"{phase}: missing GL_VENDOR (legacy GL path did not run)"
@@ -113,10 +132,48 @@ def check_gl_initialised(output: str, phase: str) -> None:
     )
     size = max_texture_size(output)
     assert size > 512, f"{phase}: GL_MAX_TEXTURE_SIZE is {size}, expected > 512"
-    stencil = next((int(line.rsplit(" ", 1)[1]) for line in output.splitlines()
-                    if line.startswith("SDL3 OpenGL context:") and "stencil" in line), 0)
+    stencil = stencil_bits(output)
+    assert stencil is not None, (
+        f"{phase}: no stencil field in the SDL3 context line (expected "
+        f"'SDL3 OpenGL context: depth N, stencil N, samples N' from src/sys/sdl/sdl_glimp.cpp)"
+    )
     assert stencil >= 8, f"{phase}: the OpenGL context has {stencil} stencil bits, expected >= 8"
     print(f"  GL_VENDOR present, GL_MAX_TEXTURE_SIZE: {size}, stencil bits: {stencil}")
+
+
+def test_context_line_parse() -> None:
+    """#292: the stencil value is its own field, and a low one still fails."""
+    print("=================================================================")
+    print(" Parser checks (synthetic engine output, no client needed)")
+    print("=================================================================")
+    healthy = "\n".join([
+        "GL_VENDOR: Test",
+        "GL_RENDERER: Test",
+        "GL_MAX_TEXTURE_SIZE: 8192",
+        "SDL3 OpenGL context: depth 24, stencil 8, samples 0",
+    ])
+    check_gl_initialised(healthy, "synthetic")
+    # the two-field line printed before a87d1d7 must still parse
+    check_gl_initialised(healthy.replace(", samples 0", ""), "synthetic")
+    # a low stencil fails even when the trailing samples field is large, and
+    # the failure names the stencil value rather than the samples value
+    try:
+        check_gl_initialised(healthy.replace("stencil 8, samples 0", "stencil 4, samples 8"), "synthetic")
+    except AssertionError as exc:
+        assert "4 stencil bits" in str(exc), f"low stencil misreported: {exc}"
+    else:
+        raise AssertionError("synthetic: a context with stencil 4, samples 8 passed the stencil check")
+    # field order does not matter, and a missing stencil field fails instead of
+    # silently reading another number on the line
+    check_gl_initialised(healthy.replace("depth 24, stencil 8, samples 0",
+                                         "samples 0, depth 24, stencil 16"), "synthetic")
+    try:
+        check_gl_initialised(healthy.replace(", stencil 8", ""), "synthetic")
+    except AssertionError as exc:
+        assert "stencil" in str(exc), f"missing stencil field misreported: {exc}"
+    else:
+        raise AssertionError("synthetic: a context line with no stencil field passed the stencil check")
+    print("  stencil read by field name: 8 / 4 / 16 and the missing-field case all reported correctly")
 
 
 def test_default_is_vulkan() -> None:
@@ -185,6 +242,8 @@ def main() -> int:
     print(f" Binary: {CLIENT_BIN}")
     print(f" Retail Data: {DATA_PATH}")
     print("=================================================================")
+
+    test_context_line_parse()
 
     if not CLIENT_BIN.is_file():
         print(f"[SKIP] Client binary not found at {CLIENT_BIN}. Skipping (exit code 77).")
