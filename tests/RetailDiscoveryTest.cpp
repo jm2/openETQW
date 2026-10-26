@@ -19,6 +19,9 @@ case), and the search order with the platform hooks stubbed here.
 #include <chrono>
 #include <fstream>
 #include <string>
+#ifndef _WIN32
+#include <unistd.h>	// geteuid, for the read-only folder case
+#endif
 
 namespace fs = std::filesystem;
 
@@ -236,12 +239,29 @@ int main() {
 			   !RetailDiscovery::ParseChooserOutput( "no folder chosen\n", path ) && !RetailDiscovery::ParseChooserOutput( NULL, path ),
 			"a message or an empty answer counted as a folder" );
 	}
+	// what a finished helper means: the rule the chooser sequence acts on
+	{
+		idStr answer;
+		CHECK( RetailDiscovery::ClassifyChooser( 127, false, "", answer ) == RetailDiscovery::CHOOSER_ABSENT,
+			"a helper that could not be started was not skipped" );
+		CHECK( RetailDiscovery::ClassifyChooser( 0, false, "/games/ETQW\n", answer ) == RetailDiscovery::CHOOSER_PICKED &&
+			   !idStr::Icmp( answer.c_str(), "/games/ETQW" ),
+			"a chosen folder was read as '%s'", answer.c_str() );
+		CHECK( RetailDiscovery::ClassifyChooser( 1, false, "", answer ) == RetailDiscovery::CHOOSER_CANCELLED,
+			"a helper's Cancel (non-zero exit) did not end the sequence" );
+		CHECK( RetailDiscovery::ClassifyChooser( -15, false, "", answer ) == RetailDiscovery::CHOOSER_CANCELLED,
+			"a helper killed by a signal did not end the sequence" );
+		CHECK( RetailDiscovery::ClassifyChooser( 0, false, "no folder chosen\n", answer ) == RetailDiscovery::CHOOSER_CANCELLED,
+			"a helper that printed no folder did not end the sequence" );
+		CHECK( RetailDiscovery::ClassifyChooser( 0, true, "/games/ETQW\n", answer ) == RetailDiscovery::CHOOSER_CANCELLED,
+			"output too long for a folder was taken as a choice" );
+	}
 	// a write that cannot happen leaves the previous choice, never a truncated one
 	{
 		const fs::path savePath = tmp / "save-keep";
 		WriteFile( savePath / "basepath.txt", "/previous/install\n" );
 #ifndef _WIN32
-		{
+		if ( geteuid() != 0 ) {	// root ignores the read-only folder: the case cannot be built
 			std::error_code chmodError;
 			fs::permissions( savePath, fs::perms::owner_read | fs::perms::owner_exec, fs::perm_options::replace, chmodError );
 			const bool refused = !RetailDiscovery::WriteStoredPath( Str( savePath ).c_str(), Str( lower ).c_str() );

@@ -514,15 +514,10 @@ static idStr Posix_ChooserPath( const char *program ) {
 	return idStr();
 }
 
-enum chooserResult_t {
-	CHOOSER_ABSENT,		// could not be started: the next route
-	CHOOSER_CANCELLED,	// it ran and the player gave up
-	CHOOSER_PICKED
-};
-
 // One dialog: text is appended as the last argument when it is not NULL (the refusal
-// text of a message dialog). Its stdout is the folder, one line.
-static chooserResult_t Posix_RunChooser( const idStr &program, const idStrList &args, const char *text, idStr &picked ) {
+// text of a message dialog). Its stdout is the folder, one line. What its exit status and
+// output mean is RetailDiscovery::ClassifyChooser's rule, not this file's.
+static RetailDiscovery::retailChooserResult_t Posix_RunChooser( const idStr &program, const idStrList &args, const char *text, idStr &picked ) {
 	char *argv[ 24 ];
 	int argc = 0;
 	argv[ argc++ ] = const_cast< char * >( program.c_str() );
@@ -536,13 +531,13 @@ static chooserResult_t Posix_RunChooser( const idStr &program, const idStrList &
 
 	int pipefd[ 2 ];
 	if ( pipe( pipefd ) != 0 ) {
-		return CHOOSER_ABSENT;
+		return RetailDiscovery::CHOOSER_ABSENT;
 	}
 	const pid_t pid = fork();
 	if ( pid < 0 ) {
 		close( pipefd[ 0 ] );
 		close( pipefd[ 1 ] );
-		return CHOOSER_ABSENT;
+		return RetailDiscovery::CHOOSER_ABSENT;
 	}
 	if ( pid == 0 ) {
 		close( pipefd[ 0 ] );
@@ -554,11 +549,25 @@ static chooserResult_t Posix_RunChooser( const idStr &program, const idStrList &
 	close( pipefd[ 1 ] );
 	char buffer[ 4096 ];
 	int length = 0;
-	while ( length < ( int )sizeof( buffer ) - 1 ) {
-		const ssize_t got = read( pipefd[ 0 ], buffer + length, sizeof( buffer ) - 1 - length );
-		if ( got > 0 ) {
-			length += got;
-			continue;
+	bool truncated = false;
+	for ( ;; ) {
+		ssize_t got;
+		if ( length < ( int )sizeof( buffer ) - 1 ) {
+			got = read( pipefd[ 0 ], buffer + length, sizeof( buffer ) - 1 - length );
+			if ( got > 0 ) {
+				length += got;
+				continue;
+			}
+		} else {
+			// a folder fits many times over: read to the end of the pipe anyway, since
+			// closing it under a helper that is still printing would turn its message
+			// into a SIGPIPE (and so into a Cancel); the excess is dropped and refused
+			char excess[ 256 ];
+			got = read( pipefd[ 0 ], excess, sizeof( excess ) );
+			if ( got > 0 ) {
+				truncated = true;
+				continue;
+			}
 		}
 		if ( got < 0 && errno == EINTR ) {
 			continue;
@@ -571,20 +580,13 @@ static chooserResult_t Posix_RunChooser( const idStr &program, const idStrList &
 	int status = 0;
 	while ( waitpid( pid, &status, 0 ) < 0 && errno == EINTR ) {
 	}
-	if ( !WIFEXITED( status ) ) {
-		return CHOOSER_CANCELLED;
+	int exitCode = -1;	// no status: treat it as a helper that did not answer
+	if ( WIFEXITED( status ) ) {
+		exitCode = WEXITSTATUS( status );
+	} else if ( WIFSIGNALED( status ) ) {
+		exitCode = -WTERMSIG( status );
 	}
-	const int code = WEXITSTATUS( status );
-	if ( code == 127 ) {
-		return CHOOSER_ABSENT;
-	}
-	if ( code != 0 ) {
-		return CHOOSER_CANCELLED;	// zenity, kdialog and yad all exit non-zero on Cancel
-	}
-	if ( !RetailDiscovery::ParseChooserOutput( buffer, picked ) ) {
-		return CHOOSER_CANCELLED;
-	}
-	return CHOOSER_PICKED;
+	return RetailDiscovery::ClassifyChooser( exitCode, truncated, buffer, picked );
 }
 
 /*
@@ -614,12 +616,12 @@ bool Sys_PromptForRetailData( idStr &root, const char *problem ) {
 			Posix_RunChooser( program, chooser.messageArgs, problem, ignored );	// best effort
 		}
 		idStr picked;
-		const chooserResult_t result = Posix_RunChooser( program, chooser.folderArgs, NULL, picked );
-		if ( result == CHOOSER_PICKED ) {
+		const RetailDiscovery::retailChooserResult_t result = Posix_RunChooser( program, chooser.folderArgs, NULL, picked );
+		if ( result == RetailDiscovery::CHOOSER_PICKED ) {
 			root = picked;
 			return true;
 		}
-		if ( result == CHOOSER_CANCELLED ) {
+		if ( result == RetailDiscovery::CHOOSER_CANCELLED ) {
 			return false;
 		}
 	}

@@ -82,6 +82,20 @@ namespace RetailDiscovery {
 	// absolute (a helper that printed a message instead of a folder)
 	bool	ParseChooserOutput( const char *output, idStr &path );
 
+	// a finished helper's outcome, as the chooser sequence reads it
+	enum retailChooserResult_t {
+		CHOOSER_ABSENT,		// could not be started: try the next route
+		CHOOSER_CANCELLED,	// it ran and the player gave up: stop, store nothing
+		CHOOSER_PICKED		// it printed a folder
+	};
+
+	// The rule the sequence acts on, kept here so the unit test can pin it. exitCode is the
+	// helper's exit status: 127 when it could not be started, negative when a signal
+	// killed it. A helper that could not be started is ABSENT; one that was killed,
+	// exited non-zero, printed more than outputTruncated says the caller's buffer holds,
+	// or printed no folder is CANCELLED; otherwise the folder it printed is PICKED.
+	retailChooserResult_t ClassifyChooser( int exitCode, bool outputTruncated, const char *output, idStr &picked );
+
 	// probe the candidates in order; true and the root at the first match
 	bool	FindFirst( const idStrList &candidates, const char *source, idStr &root, idList<retailProbe_t> &probes );
 

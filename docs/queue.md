@@ -77,10 +77,13 @@ Each item names its acceptance test. Details are in the linked plan.
 4. **Retail data discovery** (`STATUS.md` § Next steps, item 7): the Linux folder picker
    is done (#297, issue #296): `Sys_PromptForRetailData` on Linux asks
    through the first helper of zenity, kdialog and yad that is installed, with the
-   macOS/Windows semantics — a Cancel stores nothing, an absent helper is skipped, and the
-   folder is written once it is accepted. The `retail-discovery` unit test covers each
-   route's arguments, the helper's printed answer and the stored path's replace; the
-   interactive check needs a desktop and is on the PR as a checklist for the owner. Left:
+   macOS/Windows rules — a Cancel stores nothing, an absent helper is skipped, and the
+   folder is written once it is accepted. One difference is deliberate: Linux's refusal
+   is a message dialog and then the folder dialog again, so only that dialog's Cancel
+   ends the sequence, where macOS offers Quit and Windows Cancel at the refusal. The
+   `retail-discovery` unit test covers each route's arguments, the helper's outcome, the
+   printed answer and the stored path's replace; the interactive check needs a desktop and
+   is on the PR as a checklist for the owner. Left:
    a person trying the macOS and Windows pickers (owner).
 5. **Provenance labels** (`docs/provenance.md` §6): done, merged as `a9aadd4` (#285,
    `docs/provenance-labels`). It relabels the five minizip files and `eaxguid.lib` as

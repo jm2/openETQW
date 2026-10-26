@@ -626,9 +626,12 @@ RetailDiscovery::AppendLinuxFolderChoosers
 Linux's first-run prompt (ledger 068), in the order to try them: zenity is GTK's
 dialog tool, which the GTK desktops (GNOME, XFCE, Cinnamon, MATE) ship and which GTK
 itself routes through xdg-desktop-portal inside a Flatpak or Snap sandbox; kdialog is
-Plasma's; yad is the same kind of tool for GTK setups that ship it instead of zenity.
+Plasma's; yad is the same kind of tool for GTK setups that ship it instead of zenity, and
+its message dialog has no type flag of its own (the --text dialog is its default one).
 A helper that is not installed is skipped, and one that runs has the last word: its
-Cancel is the player's answer, not a reason to ask another program.
+Cancel is the player's answer, not a reason to ask another program. Only the arguments
+are pinned by the unit test: whether each dialog looks and behaves as intended needs a
+desktop, so that is the owner's checklist on the PR.
 ====================
 */
 void RetailDiscovery::AppendLinuxFolderChoosers( idList< retailFolderChooser_t > &choosers ) {
@@ -667,6 +670,33 @@ void RetailDiscovery::AppendLinuxFolderChoosers( idList< retailFolderChooser_t >
 	yad.folderArgs.Append( "--title" );
 	yad.folderArgs.Append( title );
 	choosers.Append( yad );
+}
+
+/*
+====================
+RetailDiscovery::ClassifyChooser
+
+What a finished helper means, the rule Linux's chooser sequence acts on: an absent helper
+moves to the next route, the player's Cancel stops the sequence with nothing stored, and
+only a helper that exited 0 and printed a folder is an answer. Every helper zenity,
+kdialog and yad exits non-zero on Cancel; a helper the player's session killed, and one
+whose output is longer than a path can be, are not answers either.
+====================
+*/
+RetailDiscovery::retailChooserResult_t RetailDiscovery::ClassifyChooser( int exitCode, bool outputTruncated, const char *output, idStr &picked ) {
+	if ( exitCode == 127 ) {
+		return CHOOSER_ABSENT;
+	}
+	if ( exitCode < 0 || outputTruncated ) {
+		return CHOOSER_CANCELLED;
+	}
+	if ( exitCode != 0 ) {
+		return CHOOSER_CANCELLED;
+	}
+	if ( !ParseChooserOutput( output, picked ) ) {
+		return CHOOSER_CANCELLED;
+	}
+	return CHOOSER_PICKED;
 }
 
 bool RetailDiscovery::ParseChooserOutput( const char *output, idStr &path ) {
