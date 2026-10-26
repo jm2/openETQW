@@ -76,8 +76,10 @@ Each item names its acceptance test. Details are in the linked plan.
 5. **Provenance labels** (`docs/provenance.md` §6): the minizip relabel and the other
    open label questions. Acceptance: `provenance_post_split.py` reports no gap, the game's
    `check_spdx.py` passes, and the §6 rows are resolved.
-6. **`docs/platform-matrix.md`** (release gate, M7): what is verified per platform, with
-   the evidence level, host and commit.
+6. **`docs/platform-matrix.md`** (release gate, M7): the evidence register exists
+   (PR #284; per row the verified thing, platform, host, evidence level, engine/game
+   commits, data set and raw log or PR, with historical rows kept apart). M7 stays open:
+   there has been no combined five-platform run at current `main`.
 7. **Release gate 5, third-party binaries:** review `src/openal/lib/openal32.lib`, both
    copies of `eaxguid.lib` and zlib contrib's `.obj` files. Replace each, or record why it
    stays (`STATUS.md` § Release gate, item 5).
