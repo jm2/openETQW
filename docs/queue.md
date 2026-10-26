@@ -111,15 +111,48 @@ Each item names its acceptance test. Details are in the linked plan.
     - ~~cross-OS pairs that include an arm64 host~~: done (#144). Linux arm64 (`macmini-m1`)
       passes X1–X4 both ways with Linux x64, Windows x64 and macOS arm64
       (issuecomment-6281426367, -6282183468, -6303053162, -6303056403);
-    - weapon fire seen by the other player (a headless peer can't observe it; needs a
-      Vulkan observer or a server-side check). The test is written on branch head `be49e04`
-      (after `8e06d7c`). Reviewed from the text diffs `e2070be2` (test) and `534c375c`
-      (engine), not from the `be49e04` object: no blocker, no should-fix, one nit
-      (`set g_debugWeaponState -1` is unconfirmed). macOS arm64 ran the earlier revision
-      `ed6735b7` twice at engine `1ff001f` + game `bb8e0c5` and it passed, but that revision
-      measured client 0 by position (the observer, not the shooter) with 2D drift only, so it
-      is not evidence for the revised test. Next: publish `be49e04` and run the revised test
-      once on each platform.
+    - ~~weapon fire seen by the other player~~: a headless client does receive it. Game
+      main prints `EVENT_TRACER: server broadcast` on the server and `client received`
+      on each client, and `weapon-fire-observer` requires the shooter and a second
+      headless client to receive every broadcast with the same start and end.
+      `clientClass covertops 1` selects the sniper through the class data; the test
+      asserts the GDF SPAWN line's class=covertops, that the server's
+      `g_debugWeaponState` diagnostic names `inventory/weapons/sniperrifle` for that
+      client (item presence in `SPAWN_ITEMS` does not prove the option took), and that
+      the shooter's own client number (client 1 on Linux arm64, not always 0) stays
+      within 2 u in 3D. The equipped check compares items under `inventory/weapons/`
+      only: GDF covertops also carries `inventory/tools/gdf_parachute` on some spawns
+      (seen on macOS, not on either Linux run), and exact set equality failed on it.
+      PR #283, branch `feat/m3-weapon-fire-observer` at a3b0db1 (after be49e04; base
+      a38e311, which predates #178/#199), published; the a3b0db1 delta is 8/-2 in the
+      equipped predicate. Test file 12,399 B, sha256 66ee9048.
+      Reviewed: macmini on the e2070be2/534c375c text diffs and mbp16 on the a3b0db1
+      delta, neither with a blocker (the one nit was the unconfirmed
+      `set g_debugWeaponState -1`); yoga read it as a Windows program and found no
+      path where a crashed or misbound run reports PASS.
+      Passing legs: antec, Linux x86_64, game a5fdfaf (older than the pin), valley,
+      retail 1.5 - shooter client 0, equipped sniper only, 8 broadcasts received by
+      both clients, 24 `playerPos` samples, drift 0.00 u, exits 0
+      (`/var/tmp/oe-m3-linux/run.log`); macmini-m1, Linux arm64 Fedora 44 Asahi, game
+      7fbdf80 - shooter client 1, sniper only, 8/8/8, 24 samples, drift 0.00 u,
+      exits 0 (`build/agent-work/logs/m3-weapon-fire-a3b0db1-arm64.log`); mbp16-m1max,
+      macOS arm64, game 7fbdf80, SDL offscreen software raster (outcome evidence only,
+      not GPU raster) - shooter client 1, sniper + parachute, 8/8/8, 24 samples,
+      drift 0.00 u, exits 0. The earlier ed6735b7 runs (6/6/6 receipts) hardcoded
+      client 0 and measured 2D drift on the observer; their receipt counts stand,
+      their drift evidence does not.
+      Windows x64 (antec-win, Windows 11 26300, MSVC 19.51, real Vulkan client) and
+      Windows arm64 (yoga-slim7x, Windows 11 ARM64, Adreno X1-85 raster) both pass:
+      8/8/8, 24 samples, drift 0.00 u, exits 0/0/0. Neither Windows host can run
+      ninja or Meson's test runner in its sandbox, so both built with msbuild and
+      ran the exact python command lines Meson registers: no testlog.txt and no
+      Meson timeout/skip accounting (recorded, not glossed).
+      Windows run procedure: check no leftover openETQW-ded process and that
+      29974-29976 are free before each test. Meson's TerminateProcess on timeout
+      skips the harness cleanup, so leftovers from one run poison the next; Windows
+      prints "FATAL ERROR", not the POSIX "FATAL SIGNAL CAUGHT" the test greps for,
+      so a hard crash shows only as an exit code (NTSTATUS). Mapping that code and a
+      startup port/process check are a follow-up, not a merge gate.
 
     Acceptance: `cross-os` X1–X4 each way per pair, recorded like the evidence rows of
     2026-10-16, with the server's `playerPos` polled every 0.25 s (coordination §5).

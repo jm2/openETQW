@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5553,
+  "totalFiles": 5554,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 394
   },
   "postSplitCounts": {
-    "Reconstruction_original": 274,
+    "Reconstruction_original": 275,
     "ThirdParty": 1,
     "Doom3_GPL": 2,
     "SDK": 2
@@ -48216,9 +48216,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "3f6aa6d65d164eac09eb75bce64c1c681f58652f7ea62e92a1a3147cf4b4d695",
-      "canonicalSha256": "3f6aa6d65d164eac09eb75bce64c1c681f58652f7ea62e92a1a3147cf4b4d695",
-      "bytes": 28815,
+      "rawSha256": "05b6951bcc32b0e91ff40759888236eaed440a298ef47424ccd29df9dc6c62a7",
+      "canonicalSha256": "05b6951bcc32b0e91ff40759888236eaed440a298ef47424ccd29df9dc6c62a7",
+      "bytes": 31407,
       "addedAfterSplit": true,
       "addedIn": "bcba1a665ec1fe2674896af8cffbb62c5a2de127",
       "spdx": "GPL-3.0-or-later"
@@ -49014,9 +49014,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "3d4f64bef8c7c61c7b5622cdbc3b64d87e34c35b65e125cbe3ddb54a6d075e04",
-      "canonicalSha256": "3d4f64bef8c7c61c7b5622cdbc3b64d87e34c35b65e125cbe3ddb54a6d075e04",
-      "bytes": 41251,
+      "rawSha256": "cf4743220a80cfcbed33ddd91d7c3f0dd3e5ad7a3950a3f14cb8d5ad6c3bade7",
+      "canonicalSha256": "cf4743220a80cfcbed33ddd91d7c3f0dd3e5ad7a3950a3f14cb8d5ad6c3bade7",
+      "bytes": 41904,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": "GPL-3.0-or-later"
@@ -49415,6 +49415,18 @@
       "bytes": 18170,
       "addedAfterSplit": true,
       "addedIn": "deef4bba25ed12d4df2571281ff78a8efa0efb6b",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
+      "path": "tests/test_m3_weapon_fire.py",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "66ee9048c1b7346e8d5fa8f06041ad29ed792436fcabd68d64036e5554bcaf3c",
+      "canonicalSha256": "66ee9048c1b7346e8d5fa8f06041ad29ed792436fcabd68d64036e5554bcaf3c",
+      "bytes": 12399,
+      "addedAfterSplit": true,
+      "addedIn": "4557cade57626df53b0da8b4803c1bd3e51ebd61",
       "spdx": "GPL-3.0-or-later"
     },
     {
