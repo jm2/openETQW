@@ -93,8 +93,10 @@ Each item names its acceptance test. Details are in the linked plan.
    70 OK / 6 FAIL / 1 SKIP (real RX 6400), Linux arm64 73 / 3 / 1 (real GPU), Windows x64
    70 / 5 / 2, Windows arm64 43 / 32 / 2 (mostly sandbox and display/frame-pacing), macOS arm64
    59 / 17 / 1 (software raster only, no GPU evidence). M7 stays open until the macOS
-   leg's owner decision and each platform's session has checked its own row; the open
-   failures are #293, #294, #299 and the environment items.
+   leg's owner decision and each platform's session has checked its own row. The #292
+   failures are fixed in `51f7449`; the M7 pacing failures were host load and pass on
+   quiet reruns (#293 closed); open are #299 (Linux x64), #294 and the Windows arm64
+   environment items.
 7. **Release gate 5, third-party binaries:** review `src/openal/lib/openal32.lib`, both
    copies of `eaxguid.lib` and zlib contrib's `.obj` files. Replace each, or record why it
    stays (`STATUS.md` § Release gate, item 5).
