@@ -105,8 +105,8 @@ code, after searching the open issues for a duplicate. One issue per defect, wit
 symptom, the exact steps to reproduce it and the environment (host, OS, commit, data set),
 the mechanism with `file:line`, the scope (what the fix may touch and what it must not),
 and a done-test a reviewer can run.
-Put host measurements in the issue itself. Do not open a new tracking system: beads
-(`bd`, `.beads`) are gascity-only, and existing beads are left where they are (owner
+Put host measurements in the issue itself. Defects are not tracked in beads (`bd`,
+`.beads`): beads are gascity-only, and existing beads are left where they are (owner
 decision, `docs/coordination.md` §9, 2026-10-26).
 
 ## Records
