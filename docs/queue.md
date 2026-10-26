@@ -126,8 +126,10 @@ Each item names its acceptance test. Details are in the linked plan.
       PR #283, branch `feat/m3-weapon-fire-observer` at a3b0db1 (after be49e04; base
       a38e311, which predates #178/#199), published; the a3b0db1 delta is 8/-2 in the
       equipped predicate. Test file 12,399 B, sha256 66ee9048.
-      Reviewed: macmini reviewed the e2070be2/534c375c text diffs (no blocker, no
-      should-fix, one nit); the a3b0db1 object review is with macmini.
+      Reviewed: macmini on the e2070be2/534c375c text diffs and mbp16 on the a3b0db1
+      delta, neither with a blocker (the one nit was the unconfirmed
+      `set g_debugWeaponState -1`); yoga read it as a Windows program and found no
+      path where a crashed or misbound run reports PASS.
       Passing legs: antec, Linux x86_64, game a5fdfaf (older than the pin), valley,
       retail 1.5 - shooter client 0, equipped sniper only, 8 broadcasts received by
       both clients, 24 `playerPos` samples, drift 0.00 u, exits 0
@@ -139,7 +141,18 @@ Each item names its acceptance test. Details are in the linked plan.
       drift 0.00 u, exits 0. The earlier ed6735b7 runs (6/6/6 receipts) hardcoded
       client 0 and measured 2D drift on the observer; their receipt counts stand,
       their drift evidence does not.
-      Left: the Windows x64 (antec-win) and Windows arm64 (yoga-slim7x) legs.
+      Windows x64 (antec-win, Windows 11 26300, MSVC 19.51, real Vulkan client) and
+      Windows arm64 (yoga-slim7x, Windows 11 ARM64, Adreno X1-85 raster) both pass:
+      8/8/8, 24 samples, drift 0.00 u, exits 0/0/0. Neither Windows host can run
+      ninja or Meson's test runner in its sandbox, so both built with msbuild and
+      ran the exact python command lines Meson registers: no testlog.txt and no
+      Meson timeout/skip accounting (recorded, not glossed).
+      Windows run procedure: check no leftover openETQW-ded process and that
+      29974-29976 are free before each test. Meson's TerminateProcess on timeout
+      skips the harness cleanup, so leftovers from one run poison the next; Windows
+      prints "FATAL ERROR", not the POSIX "FATAL SIGNAL CAUGHT" the test greps for,
+      so a hard crash shows only as an exit code (NTSTATUS). Mapping that code and a
+      startup port/process check are a follow-up, not a merge gate.
 
     Acceptance: `cross-os` X1–X4 each way per pair, recorded like the evidence rows of
     2026-10-16, with the server's `playerPos` polled every 0.25 s (coordination §5).
