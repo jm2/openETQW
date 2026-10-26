@@ -49,7 +49,10 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 ## 1. Open PRs, in merge order
 
-None (2026-10-25).
+| # | State | What |
+|---|---|---|
+| [#282](https://github.com/jm2/openETQW/pull/282) | open, owner-gated (§4) | Release gate 5, re-cut on `main`: removes the seven unreviewed third-party binaries. Independent corroboration on the PR; the check rollup is unreadable for every token (403), so the owner decides. |
+| [#281](https://github.com/jm2/openETQW/pull/281) | open, superseded, do not rebase or force-push | The original gate-5 branch; #282 supersedes it and it stays open until the owner says otherwise. |
 
 ## 2. Open issues, in priority order
 
@@ -73,8 +76,8 @@ Each item names its acceptance test. Details are in the linked plan.
 3. **M4, what is left**: done (#199, §5). Every M4 item listed in `STATUS.md` § Milestones now has a meson test.
 4. **Retail data discovery** (`STATUS.md` § Next steps, item 7): the Linux folder picker,
    and a person trying the macOS and Windows pickers (owner).
-5. **Provenance labels** (`docs/provenance.md` §6): PR #285
-   (`docs/provenance-labels`) relabels the five minizip files and `eaxguid.lib` as
+5. **Provenance labels** (`docs/provenance.md` §6): done, merged as `a9aadd4` (#285,
+   `docs/provenance-labels`). It relabels the five minizip files and `eaxguid.lib` as
    ThirdParty/Upstream and the four PDB/reconstruction-marked engine files as
    Reconstruction_retail_RE; the openQ4 and post-split rows are resolved. Deferred with
    reasons: jmarshall's licence (owner, release gate 1), a post-split CI gate
@@ -82,7 +85,7 @@ Each item names its acceptance test. Details are in the linked plan.
    `provenance_post_split.py` reports no gap, the game's `check_spdx.py` passes, and the
    §6 rows are resolved or explicitly deferred.
 6. **`docs/platform-matrix.md`** (release gate, M7): the evidence register exists
-   (PR #284; per row the verified thing, platform, host, evidence level, engine/game
+   (merged as `d3a4d5b`, #284; per row the verified thing, platform, host, evidence level, engine/game
    commits, data set and raw log or PR, with historical rows kept apart). M7 stays open:
    there has been no combined five-platform run at current `main`.
 7. **Release gate 5, third-party binaries:** review `src/openal/lib/openal32.lib`, both
@@ -153,6 +156,10 @@ Each item names its acceptance test. Details are in the linked plan.
       prints "FATAL ERROR", not the POSIX "FATAL SIGNAL CAUGHT" the test greps for,
       so a hard crash shows only as an exit code (NTSTATUS). Mapping that code and a
       startup port/process check are a follow-up, not a merge gate.
+      Merged as #283 (`6361385`) on 2026-10-25 with game `7fbdf80`; the five legs are
+      Linux x64 (game `a5fdfaf`, older than the pin), Linux arm64, macOS arm64,
+      Windows x64 and Windows arm64. `docs/platform-matrix.md` carries the two Windows
+      rows from these runs.
 
     Acceptance: `cross-os` X1–X4 each way per pair, recorded like the evidence rows of
     2026-10-16, with the server's `playerPos` polled every 0.25 s (coordination §5).
@@ -206,6 +213,9 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-24/25 (the burn-down; the combined run is outstanding, see the top):
+- #285 Docs: provenance labels (minizip and eaxguid.lib -> ThirdParty/Upstream, four engine files -> Reconstruction_retail_RE; merged a9aadd4)
+- #284 Docs: `docs/platform-matrix.md`, the M7 evidence register (merged d3a4d5b)
+- #283 M3: `weapon-fire-observer`, a headless peer sees the other player's weapon tracers (five platforms; merged 6361385)
 - #280 Docs: resumption point for any session (sessions stopped for quota)
 - #279 Docs: the sessions' tribal knowledge (docs/render-path.md, docs/retail-comparison.md, coordination §5 platform notes)
 - #278 Docs: STATUS summary no longer lists #270 as open
