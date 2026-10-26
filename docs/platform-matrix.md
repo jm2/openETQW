@@ -90,7 +90,7 @@ These runs are recorded so they are not mistaken for gate evidence.
 | Linux arm64 | 77 tests | 2026-10-26 | `0a44150` / `7fbdf80` | 73 OK, 3 FAIL, 1 SKIP; not clean (M7 rows above) |
 | Linux x86_64 | 77 tests | 2026-10-26 | `4b4ad98` / `7fbdf80` | 70 OK, 6 FAIL, 1 SKIP; not clean (M7 rows above) |
 | Windows 11 x64 | 77 tests | 2026-10-26 | `0a44150` / `7fbdf80` | 70 OK, 5 FAIL, 2 SKIP; not clean (M7 rows above) |
-| Windows 11 arm64 | 77 tests | 2026-10-26 | `0a44150` / `7fbdf80` | 43 OK, 32 FAIL (12 sandbox, 19 no-display, 1 #294), 2 SKIP |
+| Windows 11 arm64 | 77 tests | 2026-10-26 | `0a44150` / `7fbdf80` | 43 OK, 32 FAIL (12 sandbox, 19 display/frame-pacing, 1 #294), 2 SKIP |
 | macOS arm64 | 77 tests | 2026-10-26 | `0a44150` / `7fbdf80` | 59 OK, 17 FAIL, 1 SKIP; software raster only, not GPU evidence (Not a pass) |
 
 The M7 gate stays open. A combined five-platform run now exists at `0a44150` / `7fbdf80`
