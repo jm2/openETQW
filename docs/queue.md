@@ -51,8 +51,9 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | State | What |
 |---|---|---|
-| [#282](https://github.com/jm2/openETQW/pull/282) | open, owner-gated (§4) | Release gate 5, re-cut on `main`: removes the seven unreviewed third-party binaries. Independent corroboration on the PR; the check rollup is unreadable for every token (403), so the owner decides. |
-| [#281](https://github.com/jm2/openETQW/pull/281) | open, superseded, do not rebase or force-push | The original gate-5 branch; #282 supersedes it and it stays open until the owner says otherwise. |
+| [#301](https://github.com/jm2/openETQW/pull/301) | open, owner-gated (§4) | Release gate 5: removes the seven unreviewed third-party binaries and the PowerPC `src/openal/osx/OpenAL.framework` dylib, records it in §6/`STATUS.md`/queue; supersedes #282 and #281, which stay open until the owner says otherwise. |
+| [#282](https://github.com/jm2/openETQW/pull/282) | open, superseded by #301, do not rebase or force-push | Release gate 5, earlier re-cut on `main`: the same seven binaries, no framework, and it prunes manifest rows (see #301's §6 note). Independent corroboration on the PR; the check rollup is unreadable for every token (403), so the owner decides. |
+| [#281](https://github.com/jm2/openETQW/pull/281) | open, superseded by #301, do not rebase or force-push | The original gate-5 branch; #282 and then #301 superseded it, and it stays open until the owner says otherwise. |
 
 ## 2. Open issues, in priority order
 
@@ -88,10 +89,12 @@ Each item names its acceptance test. Details are in the linked plan.
    (merged as `d3a4d5b`, #284; per row the verified thing, platform, host, evidence level, engine/game
    commits, data set and raw log or PR, with historical rows kept apart). M7 stays open:
    there has been no combined five-platform run at current `main`.
-7. **Release gate 5, third-party binaries:** done — the seven unreferenced Windows binaries
-   (`openal32.lib`, both `eaxguid.lib`, zlib's four `contrib/masmx*/*.obj`) and the PowerPC
-   `src/openal/osx/OpenAL.framework` binary are deleted, not replaced: nothing links them.
-   `docs/provenance.md` §6 holds the evidence and `STATUS.md` § Release gate item 5 the record.
+7. **Release gate 5, third-party binaries:** in [#301](https://github.com/jm2/openETQW/pull/301) —
+   the seven unreferenced Windows binaries (`openal32.lib`, both `eaxguid.lib`, zlib's four
+   `contrib/masmx*/*.obj`) and the PowerPC `src/openal/osx/OpenAL.framework` binary are
+   deleted, not replaced: nothing links them. Merges on the owner's approval of the deletion
+   (§4; the register listed it as owner-gated). `docs/provenance.md` §6 holds the evidence
+   and `STATUS.md` § Release gate item 5 the record.
 8. **The M1 and M2 gaps** (`STATUS.md` § Milestones):
    - ~~M1: the `false` defaults of `build_engine` and `build_dedicated`~~: both default to `true` (#173);
    - M2: collision in the graphical client is never asserted;
