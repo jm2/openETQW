@@ -74,8 +74,14 @@ Each item names its acceptance test. Details are in the linked plan.
    first-person `clampDamped*` view is merged (#152 with game #54). Left: the owner decides
    which seats join the default list (§4).
 3. **M4, what is left**: done (#199, §5). Every M4 item listed in `STATUS.md` § Milestones now has a meson test.
-4. **Retail data discovery** (`STATUS.md` § Next steps, item 7): the Linux folder picker,
-   and a person trying the macOS and Windows pickers (owner).
+4. **Retail data discovery** (`STATUS.md` § Next steps, item 7): the Linux folder picker
+   is done (`feat/linux-retail-folder-picker`): `Sys_PromptForRetailData` on Linux asks
+   through the first helper of zenity, kdialog and yad that is installed, with the
+   macOS/Windows semantics — a Cancel stores nothing, an absent helper is skipped, and the
+   folder is written once it is accepted. The `retail-discovery` unit test covers each
+   route's arguments, the helper's printed answer and the stored path's replace; the
+   interactive check needs a desktop and is on the PR as a checklist for the owner. Left:
+   a person trying the macOS and Windows pickers (owner).
 5. **Provenance labels** (`docs/provenance.md` §6): done, merged as `a9aadd4` (#285,
    `docs/provenance-labels`). It relabels the five minizip files and `eaxguid.lib` as
    ThirdParty/Upstream and the four PDB/reconstruction-marked engine files as

@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/statvfs.h>
+#include <sys/wait.h>
 #include <errno.h>
 #include <dirent.h>
 #include <unistd.h>
@@ -488,11 +489,140 @@ void Sys_AppendRetailDataCandidates( idStrList &candidates, idStrList &steamRoot
 }
 
 #if !defined( __APPLE__ )
-// Linux: no first-run prompt yet (the retail-install check's message says how to point
-// the engine at an install)
+// A helper program's path on PATH, or an empty string when it is not installed
+static idStr Posix_ChooserPath( const char *program ) {
+	const char *path = getenv( "PATH" );
+	if ( path == NULL ) {
+		path = "/usr/local/bin:/usr/bin:/bin";
+	}
+	for ( const char *start = path; ; ) {
+		const char *end = strchr( start, ':' );
+		idStr dir( start, 0, end != NULL ? ( int )( end - start ) : ( int )strlen( start ) );
+		if ( dir.Length() == 0 ) {
+			dir = ".";	// an empty element is the current directory, as execvp reads it
+		}
+		idStr file = dir;
+		file.AppendPath( program );
+		if ( access( file.c_str(), X_OK ) == 0 ) {
+			return file;
+		}
+		if ( end == NULL ) {
+			break;
+		}
+		start = end + 1;
+	}
+	return idStr();
+}
+
+enum chooserResult_t {
+	CHOOSER_ABSENT,		// could not be started: the next route
+	CHOOSER_CANCELLED,	// it ran and the player gave up
+	CHOOSER_PICKED
+};
+
+// One dialog: text is appended as the last argument when it is not NULL (the refusal
+// text of a message dialog). Its stdout is the folder, one line.
+static chooserResult_t Posix_RunChooser( const idStr &program, const idStrList &args, const char *text, idStr &picked ) {
+	char *argv[ 24 ];
+	int argc = 0;
+	argv[ argc++ ] = const_cast< char * >( program.c_str() );
+	for ( int i = 0; i < args.Num() && argc < 22; i++ ) {
+		argv[ argc++ ] = const_cast< char * >( args[ i ].c_str() );
+	}
+	if ( text != NULL && argc < 22 ) {
+		argv[ argc++ ] = const_cast< char * >( text );
+	}
+	argv[ argc ] = NULL;
+
+	int pipefd[ 2 ];
+	if ( pipe( pipefd ) != 0 ) {
+		return CHOOSER_ABSENT;
+	}
+	const pid_t pid = fork();
+	if ( pid < 0 ) {
+		close( pipefd[ 0 ] );
+		close( pipefd[ 1 ] );
+		return CHOOSER_ABSENT;
+	}
+	if ( pid == 0 ) {
+		close( pipefd[ 0 ] );
+		dup2( pipefd[ 1 ], STDOUT_FILENO );
+		close( pipefd[ 1 ] );
+		execv( program.c_str(), argv );
+		_exit( 127 );	// could not be started after all: the parent skips this route
+	}
+	close( pipefd[ 1 ] );
+	char buffer[ 4096 ];
+	int length = 0;
+	while ( length < ( int )sizeof( buffer ) - 1 ) {
+		const ssize_t got = read( pipefd[ 0 ], buffer + length, sizeof( buffer ) - 1 - length );
+		if ( got > 0 ) {
+			length += got;
+			continue;
+		}
+		if ( got < 0 && errno == EINTR ) {
+			continue;
+		}
+		break;
+	}
+	close( pipefd[ 0 ] );
+	buffer[ length ] = '\0';
+
+	int status = 0;
+	while ( waitpid( pid, &status, 0 ) < 0 && errno == EINTR ) {
+	}
+	if ( !WIFEXITED( status ) ) {
+		return CHOOSER_CANCELLED;
+	}
+	const int code = WEXITSTATUS( status );
+	if ( code == 127 ) {
+		return CHOOSER_ABSENT;
+	}
+	if ( code != 0 ) {
+		return CHOOSER_CANCELLED;	// zenity, kdialog and yad all exit non-zero on Cancel
+	}
+	if ( !RetailDiscovery::ParseChooserOutput( buffer, picked ) ) {
+		return CHOOSER_CANCELLED;
+	}
+	return CHOOSER_PICKED;
+}
+
+/*
+==============
+Sys_PromptForRetailData
+
+Linux's first-run prompt (ledger 068): the first folder-picker helper that is installed
+asks, after a message dialog when the last choice was refused, and its answer is final:
+a folder, or a Cancel that leaves basepath.txt as it was (FileSystem writes only an
+accepted folder). A helper that is not installed is skipped; with none of them the
+retail-install check's message says how to point the engine at an install. No desktop
+is not an error either: a helper without a display fails on its own, as it would for
+any other program.
+==============
+*/
 bool Sys_PromptForRetailData( idStr &root, const char *problem ) {
-	(void)root;
-	(void)problem;
+	idList< RetailDiscovery::retailFolderChooser_t > choosers;
+	RetailDiscovery::AppendLinuxFolderChoosers( choosers );
+	for ( int i = 0; i < choosers.Num(); i++ ) {
+		const RetailDiscovery::retailFolderChooser_t &chooser = choosers[ i ];
+		const idStr program = Posix_ChooserPath( chooser.program.c_str() );
+		if ( program.Length() == 0 ) {
+			continue;
+		}
+		if ( problem != NULL ) {
+			idStr ignored;
+			Posix_RunChooser( program, chooser.messageArgs, problem, ignored );	// best effort
+		}
+		idStr picked;
+		const chooserResult_t result = Posix_RunChooser( program, chooser.folderArgs, NULL, picked );
+		if ( result == CHOOSER_PICKED ) {
+			root = picked;
+			return true;
+		}
+		if ( result == CHOOSER_CANCELLED ) {
+			return false;
+		}
+	}
 	return false;
 }
 
