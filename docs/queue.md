@@ -78,9 +78,12 @@ Each item names its acceptance test. Details are in the linked plan.
    `check_spdx.py` passes, and the §6 rows are resolved.
 6. **`docs/platform-matrix.md`** (release gate, M7): what is verified per platform, with
    the evidence level, host and commit.
-7. **Release gate 5, third-party binaries:** review `src/openal/lib/openal32.lib`, both
-   copies of `eaxguid.lib` and zlib contrib's `.obj` files. Replace each, or record why it
-   stays (`STATUS.md` § Release gate, item 5).
+7. **Release gate 5, third-party binaries:** done 2026-10-21 (`openETQW-linux`): all seven
+   were reviewed and removed — `src/openal/lib/openal32.lib`, both `eaxguid.lib` copies
+   and the four zlib contrib `.obj` outputs. No current Meson target, install rule or test
+   references any of them (OpenAL is loaded by name; zlib is `dependency('zlib')`), so no
+   build change was needed. `STATUS.md` § Release gate item 5 records it and the manifest
+   entries are gone. Re-cut onto `main` on 2026-10-25; the original commit is `d23525c`.
 8. **The M1 and M2 gaps** (`STATUS.md` § Milestones):
    - ~~M1: the `false` defaults of `build_engine` and `build_dedicated`~~: both default to `true` (#173);
    - M2: collision in the graphical client is never asserted;
