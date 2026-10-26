@@ -154,8 +154,10 @@ Each item names its acceptance test. Details are in the linked plan.
       29974-29976 are free before each test. Meson's TerminateProcess on timeout
       skips the harness cleanup, so leftovers from one run poison the next; Windows
       prints "FATAL ERROR", not the POSIX "FATAL SIGNAL CAUGHT" the test greps for,
-      so a hard crash shows only as an exit code (NTSTATUS). Mapping that code and a
-      startup port/process check are a follow-up, not a merge gate.
+      so a hard crash shows only as an exit code (NTSTATUS). Both diagnostics are
+      implemented on `feat/win-harness-exit-diagnostics` (harness-only, no verdict
+      change): exit-status messages name the NTSTATUS or signal, and a pre-flight
+      refuses to spawn when the port is bound or a leftover `openETQW-ded` is alive.
       Merged as #283 (`6361385`) on 2026-10-25 with game `7fbdf80`; the five legs are
       Linux x64 (game `a5fdfaf`, older than the pin), Linux arm64, macOS arm64,
       Windows x64 and Windows arm64. `docs/platform-matrix.md` carries the two Windows

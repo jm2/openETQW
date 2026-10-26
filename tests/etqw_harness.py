@@ -48,6 +48,76 @@ EXIT_PASS = 0
 EXIT_FAIL = 1
 EXIT_SKIP = 77  # meson 'exitcode' protocol: 77 == SKIP
 
+
+# Windows reports a crash as an NTSTATUS value above 0x7fffffff (Python keeps it
+# either signed or unsigned, depending on where the object was built).  Naming
+# the common ones keeps a failure message readable without changing the code's
+# value: the int subclass below still compares equal to the raw number.
+NTSTATUS_NAMES = {
+    0xC0000005: "access violation",
+    0xC00000FD: "stack overflow",
+    0xC0000135: "DLL not found",
+    0xC0000409: "stack buffer overrun (fast fail)",
+}
+
+
+def exit_status_text(code: Optional[int]) -> str:
+    """Readable text for a process exit code.
+
+    Windows: a status above 0x7fffffff is an NTSTATUS; name the common ones and
+    print the code in both forms, e.g. ``-1073741819 (NTSTATUS 0xC0000005:
+    access violation)``.  POSIX: a negative code is -signal, as before, with the
+    signal name added.  A normal (0 or positive) code is unchanged.
+    """
+    if code is None:
+        return "no exit code (the process did not exit)"
+    value = int(code)
+    if value == 0:
+        return "0"
+    if os.name == "nt":
+        unsigned = value & 0xFFFFFFFF
+        if unsigned >= 0x80000000:
+            detail = f"NTSTATUS 0x{unsigned:08X}"
+            name = NTSTATUS_NAMES.get(unsigned)
+            if name:
+                detail += f": {name}"
+            return f"{value} ({detail})"
+    elif value < 0:
+        sig = -value
+        try:
+            name = signal.Signals(sig).name
+        except ValueError:
+            name = None
+        detail = f"killed by signal {sig}"
+        if name:
+            detail += f" ({name})"
+        return f"{value} ({detail})"
+    return str(value)
+
+
+class ExitStatus(int):
+    """An int exit code whose formatted form explains a Windows crash.
+
+    Tests interpolate ``proc.quit()`` into failure messages.  Formatting this
+    subclass uses exit_status_text(), while equality, ordering and arithmetic
+    still compare the raw int, so no verdict changes.
+    """
+
+    def __new__(cls, code: int):
+        obj = int.__new__(cls, code)
+        obj.text = exit_status_text(code)
+        return obj
+
+    def __str__(self) -> str:
+        return self.text
+
+    def __repr__(self) -> str:
+        return self.text
+
+    def __format__(self, spec: str) -> str:
+        return format(int(self), spec) if spec else self.text
+
+
 # An engine started without a fs_savepath of its own saves under the per-user
 # directory: $XDG_DATA_HOME/openetqw on Linux, $env:LOCALAPPDATA\openETQW on Windows.
 # Every process a test starts gets a test directory instead, so no test reads or
@@ -79,6 +149,10 @@ READY_MARKER = "------------- ETQW initialized -------------"
 
 class SkipTest(Exception):
     """Raised when a prerequisite (binary, retail data) is missing -> exit 77."""
+
+
+class PreflightError(RuntimeError):
+    """The host is not clean enough to start a fixed-port test (not a skip)."""
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +192,119 @@ def install_signal_handlers() -> None:
                 signal.signal(sig, _handler)
             except (ValueError, OSError):
                 pass
+
+
+def _udp_port_error(port: int) -> Optional[OSError]:
+    """The bind error for UDP port, or None when it is free.
+
+    The engine's net_port is a UDP bind on 0.0.0.0; this is the same probe
+    PortAllocator uses, but it returns the error so the message can say why.
+    """
+    if port <= 0:
+        return None
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.bind(("0.0.0.0", port))
+        return None
+    except OSError as exc:
+        return exc
+    finally:
+        sock.close()
+
+
+def _live_own_pids() -> set[int]:
+    """PIDs of processes this test run started through this module."""
+    with _LIVE_PROCS_LOCK:
+        procs = list(_LIVE_PROCS)
+    pids: set[int] = set()
+    for proc in procs:
+        try:
+            if proc.poll() is None and proc.pid:
+                pids.add(proc.pid)
+        except Exception:
+            pass
+    return pids
+
+
+def _windows_server_processes() -> list[tuple[int, str]]:
+    """(pid, image name) of live openETQW-ded processes.
+
+    tasklist is Access denied in the Windows sandbox, so use the kernel's
+    toolhelp snapshot.  Returns [] when the snapshot cannot be taken; the port
+    check still runs, so a startup is never blocked by a failed listing alone.
+    """
+    if os.name != "nt":
+        return []
+    import ctypes
+    from ctypes import wintypes
+
+    class PROCESSENTRY32W(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ProcessID", wintypes.DWORD),
+            ("th32DefaultHeapID", ctypes.c_void_p),
+            ("th32ModuleID", wintypes.DWORD),
+            ("cntThreads", wintypes.DWORD),
+            ("th32ParentProcessID", wintypes.DWORD),
+            ("pcPriClassBase", ctypes.c_long),
+            ("dwFlags", wintypes.DWORD),
+            ("szExeFile", wintypes.WCHAR * 260),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    kernel32.Process32FirstW.restype = wintypes.BOOL
+    kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    kernel32.Process32NextW.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    snapshot = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)  # TH32CS_SNAPPROCESS
+    if snapshot == ctypes.c_void_p(-1).value or not snapshot:
+        return []
+    found: list[tuple[int, str]] = []
+    entry = PROCESSENTRY32W()
+    entry.dwSize = ctypes.sizeof(entry)
+    try:
+        more = kernel32.Process32FirstW(snapshot, ctypes.byref(entry))
+        while more:
+            name = entry.szExeFile
+            if name.lower().startswith("openetqw-ded"):
+                found.append((int(entry.th32ProcessID), name))
+            more = kernel32.Process32NextW(snapshot, ctypes.byref(entry))
+    finally:
+        kernel32.CloseHandle(snapshot)
+    return found
+
+
+def check_startup_ready(port: int) -> None:
+    """Refuse to start when a fixed test port or engine process is left over.
+
+    Meson's TerminateProcess on timeout skips the harness cleanup, so a stale
+    dedicated server can hold net_port; the engine then cannot bind, but its
+    stdin still answers SYNC and the run stalls until a 180 s snapshot timeout.
+    Check before spawning instead, and fail with a message that names the port.
+    """
+    if os.name == "nt":
+        own = _live_own_pids()
+        leftover = [(pid, name) for pid, name in _windows_server_processes() if pid not in own]
+        if leftover:
+            listing = ", ".join(f"{name} (pid {pid})" for pid, name in leftover)
+            raise PreflightError(
+                f"refusing to start on net_port {port}: leftover openETQW-ded "
+                f"process is alive: {listing}. Stop it before running the test "
+                f"(Meson's TerminateProcess on timeout skips harness cleanup)."
+            )
+    error = _udp_port_error(port)
+    if error is not None:
+        raise PreflightError(
+            f"refusing to start on net_port {port}: UDP port {port} is already "
+            f"bound ({error}). A leftover test process or another program holds "
+            f"it; free the port before running the test."
+        )
 
 
 # Popen creationflags for a dedicated server that graceful_terminate() should stop
@@ -645,6 +832,7 @@ class DedicatedServer:
         return args
 
     def start(self) -> None:
+        self.preflight()
         self.savepath.mkdir(parents=True, exist_ok=True)
         log_fh = open(self.log_path, "w", encoding="utf-8", errors="replace") if self.log_path else None
         if log_fh:
@@ -685,6 +873,9 @@ class DedicatedServer:
 
         self._reader = threading.Thread(target=_read, name=f"reader-{self.map_name}", daemon=True)
         self._reader.start()
+
+    def preflight(self) -> None:
+        check_startup_ready(self.port)
 
     def alive(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
@@ -756,7 +947,8 @@ class DedicatedServer:
 
     def quit(self, timeout: float = 45.0) -> Optional[int]:
         """Send 'quit' and wait for exit. Returns the exit code, or None if
-        the process had to be killed."""
+        the process had to be killed. The code is an ExitStatus: an int that
+        formats its NTSTATUS/signal meaning in failure messages."""
         if self.proc is None:
             return None
         if self.proc.poll() is None:
@@ -768,7 +960,11 @@ class DedicatedServer:
                 return None
         if self._reader:
             self._reader.join(timeout=5.0)
-        return self.proc.returncode
+        code = self.proc.returncode
+        if code is not None and not isinstance(code, ExitStatus):
+            code = ExitStatus(code)
+            self.proc.returncode = code
+        return code
 
     def kill(self) -> None:
         if self.proc is not None and self.proc.poll() is None:
