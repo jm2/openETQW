@@ -1631,6 +1631,7 @@ void R_RemoveUnecessaryViewLights( void ) {
 #include "Image.h"
 #include "Material.h"
 
+#include <algorithm>
 #include <unordered_map>
 #include "Model.h"
 #include "Model_Stuff.h"
@@ -1740,7 +1741,6 @@ namespace {
 	};
 	idList< viewEntity_s* > frontEndModelSpaces;
 	idList< ambientSurfaceCandidate_t > frontEndSurfaceCandidates;
-	viewEntity_s* lastViewEntity = NULL;
 	viewLight_s* lastViewLight = NULL;
 	struct materialRegisterCacheEntry_t {
 		const idMaterial*	material;
@@ -1888,11 +1888,54 @@ namespace {
 		return interaction;
 	}
 
-	int DrawSurfaceSortCompare( drawSurf_s* const* left, drawSurf_s* const* right ) {
-		if ( ( *left )->sort < ( *right )->sort ) return -1;
-		if ( ( *left )->sort > ( *right )->sort ) return 1;
-		if ( ( *left )->material < ( *right )->material ) return -1;
-		return ( *left )->material != ( *right )->material;
+	// Equal sorts keep the order the surfaces were added in, as the SDK's
+	// R_AddDrawSurf did with its growing tr.sortOffset (above, line ~1198): a
+	// stable merge sort on sort alone.  Then, inside each run of equal sort,
+	// each stretch of consecutive opaque surfaces is grouped by material; under
+	// the depth test their order is not visible, and blended surfaces never move
+	// past one another.
+	idList< drawSurf_s* > drawSurfaceSortScratch;
+
+	// stable bottom-up merge sort of surfaces[ begin, end ) by less(), through
+	// the persistent scratch list (no allocation once it has grown)
+	template< typename Less >
+	void MergeSortDrawSurfaces( drawSurf_s** surfaces, int count, Less less ) {
+		if ( count < 2 ) return;
+		if ( drawSurfaceSortScratch.Num() < count ) drawSurfaceSortScratch.SetNum( count, false );
+		drawSurf_s** from = surfaces;
+		drawSurf_s** to = drawSurfaceSortScratch.Begin();
+		for ( int width = 1; width < count; width *= 2 ) {
+			for ( int start = 0; start < count; start += 2 * width ) {
+				const int middle = Min( start + width, count );
+				const int end = Min( start + 2 * width, count );
+				int left = start, right = middle, out = start;
+				while ( left < middle && right < end ) {
+					// take from the right only when strictly smaller: stable
+					to[ out++ ] = less( from[ right ], from[ left ] ) ? from[ right++ ] : from[ left++ ];
+				}
+				while ( left < middle ) to[ out++ ] = from[ left++ ];
+				while ( right < end ) to[ out++ ] = from[ right++ ];
+			}
+			idSwap( from, to );
+		}
+		if ( from != surfaces ) memcpy( surfaces, from, count * sizeof( from[ 0 ] ) );
+	}
+
+	void SortDrawSurfaces( idList< drawSurf_s* >& surfaces ) {
+		const int count = surfaces.Num();
+		MergeSortDrawSurfaces( surfaces.Begin(), count,
+			[]( const drawSurf_s* left, const drawSurf_s* right ) { return left->sort < right->sort; } );
+		const auto opaque = []( const drawSurf_s* surface ) {
+			return surface->material != NULL && surface->material->Coverage() == MC_OPAQUE;
+		};
+		for ( int first = 0; first < count; ) {
+			if ( !opaque( surfaces[ first ] ) ) { ++first; continue; }
+			int end = first + 1;
+			while ( end < count && surfaces[ end ]->sort == surfaces[ first ]->sort && opaque( surfaces[ end ] ) ) ++end;
+			MergeSortDrawSurfaces( surfaces.Begin() + first, end - first,
+				[]( const drawSurf_s* left, const drawSurf_s* right ) { return left->material < right->material; } );
+			first = end;
+		}
 	}
 
 	bool SurfaceIntersectsLight( const drawSurf_s* surface, const viewLight_s* light ) {
@@ -2787,6 +2830,12 @@ viewEntity_s* R_SetEntityDefViewEntity( renderEntity_t* entity, idRenderModel* m
 	} else if ( entity != NULL ) {
 		modelBounds = entity->bounds;
 	}
+	if ( numInsts > 0 && entity != NULL && !entity->bounds.IsCleared() ) {
+		// An instanced entity (sdInstStatic: trees, shrubs) has an identity transform
+		// and overridden bounds around all its instances; the model's own bounds sit
+		// at the world origin and gave a scissor rect of a few pixels, or none (#246).
+		modelBounds = entity->bounds;
+	}
 	if ( entity != NULL ) {
 		if ( entity->drawSpec > com_gpuSpec.GetInteger() ) {
 			return NULL;
@@ -2815,13 +2864,12 @@ viewEntity_s* R_SetEntityDefViewEntity( renderEntity_t* entity, idRenderModel* m
 	space->numInsts = numInsts;
 	space->insts = entity != NULL ? entity->insts : NULL;
 	// Retail reserves at least 128 surface ids and an additional 33 ids beyond
-	// the model's surface count, then stores the bit set through ambSurf.
+	// the model's surface count, then stores the bit set through ambSurf.  Both
+	// back ends read it: a set bit means the sun's amblit pass draws the ambient.
 	space->maxSurfID = Max( model != NULL ? model->NumSurfaces() + 33 : 128, 128 );
-	if ( !R_UseVulkanBackend() ) {
-		space->ambSurf = new unsigned int[ ( space->maxSurfID + 31 ) >> 5 ];
-		memset( space->ambSurf, 0,
-			sizeof( unsigned int ) * ( ( space->maxSurfID + 31 ) >> 5 ) );
-	}
+	space->ambSurf = new unsigned int[ ( space->maxSurfID + 31 ) >> 5 ];
+	memset( space->ambSurf, 0,
+		sizeof( unsigned int ) * ( ( space->maxSurfID + 31 ) >> 5 ) );
 	space->weaponDepthHack = entity != NULL && entity->flags.weaponDepthHack;
 	space->foliageDepthHack = entity != NULL && entity->flags.foliageDepthHack;
 	space->modelDepthHack = entity != NULL ? entity->modelDepthHack : 0.0f;
@@ -2841,9 +2889,12 @@ viewEntity_s* R_SetEntityDefViewEntity( renderEntity_t* entity, idRenderModel* m
 	space->scissorRect = model != NULL && !modelBounds.IsCleared() ?
 		ScreenRectForBounds( modelBounds, space->modelMatrix ) : view->scissor;
 	space->culled = space->scissorRect.IsEmpty();
-	if ( lastViewEntity != NULL ) lastViewEntity->next = space;
-	else view->viewEntities = space;
-	lastViewEntity = space;
+	// prepended, as the SDK's R_SetEntityDefViewEntity does: surfaces are added
+	// entity by entity in this list's order, and with the add-order tie-break in
+	// SortDrawSurfaces that decides which of two equal-sort blended surfaces
+	// draws first (#208)
+	space->next = view->viewEntities;
+	view->viewEntities = space;
 	frontEndViewEntities.Append( space );
 	return space;
 }
@@ -2930,7 +2981,12 @@ drawSurf_s* R_AddDrawSurf( const srfTriangles_t* triangles, const viewEntity_s* 
 	surface->geo = triangles;
 	surface->space = space;
 	surface->material = material;
-	surface->sort = material->GetSort();
+	// the entity's sort override (renderEntity_t::sortOffset; the game offsets
+	// each sky layer by it, and an effect's distanceOffset arrives in it, #211).
+	// Clamped to [0, 1): a surface stays inside its material's sort, so the
+	// back ends' pass boundaries, which test the material's sort, still hold.
+	const float entitySortOffset = renderEntity != NULL ? idMath::ClampFloat( 0.0f, 0.999f, renderEntity->sortOffset ) : 0.0f;
+	surface->sort = material->GetSort() + entitySortOffset;
 	surface->surfID = surfID;
 	surface->dsFlags = triangles->dsFlags;
 	surface->scissorRect = scissor;
@@ -3054,7 +3110,7 @@ void R_AddModelSurfaces() {
 			entity = entity->next ) {
 			if ( entity->entityDef != NULL ) R_AddAmbientDrawsurfs( entity );
 		}
-		sortedDrawSurfaces.Sort( DrawSurfaceSortCompare );
+		SortDrawSurfaces( sortedDrawSurfaces );
 		view->drawSurfs = sortedDrawSurfaces.Begin();
 		view->numDrawSurfs = sortedDrawSurfaces.Num();
 		return;
@@ -3122,7 +3178,7 @@ void R_AddModelSurfaces() {
 	}
 	{
 		RENDER_METRIC_SCOPE( "Sort draw surfaces" );
-		sortedDrawSurfaces.Sort( DrawSurfaceSortCompare );
+		SortDrawSurfaces( sortedDrawSurfaces );
 	}
 	view->drawSurfs = sortedDrawSurfaces.Begin();
 	view->numDrawSurfs = sortedDrawSurfaces.Num();
@@ -3346,7 +3402,6 @@ void R_FreeBuiltDrawView() {
 	frontEndModelSpaces.SetNum( 0, false );
 	frontEndSurfaceCandidates.SetNum( 0, false );
 	memset( materialRegisterCache, 0, sizeof( materialRegisterCache ) );
-	lastViewEntity = NULL;
 	lastViewLight = NULL;
 }
 
@@ -3424,7 +3479,6 @@ void R_BuildDrawView( idRenderWorldLocal* renderWorld, const renderView_t* rende
 	if ( renderWorld->BackendNumLocalModels() > 0 || view->viewEntities != NULL ) {
 		view->worldSpace.next = view->viewEntities;
 		view->viewEntities = &view->worldSpace;
-		lastViewEntity = frontEndViewEntities.Num() > 0 ? frontEndViewEntities[ frontEndViewEntities.Num() - 1 ] : &view->worldSpace;
 	}
 	{
 		RENDER_METRIC_SCOPE( "Add model surfaces" );

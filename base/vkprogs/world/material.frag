@@ -22,21 +22,23 @@ layout( location = 4 ) in vec3 fragmentBitangent;
 layout( location = 5 ) in vec3 fragmentNormal;
 layout( location = 0 ) out vec4 outColor;
 
+// 1 in an opaque base pass: alpha is then the postprocess glow's weight, 0 as
+// retail's lit replace writes it, or 1 (the clear's) for an alpha-tested surface
+layout( constant_id = 0 ) const bool OPAQUE_BASE = false;
+
 void main() {
 	vec4 diffuse = texture( diffuseTexture, fragmentTexCoord );
 	if ( pc.parameters.w > 0.5 && diffuse.a < pc.parameters.z ) {
 		discard;
 	}
-	// Normal maps reach Vulkan with X and Y in red and green (retail's ATI2/BC5
-	// decodes to (X, Y, 0, 255), RXGB to (X, Y, Z, 255)); positive Z is rebuilt.
-	vec4 packedNormal = texture( bumpTexture, fragmentTexCoord );
-	vec2 tangentXY = packedNormal.rg * 2.0 - 1.0;
-	float tangentZ = sqrt( max( 0.0, 1.0 - dot( tangentXY, tangentXY ) ) );
-	vec3 tangentNormal = normalize( vec3( tangentXY, tangentZ ) );
 	vec3 selfIllum = texture( selfIllumTexture, fragmentTexCoord ).rgb;
 	// Direct and ambient illumination are applied once, after opaque visibility,
 	// by vkprogs/raytracing/lighting.comp.  This pass only supplies material
-	// albedo and authored emission to that ray-query lighting stage.
+	// albedo and authored emission to that ray-query lighting stage; it doesn't
+	// read the bump map (binding 1).
 	outColor = vec4( ( diffuse.rgb + selfIllum ) * fragmentColor.rgb,
 		diffuse.a * fragmentColor.a );
+	if ( OPAQUE_BASE ) {
+		outColor.a = ( pc.parameters.w > 0.5 ? 1.0 : 0.0 );
+	}
 }

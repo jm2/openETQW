@@ -19,6 +19,7 @@
 #include "renderbindings.h"
 #include "tr_render.h"
 #include "Image.h"
+#include "GuiFont.h"
 #include "ModelManager.h"
 #include "VertexCache.h"
 #include "megatexture/megatexture.h"
@@ -309,6 +310,14 @@ void R_CheckPortableExtensions() {
 #define LOAD_QGL( name ) name = reinterpret_cast< decltype( name ) >( sys3D->ExtensionPointer( #name + 1 ) )
 	LOAD_QGL( qglActiveTextureARB );
 	LOAD_QGL( qglClientActiveTextureARB );
+	// SetInstanceAttributes hands each instance's colour and transform rows to the
+	// *_instance programs as texcoords 2, 5-7; left null, every instanced model
+	// (valley's trees and shrubs) collapsed to a point under OpenGL (#246).
+	LOAD_QGL( qglMultiTexCoord4fARB );
+	// RB_ARB2_SetSpace and the interaction pass fade entities through
+	// GL_SAMPLE_COVERAGE when multisampling; left null, fading entities drew
+	// fully opaque under r_multiSamples > 0 (#253).
+	LOAD_QGL( qglSampleCoverageARB );
 	LOAD_QGL( qglBindBufferARB );
 	LOAD_QGL( qglDeleteBuffersARB );
 	LOAD_QGL( qglGenBuffersARB );
@@ -564,6 +573,7 @@ void R_InitOpenGL() {
 	common->Printf( "GL_VENDOR: %s\n", glConfig.vendor_string );
 	common->Printf( "GL_RENDERER: %s\n", glConfig.renderer_string );
 	common->Printf( "GL_VERSION: %s\n", glConfig.version_string );
+	common->Printf( "GL multisample: %d samples\n", glConfig.samples );
 	common->Printf( "GL_MAX_TEXTURE_SIZE: %d\n", glConfig.maxTextureSize );
 	R_ARB2_Init();
 	vertexCache.Init();
@@ -686,6 +696,8 @@ void idRenderSystemLocal::Shutdown() {
 		renderModelManager->Shutdown();
 	}
 	R_RenderMetricsShutdown();
+	// the GUI font atlases are images
+	guiFonts.Shutdown();
 	if ( globalImages != NULL ) {
 		globalImages->Shutdown();
 	}

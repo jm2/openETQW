@@ -39,7 +39,6 @@ extern idCVar r_lightScale;
 extern idCVar r_stuffFadeStart;
 extern idCVar r_stuffFadeEnd;
 extern idCVar r_elevateForceClear;
-extern idCVar r_multiSamples;
 extern idCVar r_showOverDraw;
 extern idCVar r_singleTriangle;
 extern idCVar r_useIndexBuffers;
@@ -319,7 +318,7 @@ void RB_BeginDrawingView() {
 
 	const int forceClear = view->renderView.forceClear;
 	const bool clearColor = forceClear > 1 ||
-		( forceClear == 1 && ( r_elevateForceClear.GetInteger() > 1 || r_multiSamples.GetInteger() > 1 ) );
+		( forceClear == 1 && ( r_elevateForceClear.GetInteger() > 1 || glConfig.samples > 0 ) );
 	if ( clearColor && r_showOverDraw.GetInteger() == 0 ) {
 		glClearColor( view->renderView.clearColor.x, view->renderView.clearColor.y,
 			view->renderView.clearColor.z, view->renderView.clearColor.w );
@@ -466,7 +465,11 @@ void RB_DrawElementsWithCounters( const srfTriangles_t* triangles ) {
 	if ( triangles->indexCache != NULL && r_useIndexBuffers.GetBool() ) {
 		indexes = CachePosition( triangles->indexCache, true );
 	} else {
-		if ( r_useIndexBuffers.GetBool() && qglBindBufferARB != NULL ) {
+		// Unbind even when r_useIndexBuffers is 0 (the shipped etqwconfig.cfg):
+		// index caches are still uploaded through GL_ELEMENT_ARRAY_BUFFER, and a
+		// buffer left bound turns the client index pointer into a bogus offset
+		// (Mesa glthread crash, amdgpu reset: #218).
+		if ( qglBindBufferARB != NULL ) {
 			qglBindBufferARB( GL_ELEMENT_ARRAY_BUFFER_ARB, 0 );
 		}
 		if ( singleTriangle > 1 ) indexes = singleTriangleIndexes;

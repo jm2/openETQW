@@ -161,6 +161,8 @@ struct sdRayTracingViewData {
 	float sunColorShadow[ 4 ];
 	float waterParameters[ 4 ];
 	unsigned int lightCounts[ 4 ];
+	float fogColor[ 4 ];	// the atmosphere fog (#233): rgb, 1 when the view fogs
+	float fogDepths[ 4 ];	// start, end, 1 / (end - start), -start / (end - start)
 };
 
 struct sdRayTracingLightData {
@@ -547,10 +549,11 @@ bool ResolveLightColor( const viewLight_s& light, idVec3& color ) {
 		const float lightScale = cvarSystem->GetCVarFloat( "r_lightScale" ) *
 			light.fadeFraction;
 		if ( stage->colorVector != NULL ) {
+			// each channel limited to 1 before r_lightScale, as the OpenGL interaction (#212)
 			color.Set(
-				light.lightRegisters[ stage->colorVector->registers[ 0 ] ] * lightScale,
-				light.lightRegisters[ stage->colorVector->registers[ 1 ] ] * lightScale,
-				light.lightRegisters[ stage->colorVector->registers[ 2 ] ] * lightScale );
+				idMath::ClampFloat( 0.0f, 1.0f, light.lightRegisters[ stage->colorVector->registers[ 0 ] ] ) * lightScale,
+				idMath::ClampFloat( 0.0f, 1.0f, light.lightRegisters[ stage->colorVector->registers[ 1 ] ] ) * lightScale,
+				idMath::ClampFloat( 0.0f, 1.0f, light.lightRegisters[ stage->colorVector->registers[ 2 ] ] ) * lightScale );
 		} else {
 			color.Set( lightScale, lightScale, lightScale );
 		}
@@ -611,6 +614,22 @@ bool WriteViewLighting( sdRayTracingFrame& frame,
 		r_rayTracingWaterReflectionStrength.GetFloat() : 0.0f;
 	viewData->waterParameters[ 2 ] = r_rayTracingWaterRippleStrength.GetFloat();
 	viewData->waterParameters[ 3 ] = 100000.0f;
+	// the fog retail's lit programs apply (fogDepths as tr_render.cpp sets it);
+	// r_AtmospherePostprocess zeroes it there
+	if ( view.atmosphere != NULL && !cvarSystem->GetCVarBool( "r_AtmospherePostprocess" ) &&
+		view.atmosphere->GetFogEnd() > view.atmosphere->GetFogStart() ) {
+		const idVec3& fogColor = view.atmosphere->GetFogColor();
+		const float fogStart = view.atmosphere->GetFogStart();
+		const float fogEnd = view.atmosphere->GetFogEnd();
+		viewData->fogColor[ 0 ] = fogColor.x;
+		viewData->fogColor[ 1 ] = fogColor.y;
+		viewData->fogColor[ 2 ] = fogColor.z;
+		viewData->fogColor[ 3 ] = 1.0f;
+		viewData->fogDepths[ 0 ] = fogStart;
+		viewData->fogDepths[ 1 ] = fogEnd;
+		viewData->fogDepths[ 2 ] = 1.0f / ( fogEnd - fogStart );
+		viewData->fogDepths[ 3 ] = -fogStart / ( fogEnd - fogStart );
+	}
 
 	sdRayTracingLightData* outputLights =
 		reinterpret_cast< sdRayTracingLightData* >(

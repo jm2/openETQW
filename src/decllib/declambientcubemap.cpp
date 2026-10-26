@@ -362,14 +362,22 @@ void sdDeclAmbientCubeMap::UploadCubeMap( idImage* image,
 }
 
 void sdDeclAmbientCubeMap::AmbientCubeMapImage( idImage* image ) {
-	FillCubeMap( cubeMapFloat, BAKEDLIGHT_SIZE, ambientColor );
+	// Only the directional ambient lights are baked; ambientColor is not added to
+	// every direction.  Retail's menu globe (sfx/feAmbDecal: cube x brightness x 2,
+	// night lights where that is below 1/8) shows a dark limb with night lights,
+	// which main_menu's ambientColor of 0.49 x 1.15 x 2 would light through (#186).
+	// ambientColor still feeds the average colour and the gradient map, and the
+	// light cube keeps it.
+	FillCubeMap( cubeMapFloat, BAKEDLIGHT_SIZE, vec3_zero );
 	for ( int lightIndex = 0; lightIndex < ambientLights.Num(); ++lightIndex ) {
 		const ambientLight_t& light = ambientLights[ lightIndex ];
 		if ( light.ambient ) {
 			BakeLight( cubeMapFloat, BAKEDLIGHT_SIZE, light.dir, light.color );
 		}
 	}
-	ScaleCubeMapColor( cubeMapFloat, BAKEDLIGHT_SIZE, brightness );
+	// Not scaled by brightness: every retail program that samples $ambientCubeMap
+	// multiplies by $ambientBrightness itself (SetAmbientCubeMapBindings sets it to
+	// this decl's brightness), so baking it in as well applied it twice (#232).
 	CubeMapFtob( cubeMapFloat, cubeMapByte, BAKEDLIGHT_SIZE );
 	const byte* faces[ 6 ] = { cubeMapByte[ 0 ], cubeMapByte[ 1 ],
 		cubeMapByte[ 2 ], cubeMapByte[ 3 ], cubeMapByte[ 4 ], cubeMapByte[ 5 ] };
@@ -395,7 +403,12 @@ void sdDeclAmbientCubeMap::LightCubeMapImage( idImage* image ) {
 }
 
 void sdDeclAmbientCubeMap::SpecularCubeMapImage( idImage* image ) {
-	FillCubeMap( cubeMapFloat, BAKEDLIGHT_SIZE, minSpecAmbientColor );
+	// Only the specular lights and the sun, on black.  minSpecAmbientColor (0.6 by
+	// default) is the ambient colour for minimum-spec hardware, not a floor for this
+	// cube: filling with it gave every surface a uniform sheen (specular map * 2 in
+	// the ambient programs), the silvery overbright of #212.  Retail's lit models take
+	// almost nothing from the ambient pass (its ambient-only soldier is near black).
+	FillCubeMap( cubeMapFloat, BAKEDLIGHT_SIZE, vec3_zero );
 	for ( int lightIndex = 0; lightIndex < ambientLights.Num(); ++lightIndex ) {
 		const ambientLight_t& light = ambientLights[ lightIndex ];
 		if ( light.specular ) {

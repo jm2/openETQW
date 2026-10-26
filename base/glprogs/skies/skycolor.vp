@@ -1,0 +1,7 @@
+# skies/skycolor: the sky gradient cube lookup and the sun halo direction.
+OPTION ARB_position_invariant;
+DP3	result.texcoord[0].x, $fogRotation_x, $positionAttrib;
+DP3	result.texcoord[0].y, $fogRotation_y, $positionAttrib;
+MOV	result.texcoord[0].z, $positionAttrib.z;
+MOV	result.texcoord[1], $positionAttrib;
+MOV	result.texcoord[2], $sunDirection;

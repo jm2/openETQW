@@ -21,6 +21,10 @@ layout( location = 3 ) in vec3 fragmentBitangent;
 layout( location = 4 ) in vec3 fragmentPosition;
 layout( location = 0 ) out vec4 outColor;
 
+// 1 in an opaque base pass: alpha is then the postprocess glow's weight, 0 as
+// retail's lit replace writes it, or 1 (the clear's) for an alpha-tested surface
+layout( constant_id = 0 ) const bool OPAQUE_BASE = false;
+
 vec3 safeNormalize( vec3 value, vec3 fallbackValue ) {
 	float lengthSquared = dot( value, value );
 	return lengthSquared > 0.0000001 && !isnan( lengthSquared ) &&
@@ -29,7 +33,8 @@ vec3 safeNormalize( vec3 value, vec3 fallbackValue ) {
 }
 
 vec3 decodeWaterNormal( vec4 packedNormal ) {
-	vec2 tangentXY = clamp( vec2( packedNormal.a, packedNormal.g ),
+	// X in red and Y in green, as every Vulkan normal map (see interaction.frag)
+	vec2 tangentXY = clamp( packedNormal.rg,
 		vec2( 0.0 ), vec2( 1.0 ) ) * 2.0 - 1.0;
 	float tangentZ = sqrt( max( 0.0, 1.0 - dot( tangentXY, tangentXY ) ) );
 	return safeNormalize( vec3( tangentXY, tangentZ ), vec3( 0.0, 0.0, 1.0 ) );
@@ -150,4 +155,7 @@ void main() {
 	float alpha = clamp( pc.color.w + 0.10 + fresnel * 0.08 +
 		rippleCrest * 0.025, 0.86, 0.96 );
 	outColor = vec4( color, alpha );
+	if ( OPAQUE_BASE ) {
+		outColor.a = 0.0;
+	}
 }

@@ -193,10 +193,12 @@ namespace {
 		const float lightScale = r_lightScale.GetFloat() * activeViewLight->fadeFraction;
 		if ( stage->colorVector != NULL ) {
 			const int* registers = stage->colorVector->registers;
+			// retail 1.5 limits a light's colour to 1 per channel before r_lightScale: the limbo
+			// GUI lights' colours of 2-3 then light the model as retail does (#212)
 			activeLightColor.Set(
-				activeViewLight->lightRegisters[ registers[ 0 ] ] * lightScale,
-				activeViewLight->lightRegisters[ registers[ 1 ] ] * lightScale,
-				activeViewLight->lightRegisters[ registers[ 2 ] ] * lightScale,
+				idMath::ClampFloat( 0.0f, 1.0f, activeViewLight->lightRegisters[ registers[ 0 ] ] ) * lightScale,
+				idMath::ClampFloat( 0.0f, 1.0f, activeViewLight->lightRegisters[ registers[ 1 ] ] ) * lightScale,
+				idMath::ClampFloat( 0.0f, 1.0f, activeViewLight->lightRegisters[ registers[ 2 ] ] ) * lightScale,
 				activeViewLight->lightRegisters[ registers[ 3 ] ]
 			);
 		} else {
@@ -696,6 +698,10 @@ const sdDeclRenderProgram* RB_ARB2_SelectProgram( const sdDeclRenderProgram* pro
 	return RB_ARB2_SelectProgram( program, activePass, activeEntity, activeMaterial );
 }
 
+static bool RB_ARB2_ProgramDefaulted( const sdDeclRenderProgram* program ) {
+	return program != NULL && program->GetState() == DS_DEFAULTED;
+}
+
 void RB_ARB2_DrawSurface( const drawSurf_s* surface, const idMaterial* material, const float* materialRegisters,
 		void ( *customSpaceCallback )( const drawSurf_s* ) ) {
 	if ( surface == NULL || surface->geo == NULL || surface->space == NULL || material == NULL || materialRegisters == NULL ) return;
@@ -717,6 +723,18 @@ void RB_ARB2_DrawSurface( const drawSurf_s* surface, const idMaterial* material,
 			activeSurfaceUsesAlphaToCoverage = true;
 		}
 	}
+	// A program that failed to parse (retail's Cg programs have no runtime on
+	// x64 or arm64) is the default decl, which draws constant orange.  Leave its
+	// stage out, as the Vulkan path does for programs it can't run (#185).  The
+	// alternate actually bound (skinning, coverage, ...) can be defaulted while
+	// the base parses, so test both, once the coverage choice above is known.
+	for ( int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex ) {
+		if ( enabledStages[ stageIndex ] == 0 ) continue;
+		const sdDeclRenderProgram* program = material->GetStage( stageIndex )->renderProgram;
+		if ( RB_ARB2_ProgramDefaulted( program ) || RB_ARB2_ProgramDefaulted( RB_ARB2_SelectProgram( program ) ) ) {
+			enabledStages[ stageIndex ] = 0;
+		}
+	}
 	bool weightCacheModified = false;
 	RB_ARB2_SetVertexPointers( surface->geo, weightCacheModified );
 	// Retail chooses the complete vertex-array mask once per material/weight
@@ -736,11 +754,12 @@ void RB_ARB2_DrawSurface( const drawSurf_s* surface, const idMaterial* material,
 	}
 	const bool spaceChanged = activeDrawSpace != surface->space;
 	RB_ARB2_SetSpace( surface->space, true );
-	if ( spaceChanged ) {
-		if ( customSpaceCallback != NULL ) customSpaceCallback( surface );
-		SetAmbientCubeMapBindings( surface->space );
-		if ( surface->space->envCubemap != NULL ) rbinds->environmentCubeMap->Set( surface->space->envCubemap );
-	}
+	if ( spaceChanged && customSpaceCallback != NULL ) customSpaceCallback( surface );
+	// Per surface, not per space: a stage that names one of these cubes itself
+	// (water's environmentCubeMap) would otherwise leave it bound for the next
+	// surface of the same entity.
+	SetAmbientCubeMapBindings( surface->space );
+	if ( surface->space->envCubemap != NULL ) rbinds->environmentCubeMap->Set( surface->space->envCubemap );
 	idVec4 stuffParameters = rbinds->stuffParameters->GetVec4();
 	stuffParameters.w = surface->geo->params[ TRIPARM_DISTANCESCALE ];
 	rbinds->stuffParameters->Set( stuffParameters );
@@ -778,6 +797,13 @@ void RB_ARB2_DrawSurface( const drawSurf_s* surface, const idMaterial* material,
 		}
 		idMaterial::SetRenderBindings( stage, materialRegisters, surface->geo->texCoordScale );
 		if ( activePass == RBP_INTERACTION ) {
+			// a view of a world with no map (a GUI's: the limbo and menu models) draws no
+			// interaction specular, matching retail 1.5 as measured (#212, compat-ledger row 079)
+			const viewDef_s* drawView = RB_GetViewDef();
+			if ( drawView != NULL && drawView->renderWorld != NULL && !drawView->renderWorld->HasMap() &&
+				 globalImages != NULL ) {
+				rbinds->specularMap->Set( globalImages->blackImage );
+			}
 			const bool bakedAtmosphereColor = material->TestMaterialFlag( MF_BAKEDINATMOSLIGHTCOL ) &&
 				activeViewLight != NULL && activeViewLight->lightDef != NULL && activeViewLight->lightDef->flags.atmosphereLight;
 			if ( !bakedAtmosphereColor ) {
@@ -858,7 +884,8 @@ void RB_ARB2_DrawSurface_Simple( const drawSurf_s* surface, const idMaterial* ma
 		for ( int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex ) {
 			const materialStage_t* stage = material->GetStage( stageIndex );
 			if ( materialRegisters[ stage->conditionRegister ] == 0.0f || stage->depthStage ||
-					stage->renderProgram == NULL || stage->renderProgram->IsInteraction() ) continue;
+					stage->renderProgram == NULL || stage->renderProgram->IsInteraction() ||
+					RB_ARB2_ProgramDefaulted( stage->renderProgram ) ) continue;
 			requiredVertexAttribs |= stage->renderProgram->GetRequiredVertexAttribs();
 		}
 		GL_EnableVertexAttribs( requiredVertexAttribs );
@@ -868,7 +895,8 @@ void RB_ARB2_DrawSurface_Simple( const drawSurf_s* surface, const idMaterial* ma
 	for ( int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex ) {
 		const materialStage_t* stage = material->GetStage( stageIndex );
 		if ( materialRegisters[ stage->conditionRegister ] == 0.0f || stage->depthStage ||
-				stage->renderProgram == NULL || stage->renderProgram->IsInteraction() ) continue;
+				stage->renderProgram == NULL || stage->renderProgram->IsInteraction() ||
+				RB_ARB2_ProgramDefaulted( stage->renderProgram ) ) continue;
 		activeStage = stage;
 		idImage* destination = NULL;
 		viewDef_s* view = RB_GetViewDef();

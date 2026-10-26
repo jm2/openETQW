@@ -646,7 +646,26 @@ void idImage::GenerateImageEx(
 				repeatParm == TR_REPEAT ) ) {
 			common->Warning( "Vulkan image upload failed for '%s'", imgName.c_str() );
 		}
+		if ( level > 0 && vulkanBackend.IsInitialized() &&
+			mipmapState.colorType != mipmapState_t::MT_NONE ) {
+			// Vulkan blits the mip chain from level 0.  A mipmap state changes each
+			// CPU level (the megatexture detail's fade toward grey, MT_WATER,
+			// MT_COLORLEVELS), so those levels replace the blitted ones, as OpenGL
+			// uploads them.
+			vulkanBackend.UpdateImage2D( this, level, 0, 0, levelWidth, levelHeight, levelPixels );
+		}
 		if ( !R_UseVulkanBackend() ) {
+			// Retail's ARB programs read a normal's X from alpha and Y from green
+			// (MOV localNormal.x, localNormal.a), the layout of its 3Dc normal maps
+			// uploaded as LATC.  An uncompressed normal map (a TGA, or a heightmap()
+			// with no precompressed file) carries X in red, so copy it to alpha, as
+			// id's RXGB loaders did.  Copying rather than swapping keeps every mip
+			// level right.  Vulkan reads red and green and is left alone.
+			if ( depth == TD_BUMP ) {
+				for ( int i = 0; i < levelWidth * levelHeight; ++i ) {
+					levelPixels[ i * 4 + 3 ] = levelPixels[ i * 4 + 0 ];
+				}
+			}
 			glTexImage2D(
 				GL_TEXTURE_2D,
 				level,
@@ -805,10 +824,16 @@ void idImage::GenerateMipmaps() {
 }
 
 void idImage::MakeDefault() {
+	// As Doom 3, the bordered box (to show the mapping) only in developer mode,
+	// otherwise black; unlike Doom 3, alpha stays opaque, as it was here before.
+	// Retail binds images it never shipped (the megatexture templates' _lit_spec
+	// masks), and a coloured border lit their map edges (#239).  Toggling developer
+	// affects images defaulted afterwards (reloadImages regenerates the rest).
+	const bool showBox = com_developer.GetBool();
 	byte data[ 16 * 16 * 4 ];
 	for ( int y = 0; y < 16; y++ ) {
 		for ( int x = 0; x < 16; x++ ) {
-			const bool border = x == 0 || y == 0 || x == 15 || y == 15;
+			const bool border = showBox && ( x == 0 || y == 0 || x == 15 || y == 15 );
 			byte* pixel = data + ( y * 16 + x ) * 4;
 			pixel[ 0 ] = border ? 255 : 0;
 			pixel[ 1 ] = 0;
@@ -1071,6 +1096,12 @@ void idImage::UploadPrecompressedImage( byte* data, int len ) {
 	bool vulkanUploaded = false;
 	const byte* imageData = data + sizeof( ddsFileHeader_t ) + 4;
 	const byte* const fileEnd = data + len;
+	// Retail uploads the 3Dc normal maps (ATI2) and ATI1 maps as LATC.  A driver
+	// without EXT_texture_compression_latc (Apple's OpenGL) rejects that format and
+	// leaves the texture incomplete, which breaks every normal map's lighting (#212).
+	// Decode those to luminance(-alpha) texels instead, which sample as LATC does.
+	const bool decodeLatc = compressed && !R_UseVulkanBackend() && !glConfig.textureCompressionLATCAvailable &&
+		( internalFormat == GL_COMPRESSED_LUMINANCE_LATC1_EXT || internalFormat == GL_COMPRESSED_LUMINANCE_ALPHA_LATC2_EXT );
 
 	for ( int mip = 0; mip < fileMipCount; mip++ ) {
 		int mipSize;
@@ -1090,6 +1121,27 @@ void idImage::UploadPrecompressedImage( byte* data, int len ) {
 
 		if ( mipWidth > uploadWidth || mipHeight > uploadHeight ) {
 			skippedMips++;
+		} else if ( decodeLatc ) {
+			const bool luminanceAlpha = internalFormat == GL_COMPRESSED_LUMINANCE_ALPHA_LATC2_EXT;
+			byte* texels = static_cast< byte* >( Mem_Alloc( mipWidth * mipHeight * 4 ) );
+			if ( DecodeDDSLevelRGBA( header->ddspf.dwFourCC, false, imageData, mipSize, mipWidth, mipHeight, texels ) ) {
+				// the decode is ( first, second, -, - ); LATC2 samples ( first x3, second )
+				const int components = luminanceAlpha ? 2 : 1;
+				for ( int pixel = 0; pixel < mipWidth * mipHeight; ++pixel ) {
+					texels[ pixel * components ] = texels[ pixel * 4 ];
+					if ( luminanceAlpha ) {
+						texels[ pixel * components + 1 ] = texels[ pixel * 4 + 1 ];
+					}
+				}
+				GLint unpackAlignment = 4;
+				glGetIntegerv( GL_UNPACK_ALIGNMENT, &unpackAlignment );
+				glPixelStorei( GL_UNPACK_ALIGNMENT, 1 );
+				glTexImage2D( GL_TEXTURE_2D, mip - skippedMips, luminanceAlpha ? GL_LUMINANCE8_ALPHA8 : GL_LUMINANCE8,
+					mipWidth, mipHeight, 0, luminanceAlpha ? GL_LUMINANCE_ALPHA : GL_LUMINANCE, GL_UNSIGNED_BYTE, texels );
+				glPixelStorei( GL_UNPACK_ALIGNMENT, unpackAlignment );
+			}
+			Mem_Free( texels );
+			uploadedMips++;
 		} else if ( compressed ) {
 			if ( !R_UseVulkanBackend() ) {
 				qglCompressedTexImage2DARB(
@@ -1160,6 +1212,15 @@ void idImage::UploadPrecompressedImage( byte* data, int len ) {
 					}
 				}
 				decoded = true;
+			}
+			if ( decoded && header->ddspf.dwFourCC == DDS_MAKEFOURCC( 'A', 'T', 'I', '2' ) ) {
+				// The decode is ( first, second ) = ( Y, X ); Vulkan's normal maps carry
+				// X in red and Y in green, as the BC5 view swizzle gives.
+				for ( int pixel = 0; pixel < mipWidth * mipHeight; ++pixel ) {
+					const byte first = rgba[ pixel * 4 + 0 ];
+					rgba[ pixel * 4 + 0 ] = rgba[ pixel * 4 + 1 ];
+					rgba[ pixel * 4 + 1 ] = first;
+				}
 			}
 			if ( decoded ) {
 				vulkanUploaded = vulkanBackend.UploadImage2D( this, rgba,

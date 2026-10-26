@@ -67,8 +67,30 @@ namespace {
 		GenerateSolidImage( image, 0, 0, 0, 255 );
 	}
 
+	// Retail's render programs read $noiseMap (_diffusionMask) as a dither threshold in
+	// alpha: the stuff grass fades by discarding where its fade is below it, sampled at
+	// texcoord * 3, and the imposters at the screen pixel / 16, so it is a 16x16 tile.
+	// An ordered (Bayer) threshold matrix stipples a fade of f over about f of the pixels
+	// (#256); solid white had discarded everything in the fade band.
+	void GenerateDiffusionMaskImage( idImage* image ) {
+		byte data[ 16 * 16 * 4 ];
+		for ( int y = 0; y < 16; y++ ) {
+			for ( int x = 0; x < 16; x++ ) {
+				const int xy = x ^ y;
+				const int rank = ( ( xy & 1 ) << 7 ) | ( ( x & 1 ) << 6 ) | ( ( xy & 2 ) << 4 ) | ( ( x & 2 ) << 3 ) |
+					( ( xy & 4 ) << 1 ) | ( x & 4 ) | ( ( xy & 8 ) >> 2 ) | ( ( x & 8 ) >> 3 );
+				// 1..255: a fade of 0 keeps nothing and a fade of 1 keeps everything
+				const byte threshold = static_cast< byte >( Min( 255, rank + 1 ) );
+				byte* pixel = data + ( y * 16 + x ) * 4;
+				pixel[ 0 ] = pixel[ 1 ] = pixel[ 2 ] = pixel[ 3 ] = threshold;
+			}
+		}
+		image->GenerateImage( data, 16, 16, TF_NEAREST, false, TR_REPEAT, TD_HIGH_QUALITY );
+	}
+
 	void GenerateFlatNormalImage( idImage* image ) {
-		GenerateSolidImage( image, 128, 128, 255, 255 );
+		// X also in alpha, where retail's ARB programs read it (see GenerateImageEx)
+		GenerateSolidImage( image, 128, 128, 255, 128 );
 	}
 
 	void GenerateBorderClampImage( idImage* image ) {
@@ -272,6 +294,7 @@ namespace {
 	idImageGeneratorFunctorGlobal grayImageFunctor( GenerateGrayImage );
 	idImageGeneratorFunctorGlobal blackImageFunctor( GenerateBlackImage );
 	idImageGeneratorFunctorGlobal flatNormalImageFunctor( GenerateFlatNormalImage );
+	idImageGeneratorFunctorGlobal diffusionMaskImageFunctor( GenerateDiffusionMaskImage );
 	idImageGeneratorFunctorGlobal borderClampImageFunctor( GenerateBorderClampImage );
 	idImageGeneratorFunctorGlobal rampImageFunctor( GenerateRampImage );
 	idImageGeneratorFunctorGlobal alphaRampImageFunctor( GenerateAlphaRampImage );
@@ -356,7 +379,7 @@ void idImageManager::Init() {
 	specularTableImage = ImageFromFunction( "_specularTable", rampImageFunctor );
 	specular2DTableImage = ImageFromFunction( "_specular2DTable", rampImageFunctor );
 	defaultDetailMaskImage = ImageFromFunction( "_defaultDetailMask", whiteImageFunctor );
-	diffusionMask = ImageFromFunction( "_diffusionMask", whiteImageFunctor );
+	diffusionMask = ImageFromFunction( "_diffusionMask", diffusionMaskImageFunctor );
 	noise = ImageFromFunction( "_noise", grayImageFunctor );
 	imageParams_t ditherParams;
 	ditherParams.td = TD_HIGH_QUALITY;
@@ -595,7 +618,11 @@ idImage* idImageManager::ImageFromFile( const char* name, imageParams_t params )
 		if ( idStr::Icmp( image->imgName, normalized ) != 0 ) {
 			continue;
 		}
-		if ( image->filter != params.tf || image->repeat != params.trp || image->cubeFiles != params.cubeMap ) {
+		// a render target (_currentRender, _postProcessBuffer_0/1 …) has no file to
+		// load: a material naming it means that image, whatever its own filter and
+		// clamp keywords.  Matching them made a second, defaulted image of the same
+		// name, so the GUI post-process stages drew nothing (#233).
+		if ( !image->fromParams && ( image->filter != params.tf || image->repeat != params.trp || image->cubeFiles != params.cubeMap ) ) {
 			continue;
 		}
 		image->levelLoadReferenced = true;

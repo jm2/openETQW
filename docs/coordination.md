@@ -251,10 +251,9 @@ try something locally; never quote that run as evidence. For a single test, use
   test N times. Report the pass count and the spread of the number that matters.
 - **Testing a merge head with `validate pr`'s build:**
   `openetqw_validate.py pr --game-repo <game worktree at the pin> --build-dir <wt>/build-val`
-  builds and installs into `<wt>/build-val/install/`. For `meson test`, link the game
-  module beside the binaries first (on Linux,
-  `ln -sfn install/game_<arch>.so build-val/game_<arch>.so`; the module is `.dylib` on macOS and `.dll` on Windows),
-  then `meson test -C <wt>/build-val --no-rebuild -j 1`.
+  builds and installs into `<wt>/build-val/install/`, then links the installed game module
+  beside the binaries (a copy on Windows; #188), so `meson test -C <wt>/build-val --no-rebuild -j 1`
+  loads the PR's module rather than one in `<data>/base/`.
 - **The standalone scripts** (`tests/test_determinism_adversarial.py`,
   `tests/test_frame_pacing_adversarial.py`, `tests/test_valley_objective_adversarial.py`)
   aren't meson tests. They look for `build/openETQW-*` unless `OPENETQW_CLIENT_BINARY` and
@@ -355,6 +354,10 @@ without a desktop. On `macmini-m1`, add `--timeout-multiplier 3` to `meson test`
   Without it the client stops with "SDL3: failed to initialize video subsystem: No available
   video device". The compositor doesn't survive a reboot, so check with `pgrep -a mutter`.
   Kill only your own: `kisakcod-linux` runs its own (`kisak-hl`).
+- **Comparing against retail 1.5.** Retail's `r_skipSpecular` takes effect only after a
+  `vid_restart`. Retail has no `r_skipPostProcess`; turn the post-process off with
+  `g_skipPostProcess 1`. A fresh retail profile auto-detected at low spec sets
+  `r_skipStuff 1`, `r_detailTexture 0` and `r_shaderQuality 2`; reset them before comparing.
 - **`client-lifecycle` needs a working audio output.** "Missing SDL3 audio initialization
   message (… Could not connect PulseAudio stream)" means the host's default PipeWire sink
   failed. After the 2026-10-20 reboot, PipeWire logged RAOP-sink errors. It passed on rerun.
@@ -494,6 +497,83 @@ SDL_VIDEO_DRIVER=offscreen ETQW_DATA_PATH=~/etqw_data meson test -C build <name>
   Upload the sheets as JPEG with `gh release upload screenshots-prNNN <files>`, or use
   `gh release create screenshots-prNNN --prerelease ...` if no platform has made the
   release yet. `gh` can't attach images to a comment.
+
+**Notes from the 2026-10-23 to 10-25 sessions, by platform.** Renderer internals are in
+`docs/render-path.md`; retail-comparison methods are in `docs/retail-comparison.md`.
+
+- **All platforms:**
+  - **Concurrent fetches:** `git fetch <url> <ref>` overwrites `FETCH_HEAD`, and a review
+    agent reading `FETCH_HEAD` can see another fetch's head. Fetch into a named ref
+    (`pull/N/head:refs/remotes/review/prN`) and delete it after.
+  - **Worktrees:** the merge procedure can't check out a branch that another worktree holds.
+    Detach that worktree first.
+  - **Merging right after a push:** `gh pr merge` can report "not mergeable" or UNSTABLE;
+    wait about 5 s and retry.
+  - **Probes:** commit the real change before adding probes. `git checkout -- <file>`, used to
+    drop a probe, also drops uncommitted work. Rebuild after reverting a probe, and revert
+    every probe before `openetqw_validate.py pr`, which needs a clean tree.
+  - **Build type:** `openetqw_validate.py pr` reconfigures the build directory it's given to
+    `debugoptimized`, while dev builds default to `debug`. Compare captures from the same
+    build type: animated frames, the menu globe for one, differ by about 2.8 mean otherwise.
+  - **Shaders and binaries:** Vulkan shaders (`base/vkprogs`) compile at run time from the
+    client's working tree. An old binary run from a checkout with new shaders mixes the two,
+    so run each build from its own worktree.
+  - **Failed shader compiles:** a shader that fails to compile logs "Vulkan shader
+    compilation failed for '<file>'", its pipelines are left NULL, and the pass silently
+    falls back. After any shader edit, grep the client log for "compilation failed" and for
+    "falling back to OpenGL".
+    - "Vulkan ray tracing unavailable: r_rayTracing is disabled (falling back to
+      rasterization)" is benign.
+    - About 1,500 "failed to parse decl 'trivial*'" warnings per long session are the
+      baseline.
+    - GLSL reserves `flat`; a local of that name broke a shader this way.
+  - **Bash-tool traps:** long or quote-heavy heredocs can be cut off or fail with
+    "unexpected EOF". `\\` in a heredoc arrives as `\`, and `sed` turns `\n` in a
+    replacement into a newline. Write edit scripts to a file instead.
+- **Windows** (both architectures):
+  - **PowerShell:** aliases win over functions (a function named `Measure` runs
+    Measure-Object), and variable names are case-insensitive. Inline PowerShell with
+    patterns such as `'/','_'` can trip the harness's system-path guard; run a script file.
+  - **Line endings:** the worktrees are CRLF (`core.autocrlf true`). Git Bash's `sed -i`
+    rewrites a file as LF; restore the endings, or edit with the Edit tool.
+  - **Validate** through `build-windows.ps1 -NoDeps -Validate`; calling
+    `openetqw_validate.py` directly lacks the pkg-config/zlib environment. Remove
+    `builddir-validate-pr` first.
+  - **Redacting logs before upload:** match `[A-Za-z]:[\\/]+Users[\\/]+<name>`
+    case-insensitively, then grep for leaks.
+  - **Sharing the host:** kisakcod holds rolling 15-minute heavy-GPU claims, so a capture can
+    wait 10–60 minutes. Run claim-waiting scripts in the background, without polling. Run
+    builds and captures at BelowNormal priority
+    (`(Get-Process -Id $PID).PriorityClass='BelowNormal'`), one client at a time, under a
+    light claim.
+- **Windows arm64 (Adreno X1-85):**
+  - **`maxSets` isn't enforced:** a 96-set pool allocated 110. A descriptor pool can't be
+    shrunk to test its exhaustion paths, which is why the front-end pool also has a
+    software cap (#261).
+  - **No SPIR-V validator:** the log says "structural validation only", so read the glslang
+    output in the client log.
+- **macOS:**
+  - **Synthetic input:** keys or mouse can't be injected into the SDL window without granting
+    Accessibility, a system setting, so don't. Test menu behaviour through console cvars and
+    the saved `etqwconfig.cfg`, and leave real typing to the owner.
+  - **`ui_name`** is CVAR_ARCHIVE|CVAR_PROFILE. The "Profile: Player" label is the offline
+    SDNet user, which is separate.
+  - **Scratch files:** macOS can purge the per-session temp scratch folder mid-session. A
+    Python venv there lost Pillow's files; recreate it.
+  - **Rebuilds:** an incremental `meson compile` in a validate build directory regenerates
+    `build.ninja`, so it needs `OPENETQW_GAME_REPO` set.
+  - **ProMotion displays** present at 120 Hz, so a cap of 240 draws about 120 fps, with
+    8.3 ms intervals. Measure against the rate actually achieved (#245).
+- **Linux:**
+  - **Wayland compositor for OpenGL:** OpenGL captures need one; `SDL_VIDEO_DRIVER=offscreen`
+    is for Vulkan only. Start a private one with
+    `nohup dbus-run-session -- mutter --headless --wayland --no-x11 --wayland-display=<name> --virtual-monitor 1920x1080 &`.
+  - **Stopping it:** `$!` is then dbus-run-session's PID, not mutter's. Find mutter's PID,
+    check that its arguments start with `mutter --headless` and name your display, and kill
+    that PID. Never kill mutter by name or with a `pkill -f` pattern: that has stopped
+    another project's compositor, and matched the calling shell.
+  - **Game-module probes:** `fileSystem->WriteFile` writes nothing from the game module;
+    `common->Printf` works.
 
 **After merging `main` into a branch** (the manifest conflicts often): take `main`'s
 `docs/provenance-manifest.json`, commit the merge, then regenerate on the committed merge
@@ -745,3 +825,5 @@ The coordinator rows below now point to §2.
 | 2026-10-09 | The Discord release announcement is removed and is not to come back. |
 | 2026-10-15 | Owner, in the `openETQW-win` session: "primary coordinator shouldn't be hardcoded; coordinator should be selected by online/response availability: antec should be first preference, followed by antec-win, then mbp16 and down the list until nothing remains online. The Fedora machines in particular reboot semi-frequently for system updates, windows and macOS less-so but still can as well. Until switchyard (or claude) has a graceful automatic resumption on reboot, remaining online nodes should continue on with a new coordinator by preference list if the current one goes missing." Implemented in §2. |
 | 2026-10-15 | Owner, in the `openETQW-win` session, on subagents: "yes but no more than four at once per session, and the rule only applies to DeepSeek/Xiaomi endpoints for now. Other models should stick to one main agent as much as possible except for when a no-context review/validation pass is required." This replaces the 2026-09-30 subagent-review row and the 2026-10-03 "one agent per session/machine" row (§7). |
+| 2026-10-24 | Owner, in the `openETQW-linux` session, accepted the `seat-poses-listen` contention handling (#162, #196): a phase that ran while the host was contended is re-run once. If the re-run also fails, the test fails (exit 1) with a distinct "host contended" message; it never passes or skips (exit 77) on contention. The bounds are unchanged. |
+| 2026-10-24 | Owner, in the `openETQW-linux` session: "burn down all open issues and in-progress PRs across all sessions". #141 (mouse sub-pixel motion) is no longer deferred. An issue that a short re-check on current `main` shows is gone may be closed, with the evidence (what was run, where, the result) posted on it. |

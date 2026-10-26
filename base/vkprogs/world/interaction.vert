@@ -2,8 +2,9 @@
 
 // One light's contribution to one surface, for the rasterized lighting path
 // (no ray-query device).  The terms match vkprogs/raytracing/lighting.comp:
-// N.L, (1 - d/r)^2 for point lights, and a directional sun.  Lighting is done
-// in the surface's model space; the CPU passes the light in that space.
+// N.L, (1 - d/r)^2 for point lights, and a directional sun, plus retail's
+// specular (interaction.frag).  Lighting is done in the surface's model space;
+// the CPU passes the light and the view origin in that space.
 
 layout( location = 0 ) in vec3 inPosition;
 layout( location = 1 ) in vec4 inColor;
@@ -47,7 +48,10 @@ void main() {
 		dot( pc.textureMatrixS.xyz, vec3( texCoord, 1.0 ) ),
 		dot( pc.textureMatrixT.xyz, vec3( texCoord, 1.0 ) )
 	);
-	fragmentColor = pc.color * mix( vec4( 1.0 ), inColor, pc.parameters.x );
+	// pc.color is not a colour here: rgb carries the view origin in model space
+	// (interaction.frag's specular), or for MegaTexture terrain (a < 0) the
+	// notlit term's scale
+	fragmentColor = mix( vec4( 1.0 ), inColor, pc.parameters.x );
 	vec3 normal = unpackDirection( inPackedNormal, inNormalSign );
 	vec3 tangent = unpackDirection( inPackedTangent, inTangentSign );
 	fragmentNormal = normal;

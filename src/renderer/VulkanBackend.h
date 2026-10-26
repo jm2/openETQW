@@ -71,8 +71,10 @@ public:
 		bool indexBuffer, bool frameTemporary = false );
 	bool UpdateBuffer( const void* owner, int offset, const void* data, int bytes );
 	void DestroyBuffer( const void* owner );
+	// guis/postprocess's postprocess/glow, from the frame's scene so far (#233)
+	bool DrawPostProcessGlow();
 	bool DrawGuiFan( const void* imageOwner, const sdVulkanGuiVertex* vertices,
-		int vertexCount, const float* color, int drawStateBits );
+		int vertexCount, const float* color, int drawStateBits, bool makeAlpha = false );
 	bool DrawGuiTriangles( const void* imageOwner,
 		const sdVulkanToolVertex* vertices, int vertexCount );
 	bool DrawOverlayTriangles( const void* imageOwner,
@@ -141,6 +143,7 @@ int ShadowIndexCount( const drawSurf_s* surface, bool& external );
 void DrawVulkanShadowSurface( sdVulkanBackendState& state, const drawSurf_s* surface,
 	const viewLight_s* light, const viewDef_s* view );
 void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* surface,
-	const viewLight_s* light, const viewDef_s* view, bool unshadowed = false );
+	const viewLight_s* light, const viewDef_s* view, bool unshadowed = false, const float* fog = NULL,
+	const float* ambient = NULL, bool amblitShadowSplit = false );
 
 #endif /* !__RENDERER_VULKANBACKEND_H__ */

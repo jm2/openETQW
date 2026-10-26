@@ -18,6 +18,16 @@ static const int CLIENT_CONNECT_RESEND_MSEC = 1000;
 static const int CLIENT_EMPTY_RESEND_MSEC = 500;
 static const int PREDICTION_FAST_ADJUST = 4;	// Doom 3: fraction of the prediction error corrected per snapshot
 
+// The server's own address, port included: another program on the server's host
+// (Sys_CompareNetAdrBase compares the IP only) must not steer the handshake.  The
+// port is compared for IP addresses only, as the server does for its clients.
+static bool IsServerAddress( const netadr_t from, const netadr_t server ) {
+	if ( !Sys_CompareNetAdrBase( from, server ) ) {
+		return false;
+	}
+	return from.type != NA_IP || server.type != NA_IP || from.port == server.port;
+}
+
 static idCVar net_clientShowSnapshots( "net_clientShowSnapshots", "0", CVAR_SYSTEM | CVAR_BOOL | CVAR_NOCHEAT, "print a line for every snapshot the client reads (network tests)" );
 
 idAsyncClient::idAsyncClient() :
@@ -760,12 +770,24 @@ void idAsyncClient::ProcessReliableServerMessages() {
 }
 
 void idAsyncClient::ProcessChallengeResponseMessage( const netadr_t from, const idBitMsg& msg ) {
-	if ( !Sys_CompareNetAdrBase( from, serverAddress ) ) {
+	// only while challenging (Doom 3): a late, duplicate response (the client resent
+	// getChallenge while the first answer was on its way) would otherwise put a
+	// connected client back to connecting, and the next connectResponse would reset
+	// its channel
+	if ( clientState != CS_CHALLENGING ) {
+		common->Printf( "Unwanted challenge response received.\n" );
+		return;
+	}
+	if ( !IsServerAddress( from, serverAddress ) ) {
 		return;
 	}
 	serverChallenge = msg.ReadLong();
 	clientState = CS_CONNECTING;
-	lastPacketTime = realTime;
+	// the connection timeout runs from the first answer of this connect: a client that
+	// keeps getting new challenges (Bad challenge) but is never accepted still times out
+	if ( lastPacketTime < 0 ) {
+		lastPacketTime = realTime;
+	}
 }
 
 void idAsyncClient::ProcessConnectResponseMessage( const netadr_t from, const idBitMsg& msg ) {
@@ -800,10 +822,17 @@ void idAsyncClient::ProcessInfoResponseMessage( const netadr_t from, const idBit
 
 void idAsyncClient::ProcessPrintMessage( const netadr_t from, const idBitMsg& msg ) {
 	int opcode = msg.ReadByte();
-	(void)opcode;
 	char text[ 4096 ];
 	msg.ReadString( text, sizeof( text ) );
 	common->Printf( "%s\n", text );
+
+	// The server no longer knows our challenge (it expired while the server refused
+	// our connects, or the server restarted): ask for a new one (Doom 3).  Resending
+	// the old one would be refused forever.
+	if ( opcode == SERVER_PRINT_BADCHALLENGE && active && clientState == CS_CONNECTING && IsServerAddress( from, serverAddress ) ) {
+		clientState = CS_CHALLENGING;
+		lastConnectTime = -9999;
+	}
 }
 
 void idAsyncClient::ProcessServersListMessage( const netadr_t from, const idBitMsg& msg ) {

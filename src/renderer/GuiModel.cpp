@@ -9,6 +9,7 @@
 #pragma hdrstop
 
 #include "GuiModel.h"
+#include "GuiFont.h"
 #include "DeviceContext.h"
 #include "Material.h"
 #include "Image.h"
@@ -28,127 +29,30 @@
 #endif
 
 extern idCVar r_32ByteVtx;
+extern glconfig_t glConfig;
 
 namespace {
 
-#if defined( _WIN32 )
-struct bitmapFontCache_t {
-	int		pixelHeight;
-	GLuint	listBase;
-	HFONT	font;
-};
-
-idList< bitmapFontCache_t > bitmapFontCache;
-HGLRC bitmapFontContext = NULL;
-#endif
-
-struct vulkanBitmapFont_t {
-	int		pixelHeight;
-	int		cellWidth;
-	int		cellHeight;
-	int		atlasWidth;
-	int		atlasHeight;
-	int		advance[ 256 ];
-	idStr	imageName;
-
-	vulkanBitmapFont_t() : pixelHeight( 0 ), cellWidth( 0 ), cellHeight( 0 ),
-		atlasWidth( 0 ), atlasHeight( 0 ) {
-		memset( advance, 0, sizeof( advance ) );
-	}
-};
-
-idList< vulkanBitmapFont_t > vulkanBitmapFontCache;
-
-int GuiNextPowerOfTwo( int value ) {
-	int result = 1;
-	while ( result < value && result < 4096 ) {
-		result <<= 1;
-	}
-	return result;
-}
-
-#if defined( _WIN32 )
-bitmapFontCache_t* GetBitmapFont( HDC deviceContext, int pixelHeight ) {
-	const HGLRC currentContext = wglGetCurrentContext();
-	if ( currentContext == NULL || deviceContext == NULL ) {
-		return NULL;
-	}
-	if ( currentContext != bitmapFontContext ) {
-		for ( int i = 0; i < bitmapFontCache.Num(); i++ ) {
-			if ( bitmapFontCache[ i ].font != NULL ) {
-				DeleteObject( bitmapFontCache[ i ].font );
-			}
-		}
-		bitmapFontCache.Clear();
-		bitmapFontContext = currentContext;
-	}
-
-	pixelHeight = idMath::ClampInt( 6, 192, pixelHeight );
-	for ( int i = 0; i < bitmapFontCache.Num(); i++ ) {
-		if ( bitmapFontCache[ i ].pixelHeight == pixelHeight ) {
-			return &bitmapFontCache[ i ];
-		}
-	}
-
-	bitmapFontCache_t cache;
-	cache.pixelHeight = pixelHeight;
-	cache.listBase = glGenLists( 256 );
-	cache.font = CreateFontW(
-		-pixelHeight,
-		0,
-		0,
-		0,
-		FW_MEDIUM,
-		FALSE,
-		FALSE,
-		FALSE,
-		DEFAULT_CHARSET,
-		OUT_TT_PRECIS,
-		CLIP_DEFAULT_PRECIS,
-		ANTIALIASED_QUALITY,
-		FF_DONTCARE | VARIABLE_PITCH,
-		L"Arial Narrow"
-	);
-	if ( cache.listBase == 0 || cache.font == NULL ) {
-		if ( cache.listBase != 0 ) {
-			glDeleteLists( cache.listBase, 256 );
-		}
-		if ( cache.font != NULL ) {
-			DeleteObject( cache.font );
-		}
-		return NULL;
-	}
-
-	HGDIOBJ oldFont = SelectObject( deviceContext, cache.font );
-	const BOOL generated = wglUseFontBitmapsW( deviceContext, 0, 256, cache.listBase );
-	SelectObject( deviceContext, oldFont );
-	if ( !generated ) {
-		glDeleteLists( cache.listBase, 256 );
-		DeleteObject( cache.font );
-		return NULL;
-	}
-
-	const int index = bitmapFontCache.Append( cache );
-	return &bitmapFontCache[ index ];
-}
-#endif
-
-void BuildDisplayText( const wchar_t* source, idWStr& displayText ) {
-	displayText.Clear();
-	if ( source == NULL ) {
+// The finished frame as _currentRender, and _postProcessBuffer_0/1 at a quarter
+// of it (RB_ARB2_SetupPostProcessingFrameBuffer's sizes), for a GUI post-process
+// material.  The GUI is submitted after the views, so there is no view def here.
+void GuiCopyFrameForPostProcess( int x, int y, int width, int height ) {
+	if ( globalImages == NULL || globalImages->currentRenderImage == NULL ) {
 		return;
 	}
-	for ( int i = 0; source[ i ] != L'\0'; i++ ) {
-		if ( source[ i ] == L'^' && source[ i + 1 ] != L'\0' ) {
-			i++;
-			continue;
+	const int bufferWidth = Max( 1, width >> 2 );
+	const int bufferHeight = Max( 1, height >> 2 );
+	for ( int index = 0; index < 2; ++index ) {
+		idImage* image = globalImages->postProcessBuffer[ index ];
+		if ( image != NULL && ( image->uploadWidth != bufferWidth || image->uploadHeight != bufferHeight ) ) {
+			image->FromParameters( bufferWidth, bufferHeight, GL_RGBA8, TT_RECT, TF_LINEAR, TR_CLAMP );
 		}
-		wchar_t c = source[ i ];
-		if ( c > 255 ) {
-			c = L'?';
-		}
-		displayText.Append( c );
 	}
+	if ( rbinds != NULL ) {
+		rbinds->currentRenderTexelSize->Set( static_cast< float >( width ), static_cast< float >( height ),
+			1.0f / Max( width, 1 ), 1.0f / Max( height, 1 ) );
+	}
+	globalImages->currentRenderImage->CopyFramebuffer( x, y, width, height, false );
 }
 
 byte ClampCinematicChannel( int value ) {
@@ -253,124 +157,6 @@ void sdGuiModel::RenderScene() {
 	writePosition += sizeof( int );
 }
 
-#if defined( _WIN32 )
-vulkanBitmapFont_t* GetVulkanBitmapFont( HDC windowDC, int pixelHeight ) {
-	if ( globalImages == NULL || windowDC == NULL ) {
-		return NULL;
-	}
-	pixelHeight = idMath::ClampInt( 6, 192, pixelHeight );
-	vulkanBitmapFont_t* font = NULL;
-	for ( int i = 0; i < vulkanBitmapFontCache.Num(); ++i ) {
-		if ( vulkanBitmapFontCache[ i ].pixelHeight == pixelHeight ) {
-			font = &vulkanBitmapFontCache[ i ];
-			break;
-		}
-	}
-	if ( font == NULL ) {
-		vulkanBitmapFont_t newFont;
-		newFont.pixelHeight = pixelHeight;
-		newFont.imageName = va( "_vkfont_%d", pixelHeight );
-		font = &vulkanBitmapFontCache[ vulkanBitmapFontCache.Append( newFont ) ];
-	}
-	idImage* image = globalImages->GetImage( font->imageName.c_str() );
-	if ( image != NULL && image->IsLoaded() ) {
-		return font;
-	}
-
-	HFONT windowsFont = CreateFontW(
-		-pixelHeight, 0, 0, 0, FW_MEDIUM, FALSE, FALSE, FALSE,
-		DEFAULT_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS,
-		ANTIALIASED_QUALITY, FF_DONTCARE | VARIABLE_PITCH, L"Arial Narrow" );
-	if ( windowsFont == NULL ) {
-		return NULL;
-	}
-	HDC memoryDC = CreateCompatibleDC( windowDC );
-	if ( memoryDC == NULL ) {
-		DeleteObject( windowsFont );
-		return NULL;
-	}
-	HGDIOBJ previousFont = SelectObject( memoryDC, windowsFont );
-	TEXTMETRICW metrics;
-	memset( &metrics, 0, sizeof( metrics ) );
-	GetTextMetricsW( memoryDC, &metrics );
-	font->cellWidth = Max( static_cast< int >( metrics.tmMaxCharWidth ) + 4,
-		pixelHeight / 2 + 4 );
-	font->cellHeight = Max( static_cast< int >( metrics.tmHeight ) + 4,
-		pixelHeight + 4 );
-	font->atlasWidth = GuiNextPowerOfTwo( font->cellWidth * 16 );
-	font->atlasHeight = GuiNextPowerOfTwo( font->cellHeight * 16 );
-	if ( font->atlasWidth < font->cellWidth * 16 ||
-		font->atlasHeight < font->cellHeight * 16 ) {
-		SelectObject( memoryDC, previousFont );
-		DeleteDC( memoryDC );
-		DeleteObject( windowsFont );
-		common->Warning( "Vulkan font atlas is too large for %d pixel text", pixelHeight );
-		return NULL;
-	}
-
-	BITMAPINFO bitmapInfo;
-	memset( &bitmapInfo, 0, sizeof( bitmapInfo ) );
-	bitmapInfo.bmiHeader.biSize = sizeof( BITMAPINFOHEADER );
-	bitmapInfo.bmiHeader.biWidth = font->atlasWidth;
-	bitmapInfo.bmiHeader.biHeight = font->atlasHeight;
-	bitmapInfo.bmiHeader.biPlanes = 1;
-	bitmapInfo.bmiHeader.biBitCount = 32;
-	bitmapInfo.bmiHeader.biCompression = BI_RGB;
-	void* bitmapPixels = NULL;
-	HBITMAP bitmap = CreateDIBSection( memoryDC, &bitmapInfo, DIB_RGB_COLORS,
-		&bitmapPixels, NULL, 0 );
-	if ( bitmap == NULL || bitmapPixels == NULL ) {
-		SelectObject( memoryDC, previousFont );
-		DeleteDC( memoryDC );
-		DeleteObject( windowsFont );
-		return NULL;
-	}
-	HGDIOBJ previousBitmap = SelectObject( memoryDC, bitmap );
-	memset( bitmapPixels, 0, font->atlasWidth * font->atlasHeight * 4 );
-	SetBkMode( memoryDC, TRANSPARENT );
-	SetTextColor( memoryDC, RGB( 255, 255, 255 ) );
-	SetTextAlign( memoryDC, TA_LEFT | TA_TOP | TA_NOUPDATECP );
-	for ( int character = 0; character < 256; ++character ) {
-		wchar_t glyph = static_cast< wchar_t >( character );
-		SIZE extent;
-		extent.cx = extent.cy = 0;
-		GetTextExtentPoint32W( memoryDC, &glyph, 1, &extent );
-		font->advance[ character ] = Max( static_cast< int >( extent.cx ), character == ' ' ?
-			font->cellWidth / 3 : 1 );
-		if ( character >= 32 ) {
-			const int x = ( character & 15 ) * font->cellWidth + 2;
-			const int y = ( character >> 4 ) * font->cellHeight + 2;
-			TextOutW( memoryDC, x, y, &glyph, 1 );
-		}
-	}
-	byte* pixels = static_cast< byte* >( bitmapPixels );
-	const int pixelCount = font->atlasWidth * font->atlasHeight;
-	for ( int i = 0; i < pixelCount; ++i ) {
-		byte* pixel = pixels + i * 4;
-		const byte alpha = Max( pixel[ 0 ], Max( pixel[ 1 ], pixel[ 2 ] ) );
-		pixel[ 0 ] = pixel[ 1 ] = pixel[ 2 ] = 255;
-		pixel[ 3 ] = alpha;
-	}
-	if ( image == NULL ) {
-		image = globalImages->AllocImage( font->imageName.c_str() );
-	}
-	if ( image != NULL ) {
-		image->GenerateImageEx( pixels, font->atlasWidth, font->atlasHeight,
-			TF_LINEAR, false, TR_CLAMP, TD_HIGH_QUALITY, GL_RGBA8, 1 );
-	}
-	SelectObject( memoryDC, previousBitmap );
-	SelectObject( memoryDC, previousFont );
-	DeleteObject( bitmap );
-	DeleteDC( memoryDC );
-	DeleteObject( windowsFont );
-	return image != NULL && image->IsLoaded() ? font : NULL;
-}
-#else
-vulkanBitmapFont_t* GetVulkanBitmapFont( void* windowDC, int pixelHeight ) {
-	return NULL;
-}
-#endif
-
 idImage* ResolveVulkanStageImage( const materialStage_t* stage,
 	idImage* overrideImage ) {
 	if ( overrideImage != NULL ) {
@@ -435,6 +221,39 @@ void sdGuiModel::PopClipRect() {
 	writePosition += sizeof( int );
 }
 
+bool sdGuiModel::ClipToMask( idWinding2D& winding, float x, float y, float w, float h,
+	float ms1, float mt1, float ms2, float mt2 ) {
+	// the mask coordinates run from (ms1, mt1) at (x, y) to (ms2, mt2) at
+	// (x + w, y + h); find where they are 0 and 1
+	// an axis whose mask coordinate is constant shows everywhere or nowhere
+	if ( ( ms1 == ms2 && ( ms1 < 0.0f || ms1 > 1.0f ) ) || ( mt1 == mt2 && ( mt1 < 0.0f || mt1 > 1.0f ) ) ) {
+		return false;
+	}
+	const float unbounded = 1.0e6f;
+	float x0 = -unbounded;
+	float x1 = unbounded;
+	float y0 = -unbounded;
+	float y1 = unbounded;
+	if ( ms1 != ms2 ) {
+		x0 = x + ( 0.0f - ms1 ) / ( ms2 - ms1 ) * w;
+		x1 = x + ( 1.0f - ms1 ) / ( ms2 - ms1 ) * w;
+		if ( x0 > x1 ) {
+			Swap( x0, x1 );
+		}
+	}
+	if ( mt1 != mt2 ) {
+		y0 = y + ( 0.0f - mt1 ) / ( mt2 - mt1 ) * h;
+		y1 = y + ( 1.0f - mt1 ) / ( mt2 - mt1 ) * h;
+		if ( y0 > y1 ) {
+			Swap( y0, y1 );
+		}
+	}
+	if ( ms1 == ms2 && mt1 == mt2 ) {
+		return winding.GetNumPoints() >= 3;
+	}
+	return winding.ClipByBounds( sdBounds2D( x0, y0, x1 - x0, y1 - y0 ) ) && winding.GetNumPoints() >= 3;
+}
+
 bool sdGuiModel::ClipWinding( idWinding2D& winding ) const {
 	if ( !clippingEnabled || clipRects.Num() == 0 ) {
 		return winding.GetNumPoints() >= 3;
@@ -463,6 +282,14 @@ void sdGuiModel::QueueRect(
 	if ( angle != 0.0f ) {
 		const idVec2 center( x + w * 0.5f, y + h * 0.5f );
 		winding.Rotation( center, angle * idMath::M_DEG2RAD );
+	}
+
+	// a masked draw shows only where its mask coordinates are within 0..1; the
+	// territory outlines are drawn far larger than the command map they are
+	// masked to, so cut them there (#189). The mask coordinates below come from
+	// the rotated positions, so the cut comes after the rotation
+	if ( masked && !ClipToMask( winding, x, y, w, h, ms1, mt1, ms2, mt2 ) ) {
+		return;
 	}
 
 	if ( clipped && !ClipWinding( winding ) ) {
@@ -500,6 +327,9 @@ void sdGuiModel::QueueWinding(
 	float minx, float miny, float width, float height
 ) {
 	idWinding2D winding = source;
+	if ( masked && !ClipToMask( winding, minx, miny, width, height, 0.0f, 0.0f, 1.0f, 1.0f ) ) {
+		return;
+	}
 	if ( !ClipWinding( winding ) ) {
 		return;
 	}
@@ -596,8 +426,98 @@ void sdGuiModel::DrawTextA( const wchar_t* text, const sdBounds2D& rect, unsigne
 	command.color = currentColor;
 	command.font = currentFont;
 	command.pointSize = currentFontSize;
+	// clipped to its rectangle and the clip stack, as it is queued; the
+	// rectangle's top gives way by the face's room above its capitals and its
+	// bottom by the descent, applied once the string is laid out, because retail
+	// 1.5 draws a line's ink whole in a rectangle only as tall as the text (#193:
+	// the main menu's banner)
+	command.clipped = ( flags & DTF_NOCLIPPING ) == 0;
+	command.clip = rect;
+	command.clip.GetMins().y = -1.0e6f;
+	command.clip.GetMaxs().y = 1.0e6f;
+	command.clipTop = rect.GetMins().y;
+	command.clipBottom = rect.GetMaxs().y;
+	if ( rect.GetWidth() <= 0.0f || rect.GetHeight() <= 0.0f ) {
+		// an empty rectangle places the text and does not hide it
+		command.clip.GetMins().Set( -1.0e6f, -1.0e6f );
+		command.clip.GetMaxs().Set( 1.0e6f, 1.0e6f );
+		command.clipTop = -1.0e6f;
+		command.clipBottom = 1.0e6f;
+	}
+	if ( command.clipped && clippingEnabled ) {
+		for ( int i = 0; i < clipRects.Num(); i++ ) {
+			sdBounds2D clip;
+			command.clip.IntersectBounds( clipRects[ i ], clip );
+			command.clip = clip;
+		}
+	}
 	texts.Append( command );
 	writePosition += sizeof( int ) * 8;
+}
+
+// Lays out every queued string, rasterises the glyphs it needs and uploads the
+// atlases that changed, so neither renderer changes an image mid-frame.
+void sdGuiModel::BuildTextQuads() {
+	textQuads.SetNum( 0, false );
+	textQuadStart.SetNum( 0, false );
+	sdGuiTextLayout layout;
+	for ( int t = 0; t < texts.Num(); t++ ) {
+		textQuadStart.Append( textQuads.Num() );
+		const guiText_t& command = texts[ t ];
+		guiFonts.Layout( command.font, command.pointSize, command.text.c_str(), command.rect,
+			command.flags, command.color, layout );
+		float xScale, yScale;
+		sdGuiFontManager::ScreenScale( xScale, yScale );
+		for ( int g = 0; g < layout.glyphs.Num(); g++ ) {
+			const sdGuiTextGlyph& glyph = layout.glyphs[ g ];
+			sdGuiGlyphImage cell;
+			if ( !guiFonts.Glyph( command.font, command.pointSize, glyph.codepoint, cell ) ) {
+				continue;
+			}
+			guiTextQuad_t quad;
+			quad.image = cell.image;
+			quad.color = glyph.color;
+			quad.x0 = glyph.x + cell.left / xScale;
+			quad.y0 = glyph.baseline + cell.top / yScale;
+			quad.x1 = quad.x0 + cell.width / xScale;
+			quad.y1 = quad.y0 + cell.height / yScale;
+			quad.s0 = cell.s0;
+			quad.t0 = cell.t0;
+			quad.s1 = cell.s1;
+			quad.t1 = cell.t1;
+			if ( command.clipped ) {
+				idVec2 mins = command.clip.GetMins();
+				idVec2 maxs = command.clip.GetMaxs();
+				mins.y = Max( mins.y, command.clipTop - layout.accent );
+				maxs.y = Min( maxs.y, command.clipBottom + layout.descent );
+				if ( quad.x1 <= mins.x || quad.x0 >= maxs.x || quad.y1 <= mins.y || quad.y0 >= maxs.y ) {
+					continue;
+				}
+				const float ds = ( quad.s1 - quad.s0 ) / ( quad.x1 - quad.x0 );
+				const float dt = ( quad.t1 - quad.t0 ) / ( quad.y1 - quad.y0 );
+				if ( quad.x0 < mins.x ) { quad.s0 += ( mins.x - quad.x0 ) * ds; quad.x0 = mins.x; }
+				if ( quad.x1 > maxs.x ) { quad.s1 -= ( quad.x1 - maxs.x ) * ds; quad.x1 = maxs.x; }
+				if ( quad.y0 < mins.y ) { quad.t0 += ( mins.y - quad.y0 ) * dt; quad.y0 = mins.y; }
+				if ( quad.y1 > maxs.y ) { quad.t1 -= ( quad.y1 - maxs.y ) * dt; quad.y1 = maxs.y; }
+			}
+			textQuads.Append( quad );
+		}
+	}
+	textQuadStart.Append( textQuads.Num() );
+	// rows to texture coordinates now that this frame's glyphs are all in, so a
+	// quad built before its atlas grew still points at its glyph
+	const idImage* lastImage = NULL;
+	float rowScale = 1.0f;
+	for ( int i = 0; i < textQuads.Num(); i++ ) {
+		guiTextQuad_t& quad = textQuads[ i ];
+		if ( quad.image != lastImage ) {
+			lastImage = quad.image;
+			rowScale = 1.0f / static_cast< float >( guiFonts.AtlasHeight( quad.image ) );
+		}
+		quad.t0 *= rowScale;
+		quad.t1 *= rowScale;
+	}
+	guiFonts.UploadChanged();
 }
 
 void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
@@ -608,6 +528,7 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 		SubmitFrameVulkan();
 		return;
 	}
+	BuildTextQuads();
 
 	glPushAttrib( GL_COLOR_BUFFER_BIT | GL_CURRENT_BIT | GL_DEPTH_BUFFER_BIT |
 		GL_ENABLE_BIT | GL_LIST_BIT | GL_PIXEL_MODE_BIT | GL_POLYGON_BIT |
@@ -630,6 +551,10 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 	// compatibility submission uses immediate vertices and must provide those
 	// generic attributes explicitly instead of inheriting the last world VBO.
 	GL_EnableVertexAttribs( 0 );
+	// the calls above set GL directly: without this, a stage whose bits match the
+	// last ones cached (the previous frame's last GUI stage, on a frame with no
+	// world render) skips its blend function (#203)
+	GL_ResyncStateCache();
 
 	auto submitPrimitive = [&]( const guiPrimitive_t& primitive ) {
 		idImage* image = primitive.referenceSound != NULL ? ResolveGuiImage( primitive.material, primitive.referenceSound ) : NULL;
@@ -640,21 +565,46 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 		idList< float > evaluated;
 		evaluated.SetNum( primitive.material->GetNumRegisters(), false );
 		primitive.material->EvaluateRegisters( evaluated.Begin(), primitive.materialParms, NULL, primitive.referenceSound, 0 );
-		for ( int stageIndex = 0; stageIndex < primitive.material->GetNumStages(); ++stageIndex ) {
-			const materialStage_t* stage = primitive.material->GetStage( stageIndex );
-			if ( evaluated[ stage->conditionRegister ] == 0.0f ) continue;
+		auto stageDrawable = [&]( const materialStage_t* stage ) {
+			if ( evaluated[ stage->conditionRegister ] == 0.0f ) return false;
 			// Missing optional GUI layers are skipped individually.  The material's
 			// editor image is only a preview and may be defaulted even though another
 			// program stage has all of its real images available.
-			bool stageHasDefaultedTexture = false;
-			for ( int textureIndex = 0; textureIndex < stage->numTextures; ++textureIndex ) {
-				const idImage* stageImage = stage->textures[ textureIndex ].image;
-				if ( stageImage != NULL && stageImage->defaulted ) {
-					stageHasDefaultedTexture = true;
-					break;
+			if ( primitive.referenceSound == NULL ) {
+				for ( int textureIndex = 0; textureIndex < stage->numTextures; ++textureIndex ) {
+					const idImage* stageImage = stage->textures[ textureIndex ].image;
+					if ( stageImage != NULL && stageImage->defaulted ) return false;
 				}
 			}
-			if ( primitive.referenceSound == NULL && stageHasDefaultedTexture ) continue;
+			// a program that failed to parse (retail's Cg postprocess passes) would
+			// draw its default constant orange over the whole view (#185)
+			return stage->renderProgram == NULL || stage->renderProgram->GetState() != DS_DEFAULTED;
+		};
+		// guis/postprocess draws postprocess/glow: stages that render into the
+		// quarter-size _postProcessBuffer_0/1 (destinationBuffer), all reading the
+		// finished frame as _currentRender (#233).  Those stages draw in the back
+		// buffer's corner, which only the material's last stage covers again, so
+		// the material draws whole or not at all (postprocess/heatsight's Cg has no
+		// port).
+		bool postProcess = false;
+		bool allDrawable = true;
+		for ( int stageIndex = 0; stageIndex < primitive.material->GetNumStages(); ++stageIndex ) {
+			const materialStage_t* stage = primitive.material->GetStage( stageIndex );
+			postProcess |= stage->destinationBuffer >= 0;
+			allDrawable &= stageDrawable( stage );
+		}
+		if ( postProcess && !allDrawable ) {
+			return;
+		}
+		// the drawable's own size (a HiDPI drawable is larger than the window)
+		GLint frameViewport[ 4 ] = { 0, 0, windowWidth, windowHeight };
+		if ( postProcess || primitive.material->TestMaterialFlag( MF_UPDATECURRENTRENDER ) ) {
+			glGetIntegerv( GL_VIEWPORT, frameViewport );
+			GuiCopyFrameForPostProcess( frameViewport[ 0 ], frameViewport[ 1 ], frameViewport[ 2 ], frameViewport[ 3 ] );
+		}
+		for ( int stageIndex = 0; stageIndex < primitive.material->GetNumStages(); ++stageIndex ) {
+			const materialStage_t* stage = primitive.material->GetStage( stageIndex );
+			if ( !stageDrawable( stage ) ) continue;
 			idVec4 stageColor;
 			idVec4 matrixS;
 			idVec4 matrixT;
@@ -667,6 +617,9 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 				rbinds->diffuseColor->Set( 1.0f, 1.0f, 1.0f, 1.0f );
 			}
 			if ( !RB_SetupMaterialStage( stage, evaluated.Begin(), image, stageColor, matrixS, matrixT ) ) continue;
+			// GUI quads are two-sided, as on Vulkan (cull mode none): a stage's own
+			// cull type would drop a mirrored quad such as the rotated command map.
+			GL_Cull( CT_TWO_SIDED );
 			// ARB vertex programs are precompiled for ETQW's packed idDrawVert
 			// layout when r_32ByteVtx is enabled.  The retail GUI path builds those
 			// packed vertices before drawing; this immediate-mode compatibility path
@@ -709,6 +662,11 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 			if ( qglVertexAttrib4fvARB != NULL && rbinds != NULL ) {
 				qglVertexAttrib4fvARB( rbinds->colorAttrib->GetAttribIndex(), vertexColor );
 			}
+			idImage* destination = stage->destinationBuffer >= 0 && stage->destinationBuffer < 2 && globalImages != NULL ?
+				globalImages->postProcessBuffer[ stage->destinationBuffer ] : NULL;
+			if ( destination != NULL ) {
+				glViewport( frameViewport[ 0 ], frameViewport[ 1 ], destination->uploadWidth, destination->uploadHeight );
+			}
 			glBegin( GL_TRIANGLE_FAN );
 			for ( int j = 0; j < primitive.numVerts; j++ ) {
 				const idVec2& st = primitive.verts[ j ].st;
@@ -723,59 +681,87 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 				glVertex2f( primitive.verts[ j ].xy.x, primitive.verts[ j ].xy.y );
 			}
 			glEnd();
+			if ( destination != NULL ) {
+				destination->CopyFramebuffer( frameViewport[ 0 ], frameViewport[ 1 ], destination->uploadWidth, destination->uploadHeight, false );
+				glViewport( frameViewport[ 0 ], frameViewport[ 1 ], frameViewport[ 2 ], frameViewport[ 3 ] );
+			}
 		}
 	};
 
-#if defined( _WIN32 )
-	HDC windowDC = wglGetCurrentDC();
-	const float pixelScale = Max( 1.0f, static_cast< float >( windowHeight ) / 480.0f );
-	auto submitText = [&]( const guiText_t& command ) {
-		// Bitmap display lists are a compatibility-profile fixed-function path.
-		// A GUI material stage may have left either an ARB or GLSL program bound;
-		// in that state glRasterPos/glCallLists do not produce the console glyphs.
+	auto submitText = [&]( int textIndex ) {
+		// fixed-function textured quads: a GUI material stage may have left an
+		// ARB or GLSL program bound
+		const int first = textQuadStart[ textIndex ];
+		const int end = textQuadStart[ textIndex + 1 ];
+		if ( first == end ) {
+			return;
+		}
 		SD_UnbindRenderProgram();
+		// glPopAttrib restores the driver's active unit behind the state cache's
+		// back; selecting through unit 1 makes unit 0 really active
+		GL_SelectTexture( 1 );
 		GL_SelectTexture( 0 );
+		// fixed function also samples every other enabled unit: a material stage
+		// drawn before may have left one on (its white image draws solid boxes)
+		for ( int unit = Min( glConfig.maxTextureUnits, 8 ) - 1; unit >= 1; unit-- ) {
+			qglActiveTextureARB( GL_TEXTURE0_ARB + unit );
+			glDisable( GL_TEXTURE_1D );
+			glDisable( GL_TEXTURE_2D );
+			glDisable( GL_TEXTURE_RECTANGLE_ARB );
+			if ( glConfig.texture3DAvailable ) glDisable( GL_TEXTURE_3D );
+			if ( glConfig.cubeMapAvailable ) glDisable( GL_TEXTURE_CUBE_MAP_ARB );
+		}
+		qglActiveTextureARB( GL_TEXTURE0_ARB );
+		// and on unit 0, the targets that take precedence over 2D
+		glDisable( GL_TEXTURE_1D );
+		glDisable( GL_TEXTURE_RECTANGLE_ARB );
+		if ( glConfig.texture3DAvailable ) glDisable( GL_TEXTURE_3D );
+		if ( glConfig.cubeMapAvailable ) glDisable( GL_TEXTURE_CUBE_MAP_ARB );
+		glDisable( GL_TEXTURE_GEN_S );
+		glDisable( GL_TEXTURE_GEN_T );
+		glDisable( GL_TEXTURE_GEN_R );
+		glDisable( GL_TEXTURE_GEN_Q );
+		glMatrixMode( GL_TEXTURE );
+		glPushMatrix();
+		glLoadIdentity();
+		glMatrixMode( GL_MODELVIEW );
+		// the stage drawn before may have been opaque: without blending every
+		// glyph is a solid box (seen on macOS and Linux under OpenGL)
+		// (GLS bits, as the Vulkan path's 0x65: source alpha, one minus source
+		// alpha; 0x100 no depth writes; 0x10000 depth always).  Set through the
+		// state cache: setting GL directly leaves the cache holding the stage
+		// drawn before, so a following stage with the same bits skips its blend
+		// function and draws with this one (#193: the main menu's sheet_add pass
+		// after the Mods/Replay/Credits labels drew opaque and covered them).
+		GL_State( 0x65 | 0x100 | 0x10000 );
+		GL_Cull( CT_TWO_SIDED );
+		glDisable( GL_ALPHA_TEST );
+		glEnable( GL_TEXTURE_2D );
+		glTexEnvi( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE );
+		idImage* bound = NULL;
+		for ( int i = first; i < end; i++ ) {
+			const guiTextQuad_t& quad = textQuads[ i ];
+			if ( quad.image != bound ) {
+				if ( bound != NULL ) {
+					glEnd();
+				}
+				quad.image->Bind();
+				bound = quad.image;
+				glBegin( GL_QUADS );
+			}
+			const byte* rgba = reinterpret_cast< const byte* >( &quad.color );
+			glColor4ub( rgba[ 0 ], rgba[ 1 ], rgba[ 2 ], rgba[ 3 ] );
+			glTexCoord2f( quad.s0, quad.t0 ); glVertex2f( quad.x0, quad.y0 );
+			glTexCoord2f( quad.s1, quad.t0 ); glVertex2f( quad.x1, quad.y0 );
+			glTexCoord2f( quad.s1, quad.t1 ); glVertex2f( quad.x1, quad.y1 );
+			glTexCoord2f( quad.s0, quad.t1 ); glVertex2f( quad.x0, quad.y1 );
+		}
+		glEnd();
+		glMatrixMode( GL_TEXTURE );
+		glPopMatrix();
+		glMatrixMode( GL_MODELVIEW );
 		glDisable( GL_TEXTURE_2D );
-		idWStr displayText;
-		BuildDisplayText( command.text.c_str(), displayText );
-		if ( displayText.IsEmpty() ) {
-			return;
-		}
-
-		const int pointSize = command.pointSize > 0 ? command.pointSize : 12;
-		bitmapFontCache_t* font = GetBitmapFont( windowDC, idMath::Ftoi( pointSize * pixelScale ) );
-		if ( font == NULL ) {
-			return;
-		}
-
-		HGDIOBJ oldFont = SelectObject( windowDC, font->font );
-		SIZE extent;
-		extent.cx = extent.cy = 0;
-		GetTextExtentPoint32W( windowDC, displayText.c_str(), displayText.Length(), &extent );
-		SelectObject( windowDC, oldFont );
-
-		const float virtualWidth = extent.cx / pixelScale;
-		const float virtualHeight = extent.cy / pixelScale;
-		float x = command.rect.GetMins().x;
-		float y = command.rect.GetMins().y;
-		if ( command.flags & DTF_CENTER ) {
-			x += ( command.rect.GetWidth() - virtualWidth ) * 0.5f;
-		} else if ( command.flags & DTF_RIGHT ) {
-			x += command.rect.GetWidth() - virtualWidth;
-		}
-		if ( command.flags & DTF_VCENTER ) {
-			y += ( command.rect.GetHeight() - virtualHeight ) * 0.5f;
-		} else if ( command.flags & DTF_BOTTOM ) {
-			y += command.rect.GetHeight() - virtualHeight;
-		}
-
-		const byte* rgba = reinterpret_cast< const byte* >( &command.color );
-		glColor4ub( rgba[ 0 ], rgba[ 1 ], rgba[ 2 ], rgba[ 3 ] );
-		glRasterPos2f( x, y + virtualHeight );
-		glListBase( font->listBase );
-		glCallLists( displayText.Length(), GL_UNSIGNED_SHORT, displayText.c_str() );
 	};
-#endif
 
 	// The retail GUI model is one command stream.  Keeping primitives and text
 	// in separate decoded arrays is fine only if they are merged again here;
@@ -789,11 +775,7 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 		if ( usePrimitive ) {
 			submitPrimitive( primitives[ primitiveIndex++ ] );
 		} else {
-#if defined( _WIN32 )
-			submitText( texts[ textIndex++ ] );
-#else
-			textIndex++;
-#endif
+			submitText( textIndex++ );
 		}
 	}
 
@@ -802,14 +784,13 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 	glPopMatrix();
 	glMatrixMode( GL_MODELVIEW );
 	glPopAttrib();
+	// glPopAttrib restored the driver's state behind the cache
+	GL_ResyncStateCache();
 }
 
 void sdGuiModel::SubmitFrameVulkan() {
-#if defined( _WIN32 )
-	HDC windowDC = wglGetCurrentDC();
-#else
-	void* windowDC = NULL;
-#endif
+	// laid out and uploaded before any draw of this frame uses an atlas
+	BuildTextQuads();
 	idList< float > evaluated;
 	idList< sdVulkanToolVertex > batchedVertices;
 	batchedVertices.SetGranularity( 1024 );
@@ -831,6 +812,16 @@ void sdGuiModel::SubmitFrameVulkan() {
 	auto submitPrimitive = [&]( const guiPrimitive_t& primitive ) {
 		if ( primitive.material == NULL || primitive.numVerts < 3 ) {
 			return;
+		}
+		// guis/postprocess's postprocess/glow (the blur template's three stages and
+		// the glow) is one native chain on Vulkan; its programs are Cg (#233)
+		for ( int stageIndex = 0; stageIndex < primitive.material->GetNumStages(); ++stageIndex ) {
+			const sdDeclRenderProgram* program = primitive.material->GetStage( stageIndex )->renderProgram;
+			if ( program != NULL && idStr::Icmp( program->GetName(), "postprocess/glow" ) == 0 ) {
+				flushBatch();
+				vulkanBackend.DrawPostProcessGlow();
+				return;
+			}
 		}
 		idImage* overrideImage = primitive.referenceSound != NULL ?
 			ResolveGuiImage( primitive.material, primitive.referenceSound ) : NULL;
@@ -914,7 +905,12 @@ void sdGuiModel::SubmitFrameVulkan() {
 						evaluated[ matrix[ 1 ][ 2 ] ];
 				}
 			}
-			if ( ( stage->drawStateBits & 0xFF ) == 0x65 ) {
+			// The trivialMakeAlpha* programs turn the texel's brightness into alpha
+			// (the compass ring, the menu sheets); drawn as plain textures, their
+			// black backgrounds cover what lies under them (#189).
+			const bool makeAlpha = stage->renderProgram != NULL &&
+				idStr::Icmpn( stage->renderProgram->GetName(), "trivialMakeAlpha", 16 ) == 0;
+			if ( ( stage->drawStateBits & 0xFF ) == 0x65 && !makeAlpha ) {
 				selectBatchImage( image );
 				for ( int triangle = 1; triangle + 1 < primitive.numVerts; ++triangle ) {
 					const int fanIndexes[ 3 ] = { 0, triangle, triangle + 1 };
@@ -937,110 +933,40 @@ void sdGuiModel::SubmitFrameVulkan() {
 			} else {
 				flushBatch();
 				vulkanBackend.DrawGuiFan( image, vertices, primitive.numVerts,
-					stageColor.ToFloatPtr(), stage->drawStateBits );
+					stageColor.ToFloatPtr(), stage->drawStateBits, makeAlpha );
 			}
 		}
 	};
 
-	idList< sdVulkanToolVertex > textVertices;
-	textVertices.SetGranularity( 256 );
-	auto submitText = [&]( const guiText_t& command ) {
-		idWStr displayText;
-		BuildDisplayText( command.text.c_str(), displayText );
-		if ( displayText.IsEmpty() ) {
-			return;
-		}
-		const int pointSize = command.pointSize > 0 ? command.pointSize : 12;
-		vulkanBitmapFont_t* font = GetVulkanBitmapFont( windowDC, pointSize );
-		if ( font == NULL ) {
-			return;
-		}
-		idImage* fontImage = globalImages->GetImage( font->imageName.c_str() );
-		if ( fontImage == NULL || !fontImage->IsLoaded() ) {
-			return;
-		}
-		float textWidth = 0.0f;
-		for ( int characterIndex = 0; characterIndex < displayText.Length();
-			++characterIndex ) {
-			const int character = displayText[ characterIndex ] & 255;
-			textWidth += font->advance[ character ];
-		}
-		const float textHeight = static_cast< float >( font->cellHeight );
-		float x = command.rect.GetMins().x;
-		float y = command.rect.GetMins().y;
-		if ( command.flags & DTF_CENTER ) {
-			x += ( command.rect.GetWidth() - textWidth ) * 0.5f;
-		} else if ( command.flags & DTF_RIGHT ) {
-			x += command.rect.GetWidth() - textWidth;
-		}
-		if ( command.flags & DTF_VCENTER ) {
-			y += ( command.rect.GetHeight() - textHeight ) * 0.5f;
-		} else if ( command.flags & DTF_BOTTOM ) {
-			y += command.rect.GetHeight() - textHeight;
-		}
-		const byte* rgba = reinterpret_cast< const byte* >( &command.color );
-		const float red = rgba[ 0 ] / 255.0f;
-		const float green = rgba[ 1 ] / 255.0f;
-		const float blue = rgba[ 2 ] / 255.0f;
-		const float alpha = rgba[ 3 ] / 255.0f;
-		textVertices.SetNum( 0, false );
-		const float lineStart = x;
-		for ( int characterIndex = 0; characterIndex < displayText.Length();
-			++characterIndex ) {
-			const wchar_t wideCharacter = displayText[ characterIndex ];
-			if ( wideCharacter == L'\n' ) {
-				x = lineStart;
-				y += font->cellHeight;
-				continue;
+	auto submitText = [&]( int textIndex ) {
+		for ( int i = textQuadStart[ textIndex ]; i < textQuadStart[ textIndex + 1 ]; i++ ) {
+			const guiTextQuad_t& quad = textQuads[ i ];
+			selectBatchImage( quad.image );
+			const byte* rgba = reinterpret_cast< const byte* >( &quad.color );
+			const float left = quad.x0 * ( 2.0f / 640.0f ) - 1.0f;
+			const float right = quad.x1 * ( 2.0f / 640.0f ) - 1.0f;
+			const float top = 1.0f - quad.y0 * ( 2.0f / 480.0f );
+			const float bottom = 1.0f - quad.y1 * ( 2.0f / 480.0f );
+			const float positions[ 4 ][ 4 ] = {
+				{ left, top, quad.s0, quad.t0 }, { right, top, quad.s1, quad.t0 },
+				{ right, bottom, quad.s1, quad.t1 }, { left, bottom, quad.s0, quad.t1 }
+			};
+			const int corners[ 6 ] = { 0, 1, 2, 0, 2, 3 };
+			for ( int c = 0; c < 6; c++ ) {
+				const float* p = positions[ corners[ c ] ];
+				sdVulkanToolVertex vertex;
+				vertex.x = p[ 0 ];
+				vertex.y = p[ 1 ];
+				vertex.z = 0.0f;
+				vertex.w = 1.0f;
+				vertex.s = p[ 2 ];
+				vertex.t = p[ 3 ];
+				vertex.r = rgba[ 0 ] / 255.0f;
+				vertex.g = rgba[ 1 ] / 255.0f;
+				vertex.b = rgba[ 2 ] / 255.0f;
+				vertex.a = rgba[ 3 ] / 255.0f;
+				batchedVertices.Append( vertex );
 			}
-			const int character = wideCharacter & 255;
-			if ( character != ' ' ) {
-				const int column = character & 15;
-				const int row = character >> 4;
-				const float s0 = static_cast< float >( column * font->cellWidth ) /
-					font->atlasWidth;
-				const float s1 = static_cast< float >( ( column + 1 ) * font->cellWidth ) /
-					font->atlasWidth;
-				const float t0 = 1.0f - static_cast< float >( row * font->cellHeight ) /
-					font->atlasHeight;
-				const float t1 = 1.0f - static_cast< float >( ( row + 1 ) * font->cellHeight ) /
-					font->atlasHeight;
-				const float left = x * ( 2.0f / 640.0f ) - 1.0f;
-				const float right = ( x + font->cellWidth ) * ( 2.0f / 640.0f ) - 1.0f;
-				const float top = 1.0f - y * ( 2.0f / 480.0f );
-				const float bottom = 1.0f -
-					( y + font->cellHeight ) * ( 2.0f / 480.0f );
-				sdVulkanToolVertex quad[ 4 ];
-				const float positions[ 4 ][ 2 ] = {
-					{ left, top }, { right, top }, { right, bottom }, { left, bottom }
-				};
-				const float texCoords[ 4 ][ 2 ] = {
-					{ s0, t0 }, { s1, t0 }, { s1, t1 }, { s0, t1 }
-				};
-				for ( int vertexIndex = 0; vertexIndex < 4; ++vertexIndex ) {
-					quad[ vertexIndex ].x = positions[ vertexIndex ][ 0 ];
-					quad[ vertexIndex ].y = positions[ vertexIndex ][ 1 ];
-					quad[ vertexIndex ].z = 0.0f;
-					quad[ vertexIndex ].w = 1.0f;
-					quad[ vertexIndex ].s = texCoords[ vertexIndex ][ 0 ];
-					quad[ vertexIndex ].t = texCoords[ vertexIndex ][ 1 ];
-					quad[ vertexIndex ].r = red;
-					quad[ vertexIndex ].g = green;
-					quad[ vertexIndex ].b = blue;
-					quad[ vertexIndex ].a = alpha;
-				}
-				textVertices.Append( quad[ 0 ] );
-				textVertices.Append( quad[ 1 ] );
-				textVertices.Append( quad[ 2 ] );
-				textVertices.Append( quad[ 0 ] );
-				textVertices.Append( quad[ 2 ] );
-				textVertices.Append( quad[ 3 ] );
-			}
-			x += font->advance[ character ];
-		}
-		if ( textVertices.Num() > 0 ) {
-			selectBatchImage( fontImage );
-			batchedVertices.Append( textVertices );
 		}
 	};
 
@@ -1056,7 +982,7 @@ void sdGuiModel::SubmitFrameVulkan() {
 		if ( usePrimitive ) {
 			submitPrimitive( primitives[ primitiveIndex++ ] );
 		} else {
-			submitText( texts[ textIndex++ ] );
+			submitText( textIndex++ );
 		}
 	}
 	flushBatch();
