@@ -51,6 +51,10 @@ TRACER_RE = re.compile(
 EQUIPPED_RE = re.compile(r"Weapon \('([^']+)'\) State for Client (\d+):")
 FATAL = ("FATAL ERROR", "FATAL SIGNAL CAUGHT", "Unhandled exception", "Access violation")
 SNIPER_ITEM = "inventory/weapons/sniperrifle"
+# the weapon-state diagnostic lists every weapon entity the client updates,
+# tools included (GDF covertops carries inventory/tools/gdf_parachute), so
+# only the items under this prefix are weapons the class option chooses.
+WEAPON_PREFIX = "inventory/weapons/"
 POLL_INTERVAL = 0.25
 EPSILON = 0.011
 DRIFT_TOLERANCE = 2.0
@@ -216,8 +220,10 @@ def main(argv):
         equipped = {m.group(1) for line in srv.snapshot(srv_mark)
                     if (m := EQUIPPED_RE.search(line.text)) and int(m.group(2)) == shooter_client}
         print(f"equipped by client {shooter_client}: {sorted(equipped)}")
-        if equipped != {SNIPER_ITEM}:
-            failures.append(f"the shooter held {sorted(equipped)}, not {SNIPER_ITEM}")
+        weapons = {name for name in equipped if name.startswith(WEAPON_PREFIX)}
+        if weapons != {SNIPER_ITEM}:
+            failures.append(f"the shooter's weapons were {sorted(weapons)}, not {SNIPER_ITEM} "
+                            f"(full item set: {sorted(equipped)})")
         if len(names) > 1:
             failures.append(f"the broadcasts came from {len(names)} weapon entities: {sorted(names)}")
         if len(shooter_tracers) != len(server_tracers):
