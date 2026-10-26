@@ -73,9 +73,14 @@ Each item names its acceptance test. Details are in the linked plan.
 3. **M4, what is left**: done (#199, §5). Every M4 item listed in `STATUS.md` § Milestones now has a meson test.
 4. **Retail data discovery** (`STATUS.md` § Next steps, item 7): the Linux folder picker,
    and a person trying the macOS and Windows pickers (owner).
-5. **Provenance labels** (`docs/provenance.md` §6): the minizip relabel and the other
-   open label questions. Acceptance: `provenance_post_split.py` reports no gap, the game's
-   `check_spdx.py` passes, and the §6 rows are resolved.
+5. **Provenance labels** (`docs/provenance.md` §6): PR #285
+   (`docs/provenance-labels`) relabels the five minizip files and `eaxguid.lib` as
+   ThirdParty/Upstream and the four PDB/reconstruction-marked engine files as
+   Reconstruction_retail_RE; the openQ4 and post-split rows are resolved. Deferred with
+   reasons: jmarshall's licence (owner, release gate 1), a post-split CI gate
+   (release gate 3), and the history/`1223dc5` labels (repository recreation). Acceptance:
+   `provenance_post_split.py` reports no gap, the game's `check_spdx.py` passes, and the
+   §6 rows are resolved or explicitly deferred.
 6. **`docs/platform-matrix.md`** (release gate, M7): the evidence register exists
    (PR #284; per row the verified thing, platform, host, evidence level, engine/game
    commits, data set and raw log or PR, with historical rows kept apart). M7 stays open:
