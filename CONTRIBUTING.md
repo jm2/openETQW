@@ -100,13 +100,13 @@ The engine builds against the game at the commit pinned in `tools/ci/companion.r
   `SPDX-License-Identifier` line, and its donor commit is recorded in `docs/provenance.md`.
 
 ## Where a defect goes
-File it as a GitHub issue in the repository that owns the code, after searching the open
-issues for a duplicate. One issue per defect, with the symptom, an exact repro (host, OS,
-commit, data set), the mechanism with `file:line`, the scope (what the fix may touch and
-what it must not), and a done-test a reviewer can run. Put host measurements in the issue
-itself. Do not open a new tracking system: beads (`bd`, `.beads`) are gascity-only, and
-existing beads are left where they are (owner decision, `docs/coordination.md` §9,
-2026-10-26).
+Every defect or bug found is filed as a GitHub issue in the repository that owns the
+code, after searching the open issues for a duplicate. One issue per defect, with the
+symptom, an exact repro (host, OS, commit, data set), the mechanism with `file:line`, the
+scope (what the fix may touch and what it must not), and a done-test a reviewer can run.
+Put host measurements in the issue itself. Do not open a new tracking system: beads
+(`bd`, `.beads`) are gascity-only, and existing beads are left where they are (owner
+decision, `docs/coordination.md` §9, 2026-10-26).
 
 ## Records
 Record deliberate deviations from retail 1.5 in `docs/compat-ledger.md` and file origins
