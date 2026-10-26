@@ -95,8 +95,17 @@ Each item names its acceptance test. Details are in the linked plan.
    §6 rows are resolved or explicitly deferred.
 6. **`docs/platform-matrix.md`** (release gate, M7): the evidence register exists
    (merged as `d3a4d5b`, #284; per row the verified thing, platform, host, evidence level, engine/game
-   commits, data set and raw log or PR, with historical rows kept apart). M7 stays open:
-   there has been no combined five-platform run at current `main`.
+   commits, data set and raw log or PR, with historical rows kept apart). A combined
+   five-platform run of the 77 non-soak tests was made on 2026-10-25/26 at engine
+   `0a44150` / game `7fbdf80` (`main` has since moved docs-only to `9852f34`, plus the
+   #292 test fix `51f7449`; the `src` and `tests` trees are identical): Linux x64
+   70 OK / 6 FAIL / 1 SKIP (real RX 6400), Linux arm64 73 / 3 / 1 (real GPU), Windows x64
+   70 / 5 / 2, Windows arm64 43 / 32 / 2 (mostly sandbox and display/frame-pacing), macOS arm64
+   59 / 17 / 1 (software raster only, no GPU evidence). M7 stays open until the macOS
+   leg's owner decision and each platform's session has checked its own row. The #292
+   failures are fixed in `51f7449`; the M7 pacing failures were host load and pass on
+   quiet reruns (#293 closed); open are #299 (Linux x64), #294 and the Windows arm64
+   environment items.
 7. **Release gate 5, third-party binaries:** review `src/openal/lib/openal32.lib`, both
    copies of `eaxguid.lib` and zlib contrib's `.obj` files. Replace each, or record why it
    stays (`STATUS.md` § Release gate, item 5).
