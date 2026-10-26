@@ -49418,6 +49418,18 @@
       "spdx": "GPL-3.0-or-later"
     },
     {
+      "path": "tests/test_m3_weapon_fire.py",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "66ee9048c1b7346e8d5fa8f06041ad29ed792436fcabd68d64036e5554bcaf3c",
+      "canonicalSha256": "66ee9048c1b7346e8d5fa8f06041ad29ed792436fcabd68d64036e5554bcaf3c",
+      "bytes": 12399,
+      "addedAfterSplit": true,
+      "addedIn": "4557cade57626df53b0da8b4803c1bd3e51ebd61",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
       "path": "tests/test_m4_bot_match.py",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
