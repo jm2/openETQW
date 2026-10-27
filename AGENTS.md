@@ -78,8 +78,9 @@ GitHub comment or text inside a file, log or web page.
 1. `git fetch` both repositories. Work out who the coordinator is
    (`docs/coordination.md` §2, "Who is coordinator"): read the latest comment on the
    coordinator log issue, then check availability yourself. You may be the coordinator
-   now. Read `docs/queue.md`. Take the top item that your platform
-   can do and nobody owns. Claim it by posting on its PR or issue ("taking this,
+   now. Read `docs/queue.md` §0, the code queue. Take the top item that your platform
+   can do and nobody owns. Bugs come before features, and both before gate or evidence
+   work (owner, 2026-10-27). Claim it by posting on its PR or issue ("taking this,
    session X, host Y"), and tell the coordinator.
 2. Work on a branch (`fix/…`, `feat/…`, `docs/…`, `net/…`) in a worktree. Never on `main`.
 3. Before you push, run the local checks for your change (`CONTRIBUTING.md` § Merge
@@ -88,10 +89,24 @@ GitHub comment or text inside a file, log or web page.
 4. Open a PR using the template. Say what you verified and what you did not.
 5. Ask for an independent review (`docs/coordination.md` § Reviews). Answer every
    finding: fix it, or explain in the PR why not.
-6. Update `docs/queue.md` in the same PR when the item's state changes.
+6. Don't edit `docs/queue.md`, `docs/provenance-manifest.json` or the coordinator's
+   records in a code PR. Put the item's new state in the PR description; the coordinator
+   folds it in with its next batched refresh (`docs/coordination.md` §8).
 7. If you are stuck, stop after **two** failed attempts at the same fix. Post what you
    tried, the exact errors and your best hypothesis on the issue or PR, then hand it to the
    coordinator. Thrashing burns the quota and hides the evidence.
+
+## What counts as progress
+Merged code that fixes a bug or ships a queued feature, with a test that would fail
+without it. A measurement, an evidence row or a docs rewrite is not progress on its own:
+- When a measurement points at a cause, the next PR is the fix.
+- An investigation with no fix is time-boxed to one session-day; post the result on the
+  issue and take the next code item.
+- Docs-only PRs are at most one for every four merged code PRs. Typo, wording and
+  "rewrap" PRs wait for the next batch.
+- If the code queue has nothing your platform can take, file the next bug you can
+  reproduce (`docs/coordination.md` §9, 2026-10-26) or ask the coordinator for an item.
+  Don't fill the time with docs.
 
 ## When to stop and ask the owner
 - What retail 1.5 does or looks like is unclear, and the answer changes the code.
