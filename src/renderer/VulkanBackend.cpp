@@ -11784,7 +11784,10 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			imageResource->descriptorSet;
 		if ( rayTracingSurface != NULL && !hardwareSkinned && !selectedWaterStage &&
 			surface->material->Coverage() != MC_TRANSLUCENT &&
-			surface->material->SurfaceCastsShadow() ) {
+			surface->material->SurfaceCastsShadow() && !surface->geo->frameAlloced ) {
+			// frameAlloced geometry exists for one frame only: the imposter cards
+			// (#315) are billboards with no scene identity, and retail had no ray
+			// tracing for them, so they stay out of the BLAS.
 			sdRayTracingGeometry geometry;
 			memset( &geometry, 0, sizeof( geometry ) );
 			// Streamed surfaces (streamVertexCache) sit at a new frame-arena offset

@@ -1637,6 +1637,7 @@ void R_RemoveUnecessaryViewLights( void ) {
 #include "Model_Stuff.h"
 #include "VertexCache.h"
 #include "../decllib/declTypeHolder.h"
+#include "../decllib/declImposter.h"
 #include "../libs/qglLib/qgl.h"
 #include "draw_raytracing.h"
 
@@ -1665,6 +1666,14 @@ namespace {
 		srfTriangles_t* geometry;
 		int firstIndex;
 	};
+	// #315: one billboard per distant instance per view.  Like the interaction
+	// geometry these live until R_FreeBuiltDrawView.
+	idBlockAlloc< srfTriangles_t, 256 > frontEndImposterGeometryAllocator;
+	struct imposterCardGeometryRecord_t {
+		srfTriangles_t* geometry;
+		idDrawVert* verts;
+		glIndex_t* indexes;
+	};
 	idList< viewEntity_s* > frontEndViewEntities;
 	idList< viewLight_s* > frontEndViewLights;
 	idList< drawSurf_s* > frontEndDrawSurfaces;
@@ -1672,6 +1681,7 @@ namespace {
 	idList< drawSurf_s* > sortedDrawSurfaces;
 	idList< glIndex_t > frontEndInteractionIndexes;
 	idList< interactionGeometryRecord_t > frontEndInteractionGeometry;
+	idList< imposterCardGeometryRecord_t > frontEndImposterGeometry;
 
 	// The light-interaction index subsets of static geometry, kept across
 	// frames (STATUS: "light-interaction geometry is rebuilt on the CPU every
@@ -3095,6 +3105,249 @@ void R_AddAmbientDrawsurfs( viewEntity_s* space ) {
 	}
 }
 
+idCVar r_skipImposters( "r_skipImposters", "0", CVAR_RENDERER | CVAR_BOOL,
+	"do not draw the distant-tree imposter cards (#315)" );
+idCVar r_imposterDebug( "r_imposterDebug", "0", CVAR_RENDERER | CVAR_BOOL,
+	"print the imposter cards each view adds (#315)" );
+
+struct imposterCardCounters_t {
+	int cards;
+	int culled;
+	int skipped;
+};
+
+/*
+=================
+R_AllocImposterCardSpace
+
+The card owns its vertices in world space, so it needs a view space of its own
+with no instances: both back ends expand a draw surface once per
+space->insts entry, and the card is exactly the set of instances the model
+skipped.  The space is appended to the view's list so the per-view cleanup
+frees it with the others.
+=================
+*/
+static viewEntity_s* R_AllocImposterCardSpace( const viewEntity_s* entitySpace,
+		const viewDef_s* view ) {
+	viewEntity_s* space = frontEndViewEntityAllocator.Alloc();
+	*space = *entitySpace;
+	space->next = NULL;
+	space->entityIndex = -1;
+	space->model = NULL;
+	space->numInsts = 0;
+	space->insts = NULL;
+	space->culled = false;
+	// the cleanup deletes this once per space, so the copy gets its own bit set
+	// (one small array per card per view; the number of cards is bounded by what
+	// R_AddImposterDrawsurfs emits this frame)
+	space->ambSurf = new unsigned int[ ( space->maxSurfID + 31 ) >> 5 ];
+	memset( space->ambSurf, 0,
+		sizeof( unsigned int ) * ( ( space->maxSurfID + 31 ) >> 5 ) );
+	memset( space->modelMatrix, 0, sizeof( space->modelMatrix ) );
+	space->modelMatrix[ 0 ] = space->modelMatrix[ 5 ] =
+		space->modelMatrix[ 10 ] = space->modelMatrix[ 15 ] = 1.0f;
+	MultiplyModelView( view->worldSpace.modelViewMatrix, space->modelMatrix,
+		space->modelViewMatrix );
+	frontEndViewEntities.Append( space );
+	return space;
+}
+
+/*
+=================
+R_AddImposterCard
+
+#315.  One instance past its maxVisDist draws the imposter declaration's card
+where the model no longer is: a billboard sized from the decl's scalex/scaley,
+offset by its origin, textured with the sub-image for the view angle.  Retail's
+card shader is a Cg program (imposters/lit) that is not ported (ledger 077), so
+the card goes through the ordinary world material pipeline with the decl's
+material.
+=================
+*/
+static void R_AddImposterCard( viewEntity_s* entitySpace, const sdDeclImposter* imposter,
+		const sdInstInfo& instance, const viewDef_s* view,
+		imposterCardCounters_t& counters ) {
+	const idMaterial* material = imposter->GetMaterial();
+	const int numAngles = imposter->GetNumAngles();
+	const int numImages = imposter->GetInfo().images.Num();
+	if ( material == NULL || !material->IsDrawn() || numAngles <= 0 || numImages < numAngles ) {
+		counters.skipped++;
+		return;
+	}
+	const float halfWidth = imposter->GetScaleX() * 0.5f;
+	const float halfHeight = imposter->GetScaleY() * 0.5f;
+	if ( halfWidth <= 0.0f || halfHeight <= 0.0f ) {
+		counters.skipped++;
+		return;
+	}
+	// the card is centred on the decl's origin, rotated into the instance's frame
+	const idVec3 center = instance.inst.origin + imposter->GetOrigin() * instance.inst.axis;
+	idVec3 toView = view->renderView.vieworg - center;
+	toView.z = 0.0f;
+	if ( toView.Normalize() == 0.0f ) {
+		// the view is directly above the card; fall back to the view's own yaw
+		toView = -view->renderView.viewaxis[ 0 ];
+		toView.z = 0.0f;
+		if ( toView.Normalize() == 0.0f ) {
+			counters.skipped++;
+			return;
+		}
+	}
+	const idVec3 up( 0.0f, 0.0f, 1.0f );
+	idVec3 right = up.Cross( toView );
+	if ( right.Normalize() == 0.0f ) {
+		right = view->renderView.viewaxis[ 1 ];
+		right.z = 0.0f;
+		if ( right.Normalize() == 0.0f ) {
+			counters.skipped++;
+			return;
+		}
+	}
+	// the pre-rendered view closest to the angle this card is seen from, in the
+	// instance's own frame so a rotated instance still shows its front
+	const idVec3 localToView = ( view->renderView.vieworg - center ) *
+		instance.inst.axis.Transpose();
+	float yaw = idMath::ATan( localToView.y, localToView.x ) * idMath::M_RAD2DEG;
+	if ( yaw < 0.0f ) yaw += 360.0f;
+	const int angle = idMath::FtoiFast( yaw * numAngles / 360.0f + 0.5f ) % numAngles;
+	const sdImposterSubImage& image = imposter->GetSubImage( angle );
+
+	idVec3 corners[ 4 ];
+	corners[ 0 ] = center - right * halfWidth + up * halfHeight;	// top left
+	corners[ 1 ] = center + right * halfWidth + up * halfHeight;	// top right
+	corners[ 2 ] = center + right * halfWidth - up * halfHeight;	// bottom right
+	corners[ 3 ] = center - right * halfWidth - up * halfHeight;	// bottom left
+	idBounds bounds;
+	bounds.Clear();
+	for ( int corner = 0; corner < 4; ++corner ) {
+		bounds.AddPoint( corners[ corner ] );
+	}
+	const float identity[ 16 ] = {
+		1.0f, 0.0f, 0.0f, 0.0f,
+		0.0f, 1.0f, 0.0f, 0.0f,
+		0.0f, 0.0f, 1.0f, 0.0f,
+		0.0f, 0.0f, 0.0f, 1.0f
+	};
+	if ( R_CullLocalBoxToViewdef( bounds, identity, view ) ) {
+		counters.culled++;
+		return;
+	}
+
+	// one frame of geometry: the frame arena frees it, and frameAlloced keeps it
+	// out of the ray tracing BLAS (retail had no ray tracing, and the vertices
+	// have no identity across frames)
+	srfTriangles_t* tri = frontEndImposterGeometryAllocator.Alloc();
+	memset( tri, 0, sizeof( *tri ) );
+	idDrawVert* verts = new idDrawVert[ 4 ];
+	glIndex_t* indexes = new glIndex_t[ 6 ];
+	{
+		imposterCardGeometryRecord_t record;
+		record.geometry = tri;
+		record.verts = verts;
+		record.indexes = indexes;
+		frontEndImposterGeometry.Append( record );
+	}
+	tri->verts = verts;
+	tri->indexes = indexes;
+	tri->numVerts = 4;
+	tri->numIndexes = 6;
+	tri->frameAlloced = true;
+	tri->streamVertexCache = true;
+	tri->bounds = bounds;
+	for ( int corner = 0; corner < 4; ++corner ) {
+		idDrawVert& vert = tri->verts[ corner ];
+		vert.Clear();
+		vert.xyz = corners[ corner ];
+		vert.SetST( image.GetTexCoord( corner ) );
+		vert.SetNormal( toView );
+		vert.SetTangent( right );
+		vert.SetBiTangent( up );
+		vert.SetColor( 0xFFFFFFFF );
+	}
+	tri->indexes[ 0 ] = 3;
+	tri->indexes[ 1 ] = 2;
+	tri->indexes[ 2 ] = 0;
+	tri->indexes[ 3 ] = 2;
+	tri->indexes[ 4 ] = 1;
+	tri->indexes[ 5 ] = 0;
+	tri->ambientCache = vertexCache.AllocFrameTemp( tri->verts,
+		tri->numVerts * sizeof( tri->verts[ 0 ] ) );
+	tri->indexCache = vertexCache.AllocFrameTemp( tri->indexes,
+		tri->numIndexes * sizeof( tri->indexes[ 0 ] ) );
+	if ( tri->indexCache != NULL ) {
+		tri->indexCache->indexBuffer = true;
+	}
+	viewEntity_s* cardSpace = R_AllocImposterCardSpace( entitySpace, view );
+	// surfID 0 cannot collide: cardSpace belongs to this card alone (entityIndex
+	// -1, its own ambSurf), and every NULL return of R_AddDrawSurf is ruled out by
+	// the checks above, so there is no failure for this path to report.
+	R_AddDrawSurf( tri, cardSpace, entitySpace->entityDef, material,
+		entitySpace->scissorRect, 0, NULL );
+	counters.cards++;
+}
+
+/*
+=================
+R_AddImposterDrawsurfs
+
+An instanced tree carries an imposter declaration (sdInstStatic's
+imposter_instance key).  Past an instance's maxVisDist the back ends drop that
+instance's model (R_DistanceVisibility: OpenGL and ray tracing since #314, the
+Vulkan raster path before that), and the declaration's card takes its place.  An
+entity with forceImposter has no model at all, so its card stands in while the
+instance is inside its distance instead.
+=================
+*/
+static void R_AddImposterDrawsurfs( viewEntity_s* space, const viewDef_s* view,
+		imposterCardCounters_t& counters ) {
+	if ( space == NULL || space->entityDef == NULL || view == NULL || space->culled ) return;
+	const sdDeclImposter* imposter = space->entityDef->imposter;
+	if ( imposter == NULL ) return;
+	const bool forceImposter = space->entityDef->flags.forceImposter;
+	if ( space->numInsts > 0 && space->insts != NULL ) {
+		for ( int instanceIndex = 0; instanceIndex < space->numInsts; ++instanceIndex ) {
+			const sdInstInfo& instance = space->insts[ instanceIndex ];
+			const bool modelDrawn = R_DistanceVisibility( instance.fadeOrigin,
+				idMath::Ftoi( instance.maxVisDist ), idMath::Ftoi( instance.minVisDist ), view );
+			// the model is drawn inside the distance and the card outside it; a
+			// forced imposter draws the card where the model would have been
+			if ( modelDrawn != forceImposter ) continue;
+			R_AddImposterCard( space, imposter, instance, view, counters );
+		}
+		return;
+	}
+	// an entity with an imposter and no per-instance data: its own distance decides
+	if ( !forceImposter && space->entityDef->maxVisDist <= 0 ) return;
+	sdInstInfo instance;
+	instance.inst.origin = space->entityDef->origin;
+	instance.inst.axis.Identity();
+	instance.inst.color[ 0 ] = instance.inst.color[ 1 ] = 255;
+	instance.inst.color[ 2 ] = instance.inst.color[ 3 ] = 255;
+	instance.fadeOrigin = space->entityDef->origin;
+	instance.maxVisDist = space->entityDef->maxVisDist;
+	instance.minVisDist = space->entityDef->minVisDist;
+	const bool modelDrawn = R_DistanceVisibility( instance.fadeOrigin,
+		instance.maxVisDist, instance.minVisDist, view );
+	if ( modelDrawn != forceImposter ) return;
+	R_AddImposterCard( space, imposter, instance, view, counters );
+}
+
+static void R_AddImposterSurfaces() {
+	viewDef_s* view = RB_GetViewDef();
+	if ( view == NULL || r_skipImposters.GetBool() ) return;
+	imposterCardCounters_t counters;
+	counters.cards = counters.culled = counters.skipped = 0;
+	const int gpuSpec = com_gpuSpec.GetInteger();
+	for ( viewEntity_s* entity = view->viewEntities; entity != NULL; entity = entity->next ) {
+		if ( entity->entityDef == NULL || entity->minGpuSpec > gpuSpec ) continue;
+		R_AddImposterDrawsurfs( entity, view, counters );
+	}
+	if ( r_imposterDebug.GetBool() ) {
+		common->Printf( "imposters: %d card(s), %d culled, %d skipped\n",
+			counters.cards, counters.culled, counters.skipped );
+	}
+}
+
 void R_AddModelSurfaces() {
 	viewDef_s* view = RB_GetViewDef();
 	idRenderWorldLocal* world = RB_GetDrawWorld();
@@ -3110,6 +3363,7 @@ void R_AddModelSurfaces() {
 			entity = entity->next ) {
 			if ( entity->entityDef != NULL ) R_AddAmbientDrawsurfs( entity );
 		}
+		R_AddImposterSurfaces();
 		SortDrawSurfaces( sortedDrawSurfaces );
 		view->drawSurfs = sortedDrawSurfaces.Begin();
 		view->numDrawSurfs = sortedDrawSurfaces.Num();
@@ -3176,6 +3430,7 @@ void R_AddModelSurfaces() {
 				streamDynamicVertices, previousMaterial, previousMaterialRegisters );
 		}
 	}
+	R_AddImposterSurfaces();
 	{
 		RENDER_METRIC_SCOPE( "Sort draw surfaces" );
 		SortDrawSurfaces( sortedDrawSurfaces );
@@ -3259,7 +3514,14 @@ void R_AddLightSurfaces() {
 					casterEntity->suppressShadowInLightID == light->lightDef->lightId ) ||
 				  !EntityShadowInRange( casterEntity, light, surface->space->modelMatrix, view ) );
 			const srfTriangles_t* volume = NULL;
-			if ( shadowLight && surface->material->SurfaceCastsShadow() && surface->geo != NULL && !suppressed ) {
+			// frameAlloced geometry is one frame of imposter card (#315).  The card
+			// is an ordinary draw surface everywhere except the BLAS, so without
+			// this a light extrudes its flat quad while the tree's model still
+			// casts (the model is culled no earlier than draw time), laying a flat
+			// card shadow over the real one -- plainest on OpenGL, where the card
+			// itself is not drawn.  A card casts no shadow of its own.
+			if ( shadowLight && surface->material->SurfaceCastsShadow() && surface->geo != NULL &&
+					!surface->geo->frameAlloced && !suppressed ) {
 				volume = CreateShadowVolumeGeometry( surface, light );
 			}
 			if ( volume != NULL ) {
@@ -3388,6 +3650,11 @@ void R_FreeBuiltDrawView() {
 	for ( int index = 0; index < frontEndInteractionGeometry.Num(); ++index ) {
 		frontEndInteractionGeometryAllocator.Free( frontEndInteractionGeometry[ index ].geometry );
 	}
+	for ( int index = 0; index < frontEndImposterGeometry.Num(); ++index ) {
+		delete[] frontEndImposterGeometry[ index ].verts;
+		delete[] frontEndImposterGeometry[ index ].indexes;
+		frontEndImposterGeometryAllocator.Free( frontEndImposterGeometry[ index ].geometry );
+	}
 	for ( int index = 0; index < frontEndDynamicModels.Num(); ++index ) {
 		delete frontEndDynamicModels[ index ];
 	}
@@ -3396,6 +3663,7 @@ void R_FreeBuiltDrawView() {
 	frontEndViewLights.Clear();
 	frontEndViewEntities.Clear();
 	frontEndInteractionGeometry.Clear();
+	frontEndImposterGeometry.Clear();
 	frontEndDynamicModels.Clear();
 	frontEndInteractionIndexes.SetNum( 0, false );	// keep the capacity; Clear() would free it every view
 	sortedDrawSurfaces.Clear();
