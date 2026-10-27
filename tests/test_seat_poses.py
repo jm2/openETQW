@@ -1247,7 +1247,9 @@ def main(argv):
         for name, proc in procs:
             code = proc.quit() if proc.alive() else None
             lines = [ln.text for ln in proc.snapshot()]
-            for f in h.scan_failures(lines):
+            # the exit code is checked after this loop, so fold it into the outcome here
+            run_failed = bool(failures) or code not in (0, None)
+            for f in h.scan_failures(lines, run_failed=run_failed):
                 failures.append(f"{name} log line {f['line']}: {f['text']}")
             if proc is obs:
                 for i, text in enumerate(lines):

@@ -496,7 +496,9 @@ def main(argv):
         for name, proc in procs:
             codes[name] = proc.quit() if proc.alive() else None
         for name, proc in procs:
-            for f in h.scan_failures(ln.text for ln in proc.snapshot()):
+            run_failed = (bool(failures)
+                          or any(c not in (0, None) for c in codes.values()))
+            for f in h.scan_failures((ln.text for ln in proc.snapshot()), run_failed=run_failed):
                 failures.append(f"{name} log line {f['line']}: {f['text']}")
             for i, ln in enumerate(proc.snapshot()):
                 if any(m in ln.text for m in BAD_MARKERS):

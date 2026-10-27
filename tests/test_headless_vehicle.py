@@ -243,7 +243,8 @@ def main(argv):
         if src != 0 or crc != 0:
             failures.append(f"quit exit codes: server {src}, client {crc}")
         for name, proc in (("server", srv), ("client", cl)):
-            for b in h.scan_failures(l.text for l in proc.snapshot()):
+            run_failed = bool(failures) or src != 0 or crc != 0
+            for b in h.scan_failures((l.text for l in proc.snapshot()), run_failed=run_failed):
                 failures.append(f"{name} log: {b}")
     finally:
         cl.cleanup()

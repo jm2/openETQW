@@ -30,9 +30,8 @@ failures: list[str] = []
 
 def expect(ok: bool, what: str) -> None:
     if not ok:
-        print(("PASS: " if ok else "FAIL: ") + what)
-        if not ok:
-            failures.append(what)
+        print("FAIL: " + what)
+        failures.append(what)
 
 
 HEALTHY_WAITS = [

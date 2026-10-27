@@ -135,7 +135,8 @@ def run_map(binary, data, port, map_name, log_dir):
                             f"(status {status}, script end {script})")
     finally:
         code = srv.quit()
-        bad = h.scan_failures(line.text for line in srv.snapshot())
+        run_failed = bool(failures) or code != 0
+        bad = h.scan_failures((line.text for line in srv.snapshot()), run_failed=run_failed)
         srv.cleanup()
     if bad or code != 0:
         failures.append(f"M4: {map_name}: failure markers {bad[:3]}, exit code {code}")

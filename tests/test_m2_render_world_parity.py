@@ -378,7 +378,7 @@ def main(argv) -> int:
 
     # failures in the engine/game output are failures whatever the scenes say
     for role, proc in (("dedicated", ded), ("listen", listen)):
-        found = h.scan_failures(ln.text for ln in proc.snapshot())
+        found = h.scan_failures((ln.text for ln in proc.snapshot()), run_failed=bool(failures))
         for item in found:
             failures.append(f"{role} log: {item['marker']} at line {item['line']}: {item['text']}")
 
