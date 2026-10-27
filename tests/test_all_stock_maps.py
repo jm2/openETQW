@@ -135,6 +135,11 @@ class MapResult:
     def check_bool(self, name: str, ok: bool, detail: str = "") -> None:
         self.check(name, PASS if ok else FAIL, detail)
 
+    # Checks that report the game's own bot-thread pacing warning. By the owner's
+    # decision on #294 (2026-10-27) they fail only when the map also fails a
+    # gameplay check, so gameplay_failed() leaves them out.
+    PACING_CHECKS = ("load.failure_markers", "think.waits")
+
     def fatal_checks(self) -> list[dict]:
         out = []
         for c in self.checks:
@@ -142,9 +147,36 @@ class MapResult:
                 out.append(c)
         return out
 
+    def gameplay_failed(self) -> bool:
+        """Whether the map failed a check other than the two pacing gates (#294)."""
+        return any(c["name"] not in self.PACING_CHECKS for c in self.fatal_checks())
+
+    def pacing_gate_passes(self, waits: int) -> bool:
+        """#294: a bot-thread wait fails only a map that already failed a gameplay check.
+
+        A healthy map that merely waited on the bot thread passes; a map that failed
+        a gameplay check reports the waits too, so the cause stays visible."""
+        return waits == 0 or not self.gameplay_failed()
+
     @property
     def passed(self) -> bool:
         return not self.fatal_checks()
+
+    def classify_failures(self, lines) -> None:
+        """Record the bot-thread waits and fail on the log's failure markers.
+
+        Outcome-aware (#294): whether a pacing warning counts is decided by the map's
+        other checks, so this must run after them. Every other marker is unconditional,
+        and script errors are recorded elsewhere (metrics['script'])."""
+        pacing = H.scan_pacing(lines)
+        self.metrics["bot_thread_waits"] = {"count": len(pacing),
+                                            "lines": [f["line"] for f in pacing]}
+        failures = H.scan_failures(lines, run_failed=self.gameplay_failed())
+        self.metrics["failure_markers"] = failures[:20]
+        non_script = [f for f in failures if f["kind"] != "script"]
+        self.check_bool("load.failure_markers", not non_script,
+                        "none" if not non_script else
+                        "; ".join(f"line {f['line']}: {f['text'][:160]}" for f in non_script[:5]))
 
     def to_json(self) -> dict:
         d = dict(self.metrics)
@@ -495,12 +527,9 @@ def run_map(map_name: str, map_index: int, cfg: argparse.Namespace, ctx: dict) -
     res.check_bool("load.map_line", want_map in map_lines,
                    f"'Map: {want_map}' {'seen' if want_map in map_lines else 'missing'} (map lines: {map_lines})")
 
+    # Unconditional markers are scanned here for the script-error check below; the
+    # verdict (and the pacing-aware rescan) is taken at the end of the map (#294).
     failures = H.scan_failures(lines)
-    res.metrics["failure_markers"] = failures[:20]
-    non_script = [f for f in failures if f["kind"] != "script"]
-    res.check_bool("load.failure_markers", not non_script,
-                   "none" if not non_script else
-                   "; ".join(f"line {f['line']}: {f['text'][:160]}" for f in non_script[:5]))
 
     # ---------------- b) entities ----------------
     ent = [H.ENTITIES_SPAWNED_RE.match(s) for s in lines]
@@ -653,7 +682,9 @@ def run_map(map_name: str, map_index: int, cfg: argparse.Namespace, ctx: dict) -
             res.check_bool("think.ratio", ratio >= THINK_RATIO_MIN, detail + f", need >= {THINK_RATIO_MIN}")
         else:
             res.check("think.ratio", INFO, detail + " (asserted only with --bot-think-delay 0)")
-        res.check_bool("think.waits", bts1["waits"] == 0, f"waits={bts1['waits']} at end of window")
+        res.check_bool("think.waits", res.pacing_gate_passes(bts1["waits"]),
+                       f"waits={bts1['waits']} at end of window"
+                       + ("" if bts1["waits"] == 0 else " (a pacing warning: fails only if the map fails a gameplay check)"))
     else:
         why = f"botThreadStats start={bts0_status} end={bts1_status}"
         status = UNAVAILABLE if "UNKNOWN_COMMAND" in (bts0_status, bts1_status) else FAIL
@@ -670,6 +701,9 @@ def run_map(map_name: str, map_index: int, cfg: argparse.Namespace, ctx: dict) -
         think["sim_hash_hz"] = None
         res.check("think.sim_hash_tick_rate", WARN, "no SIM_HASH lines during the bot window (g_simHash 1 was set)")
     res.metrics["think"] = think
+
+    # ---------------- pacing and failure-marker verdict (#294) ----------------
+    res.classify_failures(lines)
     return res
 
 

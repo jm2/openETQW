@@ -855,7 +855,6 @@ FAILURE_MARKERS = (
     "FATAL ERROR",
     "FATAL: recursive error",
     "FATAL SIGNAL CAUGHT",
-    "Waiting on BotThread",
     "Couldn't load AAS file",
     "No valid AAS navigation profiles",
     "bind() failed",
@@ -864,15 +863,30 @@ FAILURE_MARKERS = (
     "does not match its native definition",
 )
 
+# The game's own per-frame pacing warning (game repo src/game/botai/BotThreadData.cpp:
+# the game thread waited because the bot thread was more than
+# bot_threadMaxFrameDelay frames behind). It says the host was slow to schedule the
+# bot thread, which is not a fault on its own: on 2026-10-27 the owner decided
+# (issue #294) that it counts as a failure only when the same run also fails a
+# gameplay check. A wedged bot thread shows up as the gameplay checks it breaks.
+PACING_MARKERS = (
+    "Waiting on BotThread",
+)
 
-def scan_failures(lines: Iterable[str]) -> list[dict]:
+
+def scan_failures(lines: Iterable[str], *, run_failed: bool = False) -> list[dict]:
     """Return failure markers found in a server log.
 
     Besides the fixed substrings above, an 'ERROR:' line directly following a
     '********************' banner line is a common->Error drop (the process
     keeps running and still exits 0, so the exit code alone proves nothing).
     Script runtime errors (idInterpreter::Error) arrive through that banner
-    and are tagged kind='script' when the message names a script thread."""
+    and are tagged kind='script' when the message names a script thread.
+
+    Pacing warnings (PACING_MARKERS) are tagged kind='pacing' and are returned
+    only when run_failed is true, that is, when the caller's own gameplay checks
+    failed (#294). Pass the run's outcome, not a wait count: the three sightings
+    behind the decision had 2, 4 and 30 waits and all finished normally."""
     found: list[dict] = []
     prev = ""
     for i, line in enumerate(lines):
@@ -881,11 +895,26 @@ def scan_failures(lines: Iterable[str]) -> list[dict]:
             if marker in s:
                 found.append({"line": i + 1, "marker": marker, "kind": "marker", "text": s})
                 break
+        else:
+            for marker in PACING_MARKERS:
+                if marker in s:
+                    found.append({"line": i + 1, "marker": marker, "kind": "pacing", "text": s})
+                    break
         if s.startswith("ERROR:") and prev.startswith("********************"):
             kind = "script" if ("Thread '" in s or ".script(" in s) else "error"
             found.append({"line": i + 1, "marker": "ERROR banner", "kind": kind, "text": s})
         prev = s
+    if not run_failed:
+        found = [f for f in found if f["kind"] != "pacing"]
     return found
+
+
+def scan_pacing(lines: Iterable[str]) -> list[dict]:
+    """The 'Waiting on BotThread' pacing warnings in a log, recorded but not gating.
+
+    Use this to report how often a run waited on its bot thread; whether that
+    counts as a failure is decided by scan_failures(run_failed=...) (#294)."""
+    return [f for f in scan_failures(lines, run_failed=True) if f["kind"] == "pacing"]
 
 
 # ---------------------------------------------------------------------------
