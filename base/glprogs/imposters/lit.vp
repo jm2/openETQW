@@ -6,7 +6,10 @@
 # imposters/lit_foliage takes this vertex program by reference, so its fragment
 # port reads the same TEXCOORD/COLOR layout.
 # sdRenderShaderARB::PreCompile has already decompressed the packed
-# texcoord/normal/tangent attributes, as the Cg's $if r_32ByteVtx block did.
+# texcoord/normal/tangent attributes, as the Cg's conditional on r_32ByteVtx did.
+# (Keep dollar signs out of these comments: the decl pre-compiler scans comments
+# as code, so a binding name there is registered, and a conditional keyword there
+# opens a block that never closes.)
 OPTION ARB_position_invariant;
 TEMP	tangent, bitangent, extinct, delta;
 
