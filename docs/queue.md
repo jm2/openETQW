@@ -42,7 +42,7 @@ including Switchworks or DeepSeek ones, can resume from this file and `main` alo
 
 **Outstanding gate work: the combined run.** Owner, 2026-10-23: full retail suites and screenshot sets wait for one combined run at the tail end, so the kisakcod sessions keep priority on shared hosts. The retail suite has been run: the five-platform 77-test run behind `docs/platform-matrix.md` (§3 item 6) is that run, made at engine `0a44150` / game `7fbdf80`, and **none of its five legs is a clean pass** (6, 3, 5, 32 and 17 failures), each attributed row by row. Still outstanding, and not implied by it: the **screenshot sets from all five platforms** (never taken), and a **fresh suite at current `main`** — `main` has carried source and test changes since `0a44150` (#292 `51f7449`, #297, #301), so the M7 rows are evidence for `0a44150` only. Per-platform legs at current `main` are the next runs; file an issue for any regression.
 
-Updated: 2026-10-26 by `openETQW-linux` (coordinator): #301, #297, #303 and #304 merged (§5), so `main` is `527c1ef`; §1 is [#287](https://github.com/jm2/openETQW/pull/287) and §2 lists the eleven open issues in nine rows; §3 items 4, 6 and 7 updated; §4 gains the BotThread-marker rule (#294); the combined run and screenshot work re-stated at the top.
+Updated: 2026-10-27 by `openETQW-linux` (coordinator): #301, #297, #303, #304, #307 and #287 merged (§5), so `main` is `ce40c41`; §1 is empty; §2 lists the eleven open issues in nine rows; §3 items 4, 6 and 7 updated; §4 gains the BotThread-marker rule (#294); the combined run and screenshot work re-stated at the top.
 Updated: 2026-10-25 by `openETQW-linux` (coordinator): §1 empty; §2 is #197 and #246 (#270 fixed by #275); #220–#276 in §5, #268 added.
 Updated: 2026-10-23 by `openETQW-linux` (coordinator): the combined run merged #202, #204, #206, #207, #210, #213 and #215 (§5). Earlier: #180 (merged 2026-10-22), #198, #199 and #200 are in §5; M4's last item is done.
 Updated: 2026-10-22 by `openETQW-linux` (coordinator): the game #51 row with the Linux arm64
@@ -134,8 +134,9 @@ Each item names its acceptance test. Details are in the linked plan.
    Windows defaults to it), which no test change addresses either way. Any perf row in this register
    must name its build directory: `build/` on antec is `buildtype=debug`. #294 (the Windows arm64 BotThread marker) is an
    owner decision in §4, and the
-   rest of the Windows arm64 failures are environment. A Linux arm64 leg at `527c1ef` is
-   in flight and is a separate row.
+   rest of the Windows arm64 failures are environment. Linux arm64 has since been re-run at `527c1ef` (post-merge, `-O2`, real GPU):
+   76 OK / 0 FAIL / 1 SKIP, the skip `cross-os`. That is a separate row in `platform-matrix.md`
+   and does not close the M7 arm64 row at `0a44150`.
 7. **Release gate 5, third-party binaries:** done, merged as `493bed2` (#301, the re-cut of
    #282/#281) — the seven unreferenced Windows binaries (`openal32.lib`, both `eaxguid.lib`,
    zlib's four `contrib/masmx*/*.obj`) and the PowerPC `src/openal/osx/OpenAL.framework`

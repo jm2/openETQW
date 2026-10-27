@@ -7,7 +7,7 @@ this file is the release-gate evidence register. A row is added only by a sessio
 the raw log or the PR it points at. Historical rows stay in their own table and are not
 evidence for `main` today.
 
-Last updated: 2026-10-26 (UTC). `main` at the time of writing: engine `51f7449` (#295 merged).
+Last updated: 2026-10-27 (UTC). `main` at the time of writing: engine `ce40c41` (#307 and #287 merged).
 
 ## Evidence levels
 
@@ -55,6 +55,15 @@ host-local evidence for the commit named in it; none of the five legs is a clean
 | M7 combined run, 77 of 77 attempted: 70 OK, 5 FAIL, 2 SKIP. FAIL: #292 (fixed in `51f7449`) and the four cap-60 turn phases, which pass on a quiet-host rerun at the same tree, one run each (frame-poses-join turn 60.0 fps, A10 -1.02 ms; mixed-caps turn 60.0, A10 -1.25 ms; the numbers here are the durable copy, that rerun's logs were host-local) — #293 closed as host-load, not a present/pacing defect. SKIP: `cross-os` (no remote server), `client-server-timeout` (no SIGSTOP) | Windows 11 x64 (10.0.26300, MSVC 19.51) | `antec-win` | runtime (map-loaded; M4 legs match-tested); real GPU (`AMD Radeon RX 6400`); not a clean pass. Meson's runner cannot start (WinError 5 on its named pipe), so every test ran its exact registered argv/cwd/env from `builddir-swk\meson-info\intro-tests.json`; no Meson timeout accounting, `testlog.txt` is Ok 0 / Fail 0 | `0a44150` (binaries built from `9818c52`; `git diff 9818c52 0a44150 -- src tests` empty) / `7fbdf80` | retail 1.5, `C:\Users\jmulesa\etqw_data` | `antec-win:.tmp\m7\logs\<test>.log`, one JSON line per test in `.tmp\m7\results.jsonl` |
 | M7 combined run, 77 unique tests: 43 OK, 32 FAIL, 2 SKIP (the JSONL holds 81 records: duplicate `bitmsg` lines and two SKIP-then-OK retries). The 32: 12 sandbox `mkdtemp(0o700)` setup failures (no product claim from that run), 19 display/frame-pacing dependent failures on a host that presents no frames (`vulkan-shadows` rendered 6.1 s and failed a log-string check, host-vs-product unproven), and #294 (`m4-campaign` "Waiting on BotThread" marker). The 43 OK include every M4 test except campaign. Sandbox-workaround evidence (same tree, host and argv): with `tempfile.mkdtemp` replaced at run time by `os.makedirs` through a `sitecustomize` shim on `PYTHONPATH` and the tests unmodified (`git status --porcelain -- tests` empty; `HEAD:tests` `41ed8cc6426de4d2111e9300f75ba06291a93549`), all 12 sandbox-blocked tests were then run: 11 pass exit 0, each read on its own PASS line and not from the exit code alone (release-tools, packaging-tools, build-scripts, lead-measure, gui-load-error, gui-hud-reload-error, retail-install-check, frame-cap-cvars, retired-cvars, client-error-drop, client-error-load-drop), and the twelfth, `all-stock-maps` (677 s, 9/11 maps), fails on #294's BotThread waits in two checks each: `load.failure_markers` (sewer 5 lines, slipgate 2) and `think.waits` (sewer 30, slipgate 2 at end of window) - a second sighting on #294, which moves `all-stock-maps` from the sandbox bucket to the #294 bucket. Not a full suite: the other 65 tests were not re-run | Windows 11 arm64 (10.0.26200, Snapdragon X / Adreno X1-85) | `yoga-slim7x` | runtime for the 43 OK (11 of them are unit tests that load no map; the rest run the client or server against retail data); the 12 sandbox failures were environment (11 of them pass under the workaround run, so those become real results at this head; the twelfth, `all-stock-maps`, is #294) and the 19 display/frame-pacing failures are not product evidence either way; not a clean pass. Tests replayed from `builddir-vs\meson-info\intro-tests.json` (same argv/cwd/env); no Meson timeout accounting | `0a44150` (binaries built at `9818c52`; `src` tree `7e7b6065` and `tests` tree `41ed8cc6` identical at both commits) / `7fbdf80` | retail 1.5, `C:\Users\thesa\etqw_data` | `yoga-slim7x:builddir-vs\meson-logs\<test>\capture.out` and `capture.err`, summary `.tmp\swk-work\suite\results.jsonl`; workaround batch: shim `.tmp\swk-work\shim\sitecustomize.py`, runner `%TEMP%\oe-suite\run-suite-shim.ps1`, summary `.tmp\swk-work\suite-workaround\results.txt` and `.jsonl` (for those 12 tests the `capture.out` and `capture.err` above now hold the workaround run) |
 
+## Post-merge legs
+
+Runs made at a commit after the M7 register's `0a44150`. Each is evidence for the commit it
+names; it neither closes nor re-opens an M7 row.
+
+| Verified thing | Platform (OS/arch) | Host | Evidence | Engine / game | Data set | Where the raw log or PR lives |
+|---|---|---|---|---|---|---|
+| Retail suite, 77 of 77 attempted: 76 OK, 0 FAIL, 1 SKIP. SKIP: `cross-os` (exit 77, `[SKIP] no remote server (set OPENETQW_REMOTE_SERVER=host:port)`). #292's `render-api-fallback` OK (6.9 s); `client-lifecycle` OK (7.4 s) only with `SDL_AUDIODRIVER=dummy`, so environment-caused and not an ALSA pass; `high-refresh-determinism` OK (87.6 s, no {151} flake); `client-network-join`/`-listen` both OK (no validation-layer artifact on this leg); `mixed-caps` OK (123 s); longest were `all-stock-maps` 532 s and `seat-poses` join/devmap/listen 307/279/302 s; no `FRAME_TIMING` lines were emitted, so there is no `work_p50` to quote | Linux arm64 (Fedora 44 Asahi, Apple M1, 8 GB) | `macmini-m1` | runtime (map-loaded); real GPU (Mesa Honeykrisp) through `swk-gpu-run`, `SDL_VIDEO_DRIVER=offscreen`, `SDL_AUDIODRIVER=dummy`, no display; `builddir-validate-pr` `buildtype=debugoptimized`, `optimization=2`, rebuilt at that commit before the run | `527c1ef` / `7fbdf80` (`src`/`tests` identical to `542b4ce`; the delta was two docs files, and `main` has since taken #287's test-only harness change) | retail 1.5, `/home/jmulesa/etqw_data` | `macmini-m1:build/agent-work/logs/main-527c1ef/suite.log` (runner stdout) and `.../main-527c1ef.txt` (meson log); `meson test -C builddir-validate-pr --no-suite soak --no-rebuild -j 1 --timeout-multiplier 3 --logbase main-527c1ef` |
+
 ## Historical rows
 
 | Verified thing | Platform (OS/arch) | Host | Evidence | Engine / game | Data set | Where the raw log or PR lives |
@@ -86,7 +95,7 @@ These runs are recorded so they are not mistaken for gate evidence.
 
 | Platform | Latest full retail suite on record | Date | Commits | Result |
 |---|---|---|---|---|
-| Linux arm64 | 77 tests | 2026-10-26 | `0a44150` / `7fbdf80` | 73 OK, 3 FAIL, 1 SKIP; not clean (M7 rows above) |
+| Linux arm64 | 77 tests | 2026-10-26 | `527c1ef` / `7fbdf80` | 76 OK, 0 FAIL, 1 SKIP (`cross-os`, no remote server) on the post-merge leg at `-O2`; the M7 row at `0a44150` remains 73 / 3 / 1, not clean |
 | Linux x86_64 | 77 tests | 2026-10-26 | `4b4ad98` / `7fbdf80` | 70 OK, 6 FAIL, 1 SKIP; not clean (M7 rows above) |
 | Windows 11 x64 | 77 tests | 2026-10-26 | `0a44150` / `7fbdf80` | 70 OK, 5 FAIL, 2 SKIP in the loaded window; the four pacing failures pass on a quiet rerun (M7 rows above) |
 | Windows 11 arm64 | 77 tests | 2026-10-26 | `0a44150` / `7fbdf80` | 43 OK, 32 FAIL (12 sandbox, 19 display/frame-pacing, 1 #294), 2 SKIP; the 12 sandbox tests re-run with `mkdtemp` replaced by `os.makedirs` (sandbox-workaround evidence, tests unmodified): 11 OK, and `all-stock-maps` fails on #294 |
@@ -100,8 +109,9 @@ residual on Linux x64 at `-O2` (no test bound fails; #299 closed as the validati
 `buildtype=debug` tree), the `mixed-caps` A1 margin (58.0 vs 58.8 fps on a quiet host, every other
 check green), the Windows arm64 no-display set plus #294 (which now also holds `all-stock-maps`; the sandbox `mkdtemp` set re-runs 11 of 12 under the workaround), and
 the macOS arm64 leg, which has no GPU evidence until the owner decides how it is run or
-recorded. Every row is host-local evidence for the commit named in it, not for `main`
-today.
+recorded. The Linux arm64 post-merge leg above (76 OK / 0 FAIL / 1 SKIP at `527c1ef`) is
+that commit's evidence, not a re-read of the M7 arm64 row. Every row is host-local
+evidence for the commit named in it, not for `main` today.
 
 ## Adding a row
 
