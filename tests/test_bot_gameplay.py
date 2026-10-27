@@ -226,7 +226,7 @@ def run_bot_gameplay_test():
 
     # 1. Start Server
     print("[1] Spawning authoritative dedicated server on Valley with bot_enable 1...")
-    server_proc = subprocess.Popen(
+    server_proc = h.spawn_engine(
         SERVER_ARGS,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,

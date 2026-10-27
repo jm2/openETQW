@@ -73,7 +73,7 @@ class DedicatedServerHarness:
             "+spawnServer", "valley"
         ]
         print(f"[SERVER] Launching dedicated server on port {self.port} (map: valley)...")
-        self.proc = subprocess.Popen(
+        self.proc = h.spawn_engine(
             server_args,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -154,7 +154,7 @@ class ClientHarness:
             "+set", "com_timeServer", "1",
             "+set", "net_clientShowSnapshots", "1", "+connect", f"127.0.0.1:{self.server_port}"
         ]
-        self.proc = subprocess.Popen(
+        self.proc = h.spawn_engine(
             client_args,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,

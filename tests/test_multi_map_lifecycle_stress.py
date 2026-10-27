@@ -108,7 +108,7 @@ def test_multi_map_cycling() -> dict:
         "+spawnServer", "quarry",
     ]
 
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         cmd,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,

@@ -116,7 +116,7 @@ def probe_individual_map(binary: Path, data_path: Path, map_name: str, port: int
         "+spawnServer", map_name,
     ]
 
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         cmd,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -300,7 +300,7 @@ def probe_map_transition_sequence(binary: Path, data_path: Path, port: int) -> d
         "+spawnServer", "volcano",
     ]
 
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         cmd,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,

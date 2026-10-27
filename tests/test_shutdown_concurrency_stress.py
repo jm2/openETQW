@@ -65,7 +65,7 @@ def run_early_quit_sweep(map_name: str, base_port: int, delays: list[float]) -> 
             "+set", "si_pure", "0",
             "+spawnServer", map_name,
         ]
-        proc = subprocess.Popen(
+        proc = h.spawn_engine(
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -126,7 +126,7 @@ def run_midgame_quit_sweep(map_name: str, base_port: int, durations: list[float]
             "+set", "bot_sleepWhenServerEmpty", "0",
             "+spawnServer", map_name,
         ]
-        proc = subprocess.Popen(
+        proc = h.spawn_engine(
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -203,7 +203,7 @@ def run_post_fuzz_quit(map_name: str, port: int) -> dict:
         "+set", "bot_enable", "1",
         "+spawnServer", map_name,
     ]
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         cmd,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -279,7 +279,7 @@ def run_burst_cycling_outskirts(cycles: int = 10, base_port: int = 27860) -> dic
             "+set", "bot_enable", "1",
             "+spawnServer", "outskirts",
         ]
-        proc = subprocess.Popen(
+        proc = h.spawn_engine(
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -368,7 +368,7 @@ def run_concurrent_shutdown(maps: list[str], base_port: int = 27880) -> dict:
             "+set", "bot_enable", "1",
             "+spawnServer", m,
         ]
-        proc = subprocess.Popen(
+        proc = h.spawn_engine(
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,

@@ -423,6 +423,50 @@ def check_startup_ready(port: int) -> None:
         )
 
 
+def engine_net_port(argv) -> int:
+    """The net_port an engine argv will bind, or 0 when it does not say.
+
+    Only the fixed forms the tests build are read: ``+set net_port N`` and
+    ``--port N`` / ``--net-port N``.  Anything else returns 0, which the
+    pre-flight treats as "not checked".
+    """
+    items = [str(a) for a in argv]
+    for i, item in enumerate(items):
+        if item == "net_port" and i > 0 and items[i - 1] == "+set":
+            nxt = items[i + 1] if i + 1 < len(items) else ""
+            if nxt.isdigit():
+                return int(nxt)
+    for i, item in enumerate(items):
+        if item in ("--port", "--net-port"):
+            nxt = items[i + 1] if i + 1 < len(items) else ""
+            if nxt.isdigit():
+                return int(nxt)
+    return 0
+
+
+def spawn_engine(argv, *, port: Optional[int] = None, **popen_kwargs) -> subprocess.Popen:
+    """Spawn an engine process after the startup pre-flight.
+
+    A test that starts an engine binary directly goes through here (or through
+    DedicatedServer/RemoteClient) so a leftover openETQW process or a squatted
+    net_port is refused before it turns into a stalled run: the same checks
+    check_startup_ready does, with the same PREFLIGHT line.  argv, cwd, env and
+    the pipe settings are passed through untouched, so a verdict cannot move.
+    port=None reads the port from argv; port=0 disables the port probe (the
+    leftover-process check still runs).
+    """
+    resolved = engine_net_port(argv) if port is None else port
+    try:
+        check_startup_ready(resolved)
+    except PreflightError as exc:
+        print(f"PREFLIGHT: {exc}", file=sys.stderr, flush=True)
+        raise
+    proc = subprocess.Popen(argv, **popen_kwargs)
+    with _LIVE_PROCS_LOCK:
+        _LIVE_PROCS.append(proc)
+    return proc
+
+
 # Popen creationflags for a dedicated server that graceful_terminate() should stop
 # with CTRL_BREAK_EVENT on Windows (a console control event needs its own process
 # group); 0 on POSIX.

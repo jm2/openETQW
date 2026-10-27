@@ -291,7 +291,7 @@ def run_determinism_schedule(
     args += ["+clientTeam", "gdf", "+clientClass", "soldier", "+closeLimbo"]
 
     start_time = time.time()
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         args,
         cwd=str(REPO_ROOT),
         stdin=subprocess.PIPE,

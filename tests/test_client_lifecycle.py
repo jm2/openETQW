@@ -88,7 +88,7 @@ def test_quick_quit() -> None:
     ]
 
     start_time = time.time()
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         args,
         cwd=str(REPO_ROOT),
         stdout=subprocess.PIPE,
@@ -162,7 +162,7 @@ def test_valley_render_lifecycle() -> None:
     ]
 
     start_time = time.time()
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         args,
         cwd=str(REPO_ROOT),
         stdin=subprocess.PIPE,

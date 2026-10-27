@@ -139,7 +139,7 @@ def wait_draining(proc: subprocess.Popen, timeout: float) -> int:
 def test_rapid_console_burst():
     """Test rapid bursts of console commands during active map simulation."""
     print("\n--- [TEST 1] Rapid Console Command Flooding & Sequence Stress ---")
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         COMMON_ARGS,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -182,7 +182,7 @@ def test_rapid_console_burst():
 def test_multi_cycle_restart_and_memory():
     """Test 3 consecutive serverMapRestart cycles and monitor memory stability."""
     print("\n--- [TEST 2] Multi-Cycle serverMapRestart & Memory Stability ---")
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         COMMON_ARGS,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -241,7 +241,7 @@ def test_piped_stdin_immediate_eof():
     print("\n--- [TEST 3A] Piped stdin with Immediate Commands & EOF ---")
     pipe_input = "status\nquit\n"
     start = time.time()
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         COMMON_ARGS,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -264,7 +264,7 @@ def test_piped_stdin_immediate_eof():
 def test_piped_stdin_active_eof_and_signal():
     """Test piped stdin EOF during active simulation, verify no spinlock, and clean shutdown."""
     print("\n--- [TEST 3B] Active Piped stdin EOF & Graceful Signal Handling ---")
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         COMMON_ARGS,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -310,7 +310,7 @@ def test_piped_stdin_active_eof_and_signal():
 def test_malformed_and_hostile_inputs():
     """Test console input resilience against buffer overflow, empty lines, and malformed strings."""
     print("\n--- [TEST 4] Malformed, Oversized, and Hostile Console Inputs ---")
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         COMMON_ARGS,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,

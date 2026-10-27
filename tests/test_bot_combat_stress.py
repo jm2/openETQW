@@ -115,7 +115,7 @@ def run_combat_stress_test():
     print("===============================================================\n")
 
     output_queue = queue.Queue()
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         SERVER_ARGS,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
