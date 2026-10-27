@@ -284,6 +284,11 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 
 ## 5. Recently done
 
+2026-10-27 (`main` `ce40c41`):
+- #308 Docs: post-merge Linux arm64 leg at `527c1ef` — 76 OK / 0 FAIL / 1 SKIP (`cross-os`); its own row, not M7 evidence
+- #307 Docs: #302 measured (the validation layer, the `-O0` perf tree, two lighting paths), #299 closed as a measurement artifact, and the worktree recipe now says `-Dbuildtype=debugoptimized` (merged ea215a5)
+- #287 Test harness: readable child exit statuses (NTSTATUS and exception decode) and a port/leftover-process pre-flight; addresses #288 and #289, #290 remains (merged ce40c41)
+
 2026-10-26 (`main` `527c1ef`):
 - #304 Docs: `docs/platform-matrix.md`, the Windows arm64 row records the sandbox workaround — 11 of the 12 temp-directory failures re-run with `mkdtemp` replaced by `os.makedirs` and all 11 pass, tests unmodified; the twelfth, `all-stock-maps`, moves to the #294 bucket (merged 527c1ef)
 - #303 Docs: the #299 failure cites #302 as its cause (merged 7c223f7)
