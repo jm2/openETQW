@@ -54,6 +54,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 ## 1. Open PRs, in merge order
 
 None (last merged: #287 at `ce40c41`).
+
 Closed 2026-10-26 as superseded by #301, on the owner's word: [#282](https://github.com/jm2/openETQW/pull/282) (earlier re-cut: the same seven binaries, no framework, and it prunes manifest rows) and [#281](https://github.com/jm2/openETQW/pull/281) (the original branch). Their branches stay; #301 is the PR that carries the deletion.
 
 ## 2. Open issues, in priority order
