@@ -2,6 +2,8 @@
 # reference and differs only in the fragment: a screen-space noise dither on the
 # vertex alpha, the normal rebuilt in the vertex tangent frame, and the alpha
 # test at 0.5.  The r_megaDrawMethod 0 path is not ported, as in the other ports.
+# Source operands carry 1- or 4-component masks only: Mesa's ARB parser rejects
+# 2- and 3-component source swizzles (MASK2/MASK3), so write light, not light.rgb.
 TEMP	noise, coord, innorm, diffuse, normal, cube, light;
 
 MAD	coord.xy, fragment.position, 0.0625, 0.0625;
@@ -24,7 +26,7 @@ MUL	cube.rgb, cube, $ambientBrightness;
 DP3	light.x, $sunDirectionWorld, normal;
 MAX	light.x, light.x, innorm.w;
 MUL	light.rgb, light.x, $sunColor;
-ADD	light.rgb, light.rgb, cube;
+ADD	light.xyz, light, cube;
 
 # alpha test at retail's 0.5
 SUB	coord.x, diffuse.w, 0.5;

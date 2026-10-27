@@ -1,6 +1,8 @@
 # imposters/lit: the card's two-row atlas (diffuse on top, tangent-space normal
 # at v + 0.5), lit by the sun carried into tangent space plus the ambient cube,
 # fogged by the extinction imposters/lit.vp puts in the secondary colour.
+# Source operands carry 1- or 4-component masks only: Mesa's ARB parser rejects
+# 2- and 3-component source swizzles (MASK2/MASK3), so write light, not light.rgb.
 TEMP	diffuse, normal, cube, light;
 
 TEX	diffuse, fragment.texcoord[0], $diffuseMap, 2D;
@@ -11,7 +13,7 @@ MUL	cube.rgb, cube, $ambientBrightness;
 DP3	light.x, fragment.texcoord[2], normal;
 MAX	light.x, light.x, 0;
 MUL	light.rgb, light.x, $sunColor;
-ADD	light.rgb, light.rgb, cube;
+ADD	light.xyz, light, cube;
 
 # alpha test at retail's 0.1
 SUB	light.w, diffuse.w, 0.1;
