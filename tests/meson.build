@@ -229,6 +229,15 @@ test(
   timeout: 120,
 )
 
+# Failure-marker classification: a bot-thread pacing warning fails only a failed run (#294)
+test(
+  'harness-failure-markers',
+  py,
+  args: [meson.project_source_root() / 'tests' / 'test_harness_failure_markers.py'],
+  suite: 'unit',
+  timeout: 30,
+)
+
 # 6. Client lifecycle & graphics verification test
 if build_engine
   campaign_client = meson.project_build_root() / engine_client_binary_name
