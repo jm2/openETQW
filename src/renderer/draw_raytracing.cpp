@@ -16,11 +16,12 @@
 
 namespace {
 
-// Windows x64 has shipped this path on by default since it was written, so it
-// keeps that default.  Everywhere else the path has not been exercised, so it
-// stays off and is opt-in through r_rayTracing; when it is requested the device
-// capability check in R_RayTracingConfigureDevice decides, and a device without
-// ray query falls back to rasterization with one log line.
+// Windows builds have shipped this path on by default since it was written, so
+// they keep that default; _WIN64 covers both x64 and arm64, and arm64 devices
+// that cannot ray trace fall back below.  Everywhere else the path has not been
+// exercised, so it stays off and is opt-in through r_rayTracing; when it is
+// requested the device capability check in R_RayTracingConfigureDevice decides,
+// and a device without ray query falls back to rasterization with one log line.
 #if defined( _WIN64 )
 const char* RAY_TRACING_DEFAULT = "1";
 #else
