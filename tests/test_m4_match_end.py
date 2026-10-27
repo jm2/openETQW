@@ -110,7 +110,8 @@ def run_timelimit(binary, data, port, log_dir):
             failures.append(f"T4: a script end or a completed objective in the time-limit match (status {status})")
     finally:
         code = srv.quit()
-        bad = h.scan_failures(l.text for l in srv.snapshot())
+        run_failed = bool(failures) or code != 0
+        bad = h.scan_failures((l.text for l in srv.snapshot()), run_failed=run_failed)
         srv.cleanup()
     if bad or code != 0:
         failures.append(f"T: failure markers {bad[:3]}, exit code {code}")
@@ -142,7 +143,8 @@ def run_objectives(binary, data, port, log_dir):
             failures.append("O4: the time limit was hit in the objective match")
     finally:
         code = srv.quit()
-        bad = h.scan_failures(l.text for l in srv.snapshot())
+        run_failed = bool(failures) or code != 0
+        bad = h.scan_failures((l.text for l in srv.snapshot()), run_failed=run_failed)
         srv.cleanup()
     if bad or code != 0:
         failures.append(f"O: failure markers {bad[:3]}, exit code {code}")

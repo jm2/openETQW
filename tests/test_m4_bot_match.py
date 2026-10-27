@@ -184,7 +184,8 @@ def run(binary, data, port, map_name, log_dir):
             failures.append(f"B5: gamereview {review}, want winner strogg")
     finally:
         code = srv.quit()
-        bad = h.scan_failures(line.text for line in srv.snapshot())
+        run_failed = bool(failures) or code != 0
+        bad = h.scan_failures((line.text for line in srv.snapshot()), run_failed=run_failed)
         srv.cleanup()
     if bad or code != 0:
         failures.append(f"B6: failure markers {bad[:3]}, exit code {code}")

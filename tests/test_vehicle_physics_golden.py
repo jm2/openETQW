@@ -143,7 +143,7 @@ def run_schedule(client: Path, data: Path, savepath: Path, cap: int) -> list[str
     except subprocess.TimeoutExpired as exc:
         raise AssertionError(f"cap {cap}: the replay did not quit within {RUN_TIMEOUT_S:.0f} s") from exc
     lines = done.stdout.splitlines()
-    failures = h.scan_failures(lines)
+    failures = h.scan_failures(lines, run_failed=done.returncode != 0)
     if done.returncode != 0 or failures:
         tail = "\n".join(lines[-15:])
         raise AssertionError(f"cap {cap}: exit {done.returncode}, failure markers {failures[:3]}\n{tail}")

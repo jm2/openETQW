@@ -228,7 +228,9 @@ def main(argv):
         if any(c != 0 for c in codes):
             failures.append(f"quit exit codes {codes}")
         for name, p in (("server", srv), ("client A", a), ("client B", b)):
-            for bad in h.scan_failures(l.text for l in p.snapshot()):
+            # same exit-code predicate as this file's own quit check below
+            run_failed = bool(failures) or any(c != 0 for c in codes)
+            for bad in h.scan_failures((l.text for l in p.snapshot()), run_failed=run_failed):
                 failures.append(f"{name} log: {bad}")
     finally:
         for p in procs:

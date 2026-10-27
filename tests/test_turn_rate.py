@@ -205,7 +205,10 @@ def main(argv):
         if any(c != 0 for c in codes.values()):
             failures.append("quit exit codes: " + ", ".join(f"{name} {c}" for name, c in codes.items()))
         for name, proc in procs:
-            for b in h.scan_failures(l.text for l in proc.snapshot()):
+            # same exit-code predicate as this file's own quit check below: a
+            # process that never ran (None) is already a failure there
+            run_failed = bool(failures) or any(c != 0 for c in codes.values())
+            for b in h.scan_failures((l.text for l in proc.snapshot()), run_failed=run_failed):
                 failures.append(f"{name} log: {b}")
             if args.listen:
                 failures += [f"{name} log line {i + 1}: {ln.text}" for i, ln in enumerate(proc.snapshot())

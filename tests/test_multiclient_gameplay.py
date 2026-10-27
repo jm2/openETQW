@@ -105,11 +105,16 @@ PROCESS_LINES = {}
 READER_THREADS = []  # joined before the scan, so the last lines a process printed are read
 
 
-def scan_process_output():
-    """Failure markers (etqw_harness.scan_failures) in any process's output."""
+def scan_process_output(run_failed: bool) -> list[str]:
+    """Failure markers (etqw_harness.scan_failures) in any process's output.
+
+    run_failed is the run's own outcome, passed from exit_with_scan()'s rc. A failed
+    phase raises out of the run function before this scan is reached, so on the path
+    that gets here today rc is always 0 (run_failed is always False); passing it
+    keeps the pacing rule explicit instead of silent (#321)."""
     found = []
     for name, lines in PROCESS_LINES.items():
-        for b in h.scan_failures(lines):
+        for b in h.scan_failures(lines, run_failed=run_failed):
             found.append(f"{name} line {b['line']}: {b['text']}")
     return found
 
@@ -140,7 +145,7 @@ def exit_with_scan(rc):
         if sum(r for r, _ in counts.values()) == 0:
             print("FAIL: --reorder was set but no process released a packet out of order (NET_REORDER)")
             rc = rc or 1
-    bad = scan_process_output()
+    bad = scan_process_output(run_failed=bool(rc))
     if bad:
         print("\nFAILURE MARKERS in process output:")
         for b in bad:

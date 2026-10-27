@@ -154,7 +154,8 @@ def main(argv):
         failures.append(str(e))
     finally:
         exit_code = srv.quit()
-        bad = h.scan_failures(l.text for l in srv.snapshot())
+        run_failed = bool(failures) or exit_code != 0
+        bad = h.scan_failures((l.text for l in srv.snapshot()), run_failed=run_failed)
         srv.cleanup()
     if bad:
         failures.append(f"P5: failure markers: {bad[:3]}")

@@ -155,7 +155,13 @@ class MapResult:
         """#294: a bot-thread wait fails only a map that already failed a gameplay check.
 
         A healthy map that merely waited on the bot thread passes; a map that failed
-        a gameplay check reports the waits too, so the cause stays visible."""
+        a gameplay check reports the waits too, so the cause stays visible.
+
+        gameplay_failed() is fatal_checks() minus these two pacing gates, so an
+        UNAVAILABLE check counts as a gameplay failure whenever allow_missing is
+        false: missing evidence keeps this gate closed on purpose (fail closed).
+        Do not "simplify" it to the checks that actually ran -- that would turn a
+        run whose evidence is missing into a pass (#321)."""
         return waits == 0 or not self.gameplay_failed()
 
     @property
@@ -528,8 +534,9 @@ def run_map(map_name: str, map_index: int, cfg: argparse.Namespace, ctx: dict) -
                    f"'Map: {want_map}' {'seen' if want_map in map_lines else 'missing'} (map lines: {map_lines})")
 
     # Unconditional markers are scanned here for the script-error check below; the
-    # verdict (and the pacing-aware rescan) is taken at the end of the map (#294).
-    failures = H.scan_failures(lines)
+    # verdict (and the pacing-aware rescan) is taken at the end of the map (#294), so
+    # no run outcome exists yet: the healthy default is explicit here (#321).
+    failures = H.scan_failures(lines, run_failed=False)
 
     # ---------------- b) entities ----------------
     ent = [H.ENTITIES_SPAWNED_RE.match(s) for s in lines]
