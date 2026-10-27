@@ -112,6 +112,20 @@ def main() -> int:
            and "Waiting on BotThread" in marker["detail"],
            f"a failed map reports the waits in load.failure_markers (got {marker})")
 
+    # The think.waits gate itself (not just load.failure_markers): a healthy map with
+    # waits passes, a map that failed a gameplay check reports them, and no waits never
+    # fails. This is the half a bug could invert without the cases above noticing.
+    healthy_gate = M.MapResult("sewer", False)
+    healthy_gate.check("bots.gdf.displacement", M.PASS, "max per-life 2D displacement 1520.0u")
+    expect(healthy_gate.pacing_gate_passes(30),
+           "a healthy map with 30 waits passes think.waits")
+    failed_gate = M.MapResult("sewer", False)
+    failed_gate.check("bots.gdf.displacement", M.FAIL, "max per-life 2D displacement 3.0u")
+    expect(not failed_gate.pacing_gate_passes(30),
+           "a map that failed a gameplay check reports its 30 waits in think.waits")
+    expect(failed_gate.pacing_gate_passes(0),
+           "no waits never fails think.waits")
+
     # A pacing-only failure never counts as the gameplay failure that would gate it.
     pacing_only = M.MapResult("sewer", False)
     pacing_only.check("think.waits", M.FAIL, "waits=30 at end of window")

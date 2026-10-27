@@ -151,6 +151,13 @@ class MapResult:
         """Whether the map failed a check other than the two pacing gates (#294)."""
         return any(c["name"] not in self.PACING_CHECKS for c in self.fatal_checks())
 
+    def pacing_gate_passes(self, waits: int) -> bool:
+        """#294: a bot-thread wait fails only a map that already failed a gameplay check.
+
+        A healthy map that merely waited on the bot thread passes; a map that failed
+        a gameplay check reports the waits too, so the cause stays visible."""
+        return waits == 0 or not self.gameplay_failed()
+
     @property
     def passed(self) -> bool:
         return not self.fatal_checks()
@@ -675,7 +682,7 @@ def run_map(map_name: str, map_index: int, cfg: argparse.Namespace, ctx: dict) -
             res.check_bool("think.ratio", ratio >= THINK_RATIO_MIN, detail + f", need >= {THINK_RATIO_MIN}")
         else:
             res.check("think.ratio", INFO, detail + " (asserted only with --bot-think-delay 0)")
-        res.check_bool("think.waits", bts1["waits"] == 0 or res.gameplay_failed(),
+        res.check_bool("think.waits", res.pacing_gate_passes(bts1["waits"]),
                        f"waits={bts1['waits']} at end of window"
                        + ("" if bts1["waits"] == 0 else " (a pacing warning: fails only if the map fails a gameplay check)"))
     else:
