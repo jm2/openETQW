@@ -1,6 +1,6 @@
 // Copyright (C) 2007 Id Software, Inc.
 //
-// Hardware ray-query lighting for the x64 Vulkan renderer.  This translation
+// Hardware ray-query lighting for the Vulkan renderer.  This translation
 // unit deliberately owns capability policy, acceleration structures,
 // descriptors, and dispatch.  VulkanBackend.cpp only supplies live ETQW
 // geometry handles and the current framebuffer.
@@ -16,6 +16,11 @@
 
 namespace {
 
+// Windows x64 has shipped this path on by default since it was written, so it
+// keeps that default.  Everywhere else the path has not been exercised, so it
+// stays off and is opt-in through r_rayTracing; when it is requested the device
+// capability check in R_RayTracingConfigureDevice decides, and a device without
+// ray query falls back to rasterization with one log line.
 #if defined( _WIN64 )
 const char* RAY_TRACING_DEFAULT = "1";
 #else
@@ -681,11 +686,7 @@ sdRayTracingDeviceConfiguration::sdRayTracingDeviceConfiguration() {
 }
 
 bool R_RayTracingRequested() {
-#if defined( _WIN64 )
 	return r_rayTracing.GetBool();
-#else
-	return false;
-#endif
 }
 
 void R_RayTracingResetBackendSelection() {
@@ -1014,9 +1015,6 @@ bool CreateDepthSampler( sdRayTracingState& state ) {
 
 bool R_RayTracingInit( const sdRayTracingVulkanContext& context ) {
 	R_RayTracingShutdown();
-#if !defined( _WIN64 )
-	return false;
-#endif
 	if ( !R_RayTracingRequested() || context.device == VK_NULL_HANDLE ||
 		context.physicalDevice == VK_NULL_HANDLE ||
 		context.GetDeviceProcAddr == NULL || context.frameCount == 0 ||
