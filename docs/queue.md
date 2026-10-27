@@ -64,7 +64,7 @@ Closed 2026-10-26 as superseded by #301, on the owner's word: [#282](https://git
 |---|---|---|---|
 | [#294](https://github.com/jm2/openETQW/issues/294) | `Waiting on BotThread` is a hard failure marker, so a slow host fails a healthy match (`m4-campaign`, and `all-stock-maps` on Windows arm64: sewer 5 marker lines / 30 waits, slipgate 2 / 2) | owner (§4) | The marker cannot tell a starved bot thread from a wedged one — waits seen are 2, 4 and 30 and all three matches finished normally. Owner picks: drop the marker, keep it but gate it on outcome, or keep the count bound. No session may edit `FAILURE_MARKERS` first. |
 | [#197](https://github.com/jm2/openETQW/issues/197) | Fresh profile goes straight to the menu as "Player" (owner, 2026-10-23: fine if the name can be changed in-game) | owner | `ui_name` persists across restarts (checked on macOS). Left: the owner's 30-second real-keyboard check: Options > Game Settings > Name, type a name, Apply, restart, look at the field. |
-| [#302](https://github.com/jm2/openETQW/issues/302) | Linux x64 client frame work looked 3-5x Windows on the same GPU | `openETQW-linux` | Measured: it is the Khronos validation layer, not frame work. `tests/test_client_network.py:62` starts the client with `r_vkValidation 1` (engine default 0); Linux layer on = 33 GUI/s, `work_p50` 28-32 ms, off = 108/s, 9.1-9.4 ms against Windows' 116/s / 6.8 ms. Left: the owner's choice between running `client-network-*` at the engine default and keeping validation only in `campaign-client-maps`, or keeping it and measuring the 3 s window with a second validation-off client (#302 comment 6431988110). A Windows on/off A/B is out with `openETQW-win`. |
+| [#302](https://github.com/jm2/openETQW/issues/302) | Linux x64 client frame work looked 3-5x Windows on the same GPU | `openETQW-linux` | Half measured. `tests/test_client_network.py:62` starts the client with `r_vkValidation 1` (engine default 0), and the layer costs Linux ~+22 ms a frame against Windows' +3.3: with it on, Linux 33 GUI/s / `work_p50` 28-32 ms versus Windows 116/s / 6.8 ms; with it off on **both** sides, Linux 108/s / 9.1-9.4 ms versus Windows 200/s / 3.5 ms. So the layer is most of the 3-5x headline and closes #299 whichever fix is chosen, but a real **~2.6x frame-work gap survives** with the layer off — a profile of the join window, not a test change. Driver split (RADV versus AMD 32.0.21045.5002) is not separable by these runs. |
 | [#299](https://github.com/jm2/openETQW/issues/299) | `client-network` GUI-update floor (40/s) fails on Linux x64 at 30-35/s while every gameplay check passes | `openETQW-linux` | Same cause as #302; the floor itself stays as written. It closes with #302's fix, not by lowering 40/s. |
 | [#296](https://github.com/jm2/openETQW/issues/296) | Linux had no retail-data folder picker | — | Done in #297 (§3 item 4). Left: the interactive checklist on a desktop — start with no retail data, Cancel stores nothing, a refused folder re-asks, five refusals fail, an accepted one is written. Unrun; nobody has a display. Close when the owner has tried it. |
 | [#298](https://github.com/jm2/openETQW/issues/298) | A failed `basepath.txt` write truncated the previous choice | — | Fixed in #297: `RetailDiscovery::WriteStoredPath` writes `basepath.txt.tmp` and renames it over the old file (`MoveFileExA` with `MOVEFILE_REPLACE_EXISTING` on Windows); the unit test asserts the old content survives. Left: close it once its filer or the owner agrees the fix is what the issue asked for. |
@@ -120,10 +120,12 @@ Each item names its acceptance test. Details are in the linked plan.
    59 / 17 / 1 (software raster only, no GPU evidence). M7 stays open until the macOS
    leg's owner decision and each platform's session has checked its own row. The #292
    failures are fixed in `51f7449`; the M7 pacing failures were host load and pass on
-   quiet reruns (#293 closed); the Linux x64 GUI-rate floor (#299) and the frame-work gap
-   (#302) are one cause, the Khronos validation layer that `test_client_network.py` turns
-   on — measured at 33 vs 108 GUI/s on the same host — and wait on the owner's choice of
-   fix (§2). #294 (the Windows arm64 BotThread marker) is an owner decision in §4, and the
+   quiet reruns (#293 closed); the Linux x64 GUI-rate floor (#299) is the Khronos validation
+   layer that `test_client_network.py` turns on — Linux 33 GUI/s with it and 108 without, on
+   the same host — and waits on the owner's choice of fix (§2). #302 keeps a measured ~2.6x
+   frame-work gap with the layer off on both platforms (Linux `work_p50` 9.1-9.4 ms, Windows
+   3.5 ms), which no test change addresses. #294 (the Windows arm64 BotThread marker) is an
+   owner decision in §4, and the
    rest of the Windows arm64 failures are environment. A Linux arm64 leg at `527c1ef` is
    in flight and is a separate row.
 7. **Release gate 5, third-party binaries:** done, merged as `493bed2` (#301, issue #282's
