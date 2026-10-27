@@ -18,10 +18,11 @@ including Switchworks or DeepSeek ones, can resume from this file and `main` alo
   feature, so leave it until the owner reopens #246. Every other non-`main` branch in both
   repositories is older and either merged or abandoned; don't resume from it.
 - **Superseded in part, 2026-10-26:** one PR is open ([#287](https://github.com/jm2/openETQW/pull/287), §1) and §2
-  now lists eight issues; the tree state below is otherwise as described.
+  now lists eleven issues in nine rows; the tree state below is otherwise as described.
 - **Next work, in order:**
-  1. the combined run below — the retail-suite half is done as the M7 register run, and
-     what is left is a fresh pass at current `main` plus the screenshot sets;
+  1. the combined run below — its retail suite has been run once as the M7 register run but
+     no leg of it is a clean pass, and what is left is a fresh pass at current `main` plus the
+     screenshot sets;
   2. #197, the owner's check;
   3. §3's milestone items.
   Owner direction (2026-10-25): bug fixes first; small easy features are fine; no large
@@ -39,9 +40,9 @@ including Switchworks or DeepSeek ones, can resume from this file and `main` alo
   4. push, wait about 5 s, then `gh pr merge N --merge --match-head-commit <head>`;
   5. delete the branch.
 
-**Outstanding gate work: the combined run.** Owner, 2026-10-23: full retail suites and screenshot sets wait for one combined run at the tail end, so the kisakcod sessions keep priority on shared hosts. The retail-suite half is done: the five-platform 77-test run behind `docs/platform-matrix.md` (§3 item 6) is that run, made at engine `0a44150` / game `7fbdf80`, and its failures are attributed row by row. Still outstanding, and not implied by it: the **screenshot sets from all five platforms** (never taken), and a **fresh suite at current `main`** — `main` has carried source and test changes since `0a44150` (#292 `51f7449`, #297, #301), so the M7 rows are evidence for `0a44150` only. Per-platform legs at current `main` are the next runs; file an issue for any regression.
+**Outstanding gate work: the combined run.** Owner, 2026-10-23: full retail suites and screenshot sets wait for one combined run at the tail end, so the kisakcod sessions keep priority on shared hosts. The retail suite has been run: the five-platform 77-test run behind `docs/platform-matrix.md` (§3 item 6) is that run, made at engine `0a44150` / game `7fbdf80`, and **none of its five legs is a clean pass** (6, 3, 5, 32 and 17 failures), each attributed row by row. Still outstanding, and not implied by it: the **screenshot sets from all five platforms** (never taken), and a **fresh suite at current `main`** — `main` has carried source and test changes since `0a44150` (#292 `51f7449`, #297, #301), so the M7 rows are evidence for `0a44150` only. Per-platform legs at current `main` are the next runs; file an issue for any regression.
 
-Updated: 2026-10-26 by `openETQW-linux` (coordinator): #301, #297, #303 and #304 merged (§5), so `main` is `527c1ef`; §1 is [#287](https://github.com/jm2/openETQW/pull/287) and §2 lists the eight open issues; §3 items 4, 6 and 7 updated; §4 gains the BotThread-marker rule (#294); the combined run and screenshot work re-stated at the top.
+Updated: 2026-10-26 by `openETQW-linux` (coordinator): #301, #297, #303 and #304 merged (§5), so `main` is `527c1ef`; §1 is [#287](https://github.com/jm2/openETQW/pull/287) and §2 lists the eleven open issues in nine rows; §3 items 4, 6 and 7 updated; §4 gains the BotThread-marker rule (#294); the combined run and screenshot work re-stated at the top.
 Updated: 2026-10-25 by `openETQW-linux` (coordinator): §1 empty; §2 is #197 and #246 (#270 fixed by #275); #220–#276 in §5, #268 added.
 Updated: 2026-10-23 by `openETQW-linux` (coordinator): the combined run merged #202, #204, #206, #207, #210, #213 and #215 (§5). Earlier: #180 (merged 2026-10-22), #198, #199 and #200 are in §5; M4's last item is done.
 Updated: 2026-10-22 by `openETQW-linux` (coordinator): the game #51 row with the Linux arm64
@@ -65,9 +66,9 @@ Closed 2026-10-26 as superseded by #301, on the owner's word: [#282](https://git
 | [#294](https://github.com/jm2/openETQW/issues/294) | `Waiting on BotThread` is a hard failure marker, so a slow host fails a healthy match (`m4-campaign`, and `all-stock-maps` on Windows arm64: sewer 5 marker lines / 30 waits, slipgate 2 / 2) | owner (§4) | The marker cannot tell a starved bot thread from a wedged one — waits seen are 2, 4 and 30 and all three matches finished normally. Owner picks: drop the marker, keep it but gate it on outcome, or keep the count bound. No session may edit `FAILURE_MARKERS` first. |
 | [#197](https://github.com/jm2/openETQW/issues/197) | Fresh profile goes straight to the menu as "Player" (owner, 2026-10-23: fine if the name can be changed in-game) | owner | `ui_name` persists across restarts (checked on macOS). Left: the owner's 30-second real-keyboard check: Options > Game Settings > Name, type a name, Apply, restart, look at the field. |
 | [#302](https://github.com/jm2/openETQW/issues/302) | Linux x64 client frame work looked 3-5x Windows on the same GPU | `openETQW-linux` | Half measured. `tests/test_client_network.py:62` starts the client with `r_vkValidation 1` (engine default 0), and the layer costs Linux ~+22 ms a frame against Windows' +3.3: with it on, Linux 33 GUI/s / `work_p50` 28-32 ms versus Windows 116/s / 6.8 ms; with it off on **both** sides, Linux 108/s / 9.1-9.4 ms versus Windows 200/s / 3.5 ms. So the layer is most of the 3-5x headline and closes #299 whichever fix is chosen, but a real **~2.6x frame-work gap survives** with the layer off — a profile of the join window, not a test change. Driver split (RADV versus AMD 32.0.21045.5002) is not separable by these runs. |
-| [#299](https://github.com/jm2/openETQW/issues/299) | `client-network` GUI-update floor (40/s) fails on Linux x64 at 30-35/s while every gameplay check passes | `openETQW-linux` | Same cause as #302; the floor itself stays as written. It closes with #302's fix, not by lowering 40/s. |
-| [#296](https://github.com/jm2/openETQW/issues/296) | Linux had no retail-data folder picker | — | Done in #297 (§3 item 4). Left: the interactive checklist on a desktop — start with no retail data, Cancel stores nothing, a refused folder re-asks, five refusals fail, an accepted one is written. Unrun; nobody has a display. Close when the owner has tried it. |
-| [#298](https://github.com/jm2/openETQW/issues/298) | A failed `basepath.txt` write truncated the previous choice | — | Fixed in #297: `RetailDiscovery::WriteStoredPath` writes `basepath.txt.tmp` and renames it over the old file (`MoveFileExA` with `MOVEFILE_REPLACE_EXISTING` on Windows); the unit test asserts the old content survives. Left: close it once its filer or the owner agrees the fix is what the issue asked for. |
+| [#299](https://github.com/jm2/openETQW/issues/299) | `client-network` GUI-update floor (40/s) fails on Linux x64 at 30-35/s while every gameplay check passes | `openETQW-linux` | The failure is #302's validation layer, so it closes with the owner's choice on that (`§2` #302), not by lowering 40/s. The floor itself stays as written. |
+| [#296](https://github.com/jm2/openETQW/issues/296) | Linux had no retail-data folder picker | — | Done in #297 (§3 item 4). Left: the interactive checklist on a desktop — start with no retail data, Cancel stores nothing, a refused folder re-asks, five refusals fail, an accepted one is written. Unrun: no agent here can open a dialog. Close when the owner has tried it. |
+| [#298](https://github.com/jm2/openETQW/issues/298) | A failed `basepath.txt` write truncated the previous choice | — | Fixed in #297: `RetailDiscovery::WriteStoredPath` writes `basepath.txt.tmp` and renames it over the old file (`MoveFileExA` with `MOVEFILE_REPLACE_EXISTING` on Windows); `RetailDiscoveryTest.cpp:259-283` makes the folder read-only and asserts the write is refused, the previous content still reads back and no `.tmp` is left (skipped as root; Windows covers only the replace direction). Left: close it once its filer or the owner agrees the fix is what the issue asked for. |
 | [#288](https://github.com/jm2/openETQW/issues/288), [#289](https://github.com/jm2/openETQW/issues/289), [#290](https://github.com/jm2/openETQW/issues/290) | Three harness diagnostics gaps from the Windows arm64 suite: no port/leftover-process pre-flight (#288), a hard crash reads as a generic non-zero exit (#289), and 27 test files spawn processes with bare `Popen` and bypass the pre-flight (#290) | `openETQW-win` | #287 addresses #288 and #289; #290 is the residual and follows it. |
 | [#246](https://github.com/jm2/openETQW/issues/246) | Instanced trees and shrubs: they draw on both APIs since #248 (Vulkan) and #252 (OpenGL) | — | Deferred by the owner (2026-10-25) as a large feature: distant-tree imposters and the per-instance distance cull. Not to be taken until the owner reopens it. |
 | [#133](https://github.com/jm2/openETQW/issues/133) | Coordinator log | `openETQW-linux` | Stays open. |
@@ -128,8 +129,8 @@ Each item names its acceptance test. Details are in the linked plan.
    owner decision in §4, and the
    rest of the Windows arm64 failures are environment. A Linux arm64 leg at `527c1ef` is
    in flight and is a separate row.
-7. **Release gate 5, third-party binaries:** done, merged as `493bed2` (#301, issue #282's
-   scope) — the seven unreferenced Windows binaries (`openal32.lib`, both `eaxguid.lib`,
+7. **Release gate 5, third-party binaries:** done, merged as `493bed2` (#301, the re-cut of
+   #282/#281) — the seven unreferenced Windows binaries (`openal32.lib`, both `eaxguid.lib`,
    zlib's four `contrib/masmx*/*.obj`) and the PowerPC `src/openal/osx/OpenAL.framework`
    binary are deleted, not replaced: nothing links them. The owner approved the deletion of
    all eight, including the previously owner-gated `src/sys/win32/eaxguid.lib`, on
@@ -224,7 +225,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   owner expects to recreate them first.
 - **The BotThread marker as a failure (#294).** `tests/etqw_harness.py:551-562` counts
   `WARNING: Waiting on BotThread` as a failure; the game emits it from
-  `game2/src/game/botai/BotThreadData.cpp:1085-1087` when the bot thread is more than
+  `src/game/botai/BotThreadData.cpp:1085-1087` when the bot thread is more than
   `bot_threadMaxFrameDelay` game frames behind. Seen with 4 waits in `m4-campaign`, and on
   Windows arm64 in `all-stock-maps` (sewer 30, slipgate 2) — and every one of those matches
   ran to its time limit and finished normally, so a wait does not by itself mean a wedged
@@ -232,9 +233,10 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   stuck bot thread gives); **keep it but gate it on the match's outcome**, so a run that
   also fails a gameplay check reports it and a healthy match does not (recommended by the
   coordinator — the tests already assert match end, so the change is small); **keep it** as
-  a hard marker and accept slow-host noise. A count threshold does not separate the two
-  (the three sightings are 2, 4 and 30 waits, all on normal runs). No session edits
-  `FAILURE_MARKERS` before the owner picks.
+  a hard marker and accept slow-host noise. A count threshold has nothing to calibrate
+  against: the three sightings are 2, 4 and 30 waits and all three were normal runs, with
+  no wedged example to bound the other side. No session edits `FAILURE_MARKERS` before the
+  owner picks.
 - **The hull lead:** the p95 bound and each class's L, and which driver and pilot seats
   join the default list. Needs a review on a high-refresh display.
 - **Render portals, stage 2:** the network decision (`docs/render-portals.md`).
