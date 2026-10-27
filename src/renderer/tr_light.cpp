@@ -3138,6 +3138,8 @@ static viewEntity_s* R_AllocImposterCardSpace( const viewEntity_s* entitySpace,
 	space->insts = NULL;
 	space->culled = false;
 	// the cleanup deletes this once per space, so the copy gets its own bit set
+	// (one small array per card per view; the number of cards is bounded by what
+	// R_AddImposterDrawsurfs emits this frame)
 	space->ambSurf = new unsigned int[ ( space->maxSurfID + 31 ) >> 5 ];
 	memset( space->ambSurf, 0,
 		sizeof( unsigned int ) * ( ( space->maxSurfID + 31 ) >> 5 ) );
@@ -3276,11 +3278,11 @@ static void R_AddImposterCard( viewEntity_s* entitySpace, const sdDeclImposter* 
 		tri->indexCache->indexBuffer = true;
 	}
 	viewEntity_s* cardSpace = R_AllocImposterCardSpace( entitySpace, view );
-	if ( R_AddDrawSurf( tri, cardSpace, entitySpace->entityDef, material,
-			entitySpace->scissorRect, 0, NULL ) == NULL ) {
-		counters.skipped++;
-		return;
-	}
+	// surfID 0 cannot collide: cardSpace belongs to this card alone (entityIndex
+	// -1, its own ambSurf), and every NULL return of R_AddDrawSurf is ruled out by
+	// the checks above, so there is no failure for this path to report.
+	R_AddDrawSurf( tri, cardSpace, entitySpace->entityDef, material,
+		entitySpace->scissorRect, 0, NULL );
 	counters.cards++;
 }
 
@@ -3512,7 +3514,14 @@ void R_AddLightSurfaces() {
 					casterEntity->suppressShadowInLightID == light->lightDef->lightId ) ||
 				  !EntityShadowInRange( casterEntity, light, surface->space->modelMatrix, view ) );
 			const srfTriangles_t* volume = NULL;
-			if ( shadowLight && surface->material->SurfaceCastsShadow() && surface->geo != NULL && !suppressed ) {
+			// frameAlloced geometry is one frame of imposter card (#315).  The card
+			// is an ordinary draw surface everywhere except the BLAS, so without
+			// this a light extrudes its flat quad while the tree's model still
+			// casts (the model is culled no earlier than draw time), laying a flat
+			// card shadow over the real one -- plainest on OpenGL, where the card
+			// itself is not drawn.  A card casts no shadow of its own.
+			if ( shadowLight && surface->material->SurfaceCastsShadow() && surface->geo != NULL &&
+					!surface->geo->frameAlloced && !suppressed ) {
 				volume = CreateShadowVolumeGeometry( surface, light );
 			}
 			if ( volume != NULL ) {
