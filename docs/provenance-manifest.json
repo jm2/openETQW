@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5555,
+  "totalFiles": 5558,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
     "ThirdParty": 3436,
     "Reconstruction_retail_RE": 65,
-    "Reconstruction_original": 394
+    "Reconstruction_original": 397
   },
   "postSplitCounts": {
-    "Reconstruction_original": 276,
+    "Reconstruction_original": 279,
     "ThirdParty": 1,
     "Doom3_GPL": 2,
     "SDK": 2
@@ -47681,6 +47681,42 @@
       "bytes": 725,
       "addedAfterSplit": true,
       "addedIn": "092acbbdce43087f5bb8fa6cd06e74897a4a33f7",
+      "spdx": null
+    },
+    {
+      "path": "base/glprogs/imposters/lit.fp",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "a59144debfc3cd5c31061ca270951d65a1f54cdba296fdd8918c6e6585a96f74",
+      "canonicalSha256": "a59144debfc3cd5c31061ca270951d65a1f54cdba296fdd8918c6e6585a96f74",
+      "bytes": 939,
+      "addedAfterSplit": true,
+      "addedIn": "3aad0094096d4512161114496a49b0963ce9de47",
+      "spdx": null
+    },
+    {
+      "path": "base/glprogs/imposters/lit.vp",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "e716e634e472355641098b60d067729170653d731628923362816c254ee24a20",
+      "canonicalSha256": "e716e634e472355641098b60d067729170653d731628923362816c254ee24a20",
+      "bytes": 1912,
+      "addedAfterSplit": true,
+      "addedIn": "3aad0094096d4512161114496a49b0963ce9de47",
+      "spdx": null
+    },
+    {
+      "path": "base/glprogs/imposters/lit_foliage.fp",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "9d2a7c8e9fd29f9b251b41b8806cd12d7b61645027922f19973ecbe8a1c07c2c",
+      "canonicalSha256": "9d2a7c8e9fd29f9b251b41b8806cd12d7b61645027922f19973ecbe8a1c07c2c",
+      "bytes": 1373,
+      "addedAfterSplit": true,
+      "addedIn": "3aad0094096d4512161114496a49b0963ce9de47",
       "spdx": null
     },
     {
