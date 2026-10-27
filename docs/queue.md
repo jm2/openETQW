@@ -2,78 +2,78 @@
 # Work queue
 
 The shared to-do list for every session. Coordinator log: [#133](https://github.com/jm2/openETQW/issues/133); see its latest comment for who coordinates now (coordination §2). Take items from the top. The coordinator keeps it
-in order, and every PR that changes an item's state updates its row. `owner` names the
+in order and refreshes it in batches (coordination §8); code PRs don't edit it. `owner` names the
 session that holds the item; `—` means nobody does. Before taking an item, check its PR or
 issue for anything newer than this file.
 
-**Parked (2026-10-25).** Owner, 2026-10-24: "burn down all open issues and in-progress PRs across all sessions" (coordination §9). That burn-down is done: #220–#276 merged (§5), and no PR is open in either repository. Owner, 2026-10-25: finish the open issues and PRs, update the docs and park every session. The open issues left (§2) are unowned or wait on the owner. Owner, 2026-10-25: "focus specifically on bug fixes rather than large feature requests from the issues"; "small features are ok if they're easy wins, just not long/large feature efforts".
+**Direction (owner, 2026-10-27; coordination §9).** The 2026-10-25 park is over. Every
+session works the **code queue** below, top down: **major bugs first, then the approved
+features, and gate/evidence work last.** Progress means merged code that fixes a bug or
+ships a feature, with its test. A session that finds nothing in the code queue it can do
+files the next bug it can reproduce, or asks the coordinator; it does not start a docs or
+measurement PR instead.
 
-**Resumption point (2026-10-25, all openETQW sessions stopped for quota).** Any session,
-including Switchworks or DeepSeek ones, can resume from this file and `main` alone:
-- **State:** `main` has everything. No PR is open in either repository, no session holds a
-  host claim, and no openETQW process is running. The last coordinator was
-  `openETQW-linux`; pick the next one by `docs/coordination.md` §2, and log on #133.
-- **Unmerged work on branches:** only `fix/instance-distance-cull-246` (openETQW-win). It adds
-  a per-instance distance cull for OpenGL and ray tracing, and is part of the deferred #246
-  feature, so leave it until the owner reopens #246. Every other non-`main` branch in both
-  repositories is older and either merged or abandoned; don't resume from it.
-- **Superseded in part, 2026-10-26:** one PR is open ([#287](https://github.com/jm2/openETQW/pull/287), §1) and §2
-  now lists eleven issues in nine rows; the tree state below is otherwise as described.
-- **Next work, in order:**
-  1. the combined run below — its retail suite has been run once as the M7 register run but
-     no leg of it is a clean pass, and what is left is a fresh pass at current `main` plus the
-     screenshot sets;
-  2. #197, the owner's check;
-  3. §3's milestone items.
-  Owner direction (2026-10-25): bug fixes first; small easy features are fine; no large
-  feature efforts.
-- **Before touching rendering,** read `docs/render-path.md`; before comparing with retail,
-  `docs/retail-comparison.md`. Per-platform traps are in `docs/coordination.md` §5.
-- **The merge procedure** is `docs/coordination.md` §8. The coordinator's helper that ran
-  it was a local script, not in the repository. Its steps:
-  1. merge `main` into the PR branch, taking `main`'s `docs/queue.md` and
-     `docs/provenance-manifest.json` on conflict, and resolving any code conflict by hand;
-  2. add the PR's line to §5;
-  3. regenerate the manifest with
-     `tools/build/provenance_post_split.py --game-repo <game checkout at the pin> --update`
-     and check that it reports 0 files missing;
-  4. push, wait about 5 s, then `gh pr merge N --merge --match-head-commit <head>`;
-  5. delete the branch.
+- **Bugs before gates.** A bug in an open issue outranks every gate, milestone and evidence
+  item, the combined run included.
+- **Fix, don't narrate.** When a measurement points at a cause, the next PR is the fix. An
+  investigation without a fix is time-boxed to one session-day, and its result goes on the
+  issue, not in this file.
+- **Docs budget.** Code PRs don't edit this file (AGENTS.md, work loop step 6). Docs-only PRs
+  are at most one for every four merged code PRs, and the coordinator batches queue, §5 and
+  provenance refreshes into them (coordination §8).
+- **Owner checks are not session work.** Items that wait on the owner sit in §4 and are
+  asked once with `fleet_ask`; nobody re-measures them while they wait.
 
-**Outstanding gate work: the combined run.** Owner, 2026-10-23: full retail suites and screenshot sets wait for one combined run at the tail end, so the kisakcod sessions keep priority on shared hosts. The retail suite has been run: the five-platform 77-test run behind `docs/platform-matrix.md` (§3 item 6) is that run, made at engine `0a44150` / game `7fbdf80`, and **none of its five legs is a clean pass** (6, 3, 5, 32 and 17 failures), each attributed row by row. Still outstanding, and not implied by it: the **screenshot sets from all five platforms** (never taken), and a **fresh suite at current `main`** — `main` has carried source and test changes since `0a44150` (#292 `51f7449`, #297, #301), so the M7 rows are evidence for `0a44150` only. Per-platform legs at current `main` are the next runs; file an issue for any regression.
+## 0. Code queue, in priority order
 
-Updated: 2026-10-26 by `openETQW-linux` (coordinator): #301, #297, #303 and #304 merged (§5), so `main` is `527c1ef`; §1 is [#287](https://github.com/jm2/openETQW/pull/287) and §2 lists the eleven open issues in nine rows; §3 items 4, 6 and 7 updated; §4 gains the BotThread-marker rule (#294); the combined run and screenshot work re-stated at the top.
-Updated: 2026-10-25 by `openETQW-linux` (coordinator): §1 empty; §2 is #197 and #246 (#270 fixed by #275); #220–#276 in §5, #268 added.
-Updated: 2026-10-23 by `openETQW-linux` (coordinator): the combined run merged #202, #204, #206, #207, #210, #213 and #215 (§5). Earlier: #180 (merged 2026-10-22), #198, #199 and #200 are in §5; M4's last item is done.
-Updated: 2026-10-22 by `openETQW-linux` (coordinator): the game #51 row with the Linux arm64
-evidence and the open owner ask, and the review state of §3 items 3, 8 and 9 and of #162.
-Updated 2026-10-21 after the overnight work (§5); earlier that day, merged since 2026-10-18
-were #145, #146, #149, #152, #153, #155–#158 and game #53–#56 (§5), and #159 and #160 were
-filed. Before that, 2026-10-18, after a pass over every doc.
+Take the top item your platform can do and nobody owns. Details and done-tests are on the
+issue.
 
-## 1. Open PRs, in merge order
+| # | Item | Kind | Owner | Done-test |
+|---|---|---|---|---|
+| 1 | [#294](https://github.com/jm2/openETQW/issues/294) `Waiting on BotThread` counts as a failure only when the match also fails a gameplay check (owner, 2026-10-27) | bug (tests) | — | A healthy match with waits passes; the same run with a forced gameplay failure still reports the marker (negative control); `m4-campaign` and `all-stock-maps` pass on one host |
+| 2 | [#290](https://github.com/jm2/openETQW/issues/290) 27 test files spawn with bare `Popen` and skip #287's port/process pre-flight | bug (tests) | — | No bare `subprocess.Popen` of an engine binary outside `tests/etqw_harness.py`; the touched tests pass on one host |
+| 3 | [#314](https://github.com/jm2/openETQW/pull/314) (draft) per-instance distance cull for OpenGL and RT, closes [#246](https://github.com/jm2/openETQW/issues/246) | feature (graphics) | — | The checklist on #314: retail hard-cut vs fade, `validate pr`, graphics gate (§8) |
+| 4 | [#306](https://github.com/jm2/openETQW/issues/306) ray-query lighting on Linux (and macOS where available) behind a runtime capability check (owner, 2026-10-27) | feature (graphics) | — | `r_rayTracing 1` on antec's RX 6400 draws RT lighting; a device without ray query falls back to raster with one log line; graphics gate (§8) |
+| 5 | [#315](https://github.com/jm2/openETQW/issues/315) distant-tree imposters | feature (graphics) | — | Far valley view shows tree cards on both APIs against a retail capture; graphics gate (§8) |
+| 6 | [#302](https://github.com/jm2/openETQW/issues/302) ~1.5x Linux x64 frame-work residual | investigation, time-boxed | `openETQW-linux` | One `-O2` frame-body profile on Linux x64 and Windows x64; then either a fix PR or close the issue with the profile. No AMDVLK arm (§9, 2026-10-27) |
 
-| # | State | What |
-|---|---|---|
-| [#287](https://github.com/jm2/openETQW/pull/287) | open, no review yet | Test harness only: a Windows child's exit status is decoded into something readable (NTSTATUS, exception code) instead of a generic non-zero, and a fixed-port test pre-flights its port and any leftover `ded` before it starts. Addresses #288 and #289; the residual in #290 (27 test files spawn with bare `Popen`) is not in this PR. Owner-requested; nothing in it changes a test's assertions. |
+New bugs go into this table above the features, ranked by severity (crash, wrong
+gameplay, wrong picture, test harness), once they are filed as issues (§9, 2026-10-26).
 
-Closed 2026-10-26 as superseded by #301, on the owner's word: [#282](https://github.com/jm2/openETQW/pull/282) (earlier re-cut: the same seven binaries, no framework, and it prunes manifest rows) and [#281](https://github.com/jm2/openETQW/pull/281) (the original branch). Their branches stay; #301 is the PR that carries the deletion.
+**Gate and evidence work, after the table is empty or blocked:** the combined run (a
+fresh retail suite per platform at current `main`, plus the five screenshot sets; owner,
+2026-10-23: at the tail end) and the M7 rows in `docs/platform-matrix.md`. Linux arm64 is
+done at `527c1ef`; the macOS leg is allowlisted (owner, 2026-10-27). Run a leg only on a
+host that has no code item it can take.
+
+**Merge procedure:** `docs/coordination.md` §8. Before touching rendering, read
+`docs/render-path.md`; before comparing with retail, `docs/retail-comparison.md`.
+Per-platform traps are in `docs/coordination.md` §5.
+
+Updated: 2026-10-27 by the owner (unparked; bugs first; the code queue).
+
+## 1. Open PRs
+
+The live list is `gh pr list -R jm2/openETQW` (and `-R jm2/openETQW-game`). This file no
+longer mirrors it. The coordinator merges in code-queue order (§0): bug fixes first.
 
 ## 2. Open issues, in priority order
 
 | # | What | Owner | Next step |
 |---|---|---|---|
-| [#294](https://github.com/jm2/openETQW/issues/294) | `Waiting on BotThread` is a hard failure marker, so a slow host fails a healthy match (`m4-campaign`, and `all-stock-maps` on Windows arm64: sewer 5 marker lines / 30 waits, slipgate 2 / 2) | owner (§4) | The marker cannot tell a starved bot thread from a wedged one — waits seen are 2, 4 and 30 and all three matches finished normally. Owner picks: drop the marker, keep it but gate it on outcome, or keep the count bound. No session may edit `FAILURE_MARKERS` first. |
+| [#294](https://github.com/jm2/openETQW/issues/294) | `Waiting on BotThread` is a hard failure marker, so a slow host fails a healthy match | — | Decided (owner, 2026-10-27): count it only when the match also fails a gameplay check. Code queue §0 item 1. |
 | [#197](https://github.com/jm2/openETQW/issues/197) | Fresh profile goes straight to the menu as "Player" (owner, 2026-10-23: fine if the name can be changed in-game) | owner | `ui_name` persists across restarts (checked on macOS). Left: the owner's 30-second real-keyboard check: Options > Game Settings > Name, type a name, Apply, restart, look at the field. |
-| [#302](https://github.com/jm2/openETQW/issues/302) | Linux x64 client frame work looked 3-5x Windows on the same GPU | `openETQW-linux` | Half measured. `tests/test_client_network.py:62` starts the client with `r_vkValidation 1` (engine default 0), and the layer costs Linux ~+22 ms a frame against Windows' +3.3: with it on, Linux 33 GUI/s / `work_p50` 28-32 ms versus Windows 116/s / 6.8 ms; with it off on **both** sides, Linux 108/s / 9.1-9.4 ms versus Windows 200/s / 3.5 ms. So the layer is most of the 3-5x headline and closes #299 whichever fix is chosen, but a **~2.6x frame-work gap survives** with the layer off. That residual is itself confounded by the lighting path: Windows x64 defaults `r_rayTracing 1` (`src/renderer/draw_raytracing.cpp:19-23`) and its shutdown counters record `shadow draws: 0, light interactions: 0`, while Linux draws stencil shadow volumes (100 per frame) and cannot enable ray tracing at all — `R_RayTracingRequested()` returns false on non-`_WIN64` (`:683-688`), and a Linux `+set r_rayTracing 1` join arm at `527c1ef` logs `Vulkan ray tracing unavailable: r_rayTracing is disabled` and reproduces the raster numbers exactly (108 GUI/s, `work_p50` 9.39 ms median). The like-for-like arm is Windows with `r_rayTracing 0`; it has not been run. Driver split (RADV versus AMD 32.0.21045.5002) is not separable by these runs. |
-| [#299](https://github.com/jm2/openETQW/issues/299) | `client-network` GUI-update floor (40/s) fails on Linux x64 at 30-35/s while every gameplay check passes | `openETQW-linux` | The failure is #302's validation layer, so it closes with the owner's choice on that (`§2` #302), not by lowering 40/s. The floor itself stays as written. |
+| [#302](https://github.com/jm2/openETQW/issues/302) | Linux x64 client frame work: a ~1.5x `work_p50` residual against Windows raster after the validation layer, `-O0` tree and lighting-path differences were removed | `openETQW-linux` | Code queue §0 item 6 (time-boxed). Measurements are on the issue. No AMDVLK arm (§9, 2026-10-27). |
 | [#296](https://github.com/jm2/openETQW/issues/296) | Linux had no retail-data folder picker | — | Done in #297 (§3 item 4). Left: the interactive checklist on a desktop — start with no retail data, Cancel stores nothing, a refused folder re-asks, five refusals fail, an accepted one is written. Unrun: no agent here can open a dialog. Close when the owner has tried it. |
-| [#298](https://github.com/jm2/openETQW/issues/298) | A failed `basepath.txt` write truncated the previous choice | — | Fixed in #297: `RetailDiscovery::WriteStoredPath` writes `basepath.txt.tmp` and renames it over the old file (`MoveFileExA` with `MOVEFILE_REPLACE_EXISTING` on Windows); `RetailDiscoveryTest.cpp:259-283` makes the folder read-only and asserts the write is refused, the previous content still reads back and no `.tmp` is left (skipped as root; Windows covers only the replace direction). Left: close it once its filer or the owner agrees the fix is what the issue asked for. |
-| [#288](https://github.com/jm2/openETQW/issues/288), [#289](https://github.com/jm2/openETQW/issues/289), [#290](https://github.com/jm2/openETQW/issues/290) | Three harness diagnostics gaps from the Windows arm64 suite: no port/leftover-process pre-flight (#288), a hard crash reads as a generic non-zero exit (#289), and 27 test files spawn processes with bare `Popen` and bypass the pre-flight (#290) | `openETQW-win` | #287 addresses #288 and #289; #290 is the residual and follows it. |
-| [#246](https://github.com/jm2/openETQW/issues/246) | Instanced trees and shrubs: they draw on both APIs since #248 (Vulkan) and #252 (OpenGL) | — | Deferred by the owner (2026-10-25) as a large feature: distant-tree imposters and the per-instance distance cull. Not to be taken until the owner reopens it. |
+| [#290](https://github.com/jm2/openETQW/issues/290) | 27 test files spawn processes with bare `Popen` and bypass the harness pre-flight (the residual of #288/#289, which #287 fixed and which are closed) | — | Code queue §0 item 2. |
+| [#246](https://github.com/jm2/openETQW/issues/246) | Instanced trees and shrubs: they draw on both APIs since #248 and #252; the per-instance distance cull is left | — | No longer deferred (owner, 2026-10-27). Draft #314; imposters split to #315. Code queue §0 items 3 and 5. |
 | [#133](https://github.com/jm2/openETQW/issues/133) | Coordinator log | `openETQW-linux` | Stays open. |
+| [#306](https://github.com/jm2/openETQW/issues/306) | Linux and macOS clients have no ray-query lighting path; Windows x64 gets it by default | — | Decided (owner, 2026-10-27): port it behind a runtime capability check. Code queue §0 item 4. |
 
 ## 3. Milestone work, in order
+
+After §0. Most of what is left here waits on the owner (§4) or is evidence work.
 
 Each item names its acceptance test. Details are in the linked plan.
 
@@ -124,17 +124,21 @@ Each item names its acceptance test. Details are in the linked plan.
    name=Apple M1 Max headless=false` (2026-10-26), so that leg waits on allowlisting the
    suite probe, not on a decision, and the 59/17/1 software-raster row is what it replaces. The #292
    failures are fixed in `51f7449`; the M7 pacing failures were host load and pass on
-   quiet reruns (#293 closed); the Linux x64 GUI-rate floor (#299) is the Khronos validation
-   layer that `test_client_network.py` turns on — Linux 33 GUI/s with it and 108 without, on
-   the same host — and waits on the owner's choice of fix (§2). #302's remaining ~2.6x
-   with the layer off on both platforms (Linux `work_p50` 9.1-9.4 ms, Windows
-   3.5 ms) is measured across two lighting paths: Windows defaults `r_rayTracing 1` and records no shadow
-   or interaction draws, Linux runs stencil shadow volumes and cannot enable ray tracing, so the gap is not
-   yet attributed to OS frame work — a Windows `r_rayTracing 0` rerun is pending, and no test change
-   addresses it either way. #294 (the Windows arm64 BotThread marker) is an
-   owner decision in §4, and the
-   rest of the Windows arm64 failures are environment. A Linux arm64 leg at `527c1ef` is
-   in flight and is a separate row.
+   quiet reruns (#293 closed); #299 was closed as a measurement artifact —
+   `test_client_network.py:62` turned on the Khronos validation layer (the
+   `client-network-*` tests now start with `r_vkValidation 0`) and the perf tree `build/`
+   was `buildtype=debug` (`-O0`) — so the 30-35 GUI/s was neither the product nor a reason
+   to move the 40/s floor (closed 2026-10-26 with no test or floor change). #302 is
+   measured: layer off and both sides `debugoptimized`, Linux 240 GUI/s / `work_p50`
+   3.9-4.0 ms against Windows raster 232/s at cap 240 / 2.6 ms, same draw mix, so a ~1.5x
+   frame-work residual survives and fails nothing. Left: a `-O2` profile of the frame body
+   on both sides, and #306 (Linux and macOS have no ray-query path, Windows defaults to
+   it), which no test change addresses either way. Any perf row in this register must name
+   its build directory: `build/` on antec is `buildtype=debug`. #294 (the Windows arm64
+   BotThread marker) is an owner decision in §4, and the rest of the Windows arm64
+   failures are environment. Linux arm64 has since been re-run at `527c1ef` (post-merge,
+   `-O2`, real GPU): 76 OK / 0 FAIL / 1 SKIP, the skip `cross-os`. That is a separate row
+   in `platform-matrix.md` and does not close the M7 arm64 row at `0a44150`.
 7. **Release gate 5, third-party binaries:** done, merged as `493bed2` (#301, the re-cut of
    #282/#281) — the seven unreferenced Windows binaries (`openal32.lib`, both `eaxguid.lib`,
    zlib's four `contrib/masmx*/*.obj`) and the PowerPC `src/openal/osx/OpenAL.framework`
@@ -206,8 +210,12 @@ Each item names its acceptance test. Details are in the linked plan.
       29974-29976 are free before each test. Meson's TerminateProcess on timeout
       skips the harness cleanup, so leftovers from one run poison the next; Windows
       prints "FATAL ERROR", not the POSIX "FATAL SIGNAL CAUGHT" the test greps for,
-      so a hard crash shows only as an exit code (NTSTATUS). Mapping that code and a
-      startup port/process check are a follow-up, not a merge gate.
+      so a hard crash shows only as an exit code (NTSTATUS). Both diagnostics are
+      implemented in PR #287, `tests/etqw_harness.py` only: exit-status messages
+      name the NTSTATUS or signal, and a pre-flight refuses to spawn when the port
+      is bound (by a process this run does not hold) or a leftover `openETQW-ded`
+      is alive. A refusal is a failure (exit 1), not a skip, and it names the port.
+      Test verdicts are otherwise unchanged.
       Merged as #283 (`6361385`) on 2026-10-25 with game `7fbdf80`; the five legs are
       Linux x64 (game `a5fdfaf`, older than the pin), Linux arm64, macOS arm64,
       Windows x64 and Windows arm64. `docs/platform-matrix.md` carries the two Windows
@@ -229,20 +237,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   deferred it on 2026-09-25. Nothing to do until the owner reopens it.
 - **Publishing.** Both repositories stay private until the owner decides otherwise; the
   owner expects to recreate them first.
-- **The BotThread marker as a failure (#294).** `tests/etqw_harness.py:551-562` counts
-  `WARNING: Waiting on BotThread` as a failure; the game emits it from
-  `src/game/botai/BotThreadData.cpp:1085-1087` when the bot thread is more than
-  `bot_threadMaxFrameDelay` game frames behind. Seen with 4 waits in `m4-campaign`, and on
-  Windows arm64 in `all-stock-maps` (sewer 30, slipgate 2) — and every one of those matches
-  ran to its time limit and finished normally, so a wait does not by itself mean a wedged
-  bot thread. Options and their costs: **drop the marker** (loses the only signal a genuinely
-  stuck bot thread gives); **keep it but gate it on the match's outcome**, so a run that
-  also fails a gameplay check reports it and a healthy match does not (recommended by the
-  coordinator — the tests already assert match end, so the change is small); **keep it** as
-  a hard marker and accept slow-host noise. A count threshold has nothing to calibrate
-  against: the three sightings are 2, 4 and 30 waits and all three were normal runs, with
-  no wedged example to bound the other side. No session edits `FAILURE_MARKERS` before the
-  owner picks.
+- ~~**The BotThread marker as a failure (#294).**~~ Decided 2026-10-27: gate it on the match outcome (§0 item 1).
 - **The hull lead:** the p95 bound and each class's L, and which driver and pilot seats
   join the default list. Needs a review on a high-refresh display.
 - **Render portals, stage 2:** the network decision (`docs/render-portals.md`).
@@ -278,12 +273,25 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 
 ## 5. Recently done
 
+2026-10-27 (`main` `6640d35`):
+- Tests: `client-network-join` and `client-network-listen` start the Vulkan client with
+  `r_vkValidation 0` (the engine default) instead of `1`, on the owner's word: the Khronos
+  layer is a diagnostic, not part of the measured product. The shared `VulkanClient`
+  default changes with it, but every other test that constructs it already passes
+  `r_vkValidation 0` itself, so only these two change; `campaign-client-maps` keeps
+  its own layer-on client
+- #308 Docs: post-merge Linux arm64 leg at `527c1ef` — 76 OK / 0 FAIL / 1 SKIP (`cross-os`); its own row, not M7 evidence (merged c422eeb)
+- #307 Docs: #302 measured (the validation layer, the `-O0` perf tree, two lighting paths), #299 closed as a measurement artifact, and the worktree recipe now says `-Dbuildtype=debugoptimized` (merged ea215a5)
+- #287 Test harness: readable child exit statuses (NTSTATUS and exception decode) and a port/leftover-process pre-flight; addresses #288 and #289, #290 remains (merged ce40c41)
+- #309 Docs: a third like-for-like arm for #302, Linux arm64 at `527c1ef` — `work_p50` 2.6 ms layer off / 68 GUI/s layer on, so the residual tracks the x64/RADV combination, not the client frame body (merged 39a0421)
+
 2026-10-26 (`main` `527c1ef`):
 - #304 Docs: `docs/platform-matrix.md`, the Windows arm64 row records the sandbox workaround — 11 of the 12 temp-directory failures re-run with `mkdtemp` replaced by `os.makedirs` and all 11 pass, tests unmodified; the twelfth, `all-stock-maps`, moves to the #294 bucket (merged 527c1ef)
 - #303 Docs: the #299 failure cites #302 as its cause (merged 7c223f7)
 - #301 Release gate 5: the seven unreferenced Windows binaries and the PowerPC OpenAL framework deleted, on the owner's approval (merged 493bed2)
 - #297 Linux: the retail-data folder picker (zenity, kdialog, yad, ledger 068), and `basepath.txt` written through a temporary file and a rename, which fixes #298 (merged 03d160c)
 - Closed with them: #293 (the M7 cap-60 pacing failures were host load; quiet reruns hold 60.0 fps and A10 about -1 ms)
+- Closed with them: #299 (the 30-35 GUI/s on Linux x64 was the Khronos validation layer that `test_client_network.py` turned on, on a `debug` perf tree — not a product floor; `client-network-join` passes at 46 GUI/s at `-O2` with the layer on, and no test or bound changed)
 
 2026-10-24/25 (the burn-down):
 - #285 Docs: provenance labels (minizip and eaxguid.lib -> ThirdParty/Upstream, four engine files -> Reconstruction_retail_RE; merged a9aadd4)
