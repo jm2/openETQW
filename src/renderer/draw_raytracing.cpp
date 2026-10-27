@@ -729,10 +729,13 @@ bool R_RayTracingConfigureDevice(
 		reason = "could not read Vulkan device extensions";
 		return false;
 	}
+	// Ray query is reported first: the other two are its Vulkan dependencies, so
+	// a device without ray query would otherwise be told it lacks deferred host
+	// operations, which reads as an unrelated capability problem.
 	const char* requiredExtensions[ 3 ] = {
-		VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+		VK_KHR_RAY_QUERY_EXTENSION_NAME,
 		VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
-		VK_KHR_RAY_QUERY_EXTENSION_NAME
+		VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME
 	};
 	for ( int extensionIndex = 0; extensionIndex < 3; ++extensionIndex ) {
 		if ( !HasExtension( extensions, requiredExtensions[ extensionIndex ] ) ) {
