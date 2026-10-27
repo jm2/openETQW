@@ -4,7 +4,7 @@
 >
 > This file lives at `~/openETQW/STATUS.md` and covers both repositories. Rewrite "This session" every session. Keep the rest current. It is the next session's starting point.
 
-Updated: 2026-10-25 · session/agent: `openETQW-linux` (Claude Code), coordinator · **all openETQW sessions parked (owner, 2026-10-25)**
+Updated: 2026-10-25 · session/agent: `openETQW-linux` (Claude Code), coordinator · **unparked 2026-10-27 (owner): bugs first, then approved features, gate work last — `docs/queue.md` §0**
 Engine repo `~/openETQW`: `main` as of #280 (resumption point; `tools/ci/companion.ref` pins game 7fbdf80) · game repo `~/openETQW-game`: `main` 7fbdf80 (game #59) · `~/etqw` reference: f2b655c992b47e0eaca7c178b0dae490abc1544e (upstream last checked 2026-09-24)
 
 Engine SHAs quoted in older docs (`CHECKPOINT_STOCK_MAPS_PHASE.md`, ledger rows, earlier STATUS text) may not resolve in the current history, and neither do some of the game's historical `tools/ci/engine.ref` pins.
@@ -93,6 +93,8 @@ ETQW_DATA_PATH=$HOME/etqw_data meson test -C build -j 1
 - Linux host `antec` (since 2026-09-26): `SDL_VIDEO_DRIVER=offscreen` for headless client tests. `rg` unavailable; use `grep`. `pip` unavailable; pyflakes in venv at `${TMPDIR:-/var/tmp}/pyflakes-venv`. `actionlint` at `~/go/bin/actionlint`. SSH push fails; use `git -c credential.helper='!gh auth git-credential' push -u https://github.com/jm2/openETQW.git <branch>`.
 
 ## This session
+
+**2026-10-27, owner: the park is over.** Every session works `docs/queue.md` §0 (bugs, then #314/#306/#315), with gate and evidence work last (coordination §9).
 
 2026-10-21 to 10-25, `openETQW-linux` as coordinator and merge role. Owner, 2026-10-24: "burn down all open issues and in-progress PRs across all sessions" (coordination §9). Owner, 2026-10-25: finish the open issues and PRs, update the docs and park every session. **Every openETQW session is now parked**, no PR is open in either repository, and `docs/queue.md` §2 has what is left: #197 (the owner's real-keyboard rename check), #246 (distant-tree imposters and the per-instance cull, deferred by the owner as a large feature) and #133 (the coordinator log). Owner, 2026-10-25: bug fixes first; small features only if they're easy wins.
 
