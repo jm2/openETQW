@@ -55,9 +55,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 ## 1. Open PRs, in merge order
 
-#312 (docs/coord9-radv): one `docs/coordination.md` §9 row for the owner's no-AMDVLK
-decision. Content reviewed; blocked only on the owner's own approval (rule 8).
-Last merged: #311 at `ce3a97e`.
+None (last merged: #312 at `6640d35`).
 
 Closed 2026-10-26 as superseded by #301, on the owner's word: [#282](https://github.com/jm2/openETQW/pull/282) (earlier re-cut: the same seven binaries, no framework, and it prunes manifest rows) and [#281](https://github.com/jm2/openETQW/pull/281) (the original branch). Their branches stay; #301 is the PR that carries the deletion.
 
@@ -288,7 +286,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 
 ## 5. Recently done
 
-2026-10-27 (`main` `ce3a97e`):
+2026-10-27 (`main` `6640d35`):
 - Tests: `client-network-join` and `client-network-listen` start the Vulkan client with
   `r_vkValidation 0` (the engine default) instead of `1`, on the owner's word: the Khronos
   layer is a diagnostic, not part of the measured product. The shared `VulkanClient`
