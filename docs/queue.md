@@ -51,8 +51,9 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 | # | State | What |
 |---|---|---|
-| [#282](https://github.com/jm2/openETQW/pull/282) | open, owner-gated (§4) | Release gate 5, re-cut on `main`: removes the seven unreviewed third-party binaries. Independent corroboration on the PR; the check rollup is unreadable for every token (403), so the owner decides. |
-| [#281](https://github.com/jm2/openETQW/pull/281) | open, superseded, do not rebase or force-push | The original gate-5 branch; #282 supersedes it and it stays open until the owner says otherwise. |
+| [#301](https://github.com/jm2/openETQW/pull/301) | open, owner-approved 2026-10-26, merge pending | Release gate 5: removes the seven unreviewed third-party binaries and the PowerPC `src/openal/osx/OpenAL.framework` dylib, records it in §6/`STATUS.md`/queue; superseded #282 and #281, closed on the owner's word (2026-10-26). |
+
+Closed 2026-10-26 as superseded by #301, on the owner's word: [#282](https://github.com/jm2/openETQW/pull/282) (earlier re-cut: the same seven binaries, no framework, and it prunes manifest rows) and [#281](https://github.com/jm2/openETQW/pull/281) (the original branch). Their branches stay; #301 is the PR that carries the deletion.
 
 ## 2. Open issues, in priority order
 
@@ -74,8 +75,17 @@ Each item names its acceptance test. Details are in the linked plan.
    first-person `clampDamped*` view is merged (#152 with game #54). Left: the owner decides
    which seats join the default list (§4).
 3. **M4, what is left**: done (#199, §5). Every M4 item listed in `STATUS.md` § Milestones now has a meson test.
-4. **Retail data discovery** (`STATUS.md` § Next steps, item 7): the Linux folder picker,
-   and a person trying the macOS and Windows pickers (owner).
+4. **Retail data discovery** (`STATUS.md` § Next steps, item 7): the Linux folder picker
+   is done (#297, issue #296): `Sys_PromptForRetailData` on Linux asks
+   through the first helper of zenity, kdialog and yad that is installed, with the
+   macOS/Windows rules — a Cancel stores nothing, an absent helper is skipped, and the
+   folder is written once it is accepted. One difference is deliberate: Linux's refusal
+   is a message dialog and then the folder dialog again, so only that dialog's Cancel
+   ends the sequence, where macOS offers Quit and Windows Cancel at the refusal. The
+   `retail-discovery` unit test covers each route's arguments, the helper's outcome, the
+   printed answer and the stored path's replace; the interactive check needs a desktop and
+   is on the PR as a checklist for the owner. Left:
+   a person trying the macOS and Windows pickers (owner).
 5. **Provenance labels** (`docs/provenance.md` §6): done, merged as `a9aadd4` (#285,
    `docs/provenance-labels`). It relabels the five minizip files and `eaxguid.lib` as
    ThirdParty/Upstream and the four PDB/reconstruction-marked engine files as
@@ -97,11 +107,15 @@ Each item names its acceptance test. Details are in the linked plan.
    59 / 17 / 1 (software raster only, no GPU evidence). M7 stays open until the macOS
    leg's owner decision and each platform's session has checked its own row. The #292
    failures are fixed in `51f7449`; the M7 pacing failures were host load and pass on
-   quiet reruns (#293 closed); open are #299 (Linux x64), #294 and the Windows arm64
+   quiet reruns (#293 closed); open are #299 and #302 (Linux x64 frame work), #294 and the Windows arm64
    environment items.
-7. **Release gate 5, third-party binaries:** review `src/openal/lib/openal32.lib`, both
-   copies of `eaxguid.lib` and zlib contrib's `.obj` files. Replace each, or record why it
-   stays (`STATUS.md` § Release gate, item 5).
+7. **Release gate 5, third-party binaries:** in [#301](https://github.com/jm2/openETQW/pull/301) —
+   the seven unreferenced Windows binaries (`openal32.lib`, both `eaxguid.lib`, zlib's four
+   `contrib/masmx*/*.obj`) and the PowerPC `src/openal/osx/OpenAL.framework` binary are
+   deleted, not replaced: nothing links them. The owner approved the deletion of all eight,
+   including the previously owner-gated `src/sys/win32/eaxguid.lib`, on 2026-10-26; it merges
+   when #301 lands. `docs/provenance.md` §6 holds the evidence and `STATUS.md` § Release gate
+   item 5 the record.
 8. **The M1 and M2 gaps** (`STATUS.md` § Milestones):
    - ~~M1: the `false` defaults of `build_engine` and `build_dedicated`~~: both default to `true` (#173);
    - M2: collision in the graphical client is never asserted;
