@@ -123,8 +123,9 @@ def scan_process_output(run_failed: bool) -> list[str]:
     """Failure markers (etqw_harness.scan_failures) in any process's output.
 
     run_failed is the run's own outcome, passed from exit_with_scan()'s rc. A failed
-    phase raises out of the run function before this scan is reached, so rc is 0 on
-    the path that gets here; passing it keeps the pacing rule explicit (#321)."""
+    phase raises out of the run function before this scan is reached, so on the path
+    that gets here today rc is always 0 (run_failed is always False); passing it
+    keeps the pacing rule explicit instead of silent (#321)."""
     found = []
     for name, lines in PROCESS_LINES.items():
         for b in h.scan_failures(lines, run_failed=run_failed):
