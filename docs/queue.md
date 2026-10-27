@@ -31,12 +31,11 @@ issue.
 
 | # | Item | Kind | Owner | Done-test |
 |---|---|---|---|---|
-| 1 | [#294](https://github.com/jm2/openETQW/issues/294) `Waiting on BotThread` counts as a failure only when the match also fails a gameplay check (owner, 2026-10-27) | bug (tests) | — | A healthy match with waits passes; the same run with a forced gameplay failure still reports the marker (negative control); `m4-campaign` and `all-stock-maps` pass on one host |
-| 2 | [#290](https://github.com/jm2/openETQW/issues/290) 27 test files spawn with bare `Popen` and skip #287's port/process pre-flight | bug (tests) | — | No bare `subprocess.Popen` of an engine binary outside `tests/etqw_harness.py`; the touched tests pass on one host |
-| 3 | [#314](https://github.com/jm2/openETQW/pull/314) (draft) per-instance distance cull for OpenGL and RT, closes [#246](https://github.com/jm2/openETQW/issues/246) | feature (graphics) | — | The checklist on #314: retail hard-cut vs fade, `validate pr`, graphics gate (§8) |
-| 4 | [#306](https://github.com/jm2/openETQW/issues/306) ray-query lighting on Linux (and macOS where available) behind a runtime capability check (owner, 2026-10-27) | feature (graphics) | — | `r_rayTracing 1` on antec's RX 6400 draws RT lighting; a device without ray query falls back to raster with one log line; graphics gate (§8) |
-| 5 | [#315](https://github.com/jm2/openETQW/issues/315) distant-tree imposters | feature (graphics) | — | Far valley view shows tree cards on both APIs against a retail capture; graphics gate (§8) |
-| 6 | [#302](https://github.com/jm2/openETQW/issues/302) ~1.5x Linux x64 frame-work residual | investigation, time-boxed | `openETQW-linux` | One `-O2` frame-body profile on Linux x64 and Windows x64; then either a fix PR or close the issue with the profile. No AMDVLK arm (§9, 2026-10-27) |
+| 1 | [#325](https://github.com/jm2/openETQW/issues/325) Uncapping the Windows x64 Vulkan client makes it 7x slower: 31 ms/frame with a 17-24 ms fence at `com_maxFPS 0` vs 4.17 ms at 240 | bug (renderer) | — | The issue's done-test: a second Windows x64 host at `com_maxFPS 240` and `0`; uncapped `dt_p50` must not exceed capped; then the swapchain/fence path explained or fixed |
+| 2 | [#321](https://github.com/jm2/openETQW/issues/321) Pacing waits vanish from a failed run's detail at 36 `scan_failures()` sites, plus two nits from the #319 review | bug (tests) | — | A failed run keeps its wait lines in the detail; the two nits are fixed; the unit suite and the affected test pass on one host |
+| 3 | [#315](https://github.com/jm2/openETQW/issues/315) (the half #323 did not do) OpenGL/ARB port of the `imposters/lit` card material, so distant-tree cards draw on the GL path | feature (graphics) | — | Far valley view with `r_skipImposters 1` against default on the OpenGL path shows cards, not only the model cull; ledger row 077 updated |
+| 4 | [#302](https://github.com/jm2/openETQW/issues/302) ~1.5x Linux x64 frame-work residual | investigation, time-boxed | `openETQW-linux` | `perf` is installed (owner, 2026-10-27): one `-O2` frame-body profile on Linux x64 and Windows x64, then either a fix PR or close the issue with the profile. No AMDVLK arm (§9, 2026-10-27) |
+| 5 | Retail capture procedure (owner, 2026-10-27: its own queue item, after the current merge gates) | evidence / tooling | — | A documented, host-checked route to a retail 1.5 reference frame for #315/#323 and later comparisons; no retail data in either repository |
 
 New bugs go into this table above the features, ranked by severity (crash, wrong
 gameplay, wrong picture, test harness), once they are filed as issues (§9, 2026-10-26).
@@ -51,7 +50,7 @@ host that has no code item it can take.
 `docs/render-path.md`; before comparing with retail, `docs/retail-comparison.md`.
 Per-platform traps are in `docs/coordination.md` §5.
 
-Updated: 2026-10-27 by the owner (unparked; bugs first; the code queue).
+Updated: 2026-10-27 by the coordinator (batch refresh: #319/#320/#314/#322/#323 merged, #325/#321 are the new bug rows, the GL half of #315 is the remaining feature item, retail capture queued).
 
 ## 1. Open PRs
 
