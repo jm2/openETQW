@@ -89,7 +89,7 @@ These runs are recorded so they are not mistaken for gate evidence.
 | Full suite attempt at `fb45cea`, 2026-10-21 | Linux arm64 | `macmini-m1` | 27/69 completed, then interrupted | No final result. Log: `oe-full-suite-fb45cea-INTERRUPTED-27of69.log` |
 | M3 `weapon-fire-observer`, macOS arm64, engine `be49e04` / game `7fbdf80` | macOS arm64 | `mbp16-m1max` | 1/1 FAIL, exit 1, 48.09 s | The test's equipment check still required the whole kit to equal `{inventory/weapons/sniperrifle}`, and GDF covertops also carried `inventory/tools/gdf_parachute` on this spawn. The check was fixed in `a3b0db1`; this is the failure that found the bug. Log: `mbp16-m1max:/private/tmp/oe-m3-fresh-20261021/engine-equipped/build/meson-logs/m3-weapon-fire-mac-37e3c8c.txt` (sha256 `0c5a9ef6`) |
 | M3 `weapon-fire-observer` at test revision `ed6735b7`, two runs, engine `1ff001f` / game `bb8e0c5` (withdrawn) | macOS arm64 | `mbp16-m1max` | PASS lines, exit 0, but withdrawn as evidence | The revision hardcoded client 0 (the observer, not the shooter) and measured 2D drift; the revised test identifies the shooter by team and needs 3D drift. Receipt counts 6/6/6 and `playerPos=48` stand only as history. Logs: `mbp16-m1max:/private/tmp/oe-162.YFvqlt/m3-mac.out` and `m3-mac-run2.out` (sha256 `57e45a8d`) |
-| Full retail suite, 2026-10-26, engine `0a44150` / game `7fbdf80` | macOS arm64 (macOS 27.0.1, M1 Max) | `mbp16-m1max` | 59 OK, 17 FAIL, 1 SKIP of 77 | No GPU evidence: the sandbox has no WindowServer or Metal, so clients ran on `SDL_VIDEO_DRIVER=offscreen` with MoltenVK unavailable and `GL_RENDERER: llvmpipe`. 14 of the 17 failures are frame-cadence/draw-pair assertions (`high-refresh-determinism`, `-listen`, `turn-rate-listen`, `client-network-join`/`-listen`, `frame-poses-join`/`-listen`/`-devmap`, `seat-poses-devmap`/`-join`/`-listen`, `vehicle-view-net`, `aircraft-reprediction`, `mixed-caps`); the other 3 are `render-api-fallback` (phase 2: expected an OpenGL window), `campaign-client-maps` (each map: `bad markers: [VK_ERROR_, Vulkan validation error]`, the INCOMPATIBLE_DRIVER warning) and `seat-gate` (one blend assertion plus `SIM_HASH`/`canUnlockFrames`/`SIM_VIEW` differences). Engine and game logic tests passed: 17/17 unit, all 8 M4, the nine dedicated-server stock-map tests, `m2-render-world-parity` and `weapon-fire-observer`. The SKIP is `cross-os` (exit 77, `no remote server`). A `run-m7.command` now exists for a Terminal.app run and was not used for this one; the owner decision is open. Log: `mbp16-m1max:/private/tmp/oe-m7/engine/build/meson-logs/m7-mac-arm64.txt` |
+| Full retail suite, 2026-10-26, engine `0a44150` / game `7fbdf80` | macOS arm64 (macOS 27.0.1, M1 Max) | `mbp16-m1max` | 59 OK, 17 FAIL, 1 SKIP of 77 | No GPU evidence: the sandbox has no WindowServer or Metal, so clients ran on `SDL_VIDEO_DRIVER=offscreen` with MoltenVK unavailable and `GL_RENDERER: llvmpipe`. 14 of the 17 failures are frame-cadence/draw-pair assertions (`high-refresh-determinism`, `-listen`, `turn-rate-listen`, `client-network-join`/`-listen`, `frame-poses-join`/`-listen`/`-devmap`, `seat-poses-devmap`/`-join`/`-listen`, `vehicle-view-net`, `aircraft-reprediction`, `mixed-caps`); the other 3 are `render-api-fallback` (phase 2: expected an OpenGL window), `campaign-client-maps` (each map: `bad markers: [VK_ERROR_, Vulkan validation error]`, the INCOMPATIBLE_DRIVER warning) and `seat-gate` (one blend assertion plus `SIM_HASH`/`canUnlockFrames`/`SIM_VIEW` differences). Engine and game logic tests passed: 17/17 unit, all 8 M4, the nine dedicated-server stock-map tests, `m2-render-world-parity` and `weapon-fire-observer`. The SKIP is `cross-os` (exit 77, `no remote server`). The owner's GPU broker is live and `gpu-run metal-probe` returns `metal-device: OK name=Apple M1 Max headless=false` (2026-10-26); runner scripts exist and were not used for this one, so the leg waits on allowlisting the suite probe, not on a decision. Log: `mbp16-m1max:/private/tmp/oe-m7/engine/build/meson-logs/m7-mac-arm64.txt` |
 
 ## Platform coverage
 
@@ -104,14 +104,17 @@ These runs are recorded so they are not mistaken for gate evidence.
 The M7 gate stays open. A combined five-platform run now exists at `0a44150` / `7fbdf80`
 (2026-10-25/26, section above), covering the merged work from #220 to #276, but no leg is
 a clean pass: the #292 failures are fixed in `51f7449`, the cap-60/high-refresh failures
-on Windows x64 and Linux x64 were host load (quiet reruns pass), and what remains is #302's ~1.5x `work_p50`
-residual on Linux x64 at `-O2` (no test bound fails; #299 closed as the validation layer on a
-`buildtype=debug` tree), the `mixed-caps` A1 margin (58.0 vs 58.8 fps on a quiet host, every other
-check green), the Windows arm64 no-display set plus #294 (which now also holds `all-stock-maps`; the sandbox `mkdtemp` set re-runs 11 of 12 under the workaround), and
-the macOS arm64 leg, which has no GPU evidence until the owner decides how it is run or
-recorded. The Linux arm64 post-merge leg above (76 OK / 0 FAIL / 1 SKIP at `527c1ef`) is
-that commit's evidence, not a re-read of the M7 arm64 row. Every row is host-local
-evidence for the commit named in it, not for `main` today.
+on Windows x64 and Linux x64 were host load (quiet reruns pass), and what remains is #302's
+~1.5x `work_p50` residual on Linux x64 at `-O2` (no test bound fails; #299 closed as the
+validation layer on a `buildtype=debug` tree), the `mixed-caps` A1 margin (58.0 vs 58.8 fps
+on a quiet host, every other check green), the Windows arm64 no-display set plus #294 (which
+now also holds `all-stock-maps`; the sandbox `mkdtemp` set re-runs 11 of 12 under the
+workaround), and the macOS arm64 leg, which has no GPU evidence yet: the owner's GPU broker
+is live on `mbp16-m1max` and `gpu-run metal-probe` returns `metal-device: OK name=Apple M1
+Max headless=false` (2026-10-26), so it waits on allowlisting the suite probe, not on a
+decision. The Linux arm64 post-merge leg above (76 OK / 0 FAIL / 1 SKIP at `527c1ef`) is
+that commit's evidence, not a re-read of the M7 arm64 row. Every row is host-local evidence
+for the commit named in it, not for `main` today.
 
 ## Adding a row
 
