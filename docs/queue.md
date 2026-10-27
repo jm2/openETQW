@@ -124,19 +124,21 @@ Each item names its acceptance test. Details are in the linked plan.
    name=Apple M1 Max headless=false` (2026-10-26), so that leg waits on allowlisting the
    suite probe, not on a decision, and the 59/17/1 software-raster row is what it replaces. The #292
    failures are fixed in `51f7449`; the M7 pacing failures were host load and pass on
-   quiet reruns (#293 closed); #299 was closed as a measurement artifact — `test_client_network.py:62` turns on the
-   Khronos validation layer and the perf tree `build/` was `buildtype=debug` (`-O0`) — so the 30-35 GUI/s
-   was neither the product nor a reason to move the 40/s floor (closed 2026-10-26 with no test or
-   floor change). #302 is measured: layer off and both
-   sides `debugoptimized`, Linux 240 GUI/s / `work_p50` 3.9-4.0 ms against Windows raster 232/s at cap
-   240 / 2.6 ms, same draw mix, so a ~1.5x frame-work residual survives and fails nothing. Left: a
-   `-O2` profile of the frame body on both sides, and #306 (Linux and macOS have no ray-query path,
-   Windows defaults to it), which no test change addresses either way. Any perf row in this register
-   must name its build directory: `build/` on antec is `buildtype=debug`. #294 (the Windows arm64 BotThread marker) is an
-   owner decision in §4, and the
-   rest of the Windows arm64 failures are environment. Linux arm64 has since been re-run at `527c1ef` (post-merge, `-O2`, real GPU):
-   76 OK / 0 FAIL / 1 SKIP, the skip `cross-os`. That is a separate row in `platform-matrix.md`
-   and does not close the M7 arm64 row at `0a44150`.
+   quiet reruns (#293 closed); #299 was closed as a measurement artifact —
+   `test_client_network.py:62` turned on the Khronos validation layer (the
+   `client-network-*` tests now start with `r_vkValidation 0`) and the perf tree `build/`
+   was `buildtype=debug` (`-O0`) — so the 30-35 GUI/s was neither the product nor a reason
+   to move the 40/s floor (closed 2026-10-26 with no test or floor change). #302 is
+   measured: layer off and both sides `debugoptimized`, Linux 240 GUI/s / `work_p50`
+   3.9-4.0 ms against Windows raster 232/s at cap 240 / 2.6 ms, same draw mix, so a ~1.5x
+   frame-work residual survives and fails nothing. Left: a `-O2` profile of the frame body
+   on both sides, and #306 (Linux and macOS have no ray-query path, Windows defaults to
+   it), which no test change addresses either way. Any perf row in this register must name
+   its build directory: `build/` on antec is `buildtype=debug`. #294 (the Windows arm64
+   BotThread marker) is an owner decision in §4, and the rest of the Windows arm64
+   failures are environment. Linux arm64 has since been re-run at `527c1ef` (post-merge,
+   `-O2`, real GPU): 76 OK / 0 FAIL / 1 SKIP, the skip `cross-os`. That is a separate row
+   in `platform-matrix.md` and does not close the M7 arm64 row at `0a44150`.
 7. **Release gate 5, third-party binaries:** done, merged as `493bed2` (#301, the re-cut of
    #282/#281) — the seven unreferenced Windows binaries (`openal32.lib`, both `eaxguid.lib`,
    zlib's four `contrib/masmx*/*.obj`) and the PowerPC `src/openal/osx/OpenAL.framework`
@@ -271,7 +273,13 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 
 ## 5. Recently done
 
-2026-10-27 (`main` `39a0421`):
+2026-10-27 (`main` `6640d35`):
+- Tests: `client-network-join` and `client-network-listen` start the Vulkan client with
+  `r_vkValidation 0` (the engine default) instead of `1`, on the owner's word: the Khronos
+  layer is a diagnostic, not part of the measured product. The shared `VulkanClient`
+  default changes with it, but every other test that constructs it already passes
+  `r_vkValidation 0` itself, so only these two change; `campaign-client-maps` keeps
+  its own layer-on client
 - #308 Docs: post-merge Linux arm64 leg at `527c1ef` — 76 OK / 0 FAIL / 1 SKIP (`cross-os`); its own row, not M7 evidence (merged c422eeb)
 - #307 Docs: #302 measured (the validation layer, the `-O0` perf tree, two lighting paths), #299 closed as a measurement artifact, and the worktree recipe now says `-Dbuildtype=debugoptimized` (merged ea215a5)
 - #287 Test harness: readable child exit statuses (NTSTATUS and exception decode) and a port/leftover-process pre-flight; addresses #288 and #289, #290 remains (merged ce40c41)
@@ -283,7 +291,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 - #301 Release gate 5: the seven unreferenced Windows binaries and the PowerPC OpenAL framework deleted, on the owner's approval (merged 493bed2)
 - #297 Linux: the retail-data folder picker (zenity, kdialog, yad, ledger 068), and `basepath.txt` written through a temporary file and a rename, which fixes #298 (merged 03d160c)
 - Closed with them: #293 (the M7 cap-60 pacing failures were host load; quiet reruns hold 60.0 fps and A10 about -1 ms)
-- Closed with them: #299 (the 30-35 GUI/s on Linux x64 was the Khronos validation layer that `test_client_network.py` turns on, on a `debug` perf tree — not a product floor; `client-network-join` passes at 46 GUI/s at `-O2` with the layer on, and no test or bound changed)
+- Closed with them: #299 (the 30-35 GUI/s on Linux x64 was the Khronos validation layer that `test_client_network.py` turned on, on a `debug` perf tree — not a product floor; `client-network-join` passes at 46 GUI/s at `-O2` with the layer on, and no test or bound changed)
 
 2026-10-24/25 (the burn-down):
 - #285 Docs: provenance labels (minizip and eaxguid.lib -> ThirdParty/Upstream, four engine files -> Reconstruction_retail_RE; merged a9aadd4)
