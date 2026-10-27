@@ -19,6 +19,9 @@ case), and the search order with the platform hooks stubbed here.
 #include <chrono>
 #include <fstream>
 #include <string>
+#ifndef _WIN32
+#include <unistd.h>	// geteuid, for the read-only folder case
+#endif
 
 namespace fs = std::filesystem;
 
@@ -195,6 +198,86 @@ int main() {
 			CHECK( RetailDiscovery::ReadStoredPath( Str( accentedSave / "basepath.txt" ).c_str(), path ) && SameDir( path, accented ),
 				"a non-ASCII stored path read back as '%s', want '%s'", path.c_str(), accentedName.c_str() );
 		}
+	}
+
+	// --- the Linux folder-picker routes (ledger 068) ---
+	{
+		idList< RetailDiscovery::retailFolderChooser_t > choosers;
+		RetailDiscovery::AppendLinuxFolderChoosers( choosers );
+		const char *const programs[] = { "zenity", "kdialog", "yad" };
+		CHECK( choosers.Num() == 3, "expected three folder-picker routes, got %d", choosers.Num() );
+		for ( int i = 0; i < choosers.Num() && i < 3; i++ ) {
+			const RetailDiscovery::retailFolderChooser_t &chooser = choosers[ i ];
+			CHECK( !idStr::Icmp( chooser.program.c_str(), programs[ i ] ),
+				"folder-picker route %d is '%s', want '%s'", i, chooser.program.c_str(), programs[ i ] );
+			CHECK( chooser.folderArgs.Num() > 1 && chooser.messageArgs.Num() > 1,
+				"folder-picker route %s is missing its arguments", chooser.program.c_str() );
+			bool asksForFolder = false;
+			for ( int a = 0; a < chooser.folderArgs.Num(); a++ ) {
+				if ( !idStr::Icmp( chooser.folderArgs[ a ].c_str(), "--directory" ) ||
+					 !idStr::Icmp( chooser.folderArgs[ a ].c_str(), "--getexistingdirectory" ) ) {
+					asksForFolder = true;
+				}
+			}
+			CHECK( asksForFolder, "folder-picker route %s does not ask for a folder", chooser.program.c_str() );
+			// the refusal text is the last argument, so the flag that takes it comes last too
+			const idStr &last = chooser.messageArgs[ chooser.messageArgs.Num() - 1 ];
+			CHECK( !idStr::Icmp( last.c_str(), "--text" ) || !idStr::Icmp( last.c_str(), "--sorry" ),
+				"folder-picker route %s's refusal dialog does not take the text last ('%s')", chooser.program.c_str(), last.c_str() );
+		}
+	}
+	// a chooser's answer: its first line, trimmed, absolute; a message or nothing is no choice
+	{
+		idStr path;
+		CHECK( RetailDiscovery::ParseChooserOutput( "/games/ETQW\n", path ) && !idStr::Icmp( path.c_str(), "/games/ETQW" ),
+			"a chooser's answer read as '%s'", path.c_str() );
+		CHECK( RetailDiscovery::ParseChooserOutput( "/games/ETQW  \r\n", path ) && !idStr::Icmp( path.c_str(), "/games/ETQW" ),
+			"a padded chooser answer read as '%s'", path.c_str() );
+		CHECK( RetailDiscovery::ParseChooserOutput( "/a b/c\n/other\n", path ) && !idStr::Icmp( path.c_str(), "/a b/c" ),
+			"a chooser that printed two lines read as '%s'", path.c_str() );
+		CHECK( !RetailDiscovery::ParseChooserOutput( "", path ) && !RetailDiscovery::ParseChooserOutput( "\n", path ) &&
+			   !RetailDiscovery::ParseChooserOutput( "no folder chosen\n", path ) && !RetailDiscovery::ParseChooserOutput( NULL, path ),
+			"a message or an empty answer counted as a folder" );
+	}
+	// what a finished helper means: the rule the chooser sequence acts on
+	{
+		idStr answer;
+		CHECK( RetailDiscovery::ClassifyChooser( 127, false, "", answer ) == RetailDiscovery::CHOOSER_ABSENT,
+			"a helper that could not be started was not skipped" );
+		CHECK( RetailDiscovery::ClassifyChooser( 0, false, "/games/ETQW\n", answer ) == RetailDiscovery::CHOOSER_PICKED &&
+			   !idStr::Icmp( answer.c_str(), "/games/ETQW" ),
+			"a chosen folder was read as '%s'", answer.c_str() );
+		CHECK( RetailDiscovery::ClassifyChooser( 1, false, "", answer ) == RetailDiscovery::CHOOSER_CANCELLED,
+			"a helper's Cancel (non-zero exit) did not end the sequence" );
+		CHECK( RetailDiscovery::ClassifyChooser( -15, false, "", answer ) == RetailDiscovery::CHOOSER_CANCELLED,
+			"a helper killed by a signal did not end the sequence" );
+		CHECK( RetailDiscovery::ClassifyChooser( 0, false, "no folder chosen\n", answer ) == RetailDiscovery::CHOOSER_CANCELLED,
+			"a helper that printed no folder did not end the sequence" );
+		CHECK( RetailDiscovery::ClassifyChooser( 0, true, "/games/ETQW\n", answer ) == RetailDiscovery::CHOOSER_CANCELLED,
+			"output too long for a folder was taken as a choice" );
+	}
+	// a write that cannot happen leaves the previous choice, never a truncated one
+	{
+		const fs::path savePath = tmp / "save-keep";
+		WriteFile( savePath / "basepath.txt", "/previous/install\n" );
+#ifndef _WIN32
+		if ( geteuid() != 0 ) {	// root ignores the read-only folder: the case cannot be built
+			std::error_code chmodError;
+			fs::permissions( savePath, fs::perms::owner_read | fs::perms::owner_exec, fs::perm_options::replace, chmodError );
+			const bool refused = !RetailDiscovery::WriteStoredPath( Str( savePath ).c_str(), Str( lower ).c_str() );
+			fs::permissions( savePath, fs::perms::owner_all, fs::perm_options::replace, chmodError );
+			idStr kept;
+			CHECK( refused, "a stored path was written to a folder that cannot hold it" );
+			CHECK( RetailDiscovery::ReadStoredPath( Str( savePath / "basepath.txt" ).c_str(), kept ) && !idStr::Icmp( kept.c_str(), "/previous/install" ),
+				"a failed write replaced the previous stored path with '%s'", kept.c_str() );
+			CHECK( !fs::exists( savePath / "basepath.txt.tmp" ), "a failed write left its temporary file behind" );
+		}
+#endif
+		CHECK( RetailDiscovery::WriteStoredPath( Str( savePath ).c_str(), Str( lower ).c_str() ), "a stored path was not replaced" );
+		CHECK( !fs::exists( savePath / "basepath.txt.tmp" ), "a write left its temporary file behind" );
+		idStr replaced;
+		CHECK( RetailDiscovery::ReadStoredPath( Str( savePath / "basepath.txt" ).c_str(), replaced ) && SameDir( replaced, lower ),
+			"the replaced stored path read back as '%s'", replaced.c_str() );
 	}
 
 	// --- Steam: libraryfolders.vdf, new and old format, and steamapps/common ---

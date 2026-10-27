@@ -562,14 +562,31 @@ bool RetailDiscovery::WriteStoredPath( const char *savePath, const char *root ) 
 #else
 	text = root;
 #endif
+	// written beside it and renamed over it: a write that fails partway leaves the
+	// previous choice in place instead of truncating it
 	idStr file = savePath;
 	file.AppendPath( "basepath.txt" );
-	FILE *f = fopen( file.c_str(), "wb" );
+	idStr temporary = file;
+	temporary += ".tmp";
+	FILE *f = fopen( temporary.c_str(), "wb" );
 	if ( f == NULL ) {
 		return false;
 	}
 	const bool written = fprintf( f, "%s\n", text.c_str() ) > 0;
-	return fclose( f ) == 0 && written;
+	const bool closed = fclose( f ) == 0;
+	if ( !written || !closed ) {
+		remove( temporary.c_str() );
+		return false;
+	}
+#ifdef _WIN32
+	const bool replaced = MoveFileExA( temporary.c_str(), file.c_str(), MOVEFILE_REPLACE_EXISTING ) != 0;
+#else
+	const bool replaced = rename( temporary.c_str(), file.c_str() ) == 0;
+#endif
+	if ( !replaced ) {
+		remove( temporary.c_str() );
+	}
+	return replaced;
 }
 
 bool RetailDiscovery::ReadStoredPath( const char *file, idStr &path ) {
@@ -600,6 +617,105 @@ bool RetailDiscovery::ReadStoredPath( const char *file, idStr &path ) {
 	}
 	path = NormalizePath( engineName );
 	return path.Length() > 0;
+}
+
+/*
+====================
+RetailDiscovery::AppendLinuxFolderChoosers
+
+Linux's first-run prompt (ledger 068), in the order to try them: zenity is GTK's
+dialog tool, which the GTK desktops (GNOME, XFCE, Cinnamon, MATE) ship and which GTK
+itself routes through xdg-desktop-portal inside a Flatpak or Snap sandbox; kdialog is
+Plasma's; yad is the same kind of tool for GTK setups that ship it instead of zenity, and
+its message dialog has no type flag of its own (the --text dialog is its default one).
+A helper that is not installed is skipped, and one that runs has the last word: its
+Cancel is the player's answer, not a reason to ask another program. Only the arguments
+are pinned by the unit test: whether each dialog looks and behaves as intended needs a
+desktop, so that is the owner's checklist on the PR.
+====================
+*/
+void RetailDiscovery::AppendLinuxFolderChoosers( idList< retailFolderChooser_t > &choosers ) {
+	static const char *const title = "OpenETQW: find Enemy Territory: QUAKE Wars";
+
+	retailFolderChooser_t zenity;
+	zenity.program = "zenity";
+	zenity.messageArgs.Append( "--warning" );
+	zenity.messageArgs.Append( "--title" );
+	zenity.messageArgs.Append( title );
+	zenity.messageArgs.Append( "--text" );
+	zenity.folderArgs.Append( "--file-selection" );
+	zenity.folderArgs.Append( "--directory" );
+	zenity.folderArgs.Append( "--title" );
+	zenity.folderArgs.Append( title );
+	choosers.Append( zenity );
+
+	retailFolderChooser_t kdialog;
+	kdialog.program = "kdialog";
+	kdialog.messageArgs.Append( "--title" );
+	kdialog.messageArgs.Append( title );
+	kdialog.messageArgs.Append( "--sorry" );
+	kdialog.folderArgs.Append( "--title" );
+	kdialog.folderArgs.Append( title );
+	kdialog.folderArgs.Append( "--getexistingdirectory" );
+	kdialog.folderArgs.Append( "." );	// its start folder; optional, and '.' is harmless
+	choosers.Append( kdialog );
+
+	retailFolderChooser_t yad;
+	yad.program = "yad";
+	yad.messageArgs.Append( "--title" );
+	yad.messageArgs.Append( title );
+	yad.messageArgs.Append( "--text" );
+	yad.folderArgs.Append( "--file" );
+	yad.folderArgs.Append( "--directory" );
+	yad.folderArgs.Append( "--title" );
+	yad.folderArgs.Append( title );
+	choosers.Append( yad );
+}
+
+/*
+====================
+RetailDiscovery::ClassifyChooser
+
+What a finished helper means, the rule Linux's chooser sequence acts on: an absent helper
+moves to the next route, the player's Cancel stops the sequence with nothing stored, and
+only a helper that exited 0 and printed a folder is an answer. Every helper zenity,
+kdialog and yad exits non-zero on Cancel; a helper the player's session killed, and one
+whose output is longer than a path can be, are not answers either.
+====================
+*/
+RetailDiscovery::retailChooserResult_t RetailDiscovery::ClassifyChooser( int exitCode, bool outputTruncated, const char *output, idStr &picked ) {
+	if ( exitCode == 127 ) {
+		return CHOOSER_ABSENT;
+	}
+	if ( exitCode < 0 || outputTruncated ) {
+		return CHOOSER_CANCELLED;
+	}
+	if ( exitCode != 0 ) {
+		return CHOOSER_CANCELLED;
+	}
+	if ( !ParseChooserOutput( output, picked ) ) {
+		return CHOOSER_CANCELLED;
+	}
+	return CHOOSER_PICKED;
+}
+
+bool RetailDiscovery::ParseChooserOutput( const char *output, idStr &path ) {
+	if ( output == NULL ) {
+		return false;
+	}
+	// one path per answer: the first line, without the blanks a helper may pad it with
+	int length = 0;
+	while ( output[ length ] != '\0' && output[ length ] != '\n' ) {
+		length++;
+	}
+	idStr value( output, 0, length );
+	value.StripTrailingWhiteSpace();
+	// every route returns an absolute path; anything else is a helper's message
+	if ( value.Length() == 0 || value[ 0 ] != '/' ) {
+		return false;
+	}
+	path = value;
+	return true;
 }
 
 bool RetailDiscovery::FindFirst( const idStrList &candidates, const char *source, idStr &root, idList<retailProbe_t> &probes ) {
