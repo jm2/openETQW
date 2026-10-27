@@ -55,7 +55,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 ## 1. Open PRs, in merge order
 
-None (last merged: #309 at `39a0421`).
+None (last merged: #312 at `6640d35`).
 
 Closed 2026-10-26 as superseded by #301, on the owner's word: [#282](https://github.com/jm2/openETQW/pull/282) (earlier re-cut: the same seven binaries, no framework, and it prunes manifest rows) and [#281](https://github.com/jm2/openETQW/pull/281) (the original branch). Their branches stay; #301 is the PR that carries the deletion.
 
@@ -65,7 +65,7 @@ Closed 2026-10-26 as superseded by #301, on the owner's word: [#282](https://git
 |---|---|---|---|
 | [#294](https://github.com/jm2/openETQW/issues/294) | `Waiting on BotThread` is a hard failure marker, so a slow host fails a healthy match (`m4-campaign`, and `all-stock-maps` on Windows arm64: sewer 5 marker lines / 30 waits, slipgate 2 / 2) | owner (§4) | The marker cannot tell a starved bot thread from a wedged one — waits seen are 2, 4 and 30 and all three matches finished normally. Owner picks: drop the marker, keep it but gate it on outcome, or keep the count bound. No session may edit `FAILURE_MARKERS` first. |
 | [#197](https://github.com/jm2/openETQW/issues/197) | Fresh profile goes straight to the menu as "Player" (owner, 2026-10-23: fine if the name can be changed in-game) | owner | `ui_name` persists across restarts (checked on macOS). Left: the owner's 30-second real-keyboard check: Options > Game Settings > Name, type a name, Apply, restart, look at the field. |
-| [#302](https://github.com/jm2/openETQW/issues/302) | Linux x64 client frame work looked 3-5x Windows on the same GPU | `openETQW-linux` | Measured 2026-10-26: it was not a 3-5x OS gap, and no test bound fails. Three differences, in order of size: `tests/test_client_network.py:62` starts the client with `r_vkValidation 1` (engine default 0), and the Khronos layer costs Linux +17.5 ms a frame (`work_p50` 4.0 to 21.5 ms at `-O2`) against Windows' +3.3; with the layer still on, `client-network-join` at `-O2` passes at 46 GUI/s against the 40/s floor (15% headroom, so a slower Linux host would be close to it); the Linux perf tree was `buildtype=debug` (`-O0`), which alone is 9.2 ms against 3.9 ms at `-O2`; and Windows x64 defaults `r_rayTracing 1` while Linux has no ray-query path at all (#306), so the first rows compared two lighting paths. Like-for-like (layer off, both `debugoptimized`, Windows `r_rayTracing 0`): Linux 240 GUI/s (245 uncapped) / `work_p50` 3.9-4.0 ms, Windows raster 232/s at cap 240 / 2.6 ms, with the same per-frame draw mix across the two validation-off runs (world 1,626 vs 1,721, shadow 100 vs 105, light 528 vs 548; MegaTex 141 vs 180 is the one mismatch and is not recomputed with the load window excluded). A **~1.5x `work_p50` residual survives** — Linux work-bound, Windows cap-bound at 240 — and it is unfiled until a `-O2` profile of the frame body exists on both sides; the `-O0` `eu-stack` profile (186 samples, 103 in `DrawView`, 8 in driver entry points, hot in `idVec3::operator-`, `memcpy`, `FindSilEdges`, `SetMappingForSurface`) only shows that `-O0` measures inline-heavy code. Driver split (RADV versus AMD 32.0.21045.5002) is not separable by these runs. A third layer-off `-O2` arm on Linux arm64 (macmini-m1, Fedora 44 Asahi on an Apple M1, Mesa Honeykrisp, `debugoptimized`, one run per arm at 0.08 load, `527c1ef`) measures `work_p50` 2.6 ms / 229 GUI/s with a draw mix within 7% of both raster arms (per-frame world 1,730 vs 1,721 Windows and 1,626 RADV x64; shadow 106 vs 105 and 100; light 550 vs 548 and 528), matching Windows raster and below RADV x64, so the residual tracks the x64/RADV combination rather than a client frame body shared by both architectures. CPU architecture, GPU and driver all differ at once on that arm; AMDVLK on antec would isolate the driver from the arch+GPU pair. Owner, 2026-10-27: that arm is **not** to be run — RADV is the standard and AMDVLK usage is waning; if the residual is re-verified later it will be on an NVIDIA or Intel card, not a second Linux driver. The layer cost peaks on RADV too: +17.5 ms a frame on x64, +12 on arm64, +3.3 on Windows. |
+| [#302](https://github.com/jm2/openETQW/issues/302) | Linux x64 client frame work looked 3-5x Windows on the same GPU | `openETQW-linux` | Measured 2026-10-26: it was not a 3-5x OS gap, and no test bound fails. Three differences, in order of size: `tests/test_client_network.py:62` started the client with `r_vkValidation 1` (engine default 0) until 2026-10-27, when the `client-network-*` tests moved it to `0` on the owner's word, and the Khronos layer costs Linux +17.5 ms a frame (`work_p50` 4.0 to 21.5 ms at `-O2`) against Windows' +3.3; with the layer still on, `client-network-join` at `-O2` passes at 46 GUI/s against the 40/s floor (15% headroom, so a slower Linux host would be close to it); the Linux perf tree was `buildtype=debug` (`-O0`), which alone is 9.2 ms against 3.9 ms at `-O2`; and Windows x64 defaults `r_rayTracing 1` while Linux has no ray-query path at all (#306), so the first rows compared two lighting paths. Like-for-like (layer off, both `debugoptimized`, Windows `r_rayTracing 0`): Linux 240 GUI/s (245 uncapped) / `work_p50` 3.9-4.0 ms, Windows raster 232/s at cap 240 / 2.6 ms, with the same per-frame draw mix across the two validation-off runs (world 1,626 vs 1,721, shadow 100 vs 105, light 528 vs 548; MegaTex 141 vs 180 is the one mismatch and is not recomputed with the load window excluded). A **~1.5x `work_p50` residual survives** — Linux work-bound, Windows cap-bound at 240 — and it is unfiled until a `-O2` profile of the frame body exists on both sides; the `-O0` `eu-stack` profile (186 samples, 103 in `DrawView`, 8 in driver entry points, hot in `idVec3::operator-`, `memcpy`, `FindSilEdges`, `SetMappingForSurface`) only shows that `-O0` measures inline-heavy code. Driver split (RADV versus AMD 32.0.21045.5002) is not separable by these runs. A third layer-off `-O2` arm on Linux arm64 (macmini-m1, Fedora 44 Asahi on an Apple M1, Mesa Honeykrisp, `debugoptimized`, one run per arm at 0.08 load, `527c1ef`) measures `work_p50` 2.6 ms / 229 GUI/s with a draw mix within 7% of both raster arms (per-frame world 1,730 vs 1,721 Windows and 1,626 RADV x64; shadow 106 vs 105 and 100; light 550 vs 548 and 528), matching Windows raster and below RADV x64, so the residual tracks the x64/RADV combination rather than a client frame body shared by both architectures. CPU architecture, GPU and driver all differ at once on that arm; AMDVLK on antec would isolate the driver from the arch+GPU pair. Owner, 2026-10-27: that arm is **not** to be run — RADV is the standard and AMDVLK usage is waning; if the residual is re-verified later it will be on an NVIDIA or Intel card, not a second Linux driver. The layer cost peaks on RADV too: +17.5 ms a frame on x64, +12 on arm64, +3.3 on Windows. |
 | [#296](https://github.com/jm2/openETQW/issues/296) | Linux had no retail-data folder picker | — | Done in #297 (§3 item 4). Left: the interactive checklist on a desktop — start with no retail data, Cancel stores nothing, a refused folder re-asks, five refusals fail, an accepted one is written. Unrun: no agent here can open a dialog. Close when the owner has tried it. |
 | [#298](https://github.com/jm2/openETQW/issues/298) | A failed `basepath.txt` write truncated the previous choice | — | Fixed in #297: `RetailDiscovery::WriteStoredPath` writes `basepath.txt.tmp` and renames it over the old file (`MoveFileExA` with `MOVEFILE_REPLACE_EXISTING` on Windows); `RetailDiscoveryTest.cpp:259-283` makes the folder read-only and asserts the write is refused, the previous content still reads back and no `.tmp` is left (skipped as root; Windows covers only the replace direction). Left: close it once its filer or the owner agrees the fix is what the issue asked for. |
 | [#288](https://github.com/jm2/openETQW/issues/288), [#289](https://github.com/jm2/openETQW/issues/289), [#290](https://github.com/jm2/openETQW/issues/290) | Three harness diagnostics gaps from the Windows arm64 suite: no port/leftover-process pre-flight (#288), a hard crash reads as a generic non-zero exit (#289), and 27 test files spawn processes with bare `Popen` and bypass the pre-flight (#290) | `openETQW-win` | #287 addresses #288 and #289; #290 is the residual and follows it. |
@@ -124,19 +124,21 @@ Each item names its acceptance test. Details are in the linked plan.
    name=Apple M1 Max headless=false` (2026-10-26), so that leg waits on allowlisting the
    suite probe, not on a decision, and the 59/17/1 software-raster row is what it replaces. The #292
    failures are fixed in `51f7449`; the M7 pacing failures were host load and pass on
-   quiet reruns (#293 closed); #299 was closed as a measurement artifact — `test_client_network.py:62` turns on the
-   Khronos validation layer and the perf tree `build/` was `buildtype=debug` (`-O0`) — so the 30-35 GUI/s
-   was neither the product nor a reason to move the 40/s floor (closed 2026-10-26 with no test or
-   floor change). #302 is measured: layer off and both
-   sides `debugoptimized`, Linux 240 GUI/s / `work_p50` 3.9-4.0 ms against Windows raster 232/s at cap
-   240 / 2.6 ms, same draw mix, so a ~1.5x frame-work residual survives and fails nothing. Left: a
-   `-O2` profile of the frame body on both sides, and #306 (Linux and macOS have no ray-query path,
-   Windows defaults to it), which no test change addresses either way. Any perf row in this register
-   must name its build directory: `build/` on antec is `buildtype=debug`. #294 (the Windows arm64 BotThread marker) is an
-   owner decision in §4, and the
-   rest of the Windows arm64 failures are environment. Linux arm64 has since been re-run at `527c1ef` (post-merge, `-O2`, real GPU):
-   76 OK / 0 FAIL / 1 SKIP, the skip `cross-os`. That is a separate row in `platform-matrix.md`
-   and does not close the M7 arm64 row at `0a44150`.
+   quiet reruns (#293 closed); #299 was closed as a measurement artifact —
+   `test_client_network.py:62` turned on the Khronos validation layer (the
+   `client-network-*` tests now start with `r_vkValidation 0`) and the perf tree `build/`
+   was `buildtype=debug` (`-O0`) — so the 30-35 GUI/s was neither the product nor a reason
+   to move the 40/s floor (closed 2026-10-26 with no test or floor change). #302 is
+   measured: layer off and both sides `debugoptimized`, Linux 240 GUI/s / `work_p50`
+   3.9-4.0 ms against Windows raster 232/s at cap 240 / 2.6 ms, same draw mix, so a ~1.5x
+   frame-work residual survives and fails nothing. Left: a `-O2` profile of the frame body
+   on both sides, and #306 (Linux and macOS have no ray-query path, Windows defaults to
+   it), which no test change addresses either way. Any perf row in this register must name
+   its build directory: `build/` on antec is `buildtype=debug`. #294 (the Windows arm64
+   BotThread marker) is an owner decision in §4, and the rest of the Windows arm64
+   failures are environment. Linux arm64 has since been re-run at `527c1ef` (post-merge,
+   `-O2`, real GPU): 76 OK / 0 FAIL / 1 SKIP, the skip `cross-os`. That is a separate row
+   in `platform-matrix.md` and does not close the M7 arm64 row at `0a44150`.
 7. **Release gate 5, third-party binaries:** done, merged as `493bed2` (#301, the re-cut of
    #282/#281) — the seven unreferenced Windows binaries (`openal32.lib`, both `eaxguid.lib`,
    zlib's four `contrib/masmx*/*.obj`) and the PowerPC `src/openal/osx/OpenAL.framework`
@@ -284,7 +286,13 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 
 ## 5. Recently done
 
-2026-10-27 (`main` `39a0421`):
+2026-10-27 (`main` `6640d35`):
+- Tests: `client-network-join` and `client-network-listen` start the Vulkan client with
+  `r_vkValidation 0` (the engine default) instead of `1`, on the owner's word: the Khronos
+  layer is a diagnostic, not part of the measured product. The shared `VulkanClient`
+  default changes with it, but every other test that constructs it already passes
+  `r_vkValidation 0` itself, so only these two change; `campaign-client-maps` keeps
+  its own layer-on client
 - #308 Docs: post-merge Linux arm64 leg at `527c1ef` — 76 OK / 0 FAIL / 1 SKIP (`cross-os`); its own row, not M7 evidence (merged c422eeb)
 - #307 Docs: #302 measured (the validation layer, the `-O0` perf tree, two lighting paths), #299 closed as a measurement artifact, and the worktree recipe now says `-Dbuildtype=debugoptimized` (merged ea215a5)
 - #287 Test harness: readable child exit statuses (NTSTATUS and exception decode) and a port/leftover-process pre-flight; addresses #288 and #289, #290 remains (merged ce40c41)
@@ -296,7 +304,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 - #301 Release gate 5: the seven unreferenced Windows binaries and the PowerPC OpenAL framework deleted, on the owner's approval (merged 493bed2)
 - #297 Linux: the retail-data folder picker (zenity, kdialog, yad, ledger 068), and `basepath.txt` written through a temporary file and a rename, which fixes #298 (merged 03d160c)
 - Closed with them: #293 (the M7 cap-60 pacing failures were host load; quiet reruns hold 60.0 fps and A10 about -1 ms)
-- Closed with them: #299 (the 30-35 GUI/s on Linux x64 was the Khronos validation layer that `test_client_network.py` turns on, on a `debug` perf tree — not a product floor; `client-network-join` passes at 46 GUI/s at `-O2` with the layer on, and no test or bound changed)
+- Closed with them: #299 (the 30-35 GUI/s on Linux x64 was the Khronos validation layer that `test_client_network.py` turned on, on a `debug` perf tree — not a product floor; `client-network-join` passes at 46 GUI/s at `-O2` with the layer on, and no test or bound changed)
 
 2026-10-24/25 (the burn-down):
 - #285 Docs: provenance labels (minizip and eaxguid.lib -> ThirdParty/Upstream, four engine files -> Reconstruction_retail_RE; merged a9aadd4)
