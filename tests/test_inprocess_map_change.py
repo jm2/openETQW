@@ -174,7 +174,8 @@ def main(argv):
         print(f"quit exit code: {rc}")
         if rc != 0:
             failures.append(f"quit exit code {rc}")
-        bad = h.scan_failures(l.text for l in srv.snapshot())
+        run_failed = bool(failures) or rc != 0
+        bad = h.scan_failures((l.text for l in srv.snapshot()), run_failed=run_failed)
         for b in bad:
             failures.append(f"log: {b}")
     finally:

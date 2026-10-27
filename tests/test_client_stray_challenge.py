@@ -107,7 +107,10 @@ def main(argv):
         for name, proc in procs:  # the client first, the server last
             codes[name] = proc.quit() if proc.alive() else None
         for name, proc in procs:
-            for f in h.scan_failures(ln.text for ln in proc.snapshot()):
+            # same exit-code predicate as this file's own quit check below: a
+            # process that never ran (None) is already a failure there
+            run_failed = bool(failures) or any(c != 0 for c in codes.values())
+            for f in h.scan_failures((ln.text for ln in proc.snapshot()), run_failed=run_failed):
                 failures.append(f"{name} log line {f['line']}: {f['text']}")
             proc.cleanup()
     if not failures and any(c != 0 for c in codes.values()):

@@ -221,7 +221,7 @@ def run_tour(client: Path, data: Path, savepath: Path, name: str, seats: str, re
     except subprocess.TimeoutExpired as exc:
         raise AssertionError(f"run {name}: the tour did not quit within {RUN_TIMEOUT_S:.0f} s") from exc
     lines = [ln.strip() for ln in done.stdout.splitlines()]
-    failures = h.scan_failures(lines)
+    failures = h.scan_failures(lines, run_failed=done.returncode != 0)
     if done.returncode != 0 or failures:
         tail = "\n".join(lines[-15:])
         raise AssertionError(f"run {name}: exit {done.returncode}, failure markers {failures[:3]}\n{tail}")

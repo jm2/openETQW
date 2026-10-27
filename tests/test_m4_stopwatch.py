@@ -133,7 +133,8 @@ def main(argv):
         failures.append(str(e))
     finally:
         code = srv.quit()
-        bad = h.scan_failures(l.text for l in srv.snapshot())
+        run_failed = bool(failures) or code != 0
+        bad = h.scan_failures((l.text for l in srv.snapshot()), run_failed=run_failed)
         srv.cleanup()
     if bad or code != 0:
         failures.append(f"W5: failure markers {bad[:3]}, exit code {code}")
