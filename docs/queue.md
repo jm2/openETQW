@@ -17,8 +17,8 @@ including Switchworks or DeepSeek ones, can resume from this file and `main` alo
   a per-instance distance cull for OpenGL and ray tracing, and is part of the deferred #246
   feature, so leave it until the owner reopens #246. Every other non-`main` branch in both
   repositories is older and either merged or abandoned; don't resume from it.
-- **Superseded in part, 2026-10-27:** #287, #308 and #309 are merged (§5) and no PR is open; §2 lists eleven issues in
-  nine rows; the tree state below is otherwise as described.
+- **Superseded in part, 2026-10-27:** #287, #308 and #309 are merged (§5) and no PR is
+  open; §2 lists eleven issues in nine rows; the tree state below is otherwise as described.
 - **Next work, in order:**
   1. the combined run below — its retail suite has been run once as the M7 register run but
      no leg of it is a clean pass; what is left is a fresh pass on the remaining four platforms
