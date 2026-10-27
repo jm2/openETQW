@@ -155,6 +155,22 @@ class MapResult:
     def passed(self) -> bool:
         return not self.fatal_checks()
 
+    def classify_failures(self, lines) -> None:
+        """Record the bot-thread waits and fail on the log's failure markers.
+
+        Outcome-aware (#294): whether a pacing warning counts is decided by the map's
+        other checks, so this must run after them. Every other marker is unconditional,
+        and script errors are recorded elsewhere (metrics['script'])."""
+        pacing = H.scan_pacing(lines)
+        self.metrics["bot_thread_waits"] = {"count": len(pacing),
+                                            "lines": [f["line"] for f in pacing]}
+        failures = H.scan_failures(lines, run_failed=self.gameplay_failed())
+        self.metrics["failure_markers"] = failures[:20]
+        non_script = [f for f in failures if f["kind"] != "script"]
+        self.check_bool("load.failure_markers", not non_script,
+                        "none" if not non_script else
+                        "; ".join(f"line {f['line']}: {f['text'][:160]}" for f in non_script[:5]))
+
     def to_json(self) -> dict:
         d = dict(self.metrics)
         d["status"] = PASS if self.passed else FAIL
@@ -504,8 +520,9 @@ def run_map(map_name: str, map_index: int, cfg: argparse.Namespace, ctx: dict) -
     res.check_bool("load.map_line", want_map in map_lines,
                    f"'Map: {want_map}' {'seen' if want_map in map_lines else 'missing'} (map lines: {map_lines})")
 
-    # Failure-marker verdict is taken at the end of the map, once the gameplay
-    # checks are known: a bot-thread pacing warning fails only a failed map (#294).
+    # Unconditional markers are scanned here for the script-error check below; the
+    # verdict (and the pacing-aware rescan) is taken at the end of the map (#294).
+    failures = H.scan_failures(lines)
 
     # ---------------- b) entities ----------------
     ent = [H.ENTITIES_SPAWNED_RE.match(s) for s in lines]
@@ -678,18 +695,8 @@ def run_map(map_name: str, map_index: int, cfg: argparse.Namespace, ctx: dict) -
         res.check("think.sim_hash_tick_rate", WARN, "no SIM_HASH lines during the bot window (g_simHash 1 was set)")
     res.metrics["think"] = think
 
-    # ---------------- pacing and failure markers (#294) ----------------
-    # 'Waiting on BotThread' lines are recorded either way (metrics['bot_thread_waits'])
-    # but fail the map only when the map also failed a gameplay check; every other
-    # marker is unconditional.
-    pacing = H.scan_pacing(lines)
-    res.metrics["bot_thread_waits"] = {"count": len(pacing), "lines": [f["line"] for f in pacing]}
-    failures = H.scan_failures(lines, run_failed=res.gameplay_failed())
-    res.metrics["failure_markers"] = failures[:20]
-    non_script = [f for f in failures if f["kind"] != "script"]
-    res.check_bool("load.failure_markers", not non_script,
-                   "none" if not non_script else
-                   "; ".join(f"line {f['line']}: {f['text'][:160]}" for f in non_script[:5]))
+    # ---------------- pacing and failure-marker verdict (#294) ----------------
+    res.classify_failures(lines)
     return res
 
 

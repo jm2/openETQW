@@ -93,6 +93,31 @@ def main() -> int:
     expect(kinds == [("ERROR banner", "script", 2), ("ERROR banner", "error", 4)],
            f"ERROR banners keep script/error tags and line numbers (got {kinds})")
 
+    # 6. The production path in test_all_stock_maps, driven by the same synthetic log:
+    #    a healthy map passes with waits recorded, a map that failed a gameplay check
+    #    still fails load.failure_markers and names the waits.
+    import test_all_stock_maps as M  # noqa: E402  (import only; nothing runs)
+
+    healthy_map = M.MapResult("sewer", False)
+    healthy_map.check("bots.gdf.displacement", M.PASS, "max per-life 2D displacement 1520.0u")
+    healthy_map.classify_failures(HEALTHY_WAITS)
+    expect(healthy_map.passed and healthy_map.metrics["bot_thread_waits"]["count"] == 2,
+           f"a healthy map with waits passes and records them (checks {healthy_map.checks})")
+
+    failed_map = M.MapResult("sewer", False)
+    failed_map.check("bots.gdf.displacement", M.FAIL, "max per-life 2D displacement 3.0u")
+    failed_map.classify_failures(HEALTHY_WAITS)
+    marker = next((c for c in failed_map.checks if c["name"] == "load.failure_markers"), None)
+    expect(not failed_map.passed and marker is not None and marker["status"] == M.FAIL
+           and "Waiting on BotThread" in marker["detail"],
+           f"a failed map reports the waits in load.failure_markers (got {marker})")
+
+    # A pacing-only failure never counts as the gameplay failure that would gate it.
+    pacing_only = M.MapResult("sewer", False)
+    pacing_only.check("think.waits", M.FAIL, "waits=30 at end of window")
+    expect(not pacing_only.gameplay_failed(),
+           "gameplay_failed() ignores the two pacing gates (no circularity)")
+
     if failures:
         print(f"\n{len(failures)} check(s) failed")
         return 1
