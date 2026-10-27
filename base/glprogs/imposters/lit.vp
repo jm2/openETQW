@@ -1,0 +1,44 @@
+# imposters/lit: the card's tangent frame, the sun carried into that frame, and
+# the atmosphere extinction retail's Cg took from atmosphere.hg.  With
+# r_megaDrawMethod != 0 that term is 1 - saturate(|pos - viewOrigin| *
+# fogDepths.z + fogDepths.w), the formula our other atmosphere ports use; the
+# r_megaDrawMethod 0 path (fogDir into the sky cube) is not ported.
+# imposters/lit_foliage takes this vertex program by reference, so its fragment
+# port reads the same TEXCOORD/COLOR layout.
+# sdRenderShaderARB::PreCompile has already decompressed the packed
+# texcoord/normal/tangent attributes, as the Cg's $if r_32ByteVtx block did.
+OPTION ARB_position_invariant;
+TEMP	tangent, bitangent, extinct, delta;
+
+MOV	result.texcoord[0], $texCoordAttrib;
+ADD	result.texcoord[1], $texCoordAttrib, { 0, 0.5, 0, 0 };
+
+# The card is a billboard with an orthonormal frame: tangent.xyz normalised, and
+# Cg's cross( normal, tangent ) * tangent.w is the bitangent it was built with
+# (SetBiTangent gives the card's tangent the +1 handedness sign).
+DP3	tangent.w, $tangentAttrib, $tangentAttrib;
+RSQ	tangent.w, tangent.w;
+MUL	tangent.xyz, $tangentAttrib, tangent.w;
+XPD	bitangent.xyz, $normalAttrib, tangent;
+MUL	bitangent.xyz, bitangent, $tangentAttrib.w;
+
+DP3	result.texcoord[2].x, $sunDirection, tangent;
+DP3	result.texcoord[2].y, $sunDirection, bitangent;
+DP3	result.texcoord[2].z, $sunDirection, $normalAttrib;
+
+MOV	result.texcoord[4].xyz, tangent;
+MOV	result.texcoord[5].xyz, bitangent;
+MOV	result.texcoord[6].xyz, $normalAttrib;
+MOV	result.color, $colorAttrib;
+
+SUB	delta.xyz, $positionAttrib, $viewOrigin;
+DP3	delta.w, delta, delta;
+RSQ	delta.w, delta.w;
+RCP	delta.w, delta.w;
+MAD	extinct.x, delta.w, $fogDepths.z, $fogDepths.w;
+# saturate (vertex programs have no _SAT)
+MAX	extinct.x, extinct.x, 0;
+MIN	extinct.x, extinct.x, 1;
+SUB	extinct.x, 1, extinct.x;
+MOV	extinct.yzw, 0;
+MOV	result.color.secondary, extinct;
