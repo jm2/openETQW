@@ -1,8 +1,10 @@
 # imposters/lit: the card's tangent frame, the sun carried into that frame, and
-# the atmosphere extinction retail's Cg took from atmosphere.hg.  With
-# r_megaDrawMethod != 0 that term is 1 - saturate(|pos - viewOrigin| *
-# fogDepths.z + fogDepths.w), the formula our other atmosphere ports use; the
-# r_megaDrawMethod 0 path (fogDir into the sky cube) is not ported.
+# the atmosphere fog amount retail's Cg took from atmosphere.hg.  With
+# r_megaDrawMethod != 0 that is saturate(|pos - viewOrigin| * fogDepths.z +
+# fogDepths.w): Cg's Extinction() returns 1 minus it and the Cg writes 1 -
+# Extinction().x, i.e. this value, which its fragment lerps the shaded colour
+# towards the fog colour with.  The r_megaDrawMethod 0 path (fogDir into the sky
+# cube) is not ported.
 # imposters/lit_foliage takes this vertex program by reference, so its fragment
 # port reads the same TEXCOORD/COLOR layout.
 # sdRenderShaderARB::PreCompile has already decompressed the packed
@@ -42,6 +44,7 @@ MAD	extinct.x, delta.w, $fogDepths.z, $fogDepths.w;
 # saturate (vertex programs have no _SAT)
 MAX	extinct.x, extinct.x, 0;
 MIN	extinct.x, extinct.x, 1;
-SUB	extinct.x, 1, extinct.x;
+# secondary.x is the fog amount, not the transmittance: lit.fp lerps towards
+# fogColor with it, so it must stay saturate(), as Cg's outdata.extinct does.
 MOV	extinct.yzw, 0;
 MOV	result.color.secondary, extinct;
