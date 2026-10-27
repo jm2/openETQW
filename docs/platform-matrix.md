@@ -108,8 +108,9 @@ on Windows x64 and Linux x64 were host load (quiet reruns pass), and what remain
 residual on Linux x64 at `-O2` (no test bound fails; #299 closed as the validation layer on a
 `buildtype=debug` tree), the `mixed-caps` A1 margin (58.0 vs 58.8 fps on a quiet host, every other
 check green), the Windows arm64 no-display set plus #294 (which now also holds `all-stock-maps`; the sandbox `mkdtemp` set re-runs 11 of 12 under the workaround), and
-the macOS arm64 leg, which has no GPU evidence until the owner decides how it is run or
-recorded. The Linux arm64 post-merge leg above (76 OK / 0 FAIL / 1 SKIP at `527c1ef`) is
+the macOS arm64 leg, which has no GPU evidence yet: the owner's GPU broker is live on
+`mbp16-m1max` and `gpu-run metal-probe` returns `metal-device: OK name=Apple M1 Max
+headless=false` (2026-10-26), so it waits on allowlisting the suite probe, not on a decision. The Linux arm64 post-merge leg above (76 OK / 0 FAIL / 1 SKIP at `527c1ef`) is
 that commit's evidence, not a re-read of the M7 arm64 row. Every row is host-local
 evidence for the commit named in it, not for `main` today.
 

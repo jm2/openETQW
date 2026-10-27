@@ -43,7 +43,7 @@ including Switchworks or DeepSeek ones, can resume from this file and `main` alo
 
 **Outstanding gate work: the combined run.** Owner, 2026-10-23: full retail suites and screenshot sets wait for one combined run at the tail end, so the kisakcod sessions keep priority on shared hosts. The retail suite has been run: the five-platform 77-test run behind `docs/platform-matrix.md` (§3 item 6) is that run, made at engine `0a44150` / game `7fbdf80`, and **none of its five legs is a clean pass** (6, 3, 5, 32 and 17 failures), each attributed row by row. Still outstanding, and not implied by it: the **screenshot sets from all five platforms** (never taken), and a **fresh suite at current `main`** — `main` has carried source and test changes since `0a44150` (#292 `51f7449`, #297, #301), so the M7 rows are evidence for `0a44150` only. Per-platform legs at current `main` are the next runs — Linux arm64 has been done at `527c1ef` (76 / 0 / 1, `docs/platform-matrix.md` § Post-merge legs); file an issue for any regression.
 
-Updated: 2026-10-27 by `openETQW-linux` (coordinator): #308 (the post-merge Linux arm64 leg) and #309 (the third like-for-like #302 arm, Linux arm64) merged (§5), so `main` is `39a0421`; no PR is open; §2 and §3 unchanged; the macOS M7 leg waits on the owner's allowlist answer for the broker runners, not on a decision.
+Updated: 2026-10-27 by `openETQW-linux` (coordinator): #308 (the post-merge Linux arm64 leg) and #309 (the third like-for-like #302 arm, Linux arm64) merged (§5), so `main` is `39a0421`; no PR is open; §2 and §3 unchanged; the macOS M7 leg waits on allowlisting the suite probe on the GPU broker, not on a decision.
 Updated: 2026-10-27 by `openETQW-linux` (coordinator): #301, #297, #303, #304, #307 and #287 merged (§5), so `main` is `ce40c41`; §1 is empty; §2 lists the eleven open issues in nine rows; §3 item 6 updated; §5 gains the 2026-10-27 entries; the combined run and screenshot work re-stated at the top.
 Updated: 2026-10-25 by `openETQW-linux` (coordinator): §1 empty; §2 is #197 and #246 (#270 fixed by #275); #220–#276 in §5, #268 added.
 Updated: 2026-10-23 by `openETQW-linux` (coordinator): the combined run merged #202, #204, #206, #207, #210, #213 and #215 (§5). Earlier: #180 (merged 2026-10-22), #198, #199 and #200 are in §5; M4's last item is done.
@@ -55,7 +55,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 ## 1. Open PRs, in merge order
 
-None (last merged: #287 at `ce40c41`).
+None (last merged: #309 at `39a0421`).
 
 Closed 2026-10-26 as superseded by #301, on the owner's word: [#282](https://github.com/jm2/openETQW/pull/282) (earlier re-cut: the same seven binaries, no framework, and it prunes manifest rows) and [#281](https://github.com/jm2/openETQW/pull/281) (the original branch). Their branches stay; #301 is the PR that carries the deletion.
 
@@ -284,11 +284,11 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 
 ## 5. Recently done
 
-2026-10-27 (`main` `ce40c41`):
-- #308 Docs: post-merge Linux arm64 leg at `527c1ef` — 76 OK / 0 FAIL / 1 SKIP (`cross-os`); its own row, not M7 evidence
+2026-10-27 (`main` `39a0421`):
+- #308 Docs: post-merge Linux arm64 leg at `527c1ef` — 76 OK / 0 FAIL / 1 SKIP (`cross-os`); its own row, not M7 evidence (merged c422eeb)
 - #307 Docs: #302 measured (the validation layer, the `-O0` perf tree, two lighting paths), #299 closed as a measurement artifact, and the worktree recipe now says `-Dbuildtype=debugoptimized` (merged ea215a5)
 - #287 Test harness: readable child exit statuses (NTSTATUS and exception decode) and a port/leftover-process pre-flight; addresses #288 and #289, #290 remains (merged ce40c41)
-- #309 Docs: a third like-for-like arm for #302, Linux arm64 at `527c1ef` — `work_p50` 2.6 ms layer off / 68 GUI/s layer on, so the residual tracks the x64/RADV combination, not the client frame body
+- #309 Docs: a third like-for-like arm for #302, Linux arm64 at `527c1ef` — `work_p50` 2.6 ms layer off / 68 GUI/s layer on, so the residual tracks the x64/RADV combination, not the client frame body (merged 39a0421)
 
 2026-10-26 (`main` `527c1ef`):
 - #304 Docs: `docs/platform-matrix.md`, the Windows arm64 row records the sandbox workaround — 11 of the 12 temp-directory failures re-run with `mkdtemp` replaced by `os.makedirs` and all 11 pass, tests unmodified; the twelfth, `all-stock-maps`, moves to the #294 bucket (merged 527c1ef)
