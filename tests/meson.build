@@ -229,6 +229,15 @@ test(
   timeout: 120,
 )
 
+# Failure-marker classification: a bot-thread pacing warning fails only a failed run (#294)
+test(
+  'harness-failure-markers',
+  py,
+  args: [meson.project_source_root() / 'tests' / 'test_harness_failure_markers.py'],
+  suite: 'unit',
+  timeout: 30,
+)
+
 # 6. Client lifecycle & graphics verification test
 if build_engine
   campaign_client = meson.project_build_root() / engine_client_binary_name
@@ -850,6 +859,24 @@ if build_dedicated
       '--ded-binary', all_stock_maps_ded,
       '--port', '29983',
       '--log-dir', meson.project_build_root() / 'meson-logs' / 'headless-client-vehicle',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['integration'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
+  # a weapon's tracer reaches another client, not just the shooter (M3): the
+  # server broadcasts EVENT_TRACER, and the shooter and a headless observer
+  # receive the same start and end; playerPos is polled every 0.25 s
+  test(
+    'weapon-fire-observer',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_m3_weapon_fire.py',
+      '--ded-binary', all_stock_maps_ded,
+      '--port', '29974',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'weapon-fire-observer',
     ],
     workdir: meson.project_source_root(),
     suite: ['integration'],

@@ -149,9 +149,10 @@ for Local Network access the first time a client or server uses the LAN.
 
 **Vulkan is the main renderer and the default** (`r_renderAPI vulkan`; MoltenVK over Metal
 on macOS). Use it unless it fails on your system. **OpenGL is a degraded fallback**
-(`+set r_renderAPI opengl`): retail 1.5 wrote some of its effects (glow, smoke and others)
-as Cg programs. Cg has no runtime on x64 or arm64, so OpenGL leaves those effects out,
-except the sky, the atmosphere fades and the grass, which have our own ARB ports in
+(`+set r_renderAPI opengl`): retail 1.5 wrote some of its effects (smoke, the vision
+enhancer and others) as Cg programs. Cg has no runtime on x64 or arm64, so OpenGL leaves
+those effects out, except the sky, the atmosphere fades, the grass and the post-process
+(glow, glare, saturation, contrast, tint), which have our own ARB ports in
 `base/glprogs` (`docs/compat-ledger.md` row 077). For now, expect Vulkan to look better than
 OpenGL and to get fixes first.
 

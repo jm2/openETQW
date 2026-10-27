@@ -39,7 +39,6 @@ extern idCVar r_lightScale;
 extern idCVar r_stuffFadeStart;
 extern idCVar r_stuffFadeEnd;
 extern idCVar r_elevateForceClear;
-extern idCVar r_multiSamples;
 extern idCVar r_showOverDraw;
 extern idCVar r_singleTriangle;
 extern idCVar r_useIndexBuffers;
@@ -319,7 +318,7 @@ void RB_BeginDrawingView() {
 
 	const int forceClear = view->renderView.forceClear;
 	const bool clearColor = forceClear > 1 ||
-		( forceClear == 1 && ( r_elevateForceClear.GetInteger() > 1 || r_multiSamples.GetInteger() > 1 ) );
+		( forceClear == 1 && ( r_elevateForceClear.GetInteger() > 1 || glConfig.samples > 0 ) );
 	if ( clearColor && r_showOverDraw.GetInteger() == 0 ) {
 		glClearColor( view->renderView.clearColor.x, view->renderView.clearColor.y,
 			view->renderView.clearColor.z, view->renderView.clearColor.w );

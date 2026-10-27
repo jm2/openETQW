@@ -118,7 +118,7 @@ def test_adversarial_rapid_cycling() -> dict:
         "+spawnServer", "quarry",
     ]
 
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         cmd,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,

@@ -145,7 +145,7 @@ def test_spawn_server_desync() -> dict:
         "+spawnServer", "quarry",
     ]
 
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         cmd,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -238,7 +238,7 @@ def test_inprocess_map_cycling() -> dict:
         "+spawnServer", "quarry",
     ]
 
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         cmd,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -357,7 +357,7 @@ def test_repeated_server_map_restart() -> dict:
         "+spawnServer", "quarry",
     ]
 
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         cmd,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -448,7 +448,7 @@ def test_malformed_input_fuzzing() -> dict:
             "+spawnServer", c["arg"],
             "+quit",
         ]
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        proc = h.spawn_engine(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         try:
             out, _ = proc.communicate(timeout=10.0)
             fatal = ("FATAL" in out) or ("SIGSEGV" in out) or ("Segmentation fault" in out)
@@ -504,7 +504,7 @@ def test_interrupted_loading_quick_quit() -> dict:
             "+set", "si_rules", "sdGameRulesObjective",
             "+spawnServer", "quarry",
         ]
-        proc = subprocess.Popen(
+        proc = h.spawn_engine(
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,

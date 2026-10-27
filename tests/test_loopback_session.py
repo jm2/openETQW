@@ -80,7 +80,7 @@ def run_loopback_test():
 
     # 1. Start Server
     print("[1] Spawning authoritative dedicated server...")
-    server_proc = subprocess.Popen(
+    server_proc = h.spawn_engine(
         SERVER_ARGS,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -120,7 +120,7 @@ def run_loopback_test():
     print("\n[2] Dedicated server active on Valley! Spawning client instance...")
 
     # 2. Start Client
-    client_proc = subprocess.Popen(
+    client_proc = h.spawn_engine(
         CLIENT_ARGS,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,

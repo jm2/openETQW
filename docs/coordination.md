@@ -329,10 +329,17 @@ without a desktop. On `macmini-m1`, add `--timeout-multiplier 3` to `meson test`
   ln -sfn $W/game $W/openETQW-game     # the engine's meson finds ../openETQW-game
   (cd $W/game && meson setup build -Duse_pch=false && ninja -C build)
   cd $W/engine && meson setup build -Duse_pch=false -Dplatform_backend=sdl3 \
+    -Dbuildtype=debugoptimized \
     -Dbuild_engine=true -Dbuild_dedicated=true -Dbuild_games=true -Dbuild_tests=true && ninja -C build
   ln -sfn ../../openETQW-game/build/game_x64.so build/game_x64.so
   ```
   Without the four `-Dbuild_*` options the engine configures, but no binaries are built.
+  `-Dbuildtype=debugoptimized` is not optional. Meson's default in this tree is
+  `buildtype=debug` (`optimization 0`), and a `-O0` client does about 2.5x the frame work of an
+  `-O2` one on the same GPU (9.2 ms against 3.9 ms `work_p50` on the RX 6400, #302). A pass/fail
+  from a `debug` tree is still valid; a frame-timing, GUI-rate or frame-pacing number from one is
+  not, and perf work must name the build directory it came from (`build/` on `antec` is `debug`;
+  `builddir-validate-pr` is `debugoptimized`).
   Remove the worktrees afterwards: `git worktree remove --force …`, then `git worktree prune`.
 - Full retail suite in that tree (66 tests, about 65 minutes on 2026-10-09):
   `SDL_VIDEO_DRIVER=offscreen ETQW_DATA_PATH=$HOME/etqw_data TMPDIR=/var/tmp meson test -C build -j 1 --no-rebuild --logbase <name>`.
@@ -354,6 +361,10 @@ without a desktop. On `macmini-m1`, add `--timeout-multiplier 3` to `meson test`
   Without it the client stops with "SDL3: failed to initialize video subsystem: No available
   video device". The compositor doesn't survive a reboot, so check with `pgrep -a mutter`.
   Kill only your own: `kisakcod-linux` runs its own (`kisak-hl`).
+- **Comparing against retail 1.5.** Retail's `r_skipSpecular` takes effect only after a
+  `vid_restart`. Retail has no `r_skipPostProcess`; turn the post-process off with
+  `g_skipPostProcess 1`. A fresh retail profile auto-detected at low spec sets
+  `r_skipStuff 1`, `r_detailTexture 0` and `r_shaderQuality 2`; reset them before comparing.
 - **`client-lifecycle` needs a working audio output.** "Missing SDL3 audio initialization
   message (… Could not connect PulseAudio stream)" means the host's default PipeWire sink
   failed. After the 2026-10-20 reboot, PipeWire logged RAOP-sink errors. It passed on rerun.
@@ -493,6 +504,83 @@ SDL_VIDEO_DRIVER=offscreen ETQW_DATA_PATH=~/etqw_data meson test -C build <name>
   Upload the sheets as JPEG with `gh release upload screenshots-prNNN <files>`, or use
   `gh release create screenshots-prNNN --prerelease ...` if no platform has made the
   release yet. `gh` can't attach images to a comment.
+
+**Notes from the 2026-10-23 to 10-25 sessions, by platform.** Renderer internals are in
+`docs/render-path.md`; retail-comparison methods are in `docs/retail-comparison.md`.
+
+- **All platforms:**
+  - **Concurrent fetches:** `git fetch <url> <ref>` overwrites `FETCH_HEAD`, and a review
+    agent reading `FETCH_HEAD` can see another fetch's head. Fetch into a named ref
+    (`pull/N/head:refs/remotes/review/prN`) and delete it after.
+  - **Worktrees:** the merge procedure can't check out a branch that another worktree holds.
+    Detach that worktree first.
+  - **Merging right after a push:** `gh pr merge` can report "not mergeable" or UNSTABLE;
+    wait about 5 s and retry.
+  - **Probes:** commit the real change before adding probes. `git checkout -- <file>`, used to
+    drop a probe, also drops uncommitted work. Rebuild after reverting a probe, and revert
+    every probe before `openetqw_validate.py pr`, which needs a clean tree.
+  - **Build type:** `openetqw_validate.py pr` reconfigures the build directory it's given to
+    `debugoptimized`, while dev builds default to `debug`. Compare captures from the same
+    build type: animated frames, the menu globe for one, differ by about 2.8 mean otherwise.
+  - **Shaders and binaries:** Vulkan shaders (`base/vkprogs`) compile at run time from the
+    client's working tree. An old binary run from a checkout with new shaders mixes the two,
+    so run each build from its own worktree.
+  - **Failed shader compiles:** a shader that fails to compile logs "Vulkan shader
+    compilation failed for '<file>'", its pipelines are left NULL, and the pass silently
+    falls back. After any shader edit, grep the client log for "compilation failed" and for
+    "falling back to OpenGL".
+    - "Vulkan ray tracing unavailable: r_rayTracing is disabled (falling back to
+      rasterization)" is benign.
+    - About 1,500 "failed to parse decl 'trivial*'" warnings per long session are the
+      baseline.
+    - GLSL reserves `flat`; a local of that name broke a shader this way.
+  - **Bash-tool traps:** long or quote-heavy heredocs can be cut off or fail with
+    "unexpected EOF". `\\` in a heredoc arrives as `\`, and `sed` turns `\n` in a
+    replacement into a newline. Write edit scripts to a file instead.
+- **Windows** (both architectures):
+  - **PowerShell:** aliases win over functions (a function named `Measure` runs
+    Measure-Object), and variable names are case-insensitive. Inline PowerShell with
+    patterns such as `'/','_'` can trip the harness's system-path guard; run a script file.
+  - **Line endings:** the worktrees are CRLF (`core.autocrlf true`). Git Bash's `sed -i`
+    rewrites a file as LF; restore the endings, or edit with the Edit tool.
+  - **Validate** through `build-windows.ps1 -NoDeps -Validate`; calling
+    `openetqw_validate.py` directly lacks the pkg-config/zlib environment. Remove
+    `builddir-validate-pr` first.
+  - **Redacting logs before upload:** match `[A-Za-z]:[\\/]+Users[\\/]+<name>`
+    case-insensitively, then grep for leaks.
+  - **Sharing the host:** kisakcod holds rolling 15-minute heavy-GPU claims, so a capture can
+    wait 10–60 minutes. Run claim-waiting scripts in the background, without polling. Run
+    builds and captures at BelowNormal priority
+    (`(Get-Process -Id $PID).PriorityClass='BelowNormal'`), one client at a time, under a
+    light claim.
+- **Windows arm64 (Adreno X1-85):**
+  - **`maxSets` isn't enforced:** a 96-set pool allocated 110. A descriptor pool can't be
+    shrunk to test its exhaustion paths, which is why the front-end pool also has a
+    software cap (#261).
+  - **No SPIR-V validator:** the log says "structural validation only", so read the glslang
+    output in the client log.
+- **macOS:**
+  - **Synthetic input:** keys or mouse can't be injected into the SDL window without granting
+    Accessibility, a system setting, so don't. Test menu behaviour through console cvars and
+    the saved `etqwconfig.cfg`, and leave real typing to the owner.
+  - **`ui_name`** is CVAR_ARCHIVE|CVAR_PROFILE. The "Profile: Player" label is the offline
+    SDNet user, which is separate.
+  - **Scratch files:** macOS can purge the per-session temp scratch folder mid-session. A
+    Python venv there lost Pillow's files; recreate it.
+  - **Rebuilds:** an incremental `meson compile` in a validate build directory regenerates
+    `build.ninja`, so it needs `OPENETQW_GAME_REPO` set.
+  - **ProMotion displays** present at 120 Hz, so a cap of 240 draws about 120 fps, with
+    8.3 ms intervals. Measure against the rate actually achieved (#245).
+- **Linux:**
+  - **Wayland compositor for OpenGL:** OpenGL captures need one; `SDL_VIDEO_DRIVER=offscreen`
+    is for Vulkan only. Start a private one with
+    `nohup dbus-run-session -- mutter --headless --wayland --no-x11 --wayland-display=<name> --virtual-monitor 1920x1080 &`.
+  - **Stopping it:** `$!` is then dbus-run-session's PID, not mutter's. Find mutter's PID,
+    check that its arguments start with `mutter --headless` and name your display, and kill
+    that PID. Never kill mutter by name or with a `pkill -f` pattern: that has stopped
+    another project's compositor, and matched the calling shell.
+  - **Game-module probes:** `fileSystem->WriteFile` writes nothing from the game module;
+    `common->Printf` works.
 
 **After merging `main` into a branch** (the manifest conflicts often): take `main`'s
 `docs/provenance-manifest.json`, commit the merge, then regenerate on the committed merge
@@ -691,7 +779,12 @@ harness shells don't keep it between calls.
    git -C <wt> checkout --theirs docs/provenance-manifest.json && git -C <wt> add docs/provenance-manifest.json   # only on that conflict
    git -C <wt> commit --no-edit                                                                                   # only after a conflict
    ```
-3. Regenerate the manifest on the committed merge, with the game at the merged pin:
+3. **Only if the PR adds, deletes or renames a tracked file, or moves the game pin**,
+   regenerate the manifest on the committed merge, with the game at the merged pin.
+   Content-only changes leave hashes stale until the next batch refresh (below); the
+   check in this step's last command reads only missing entries, so stale hashes don't
+   fail it.
+
    ```sh
    git -C <G> -c core.autocrlf=false worktree add --detach <gwt> "$(git -C <wt> show HEAD:tools/ci/companion.ref)"
    python3 <wt>/tools/build/provenance_post_split.py --game-repo <gwt> --update
@@ -712,7 +805,18 @@ harness shells don't keep it between calls.
    `gh pr merge <N> -R jm2/openETQW --merge --match-head-commit "$(git -C <wt> rev-parse HEAD)"`.
 6. Delete the merged branch (`gh api -X DELETE repos/jm2/openETQW/git/refs/heads/<branch>`)
    and both worktrees (`git -C <E> worktree remove <wt>` and `git -C <G> worktree remove <gwt>`).
-   Update `docs/queue.md`, and tell the sessions whose PRs now need `main` merged in.
+   GitHub also deletes merged branches automatically (owner, 2026-10-27). Tell the sessions
+   whose PRs now need `main` merged in.
+
+**Batched records (owner, 2026-10-27).** The coordinator doesn't open a docs PR per merge.
+At most once a day, or after every four merged code PRs, whichever is later, it opens one
+docs PR that updates `docs/queue.md` (§0 rows, §2, §5), refreshes the manifest with
+`--update`, and fixes any stale doc lines it has noted. Coordinator log comments on #133
+stay short: what merged, what is next.
+
+**Branches.** A PR closed as superseded has its branch deleted when it is closed. A branch
+with unmerged work and no open PR gets a draft PR and an issue, or is deleted with a note
+on its issue; no branch is left without one or the other.
 
 ## 9. Owner process decisions
 
@@ -746,3 +850,9 @@ The coordinator rows below now point to §2.
 | 2026-10-15 | Owner, in the `openETQW-win` session, on subagents: "yes but no more than four at once per session, and the rule only applies to DeepSeek/Xiaomi endpoints for now. Other models should stick to one main agent as much as possible except for when a no-context review/validation pass is required." This replaces the 2026-09-30 subagent-review row and the 2026-10-03 "one agent per session/machine" row (§7). |
 | 2026-10-24 | Owner, in the `openETQW-linux` session, accepted the `seat-poses-listen` contention handling (#162, #196): a phase that ran while the host was contended is re-run once. If the re-run also fails, the test fails (exit 1) with a distinct "host contended" message; it never passes or skips (exit 77) on contention. The bounds are unchanged. |
 | 2026-10-24 | Owner, in the `openETQW-linux` session: "burn down all open issues and in-progress PRs across all sessions". #141 (mouse sub-pixel motion) is no longer deferred. An issue that a short re-check on current `main` shows is gone may be closed, with the evidence (what was run, where, the result) posted on it. |
+| 2026-10-26 | Owner, in the `openETQW-linux` session: "we're not gonna use beads outside of gascity, so the docs should be updated." No beads outside gascity: no new `bd` records and no `.beads` writes in the openETQW repositories. Every defect or bug found is filed as a GitHub issue in the repository it belongs to, after searching the open issues for a duplicate. One issue per defect, carrying the symptom, the exact steps to reproduce it and the environment (host, OS, commit, data set), the mechanism with `file:line`, the scope, and a done-test a reviewer can run; host measurements go in the issue, not in a private ledger. Existing beads stay where they are; nothing is migrated. Asked to confirm the intake rule, the owner replied: "All defects/bugs found should be issues." |
+| 2026-10-27 | Owner, in the `openETQW-linux` session, on #302's residual frame-work question: "RADV is the standard, usage of AMDVLK is waning; I don't need the second driver on linux to verify right now. If we really need to verify this later, I'll use a machine with an nvidia or Intel card." No AMDVLK (second-driver) arm is to be run or proposed; any later re-verification of that residual uses a host with an NVIDIA or Intel GPU. Recorded in `docs/queue.md` §2 as guidance with the same date; this row is the decision of record. |
+| 2026-10-27 | Owner, in the owner's own (Antigravity) session reviewing the fleet: the 2026-10-25 park is over, and "frankly I'd like major bugs fixed before even gate work". Every session works `docs/queue.md` §0, the code queue: bugs first, then the approved features, then gate and evidence work (the combined run, screenshot sets, M7 rows). Progress means merged code with its test (`AGENTS.md` § What counts as progress). |
+| 2026-10-27 | Owner, same session: scope is bug fixes plus small and medium features. #246's per-instance distance cull is no longer deferred (draft #314), and distant-tree imposters are #315. #306: port the ray-query lighting path to Linux (and macOS where the driver has it) behind a runtime capability check, rather than ledgering a platform limit. This replaces the 2026-10-25 "no long/large feature efforts" line for these items; large features (bots playing objectives, the headless render world, the hull-lead defaults) stay owner-gated. |
+| 2026-10-27 | Owner, same session, #294: keep `Waiting on BotThread` as a failure marker, but count it only when the match also fails a gameplay check. |
+| 2026-10-27 | Owner, same session, on the docs overhead: code PRs don't edit `docs/queue.md` or the manifest; the coordinator batches queue, §5 and manifest refreshes (§8, Batched records); docs-only PRs are at most one per four merged code PRs. Branches of merged or superseded PRs are deleted (GitHub auto-delete is on), and a branch with unmerged work always has a draft PR and an issue. |

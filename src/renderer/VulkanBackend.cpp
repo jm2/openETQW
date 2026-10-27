@@ -106,7 +106,7 @@ const int VULKAN_FRONTEND_TEXTURES = 6;
 
 // Off by default: where the layer is installed it costs most of the frame rate
 // (56 against ~370 fps uncapped on an RX 6400), and players do not need it.
-// campaign-client-maps and client-network-* turn it on.
+// campaign-client-maps turns it on; every other test leaves it off.
 idCVar r_vkValidation(
 	"r_vkValidation",
 	"0",
@@ -126,6 +126,13 @@ idCVar r_vkSkipGui(
 	"0",
 	CVAR_RENDERER | CVAR_BOOL,
 	"skip Vulkan GUI draws for renderer diagnostics"
+);
+
+idCVar r_vkGlowDebug(
+	"r_vkGlowDebug",
+	"0",
+	CVAR_RENDERER | CVAR_BOOL,
+	"draw the scene's alpha, the postprocess glow's source weight, in place of the glow"
 );
 
 idCVar r_vkPrepareAhead(
@@ -255,6 +262,7 @@ struct sdVulkanMaterialDescriptor {
 	const void*				imageOwners[ VULKAN_MATERIAL_TEXTURES ];
 	VkImageView				imageViews[ VULKAN_MATERIAL_TEXTURES ];
 	VkDescriptorSet			descriptorSet;
+	unsigned int			lastUsedFrame;	// frameSerial when last returned
 };
 
 struct sdVulkanFrontEndDescriptor {
@@ -263,7 +271,12 @@ struct sdVulkanFrontEndDescriptor {
 	const void*				imageOwners[ VULKAN_FRONTEND_TEXTURES ];
 	VkImageView				imageViews[ VULKAN_FRONTEND_TEXTURES ];
 	VkDescriptorSet			descriptorSet;
+	unsigned int			lastUsedFrame;	// frameSerial when last returned
 };
+
+// The front-end sets (6 samplers each) have their own pool, so the cube-ambient
+// pass's sets, one per stage and cube, cannot exhaust the material pool (#258).
+const int VULKAN_FRONTEND_DESCRIPTOR_SETS = 4096;
 
 const char* VkResultName( VkResult result ) {
 	switch ( result ) {
@@ -275,6 +288,8 @@ const char* VkResultName( VkResult result ) {
 		case VK_INCOMPLETE: return "VK_INCOMPLETE";
 		case VK_ERROR_OUT_OF_HOST_MEMORY: return "VK_ERROR_OUT_OF_HOST_MEMORY";
 		case VK_ERROR_OUT_OF_DEVICE_MEMORY: return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
+		case VK_ERROR_OUT_OF_POOL_MEMORY: return "VK_ERROR_OUT_OF_POOL_MEMORY";
+		case VK_ERROR_FRAGMENTED_POOL: return "VK_ERROR_FRAGMENTED_POOL";
 		case VK_ERROR_INITIALIZATION_FAILED: return "VK_ERROR_INITIALIZATION_FAILED";
 		case VK_ERROR_DEVICE_LOST: return "VK_ERROR_DEVICE_LOST";
 		case VK_ERROR_MEMORY_MAP_FAILED: return "VK_ERROR_MEMORY_MAP_FAILED";
@@ -638,7 +653,19 @@ struct sdVulkanBackendState {
 	sdVulkanResourceLookup		bufferResourceLookup;
 	idList< sdVulkanMaterialDescriptor > materialDescriptors;
 	idHashIndex				materialDescriptorHash;
+	// sets of material descriptors whose image went away, freed to guiDescriptorPool
+	// with that frame's retired images (#262)
+	idList< VkDescriptorSet > frameRetiredMaterialSets[ NUM_VULKAN_FRAMES ];
+	bool					materialPoolExhaustedWarned;
 	idList< sdVulkanFrontEndDescriptor > frontEndDescriptors;
+	idHashIndex				frontEndDescriptorHash;	// by owner
+	VkDescriptorPool			frontEndDescriptorPool;
+	// sets of front-end descriptors whose image went away, freed with that frame's
+	// retired images
+	idList< VkDescriptorSet > frameRetiredFrontEndSets[ NUM_VULKAN_FRAMES ];
+	unsigned int				frameSerial;	// counts frames, for evicting unused sets
+	int					frontEndDescriptorSetsLive;	// allocated from frontEndDescriptorPool, not yet freed
+	bool					frontEndPoolExhaustedWarned;
 	// Resources removed while a frame is being recorded must remain alive until
 	// that command buffer has been submitted and completed.  ETQW retires vertex
 	// cache blocks in idRenderSystemLocal::EndFrame before the Vulkan backend
@@ -663,6 +690,15 @@ struct sdVulkanBackendState {
 	VkPipeline				guiAddPipeline;
 	VkPipeline				guiAlphaAddPipeline;
 	VkPipeline				guiMultiplyPipeline;
+	// guis/postprocess's postprocess/glow (glow.frag, #233): retail's
+	// _postProcessBuffer_0 and _1 at a quarter of the screen, a descriptor set per
+	// pass (downsample, two blurs, the glow), and the atmosphere of the last view
+	sdVulkanImageResource	glowBuffers[ 2 ];
+	bool					glowBufferInitialized[ 2 ];
+	VkDescriptorSet			glowDescriptorSets[ 4 ];
+	VkPipeline				glowBufferPipeline;
+	VkPipeline				glowScreenPipeline;
+	const sdDeclAtmosphere*	glowAtmosphere;
 	VkPipeline				worldPipeline;
 	VkPipeline				worldDepthPipeline;
 	VkPipeline				worldAlphaPipeline;
@@ -714,6 +750,10 @@ struct sdVulkanBackendState {
 	VkPipeline				worldAmbientCubeSkinnedPipeline;
 	VkPipeline				worldAmbientCubeAddPipeline;
 	VkPipeline				worldAmbientCubeAddSkinnedPipeline;
+	// #265: an amblit surface's ambient x minSpecShadowColor where the sun's stencil
+	// says shadow (ambient_cube.frag's mode 2)
+	VkPipeline				worldAmbientShadowPipeline;
+	VkPipeline				worldAmbientShadowSkinnedPipeline;
 	// set while the light block's snapshot of the opaque base is in _currentRender
 	bool					sceneAlbedoCopied;
 	VkPipeline				worldLightAmbientPipeline;
@@ -914,6 +954,11 @@ struct sdVulkanBackendState {
 		guiPipelineLayout = VK_NULL_HANDLE;
 		frontEndDescriptorSetLayout = VK_NULL_HANDLE;
 		frontEndPipelineLayout = VK_NULL_HANDLE;
+		frontEndDescriptorPool = VK_NULL_HANDLE;
+		frameSerial = 0;
+		frontEndDescriptorSetsLive = 0;
+		frontEndPoolExhaustedWarned = false;
+		materialPoolExhaustedWarned = false;
 		megaDetailPipeline = false;
 		worldFrontEndPipeline = VK_NULL_HANDLE;
 		worldFrontEndAlphaPipeline = VK_NULL_HANDLE;
@@ -923,6 +968,12 @@ struct sdVulkanBackendState {
 		guiAddPipeline = VK_NULL_HANDLE;
 		guiAlphaAddPipeline = VK_NULL_HANDLE;
 		guiMultiplyPipeline = VK_NULL_HANDLE;
+		memset( glowBuffers, 0, sizeof( glowBuffers ) );
+		memset( glowBufferInitialized, 0, sizeof( glowBufferInitialized ) );
+		memset( glowDescriptorSets, 0, sizeof( glowDescriptorSets ) );
+		glowBufferPipeline = VK_NULL_HANDLE;
+		glowScreenPipeline = VK_NULL_HANDLE;
+		glowAtmosphere = NULL;
 		worldPipeline = VK_NULL_HANDLE;
 		worldDepthPipeline = VK_NULL_HANDLE;
 		worldAlphaPipeline = VK_NULL_HANDLE;
@@ -968,6 +1019,8 @@ struct sdVulkanBackendState {
 		worldAmbientCubeSkinnedPipeline = VK_NULL_HANDLE;
 		worldAmbientCubeAddPipeline = VK_NULL_HANDLE;
 		worldAmbientCubeAddSkinnedPipeline = VK_NULL_HANDLE;
+		worldAmbientShadowPipeline = VK_NULL_HANDLE;
+		worldAmbientShadowSkinnedPipeline = VK_NULL_HANDLE;
 		sceneAlbedoCopied = false;
 		worldLightAmbientPipeline = VK_NULL_HANDLE;
 		pushConstantFloats = 32;
@@ -1124,13 +1177,15 @@ void EncodeModelRotation( const float modelMatrix[ 16 ], float& encodedXY,
 
 // Retail's foliage programs colour each vertex by its colour attribute whatever the
 // stage's vertexColor (foliage_vertex.inc: MOV result.color, $colorAttrib); the tree
-// models carry their leaves' green there (#246).
+// models carry their leaves' green there (#246).  stuff/grass reads it the same way:
+// its rgb is the instance tint, and under Vulkan its alpha the fade (#256).
 bool VulkanStageUsesVertexColor( const materialStage_t* stage ) {
 	if ( stage == NULL ) {
 		return false;
 	}
 	return stage->vertexColor == SVC_MODULATE || ( stage->renderProgram != NULL &&
-		idStr::Icmpn( stage->renderProgram->GetName(), "interaction/foliage", 19 ) == 0 );
+		( idStr::Icmpn( stage->renderProgram->GetName(), "interaction/foliage", 19 ) == 0 ||
+		  idStr::Icmpn( stage->renderProgram->GetName(), "stuff/grass", 11 ) == 0 ) );
 }
 
 void ReportMissingVulkanMaterial( sdVulkanBackendState& state,
@@ -1870,8 +1925,26 @@ void DestroyCurrentRenderResource( sdVulkanBackendState& state,
 	memset( &resource, 0, sizeof( resource ) );
 }
 
+// The glow buffers and their descriptor sets follow the swapchain's size; the
+// sets also name _currentRender's view, so they go whenever it does.
+void DestroyGlowBuffers( sdVulkanBackendState& state ) {
+	for ( int i = 0; i < 4; ++i ) {
+		if ( state.glowDescriptorSets[ i ] != VK_NULL_HANDLE && state.device != VK_NULL_HANDLE &&
+			state.guiDescriptorPool != VK_NULL_HANDLE ) {
+			state.FreeDescriptorSets( state.device, state.guiDescriptorPool, 1,
+				&state.glowDescriptorSets[ i ] );
+		}
+		state.glowDescriptorSets[ i ] = VK_NULL_HANDLE;
+	}
+	for ( int i = 0; i < 2; ++i ) {
+		DestroyCurrentRenderResource( state, state.glowBuffers[ i ] );
+		state.glowBufferInitialized[ i ] = false;
+	}
+}
+
 bool CreateCurrentRenderResource( sdVulkanBackendState& state,
-	VkFormat format, VkExtent2D extent, sdVulkanImageResource& resource ) {
+	VkFormat format, VkExtent2D extent, sdVulkanImageResource& resource,
+	VkImageUsageFlags usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT ) {
 	memset( &resource, 0, sizeof( resource ) );
 	resource.width = static_cast< int >( extent.width );
 	resource.height = static_cast< int >( extent.height );
@@ -1889,8 +1962,7 @@ bool CreateCurrentRenderResource( sdVulkanBackendState& state,
 	imageInfo.arrayLayers = 1;
 	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
 	imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-	imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-		VK_IMAGE_USAGE_SAMPLED_BIT;
+	imageInfo.usage = usage | VK_IMAGE_USAGE_SAMPLED_BIT;
 	imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	if ( !CheckVulkanResult( state.CreateImage( state.device, &imageInfo,
@@ -1983,7 +2055,11 @@ void DestroyDepthResources( sdVulkanBackendState& state ) {
 void DestroySemaphoreList( sdVulkanBackendState& state,
 	idList< VkSemaphore >& semaphores );
 
+void PurgeCurrentRenderDescriptors( sdVulkanBackendState& state );
+
 void DestroySwapchain( sdVulkanBackendState& state ) {
+	DestroyGlowBuffers( state );
+	PurgeCurrentRenderDescriptors( state );
 	DestroyCurrentRenderResource( state, state.currentRenderResource );
 	state.currentRenderInitialized = false;
 	state.swapchainTransferSource = false;
@@ -2309,6 +2385,8 @@ bool CreateSwapchain( sdVulkanBackendState& state, int requestedWidth,
 		return false;
 	}
 
+	DestroyGlowBuffers( state );
+	PurgeCurrentRenderDescriptors( state );
 	DestroyCurrentRenderResource( state, state.currentRenderResource );
 	DestroyDepthResources( state );
 	DestroySemaphoreList( state, state.presentSemaphores );
@@ -2822,8 +2900,153 @@ void DestroyRetiredResources( sdVulkanBackendState& state ) {
 	state.retiredToolDepthResources.Clear();
 }
 
+int FrontEndDescriptorKey( const sdVulkanBackendState& state, const void* owner ) {
+	return sdVulkanPointerHash::Hash( state.frontEndDescriptorHash, owner );
+}
+
+// Removes a front-end descriptor from the cache (the last one takes its index);
+// the caller frees or retires its set.
+void RemoveFrontEndDescriptor( sdVulkanBackendState& state, int index ) {
+	const int lastIndex = state.frontEndDescriptors.Num() - 1;
+	state.frontEndDescriptorHash.Remove(
+		FrontEndDescriptorKey( state, state.frontEndDescriptors[ index ].owner ), index );
+	if ( index != lastIndex ) {
+		state.frontEndDescriptorHash.Remove(
+			FrontEndDescriptorKey( state, state.frontEndDescriptors[ lastIndex ].owner ), lastIndex );
+	}
+	state.frontEndDescriptors.RemoveIndexFast( index );
+	if ( index != lastIndex ) {
+		state.frontEndDescriptorHash.Add(
+			FrontEndDescriptorKey( state, state.frontEndDescriptors[ index ].owner ), index );
+	}
+}
+
+void FreeFrontEndDescriptorSets( sdVulkanBackendState& state, idList< VkDescriptorSet >& sets ) {
+	if ( sets.Num() > 0 && state.frontEndDescriptorPool != VK_NULL_HANDLE ) {
+		state.FreeDescriptorSets( state.device, state.frontEndDescriptorPool,
+			static_cast< uint32_t >( sets.Num() ), &sets[ 0 ] );
+		state.frontEndDescriptorSetsLive -= sets.Num();
+	}
+	sets.Clear();
+}
+
+// Frees the sets no frame has used for longer than the frames in flight, so no
+// command buffer can still reference them.  Returns how many it freed.
+int EvictUnusedFrontEndDescriptors( sdVulkanBackendState& state ) {
+	idList< VkDescriptorSet > unused;
+	for ( int index = state.frontEndDescriptors.Num() - 1; index >= 0; --index ) {
+		const sdVulkanFrontEndDescriptor& descriptor = state.frontEndDescriptors[ index ];
+		if ( state.frameSerial - descriptor.lastUsedFrame > static_cast< unsigned int >( NUM_VULKAN_FRAMES ) ) {
+			unused.Append( descriptor.descriptorSet );
+			RemoveFrontEndDescriptor( state, index );
+		}
+	}
+	const int evicted = unused.Num();
+	FreeFrontEndDescriptorSets( state, unused );
+	return evicted;
+}
+
+int MaterialDescriptorKey( const sdVulkanBackendState& state, const void* owner ) {
+	return sdVulkanPointerHash::Hash( state.materialDescriptorHash, owner );
+}
+
+// Removes a material descriptor from the cache (the last one takes its index);
+// the caller frees or retires its set.
+void RemoveMaterialDescriptor( sdVulkanBackendState& state, int index ) {
+	const int lastIndex = state.materialDescriptors.Num() - 1;
+	state.materialDescriptorHash.Remove(
+		MaterialDescriptorKey( state, state.materialDescriptors[ index ].owner ), index );
+	if ( index != lastIndex ) {
+		state.materialDescriptorHash.Remove(
+			MaterialDescriptorKey( state, state.materialDescriptors[ lastIndex ].owner ), lastIndex );
+	}
+	state.materialDescriptors.RemoveIndexFast( index );
+	if ( index != lastIndex ) {
+		state.materialDescriptorHash.Add(
+			MaterialDescriptorKey( state, state.materialDescriptors[ index ].owner ), index );
+	}
+}
+
+void FreeMaterialDescriptorSets( sdVulkanBackendState& state, idList< VkDescriptorSet >& sets ) {
+	if ( sets.Num() > 0 && state.guiDescriptorPool != VK_NULL_HANDLE ) {
+		state.FreeDescriptorSets( state.device, state.guiDescriptorPool,
+			static_cast< uint32_t >( sets.Num() ), &sets[ 0 ] );
+	}
+	sets.Clear();
+}
+
+// As EvictUnusedFrontEndDescriptors, for the material cache.
+int EvictUnusedMaterialDescriptors( sdVulkanBackendState& state ) {
+	idList< VkDescriptorSet > unused;
+	for ( int index = state.materialDescriptors.Num() - 1; index >= 0; --index ) {
+		const sdVulkanMaterialDescriptor& descriptor = state.materialDescriptors[ index ];
+		if ( state.frameSerial - descriptor.lastUsedFrame > static_cast< unsigned int >( NUM_VULKAN_FRAMES ) ) {
+			unused.Append( descriptor.descriptorSet );
+			RemoveMaterialDescriptor( state, index );
+		}
+	}
+	const int evicted = unused.Num();
+	FreeMaterialDescriptorSets( state, unused );
+	return evicted;
+}
+
+// Allocates a material-layout set from guiDescriptorPool.  When the pool is full,
+// the material sets no recent frame used are freed and the allocation is tried
+// once more; a failure after that warns once.
+bool AllocateMaterialDescriptorSet( sdVulkanBackendState& state, VkDescriptorSet& descriptorSet,
+	const char* what ) {
+	VkDescriptorSetAllocateInfo allocateInfo;
+	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
+	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocateInfo.descriptorPool = state.guiDescriptorPool;
+	allocateInfo.descriptorSetCount = 1;
+	allocateInfo.pSetLayouts = &state.guiDescriptorSetLayout;
+	VkResult result = state.AllocateDescriptorSets( state.device, &allocateInfo, &descriptorSet );
+	if ( ( result == VK_ERROR_OUT_OF_POOL_MEMORY || result == VK_ERROR_FRAGMENTED_POOL ) &&
+		EvictUnusedMaterialDescriptors( state ) > 0 ) {
+		result = state.AllocateDescriptorSets( state.device, &allocateInfo, &descriptorSet );
+	}
+	if ( result != VK_SUCCESS ) {
+		if ( !state.materialPoolExhaustedWarned ) {
+			common->Warning( "vkAllocateDescriptorSets(%s) failed: %s (%d material sets cached); "
+				"draws needing a new set are skipped until sets are freed (warned once)",
+				what, VkResultName( result ), state.materialDescriptors.Num() );
+			state.materialPoolExhaustedWarned = true;
+		}
+		descriptorSet = VK_NULL_HANDLE;
+		return false;
+	}
+	state.materialPoolExhaustedWarned = false;	// warn once per exhaustion
+	return true;
+}
+
+// The water, heat-haze and scene-albedo sets sample the current-render copy,
+// cached under its fixed address (&state.currentRenderResource).  When the copy is
+// recreated with the swapchain, its new view can reuse the old handle's value, so
+// the cache would return a set holding the destroyed view: drop those entries and
+// free their sets once the frame that may use them has completed.
+void PurgeCurrentRenderDescriptors( sdVulkanBackendState& state ) {
+	const void* owner = &state.currentRenderResource;
+	const unsigned int retireFrame = state.frameActive || state.toolFrameActive ? state.frameIndex :
+		( state.frameIndex + NUM_VULKAN_FRAMES - 1 ) % NUM_VULKAN_FRAMES;
+	for ( int index = state.materialDescriptors.Num() - 1; index >= 0; --index ) {
+		const sdVulkanMaterialDescriptor& descriptor = state.materialDescriptors[ index ];
+		for ( int imageIndex = 0; imageIndex < VULKAN_MATERIAL_TEXTURES; ++imageIndex ) {
+			if ( descriptor.imageOwners[ imageIndex ] == owner ||
+				( state.currentRenderResource.view != VK_NULL_HANDLE &&
+				  descriptor.imageViews[ imageIndex ] == state.currentRenderResource.view ) ) {
+				state.frameRetiredMaterialSets[ retireFrame ].Append( descriptor.descriptorSet );
+				RemoveMaterialDescriptor( state, index );
+				break;
+			}
+		}
+	}
+}
+
 void DestroyFrameRetiredResources( sdVulkanBackendState& state,
 	unsigned int frameIndex ) {
+	FreeFrontEndDescriptorSets( state, state.frameRetiredFrontEndSets[ frameIndex ] );
+	FreeMaterialDescriptorSets( state, state.frameRetiredMaterialSets[ frameIndex ] );
 	for ( int i = 0; i < state.frameRetiredImageResources[ frameIndex ].Num(); ++i ) {
 		DestroyImageResource( state,
 			state.frameRetiredImageResources[ frameIndex ][ i ] );
@@ -3387,7 +3610,21 @@ bool CompileVulkanShaderModule( sdVulkanBackendState& state,
 void DestroyGuiResources( sdVulkanBackendState& state ) {
 	state.materialDescriptors.Clear();
 	state.materialDescriptorHash.Clear();
+	for ( int frameIndex = 0; frameIndex < NUM_VULKAN_FRAMES; ++frameIndex ) {
+		state.frameRetiredMaterialSets[ frameIndex ].Clear();	// freed with the pool
+	}
+	state.materialPoolExhaustedWarned = false;
 	state.frontEndDescriptors.Clear();
+	state.frontEndDescriptorHash.Clear();
+	for ( int frameIndex = 0; frameIndex < NUM_VULKAN_FRAMES; ++frameIndex ) {
+		state.frameRetiredFrontEndSets[ frameIndex ].Clear();	// freed with the pool
+	}
+	if ( state.frontEndDescriptorPool != VK_NULL_HANDLE ) {
+		state.DestroyDescriptorPool( state.device, state.frontEndDescriptorPool, NULL );
+		state.frontEndDescriptorPool = VK_NULL_HANDLE;
+	}
+	state.frontEndDescriptorSetsLive = 0;
+	state.frontEndPoolExhaustedWarned = false;
 	VkPipeline* frontEndPipelines[] = {
 		&state.worldFrontEndPipeline,
 		&state.worldFrontEndAlphaPipeline,
@@ -3519,6 +3756,15 @@ void DestroyGuiResources( sdVulkanBackendState& state ) {
 		state.DestroyPipeline( state.device, state.guiOpaquePipeline, NULL );
 		state.guiOpaquePipeline = VK_NULL_HANDLE;
 	}
+	DestroyGlowBuffers( state );
+	if ( state.glowBufferPipeline != VK_NULL_HANDLE ) {
+		state.DestroyPipeline( state.device, state.glowBufferPipeline, NULL );
+		state.glowBufferPipeline = VK_NULL_HANDLE;
+	}
+	if ( state.glowScreenPipeline != VK_NULL_HANDLE ) {
+		state.DestroyPipeline( state.device, state.glowScreenPipeline, NULL );
+		state.glowScreenPipeline = VK_NULL_HANDLE;
+	}
 	if ( state.skyPipeline != VK_NULL_HANDLE ) {
 		state.DestroyPipeline( state.device, state.skyPipeline, NULL );
 		state.skyPipeline = VK_NULL_HANDLE;
@@ -3619,6 +3865,14 @@ void DestroyGuiResources( sdVulkanBackendState& state ) {
 		state.DestroyPipeline( state.device, state.worldAmbientCubeAddSkinnedPipeline, NULL );
 		state.worldAmbientCubeAddSkinnedPipeline = VK_NULL_HANDLE;
 	}
+	if ( state.worldAmbientShadowPipeline != VK_NULL_HANDLE ) {
+		state.DestroyPipeline( state.device, state.worldAmbientShadowPipeline, NULL );
+		state.worldAmbientShadowPipeline = VK_NULL_HANDLE;
+	}
+	if ( state.worldAmbientShadowSkinnedPipeline != VK_NULL_HANDLE ) {
+		state.DestroyPipeline( state.device, state.worldAmbientShadowSkinnedPipeline, NULL );
+		state.worldAmbientShadowSkinnedPipeline = VK_NULL_HANDLE;
+	}
 	if ( state.worldLightAmbientPipeline != VK_NULL_HANDLE ) {
 		state.DestroyPipeline( state.device, state.worldLightAmbientPipeline, NULL );
 		state.worldLightAmbientPipeline = VK_NULL_HANDLE;
@@ -3681,6 +3935,23 @@ bool CreateWorldPipelineVariant( sdVulkanBackendState& state,
 	shaderStages[ 1 ].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
 	shaderStages[ 1 ].module = fragmentModule;
 	shaderStages[ 1 ].pName = "main";
+	// The framebuffer's alpha is the postprocess glow's source weight (#233), so it
+	// follows retail's OpenGL.  An opaque surface's lit replace pass writes 0 there
+	// (megatexture/notlit_lit and the interaction ambients: MOV result.color.a, 0),
+	// while an alpha-tested one leaves the clear's 1: constant 0 (OPAQUE_BASE) tells
+	// the base pass's shader it is that replace.
+	const VkBool32 opaqueBase = depthWrite && colorWrite &&
+		sourceBlend == VK_BLEND_FACTOR_ONE && destinationBlend == VK_BLEND_FACTOR_ZERO;
+	VkSpecializationMapEntry specializationEntry;
+	specializationEntry.constantID = 0;
+	specializationEntry.offset = 0;
+	specializationEntry.size = sizeof( opaqueBase );
+	VkSpecializationInfo specializationInfo;
+	specializationInfo.mapEntryCount = 1;
+	specializationInfo.pMapEntries = &specializationEntry;
+	specializationInfo.dataSize = sizeof( opaqueBase );
+	specializationInfo.pData = &opaqueBase;
+	shaderStages[ 1 ].pSpecializationInfo = &specializationInfo;
 
 	VkVertexInputBindingDescription vertexBindings[ 2 ];
 	vertexBindings[ 0 ].binding = 0;
@@ -3786,8 +4057,12 @@ bool CreateWorldPipelineVariant( sdVulkanBackendState& state,
 		blendAttachment.srcColorBlendFactor = sourceBlend;
 		blendAttachment.dstColorBlendFactor = destinationBlend;
 		blendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
-		blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-		blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+		// glBlendFunc's factors apply to alpha too.  A blended pass that writes
+		// depth is the MegaTexture's levels, whose alpha is the level weight; retail
+		// draws the terrain in one notlit_lit replace that writes alpha 0.
+		const bool levelBlend = depthWrite;
+		blendAttachment.srcAlphaBlendFactor = levelBlend ? VK_BLEND_FACTOR_ZERO : sourceBlend;
+		blendAttachment.dstAlphaBlendFactor = levelBlend ? VK_BLEND_FACTOR_ZERO : destinationBlend;
 		blendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
 	}
 	VkPipelineColorBlendStateCreateInfo blendState;
@@ -4406,13 +4681,18 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 	depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 	depthStencil.stencilTestEnable = VK_TRUE;
 
+	// lit where the light's shadow count is at most 0: the stencil is cleared to
+	// 128 and the volumes count around it, so 128 >= stencil, as OpenGL's
+	// glStencilFunc( GL_GEQUAL, 128, 255 ).  Testing for exactly 0 shadowed every
+	// pixel whose count went below 0 (a front face without its cap), which wraps
+	// to 255: valley's distant buildings lost the sun (#267).
 	depthStencil.front.failOp = VK_STENCIL_OP_KEEP;
 	depthStencil.front.passOp = VK_STENCIL_OP_KEEP;
 	depthStencil.front.depthFailOp = VK_STENCIL_OP_KEEP;
-	depthStencil.front.compareOp = VK_COMPARE_OP_EQUAL;
+	depthStencil.front.compareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
 	depthStencil.front.compareMask = 0xFF;
 	depthStencil.front.writeMask = 0x00;
-	depthStencil.front.reference = 0;
+	depthStencil.front.reference = 128;
 
 	depthStencil.back = depthStencil.front;
 
@@ -4442,6 +4722,9 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 		const VkPipelineDepthStencilStateCreateInfo interactionDepthStencil = depthStencil;
 		shaderStages[ 1 ].module = fogModule;
 		blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+		// atmospherelinear blends alpha as colour (glBlendFunc), which the glow reads
+		blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+		blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
 		// fog a pixel once: pass on stencil 0 (cleared before the fog) and mark it
 		depthStencil.stencilTestEnable = VK_TRUE;
 		depthStencil.front.compareOp = VK_COMPARE_OP_EQUAL;
@@ -4458,6 +4741,8 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 		}
 		shaderStages[ 1 ].module = interactionModule;
 		blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+		blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+		blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
 		depthStencil = interactionDepthStencil;
 	};
 	VkShaderModule ambientCubeModule = VK_NULL_HANDLE;
@@ -4465,7 +4750,8 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 	// called while the unshadowed (no stencil test) state is set up; multiply:
 	// dst * src (the ambient rescale), else dst + src (the specular and the
 	// self-illumination).  The front-end layout: its set carries the specular cube.
-	auto CreateAmbientCubePipeline = [&]( VkPipeline& ambientPipeline, bool multiply, const char* what ) {
+	auto CreateAmbientCubePipeline = [&]( VkPipeline& ambientPipeline, bool multiply, const char* what,
+		bool shadowScale = false ) {
 		if ( !ambientCubeShader || state.frontEndPipelineLayout == VK_NULL_HANDLE ) {
 			return;
 		}
@@ -4487,6 +4773,17 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 			depthStencil.front.failOp = VK_STENCIL_OP_KEEP;
 			depthStencil.front.depthFailOp = VK_STENCIL_OP_KEEP;
 			depthStencil.front.passOp = VK_STENCIL_OP_INCREMENT_AND_CLAMP;
+			depthStencil.back = depthStencil.front;
+		}
+		if ( shadowScale ) {
+			// the same blend, only where the sun's shadow volumes left a count above
+			// zero: the per-light stencil counts around 128 (#267), so 128 < stencil,
+			// as OpenGL's GL_LESS 128 multiply (#265)
+			depthStencil.front.compareOp = VK_COMPARE_OP_LESS;
+			depthStencil.front.reference = 128;
+			depthStencil.front.compareMask = 0xFF;
+			depthStencil.front.writeMask = 0x00;
+			depthStencil.front.passOp = VK_STENCIL_OP_KEEP;
 			depthStencil.back = depthStencil.front;
 		}
 		if ( !CheckVulkanResult( state.CreateGraphicsPipelines( state.device, VK_NULL_HANDLE, 1,
@@ -4523,6 +4820,8 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 			"vkCreateGraphicsPipelines(worldAmbientCube)" );
 		CreateAmbientCubePipeline( state.worldAmbientCubeAddPipeline, false,
 			"vkCreateGraphicsPipelines(worldAmbientCubeAdd)" );
+		CreateAmbientCubePipeline( state.worldAmbientShadowPipeline, true,
+			"vkCreateGraphicsPipelines(worldAmbientShadow)", true );
 		// GPU-skinned variants: skinned vertex shader, plus the vertWeight_t stream
 		VkShaderModule skinnedModule = VK_NULL_HANDLE;
 		if ( created && CompileVulkanShaderModule( state, "vkprogs/world/skinned_interaction.vert",
@@ -4557,6 +4856,8 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 				"vkCreateGraphicsPipelines(worldAmbientCubeSkinned)" );
 			CreateAmbientCubePipeline( state.worldAmbientCubeAddSkinnedPipeline, false,
 				"vkCreateGraphicsPipelines(worldAmbientCubeAddSkinned)" );
+			CreateAmbientCubePipeline( state.worldAmbientShadowSkinnedPipeline, true,
+				"vkCreateGraphicsPipelines(worldAmbientShadowSkinned)", true );
 			depthStencil.stencilTestEnable = VK_TRUE;
 			created = created && CheckVulkanResult( state.CreateGraphicsPipelines(
 				state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
@@ -4757,6 +5058,116 @@ bool CreateToolPipelines( sdVulkanBackendState& state ) {
 				VK_COMPARE_OP_LESS_OR_EQUAL, true, VK_POLYGON_MODE_LINE ) ) );
 }
 
+// postprocess/glow's passes (glow.frag, #233): one pipeline for the quarter-size
+// buffers, one for the screen.  No vertex input: glow.vert covers the target with
+// one triangle.  Missing pipelines leave the glow undrawn, as before.
+void CreateGlowPipelines( sdVulkanBackendState& state ) {
+	VkShaderModule vertexModule = VK_NULL_HANDLE;
+	VkShaderModule fragmentModule = VK_NULL_HANDLE;
+	if ( !CompileVulkanShaderModule( state, "vkprogs/gui/glow.vert",
+		SPIRV_SHADER_STAGE_VERTEX, vertexModule ) ||
+		!CompileVulkanShaderModule( state, "vkprogs/gui/glow.frag",
+			SPIRV_SHADER_STAGE_FRAGMENT, fragmentModule ) ) {
+		if ( vertexModule != VK_NULL_HANDLE ) {
+			state.DestroyShaderModule( state.device, vertexModule, NULL );
+		}
+		if ( fragmentModule != VK_NULL_HANDLE ) {
+			state.DestroyShaderModule( state.device, fragmentModule, NULL );
+		}
+		common->Warning( "Vulkan: the postprocess glow shaders failed; the glow is not drawn" );
+		return;
+	}
+	VkPipelineShaderStageCreateInfo shaderStages[ 2 ];
+	memset( shaderStages, 0, sizeof( shaderStages ) );
+	shaderStages[ 0 ].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[ 0 ].stage = VK_SHADER_STAGE_VERTEX_BIT;
+	shaderStages[ 0 ].module = vertexModule;
+	shaderStages[ 0 ].pName = "main";
+	shaderStages[ 1 ].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStages[ 1 ].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	shaderStages[ 1 ].module = fragmentModule;
+	shaderStages[ 1 ].pName = "main";
+	VkPipelineVertexInputStateCreateInfo vertexInput;
+	memset( &vertexInput, 0, sizeof( vertexInput ) );
+	vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+	VkPipelineInputAssemblyStateCreateInfo inputAssembly;
+	memset( &inputAssembly, 0, sizeof( inputAssembly ) );
+	inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+	inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	VkPipelineViewportStateCreateInfo viewportState;
+	memset( &viewportState, 0, sizeof( viewportState ) );
+	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewportState.viewportCount = 1;
+	viewportState.scissorCount = 1;
+	VkPipelineRasterizationStateCreateInfo rasterization;
+	memset( &rasterization, 0, sizeof( rasterization ) );
+	rasterization.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+	rasterization.polygonMode = VK_POLYGON_MODE_FILL;
+	rasterization.cullMode = VK_CULL_MODE_NONE;
+	rasterization.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	rasterization.lineWidth = 1.0f;
+	VkPipelineMultisampleStateCreateInfo multisample;
+	memset( &multisample, 0, sizeof( multisample ) );
+	multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+	multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+	VkPipelineColorBlendAttachmentState blendAttachment;
+	memset( &blendAttachment, 0, sizeof( blendAttachment ) );
+	blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT |
+		VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT |
+		VK_COLOR_COMPONENT_A_BIT;
+	VkPipelineColorBlendStateCreateInfo blendState;
+	memset( &blendState, 0, sizeof( blendState ) );
+	blendState.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+	blendState.attachmentCount = 1;
+	blendState.pAttachments = &blendAttachment;
+	VkPipelineDepthStencilStateCreateInfo depthStencil;
+	memset( &depthStencil, 0, sizeof( depthStencil ) );
+	depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+	const VkDynamicState dynamicStates[] = { VK_DYNAMIC_STATE_VIEWPORT,
+		VK_DYNAMIC_STATE_SCISSOR };
+	VkPipelineDynamicStateCreateInfo dynamicState;
+	memset( &dynamicState, 0, sizeof( dynamicState ) );
+	dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+	dynamicState.dynamicStateCount = 2;
+	dynamicState.pDynamicStates = dynamicStates;
+	const VkFormat bufferFormat = VK_FORMAT_R8G8B8A8_UNORM;
+	VkPipelineRenderingCreateInfo renderingInfo;
+	memset( &renderingInfo, 0, sizeof( renderingInfo ) );
+	renderingInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+	renderingInfo.colorAttachmentCount = 1;
+	renderingInfo.pColorAttachmentFormats = &bufferFormat;
+	VkGraphicsPipelineCreateInfo pipelineInfo;
+	memset( &pipelineInfo, 0, sizeof( pipelineInfo ) );
+	pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+	pipelineInfo.pNext = &renderingInfo;
+	pipelineInfo.stageCount = 2;
+	pipelineInfo.pStages = shaderStages;
+	pipelineInfo.pVertexInputState = &vertexInput;
+	pipelineInfo.pInputAssemblyState = &inputAssembly;
+	pipelineInfo.pViewportState = &viewportState;
+	pipelineInfo.pRasterizationState = &rasterization;
+	pipelineInfo.pMultisampleState = &multisample;
+	pipelineInfo.pColorBlendState = &blendState;
+	pipelineInfo.pDepthStencilState = &depthStencil;
+	pipelineInfo.pDynamicState = &dynamicState;
+	pipelineInfo.layout = state.guiPipelineLayout;
+	CheckVulkanResult( state.CreateGraphicsPipelines( state.device, VK_NULL_HANDLE, 1,
+		&pipelineInfo, NULL, &state.glowBufferPipeline ), "vkCreateGraphicsPipelines(glow buffer)" );
+	// the screen pass runs inside the swapchain rendering, so it names the depth
+	// and stencil formats too; it writes colour only, as the HUD draws over it
+	renderingInfo.pColorAttachmentFormats = &state.swapchainFormat;
+	const VkFormat depthFormat = state.depthStencilFormat != VK_FORMAT_UNDEFINED ?
+		state.depthStencilFormat : VK_FORMAT_D32_SFLOAT_S8_UINT;
+	renderingInfo.depthAttachmentFormat = depthFormat;
+	renderingInfo.stencilAttachmentFormat = depthFormat;
+	blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT |
+		VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT;
+	CheckVulkanResult( state.CreateGraphicsPipelines( state.device, VK_NULL_HANDLE, 1,
+		&pipelineInfo, NULL, &state.glowScreenPipeline ), "vkCreateGraphicsPipelines(glow screen)" );
+	state.DestroyShaderModule( state.device, vertexModule, NULL );
+	state.DestroyShaderModule( state.device, fragmentModule, NULL );
+}
+
 bool CreateGuiResources( sdVulkanBackendState& state ) {
 	VkDescriptorSetLayoutBinding samplerBindings[ VULKAN_MATERIAL_TEXTURES ];
 	memset( samplerBindings, 0, sizeof( samplerBindings ) );
@@ -4866,6 +5277,16 @@ bool CreateGuiResources( sdVulkanBackendState& state ) {
 		CheckVulkanResult( state.CreatePipelineLayout( state.device,
 			&frontEndLayoutInfo, NULL, &state.frontEndPipelineLayout ),
 			"vkCreatePipelineLayout(front end)" );
+		VkDescriptorPoolSize frontEndPoolSize;
+		frontEndPoolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		frontEndPoolSize.descriptorCount = VULKAN_FRONTEND_DESCRIPTOR_SETS * VULKAN_FRONTEND_TEXTURES;
+		VkDescriptorPoolCreateInfo frontEndPoolInfo = poolInfo;
+		frontEndPoolInfo.maxSets = VULKAN_FRONTEND_DESCRIPTOR_SETS;
+		frontEndPoolInfo.poolSizeCount = 1;
+		frontEndPoolInfo.pPoolSizes = &frontEndPoolSize;
+		CheckVulkanResult( state.CreateDescriptorPool( state.device,
+			&frontEndPoolInfo, NULL, &state.frontEndDescriptorPool ),
+			"vkCreateDescriptorPool(front end)" );
 	}
 
 	VkShaderModule vertexModule = VK_NULL_HANDLE;
@@ -5036,6 +5457,7 @@ bool CreateGuiResources( sdVulkanBackendState& state ) {
 		DestroyGuiResources( state );
 		return false;
 	}
+	CreateGlowPipelines( state );
 	state.guiPipelineFormat = state.swapchainFormat;
 	return true;
 }
@@ -5045,15 +5467,8 @@ const sdVulkanImageResource* FindVulkanImageResource(
 
 bool AllocateImageDescriptor( sdVulkanBackendState& state,
 	sdVulkanImageResource& resource ) {
-	VkDescriptorSetAllocateInfo allocateInfo;
-	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
-	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocateInfo.descriptorPool = state.guiDescriptorPool;
-	allocateInfo.descriptorSetCount = 1;
-	allocateInfo.pSetLayouts = &state.guiDescriptorSetLayout;
-	if ( !CheckVulkanResult( state.AllocateDescriptorSets( state.device,
-		&allocateInfo, &resource.descriptorSet ),
-		"vkAllocateDescriptorSets(image)" ) ) {
+	// through the material allocator, so a full pool evicts unused material sets
+	if ( !AllocateMaterialDescriptorSet( state, resource.descriptorSet, "image" ) ) {
 		return false;
 	}
 	VkDescriptorImageInfo imageInfo;
@@ -5475,9 +5890,11 @@ bool GetVulkanFrontEndLayoutDescriptor( sdVulkanBackendState& state, const void*
 			return false;
 		}
 	}
-	for ( int descriptorIndex = 0; descriptorIndex < state.frontEndDescriptors.Num();
-		++descriptorIndex ) {
-		const sdVulkanFrontEndDescriptor& cached = state.frontEndDescriptors[ descriptorIndex ];
+	const int descriptorHashKey = FrontEndDescriptorKey( state, owner );
+	for ( int descriptorIndex = state.frontEndDescriptorHash.GetFirst( descriptorHashKey );
+		descriptorIndex != -1;
+		descriptorIndex = state.frontEndDescriptorHash.GetNext( descriptorIndex ) ) {
+		sdVulkanFrontEndDescriptor& cached = state.frontEndDescriptors[ descriptorIndex ];
 		if ( cached.owner != owner ) {
 			continue;
 		}
@@ -5490,22 +5907,46 @@ bool GetVulkanFrontEndLayoutDescriptor( sdVulkanBackendState& state, const void*
 			}
 		}
 		if ( matches ) {
+			cached.lastUsedFrame = state.frameSerial;
 			descriptorSet = cached.descriptorSet;
 			return true;
 		}
 	}
+	if ( state.frontEndDescriptorPool == VK_NULL_HANDLE ) {
+		return false;
+	}
 	sdVulkanFrontEndDescriptor frontEndDescriptor;
 	memset( &frontEndDescriptor, 0, sizeof( frontEndDescriptor ) );
 	frontEndDescriptor.owner = owner;
+	frontEndDescriptor.lastUsedFrame = state.frameSerial;
 	VkDescriptorSetAllocateInfo allocateInfo;
 	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
 	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocateInfo.descriptorPool = state.guiDescriptorPool;
+	allocateInfo.descriptorPool = state.frontEndDescriptorPool;
 	allocateInfo.descriptorSetCount = 1;
 	allocateInfo.pSetLayouts = &state.frontEndDescriptorSetLayout;
-	if ( !CheckVulkanResult( state.AllocateDescriptorSets( state.device,
-		&allocateInfo, &frontEndDescriptor.descriptorSet ),
-		"vkAllocateDescriptorSets(front end)" ) ) {
+	// A full pool (a long session over many maps): drop the sets no recent frame
+	// used and try once more.  The pool's size is kept in software as well, since
+	// a driver may let allocations run past maxSets.
+	const bool full = state.frontEndDescriptorSetsLive >= VULKAN_FRONTEND_DESCRIPTOR_SETS;
+	VkResult result = full ? VK_ERROR_OUT_OF_POOL_MEMORY :
+		state.AllocateDescriptorSets( state.device, &allocateInfo, &frontEndDescriptor.descriptorSet );
+	if ( ( result == VK_ERROR_OUT_OF_POOL_MEMORY || result == VK_ERROR_FRAGMENTED_POOL ) &&
+		EvictUnusedFrontEndDescriptors( state ) > 0 &&
+		state.frontEndDescriptorSetsLive < VULKAN_FRONTEND_DESCRIPTOR_SETS ) {
+		result = state.AllocateDescriptorSets( state.device,
+			&allocateInfo, &frontEndDescriptor.descriptorSet );
+	}
+	if ( result == VK_SUCCESS ) {
+		state.frontEndDescriptorSetsLive++;
+		state.frontEndPoolExhaustedWarned = false;	// warn once per exhaustion
+	} else {
+		if ( !state.frontEndPoolExhaustedWarned ) {
+			common->Warning( "vkAllocateDescriptorSets(front end) failed: %s (%d sets in use); "
+				"draws needing a new set are skipped until sets are freed (warned once)",
+				VkResultName( result ), state.frontEndDescriptorSetsLive );
+			state.frontEndPoolExhaustedWarned = true;
+		}
 		return false;
 	}
 	VkDescriptorImageInfo imageInfos[ VULKAN_FRONTEND_TEXTURES ];
@@ -5527,7 +5968,8 @@ bool GetVulkanFrontEndLayoutDescriptor( sdVulkanBackendState& state, const void*
 	}
 	state.UpdateDescriptorSets( state.device, VULKAN_FRONTEND_TEXTURES,
 		writes, 0, NULL );
-	state.frontEndDescriptors.Append( frontEndDescriptor );
+	state.frontEndDescriptorHash.Add( descriptorHashKey,
+		state.frontEndDescriptors.Append( frontEndDescriptor ) );
 	descriptorSet = frontEndDescriptor.descriptorSet;
 	return true;
 }
@@ -5610,7 +6052,7 @@ bool GetVulkanMaterialDescriptor( sdVulkanBackendState& state,
 		if ( descriptorIndex < 0 || descriptorIndex >= state.materialDescriptors.Num() ) {
 			continue;
 		}
-		const sdVulkanMaterialDescriptor& cached =
+		sdVulkanMaterialDescriptor& cached =
 			state.materialDescriptors[ descriptorIndex ];
 		if ( cached.owner != &stage ) {
 			continue;
@@ -5625,6 +6067,7 @@ bool GetVulkanMaterialDescriptor( sdVulkanBackendState& state,
 			}
 		}
 		if ( matches ) {
+			cached.lastUsedFrame = state.frameSerial;
 			descriptorSet = cached.descriptorSet;
 			return true;
 		}
@@ -5632,15 +6075,8 @@ bool GetVulkanMaterialDescriptor( sdVulkanBackendState& state,
 	sdVulkanMaterialDescriptor materialDescriptor;
 	memset( &materialDescriptor, 0, sizeof( materialDescriptor ) );
 	materialDescriptor.owner = &stage;
-	VkDescriptorSetAllocateInfo allocateInfo;
-	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
-	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocateInfo.descriptorPool = state.guiDescriptorPool;
-	allocateInfo.descriptorSetCount = 1;
-	allocateInfo.pSetLayouts = &state.guiDescriptorSetLayout;
-	if ( !CheckVulkanResult( state.AllocateDescriptorSets( state.device,
-		&allocateInfo, &materialDescriptor.descriptorSet ),
-		"vkAllocateDescriptorSets(material)" ) ) {
+	materialDescriptor.lastUsedFrame = state.frameSerial;
+	if ( !AllocateMaterialDescriptorSet( state, materialDescriptor.descriptorSet, "material" ) ) {
 		return false;
 	}
 	VkDescriptorImageInfo imageInfos[ VULKAN_MATERIAL_TEXTURES ];
@@ -5933,7 +6369,7 @@ bool GetVulkanSkyboxDescriptor( sdVulkanBackendState& state,
 		if ( descriptorIndex < 0 || descriptorIndex >= state.materialDescriptors.Num() ) {
 			continue;
 		}
-		const sdVulkanMaterialDescriptor& cached =
+		sdVulkanMaterialDescriptor& cached =
 			state.materialDescriptors[ descriptorIndex ];
 		if ( cached.owner != &stage ) {
 			continue;
@@ -5948,6 +6384,7 @@ bool GetVulkanSkyboxDescriptor( sdVulkanBackendState& state,
 			}
 		}
 		if ( matches ) {
+			cached.lastUsedFrame = state.frameSerial;
 			descriptorSet = cached.descriptorSet;
 			return true;
 		}
@@ -5955,15 +6392,8 @@ bool GetVulkanSkyboxDescriptor( sdVulkanBackendState& state,
 	sdVulkanMaterialDescriptor skyboxDescriptor;
 	memset( &skyboxDescriptor, 0, sizeof( skyboxDescriptor ) );
 	skyboxDescriptor.owner = &stage;
-	VkDescriptorSetAllocateInfo allocateInfo;
-	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
-	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocateInfo.descriptorPool = state.guiDescriptorPool;
-	allocateInfo.descriptorSetCount = 1;
-	allocateInfo.pSetLayouts = &state.guiDescriptorSetLayout;
-	if ( !CheckVulkanResult( state.AllocateDescriptorSets( state.device,
-		&allocateInfo, &skyboxDescriptor.descriptorSet ),
-		"vkAllocateDescriptorSets(skybox)" ) ) {
+	skyboxDescriptor.lastUsedFrame = state.frameSerial;
+	if ( !AllocateMaterialDescriptorSet( state, skyboxDescriptor.descriptorSet, "skybox" ) ) {
 		return false;
 	}
 	VkDescriptorImageInfo imageInfos[ VULKAN_MATERIAL_TEXTURES ];
@@ -6064,7 +6494,7 @@ bool GetVulkanWaterDescriptor( sdVulkanBackendState& state,
 		if ( descriptorIndex < 0 || descriptorIndex >= state.materialDescriptors.Num() ) {
 			continue;
 		}
-		const sdVulkanMaterialDescriptor& cached =
+		sdVulkanMaterialDescriptor& cached =
 			state.materialDescriptors[ descriptorIndex ];
 		if ( cached.owner != &stage ) {
 			continue;
@@ -6079,6 +6509,7 @@ bool GetVulkanWaterDescriptor( sdVulkanBackendState& state,
 			}
 		}
 		if ( matches ) {
+			cached.lastUsedFrame = state.frameSerial;
 			descriptorSet = cached.descriptorSet;
 			return true;
 		}
@@ -6086,15 +6517,8 @@ bool GetVulkanWaterDescriptor( sdVulkanBackendState& state,
 	sdVulkanMaterialDescriptor waterDescriptor;
 	memset( &waterDescriptor, 0, sizeof( waterDescriptor ) );
 	waterDescriptor.owner = &stage;
-	VkDescriptorSetAllocateInfo allocateInfo;
-	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
-	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocateInfo.descriptorPool = state.guiDescriptorPool;
-	allocateInfo.descriptorSetCount = 1;
-	allocateInfo.pSetLayouts = &state.guiDescriptorSetLayout;
-	if ( !CheckVulkanResult( state.AllocateDescriptorSets( state.device,
-		&allocateInfo, &waterDescriptor.descriptorSet ),
-		"vkAllocateDescriptorSets(water)" ) ) {
+	waterDescriptor.lastUsedFrame = state.frameSerial;
+	if ( !AllocateMaterialDescriptorSet( state, waterDescriptor.descriptorSet, "water" ) ) {
 		return false;
 	}
 	VkDescriptorImageInfo imageInfos[ VULKAN_MATERIAL_TEXTURES ];
@@ -6176,7 +6600,7 @@ bool GetVulkanHeatHazeDescriptor( sdVulkanBackendState& state,
 		if ( descriptorIndex < 0 || descriptorIndex >= state.materialDescriptors.Num() ) {
 			continue;
 		}
-		const sdVulkanMaterialDescriptor& cached =
+		sdVulkanMaterialDescriptor& cached =
 			state.materialDescriptors[ descriptorIndex ];
 		if ( cached.owner != &stage ) {
 			continue;
@@ -6191,6 +6615,7 @@ bool GetVulkanHeatHazeDescriptor( sdVulkanBackendState& state,
 			}
 		}
 		if ( matches ) {
+			cached.lastUsedFrame = state.frameSerial;
 			descriptorSet = cached.descriptorSet;
 			return true;
 		}
@@ -6199,15 +6624,8 @@ bool GetVulkanHeatHazeDescriptor( sdVulkanBackendState& state,
 	sdVulkanMaterialDescriptor heatDescriptor;
 	memset( &heatDescriptor, 0, sizeof( heatDescriptor ) );
 	heatDescriptor.owner = &stage;
-	VkDescriptorSetAllocateInfo allocateInfo;
-	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
-	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocateInfo.descriptorPool = state.guiDescriptorPool;
-	allocateInfo.descriptorSetCount = 1;
-	allocateInfo.pSetLayouts = &state.guiDescriptorSetLayout;
-	if ( !CheckVulkanResult( state.AllocateDescriptorSets( state.device,
-		&allocateInfo, &heatDescriptor.descriptorSet ),
-		"vkAllocateDescriptorSets(heat haze)" ) ) {
+	heatDescriptor.lastUsedFrame = state.frameSerial;
+	if ( !AllocateMaterialDescriptorSet( state, heatDescriptor.descriptorSet, "heat haze" ) ) {
 		return false;
 	}
 	VkDescriptorImageInfo imageInfos[ VULKAN_MATERIAL_TEXTURES ];
@@ -6293,7 +6711,7 @@ bool GetVulkanSceneAlbedoDescriptor( sdVulkanBackendState& state,
 		if ( descriptorIndex < 0 || descriptorIndex >= state.materialDescriptors.Num() ) {
 			continue;
 		}
-		const sdVulkanMaterialDescriptor& cached = state.materialDescriptors[ descriptorIndex ];
+		sdVulkanMaterialDescriptor& cached = state.materialDescriptors[ descriptorIndex ];
 		if ( cached.owner != sceneAlbedoOwner ) {
 			continue;
 		}
@@ -6306,6 +6724,7 @@ bool GetVulkanSceneAlbedoDescriptor( sdVulkanBackendState& state,
 			}
 		}
 		if ( matches ) {
+			cached.lastUsedFrame = state.frameSerial;
 			descriptorSet = cached.descriptorSet;
 			return true;
 		}
@@ -6313,15 +6732,8 @@ bool GetVulkanSceneAlbedoDescriptor( sdVulkanBackendState& state,
 	sdVulkanMaterialDescriptor albedoDescriptor;
 	memset( &albedoDescriptor, 0, sizeof( albedoDescriptor ) );
 	albedoDescriptor.owner = sceneAlbedoOwner;
-	VkDescriptorSetAllocateInfo allocateInfo;
-	memset( &allocateInfo, 0, sizeof( allocateInfo ) );
-	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocateInfo.descriptorPool = state.guiDescriptorPool;
-	allocateInfo.descriptorSetCount = 1;
-	allocateInfo.pSetLayouts = &state.guiDescriptorSetLayout;
-	if ( !CheckVulkanResult( state.AllocateDescriptorSets( state.device,
-		&allocateInfo, &albedoDescriptor.descriptorSet ),
-		"vkAllocateDescriptorSets(scene albedo)" ) ) {
+	albedoDescriptor.lastUsedFrame = state.frameSerial;
+	if ( !AllocateMaterialDescriptorSet( state, albedoDescriptor.descriptorSet, "scene albedo" ) ) {
 		return false;
 	}
 	VkDescriptorImageInfo imageInfos[ VULKAN_MATERIAL_TEXTURES ];
@@ -6346,6 +6758,42 @@ bool GetVulkanSceneAlbedoDescriptor( sdVulkanBackendState& state,
 	state.materialDescriptorHash.Add( descriptorHashKey, albedoDescriptorIndex );
 	descriptorSet = albedoDescriptor.descriptorSet;
 	return true;
+}
+
+// Restarts the frame's rendering on the swapchain image, keeping its colour,
+// depth and stencil (after a copy or an offscreen pass ended it).
+void BeginSwapchainRendering( sdVulkanBackendState& state, VkCommandBuffer commandBuffer ) {
+	VkRenderingAttachmentInfo colorAttachment;
+	memset( &colorAttachment, 0, sizeof( colorAttachment ) );
+	colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+	colorAttachment.imageView = state.swapchainViews[ state.imageIndex ];
+	colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	VkRenderingAttachmentInfo depthAttachment;
+	memset( &depthAttachment, 0, sizeof( depthAttachment ) );
+	depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+	depthAttachment.imageView = state.depthViews[ state.imageIndex ];
+	depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+	depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	VkRenderingAttachmentInfo stencilAttachment;
+	memset( &stencilAttachment, 0, sizeof( stencilAttachment ) );
+	stencilAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+	stencilAttachment.imageView = state.depthViews[ state.imageIndex ];
+	stencilAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	stencilAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+	stencilAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	VkRenderingInfo renderingInfo;
+	memset( &renderingInfo, 0, sizeof( renderingInfo ) );
+	renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+	renderingInfo.renderArea.extent = state.extent;
+	renderingInfo.layerCount = 1;
+	renderingInfo.colorAttachmentCount = 1;
+	renderingInfo.pColorAttachments = &colorAttachment;
+	renderingInfo.pDepthAttachment = &depthAttachment;
+	renderingInfo.pStencilAttachment = &stencilAttachment;
+	state.CmdBeginRendering( commandBuffer, &renderingInfo );
 }
 
 bool CopyCurrentRender( sdVulkanBackendState& state ) {
@@ -6455,39 +6903,161 @@ bool CopyCurrentRender( sdVulkanBackendState& state ) {
 	dependencyInfo.pMemoryBarriers = &depthBarrier;
 	state.CmdPipelineBarrier2( frame.commandBuffer, &dependencyInfo );
 
+	BeginSwapchainRendering( state, frame.commandBuffer );
+	state.currentRenderInitialized = true;
+	return true;
+}
+
+// _postProcessBuffer_0 and _1 at a quarter of the screen, as
+// RB_ARB2_SetupPostProcessingFrameBuffer sizes them, with a descriptor set per
+// glow pass: the downsample reads _currentRender, the blurs read one buffer each,
+// and the glow reads _currentRender and buffer 1.
+bool EnsureGlowBuffers( sdVulkanBackendState& state ) {
+	VkExtent2D size;
+	size.width = Max( 1u, state.extent.width >> 2 );
+	size.height = Max( 1u, state.extent.height >> 2 );
+	if ( state.glowDescriptorSets[ 3 ] != VK_NULL_HANDLE &&
+		state.glowBuffers[ 0 ].width == static_cast< int >( size.width ) &&
+		state.glowBuffers[ 0 ].height == static_cast< int >( size.height ) ) {
+		return true;
+	}
+	// the swapchain's recreation frees them, after the device is idle
+	DestroyGlowBuffers( state );
+	for ( int i = 0; i < 2; ++i ) {
+		if ( !CreateCurrentRenderResource( state, VK_FORMAT_R8G8B8A8_UNORM, size,
+			state.glowBuffers[ i ], VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT ) ) {
+			DestroyGlowBuffers( state );
+			return false;
+		}
+	}
+	// binding 1 (blurImage) is read by the glow only; the buffer passes bind
+	// _currentRender there, never the buffer they render to
+	const sdVulkanImageResource* sources[ 4 ][ 2 ] = {
+		{ &state.currentRenderResource, &state.currentRenderResource },
+		{ &state.glowBuffers[ 1 ], &state.currentRenderResource },
+		{ &state.glowBuffers[ 0 ], &state.currentRenderResource },
+		{ &state.currentRenderResource, &state.glowBuffers[ 1 ] }
+	};
+	for ( int setIndex = 0; setIndex < 4; ++setIndex ) {
+		VkDescriptorSetAllocateInfo allocateInfo;
+		memset( &allocateInfo, 0, sizeof( allocateInfo ) );
+		allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		allocateInfo.descriptorPool = state.guiDescriptorPool;
+		allocateInfo.descriptorSetCount = 1;
+		allocateInfo.pSetLayouts = &state.guiDescriptorSetLayout;
+		if ( !CheckVulkanResult( state.AllocateDescriptorSets( state.device,
+			&allocateInfo, &state.glowDescriptorSets[ setIndex ] ),
+			"vkAllocateDescriptorSets(glow)" ) ) {
+			state.glowDescriptorSets[ setIndex ] = VK_NULL_HANDLE;
+			DestroyGlowBuffers( state );
+			return false;
+		}
+		// glow.frag reads bindings 0 and 1 only
+		VkDescriptorImageInfo imageInfos[ 2 ];
+		VkWriteDescriptorSet writes[ 2 ];
+		memset( imageInfos, 0, sizeof( imageInfos ) );
+		memset( writes, 0, sizeof( writes ) );
+		for ( int binding = 0; binding < 2; ++binding ) {
+			imageInfos[ binding ].sampler = sources[ setIndex ][ binding ]->sampler;
+			imageInfos[ binding ].imageView = sources[ setIndex ][ binding ]->view;
+			imageInfos[ binding ].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			writes[ binding ].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			writes[ binding ].dstSet = state.glowDescriptorSets[ setIndex ];
+			writes[ binding ].dstBinding = binding;
+			writes[ binding ].descriptorCount = 1;
+			writes[ binding ].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			writes[ binding ].pImageInfo = &imageInfos[ binding ];
+		}
+		state.UpdateDescriptorSets( state.device, 2, writes, 0, NULL );
+	}
+	return true;
+}
+
+// One full-target triangle of glow.frag with these push constants.
+void DrawGlowTriangle( sdVulkanBackendState& state, VkCommandBuffer commandBuffer,
+	VkPipeline pipeline, VkDescriptorSet descriptorSet, uint32_t width, uint32_t height,
+	const float* pushConstants, int pushConstantFloats ) {
+	VkViewport viewport;
+	viewport.x = 0.0f;
+	viewport.y = 0.0f;
+	viewport.width = static_cast< float >( width );
+	viewport.height = static_cast< float >( height );
+	viewport.minDepth = 0.0f;
+	viewport.maxDepth = 1.0f;
+	state.CmdSetViewport( commandBuffer, 0, 1, &viewport );
+	VkRect2D scissor;
+	memset( &scissor, 0, sizeof( scissor ) );
+	scissor.extent.width = width;
+	scissor.extent.height = height;
+	state.CmdSetScissor( commandBuffer, 0, 1, &scissor );
+	state.CmdBindPipeline( commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
+	state.CmdBindDescriptorSets( commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		state.guiPipelineLayout, 0, 1, &descriptorSet, 0, NULL );
+	state.CmdPushConstants( commandBuffer, state.guiPipelineLayout,
+		VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+		sizeof( float ) * pushConstantFloats, pushConstants );
+	state.CmdDraw( commandBuffer, 3, 1, 0, 0 );
+}
+
+// A glow pass into one of the quarter-size buffers, which is then left for the
+// next pass to sample.
+void DrawGlowBufferPass( sdVulkanBackendState& state, VkCommandBuffer commandBuffer,
+	int target, VkDescriptorSet descriptorSet, const float* pushConstants,
+	int pushConstantFloats ) {
+	sdVulkanImageResource& buffer = state.glowBuffers[ target ];
+	VkImageMemoryBarrier2 barrier;
+	memset( &barrier, 0, sizeof( barrier ) );
+	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+	barrier.srcStageMask = state.glowBufferInitialized[ target ] ?
+		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_2_NONE;
+	barrier.srcAccessMask = state.glowBufferInitialized[ target ] ?
+		VK_ACCESS_2_SHADER_SAMPLED_READ_BIT : VK_ACCESS_2_NONE;
+	barrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+	barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+	barrier.oldLayout = state.glowBufferInitialized[ target ] ?
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED;
+	barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.image = buffer.image;
+	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	barrier.subresourceRange.levelCount = 1;
+	barrier.subresourceRange.layerCount = 1;
+	VkDependencyInfo dependencyInfo;
+	memset( &dependencyInfo, 0, sizeof( dependencyInfo ) );
+	dependencyInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+	dependencyInfo.imageMemoryBarrierCount = 1;
+	dependencyInfo.pImageMemoryBarriers = &barrier;
+	state.CmdPipelineBarrier2( commandBuffer, &dependencyInfo );
+
 	VkRenderingAttachmentInfo colorAttachment;
 	memset( &colorAttachment, 0, sizeof( colorAttachment ) );
 	colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-	colorAttachment.imageView = state.swapchainViews[ state.imageIndex ];
+	colorAttachment.imageView = buffer.view;
 	colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	VkRenderingAttachmentInfo depthAttachment;
-	memset( &depthAttachment, 0, sizeof( depthAttachment ) );
-	depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-	depthAttachment.imageView = state.depthViews[ state.imageIndex ];
-	depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-	depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-	depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	VkRenderingAttachmentInfo stencilAttachment;
-	memset( &stencilAttachment, 0, sizeof( stencilAttachment ) );
-	stencilAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-	stencilAttachment.imageView = state.depthViews[ state.imageIndex ];
-	stencilAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-	stencilAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-	stencilAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	VkRenderingInfo renderingInfo;
 	memset( &renderingInfo, 0, sizeof( renderingInfo ) );
 	renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-	renderingInfo.renderArea.extent = state.extent;
+	renderingInfo.renderArea.extent.width = buffer.width;
+	renderingInfo.renderArea.extent.height = buffer.height;
 	renderingInfo.layerCount = 1;
 	renderingInfo.colorAttachmentCount = 1;
 	renderingInfo.pColorAttachments = &colorAttachment;
-	renderingInfo.pDepthAttachment = &depthAttachment;
-	renderingInfo.pStencilAttachment = &stencilAttachment;
-	state.CmdBeginRendering( frame.commandBuffer, &renderingInfo );
-	state.currentRenderInitialized = true;
-	return true;
+	state.CmdBeginRendering( commandBuffer, &renderingInfo );
+	DrawGlowTriangle( state, commandBuffer, state.glowBufferPipeline, descriptorSet,
+		buffer.width, buffer.height, pushConstants, pushConstantFloats );
+	state.CmdEndRendering( commandBuffer );
+
+	barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+	barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+	barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+	barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+	barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	state.CmdPipelineBarrier2( commandBuffer, &dependencyInfo );
+	state.glowBufferInitialized[ target ] = true;
 }
 
 } // namespace
@@ -6867,6 +7437,7 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 	scissor.extent = state->extent;
 	state->CmdSetScissor( frame.commandBuffer, 0, 1, &scissor );
 	state->frameActive = true;
+	state->glowAtmosphere = NULL;
 	// uploads made since the last frame, ahead of this frame's draws
 	FlushPendingBufferUploadsIntoFrame( *state );
 	return true;
@@ -7149,6 +7720,7 @@ void sdVulkanBackend::EndFrame( bool ) {
 	}
 	state->frameActive = false;
 	state->frameIndex = ( state->frameIndex + 1 ) % NUM_VULKAN_FRAMES;
+	state->frameSerial++;
 
 	// r_vkPrepareAhead: the next frame's fence wait and command-pool reset happen now, before
 	// the next frame samples input and ClientUpdateView computes its fraction, not in BeginFrame
@@ -8149,6 +8721,7 @@ void sdVulkanBackend::EndToolWindow() {
 	state->toolRenderExtent.width = state->toolRenderExtent.height = 0;
 	state->toolImageOwner = NULL;
 	state->frameIndex = ( state->frameIndex + 1 ) % NUM_VULKAN_FRAMES;
+	state->frameSerial++;
 }
 
 bool sdVulkanBackend::IsToolWindowActive() const {
@@ -9432,12 +10005,16 @@ void sdVulkanBackend::DestroyImage( const void* owner ) {
 			// Composite material descriptors do not own their sampled images.  Once
 			// any constituent image is replaced, never return the old descriptor
 			// again: its VkImageView remains the destroyed view even if Vulkan later
-			// reuses the same numeric handle for the replacement.  Do not free the
-			// set here because it may already be referenced by this frame's command
-			// buffer; invalid entries are reclaimed with the descriptor pool.
-			for ( int descriptorIndex = 0;
-				descriptorIndex < state->materialDescriptors.Num(); ++descriptorIndex ) {
-				sdVulkanMaterialDescriptor& descriptor =
+			// reuses the same numeric handle for the replacement.  The set may already
+			// be referenced by this frame's command buffer, so it is freed once this
+			// frame has completed, with the image itself (#262); the entry leaves the
+			// cache now.
+			const unsigned int setRetireFrame = state->frameActive ||
+				state->toolFrameActive ? state->frameIndex :
+				( state->frameIndex + NUM_VULKAN_FRAMES - 1 ) % NUM_VULKAN_FRAMES;
+			for ( int descriptorIndex = state->materialDescriptors.Num() - 1;
+				descriptorIndex >= 0; --descriptorIndex ) {
+				const sdVulkanMaterialDescriptor& descriptor =
 					state->materialDescriptors[ descriptorIndex ];
 				bool usesRemovedImage = false;
 				for ( int imageIndex = 0; imageIndex < VULKAN_MATERIAL_TEXTURES;
@@ -9449,17 +10026,14 @@ void sdVulkanBackend::DestroyImage( const void* owner ) {
 					}
 				}
 				if ( usesRemovedImage ) {
-					descriptor.owner = NULL;
-					memset( descriptor.imageOwners, 0,
-						sizeof( descriptor.imageOwners ) );
-					memset( descriptor.imageViews, 0,
-						sizeof( descriptor.imageViews ) );
+					state->frameRetiredMaterialSets[ setRetireFrame ].Append( descriptor.descriptorSet );
+					RemoveMaterialDescriptor( *state, descriptorIndex );
 				}
 			}
-			// the same for the front-end ambient programs' sets
-			for ( int descriptorIndex = 0;
-				descriptorIndex < state->frontEndDescriptors.Num(); ++descriptorIndex ) {
-				sdVulkanFrontEndDescriptor& descriptor =
+			// the same for the front-end ambient programs' sets, in their own pool (#258)
+			for ( int descriptorIndex = state->frontEndDescriptors.Num() - 1;
+				descriptorIndex >= 0; --descriptorIndex ) {
+				const sdVulkanFrontEndDescriptor& descriptor =
 					state->frontEndDescriptors[ descriptorIndex ];
 				bool usesRemovedImage = false;
 				for ( int imageIndex = 0; imageIndex < VULKAN_FRONTEND_TEXTURES;
@@ -9471,11 +10045,8 @@ void sdVulkanBackend::DestroyImage( const void* owner ) {
 					}
 				}
 				if ( usesRemovedImage ) {
-					descriptor.owner = NULL;
-					memset( descriptor.imageOwners, 0,
-						sizeof( descriptor.imageOwners ) );
-					memset( descriptor.imageViews, 0,
-						sizeof( descriptor.imageViews ) );
+					state->frameRetiredFrontEndSets[ setRetireFrame ].Append( descriptor.descriptorSet );
+					RemoveFrontEndDescriptor( *state, descriptorIndex );
 				}
 			}
 			const int lastIndex = state->imageResources.Num() - 1;
@@ -9850,7 +10421,7 @@ struct vulkanExpandedSurface_t {
 // #233): fog[ 0..2 ] the fog colour, fog[ 3 ] and fog[ 4 ] fogDepths' z and w.
 void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* surface,
 	const viewLight_s* light, const viewDef_s* view, bool unshadowed, const float* fog,
-	const float* ambient ) {
+	const float* ambient, bool amblitShadowSplit ) {
 	// fog (fog.frag) and ambient (ambient_cube.frag) redraw the surface without a light
 	const bool lightPass = fog == NULL && ambient == NULL;
 	if ( surface == NULL || surface->geo == NULL || surface->space == NULL ||
@@ -9913,7 +10484,7 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	}
 
 	idScreenRect scissorRect = surface->scissorRect;
-	if ( lightPass ) {
+	if ( light != NULL ) {	// a light pass, or an amblit surface's shadow scale under it
 		scissorRect.Intersect( light->scissorRect );
 	}
 	int scissorWidth = Max( 0, scissorRect.x2 - scissorRect.x1 + 1 );
@@ -10034,10 +10605,13 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 			return;
 		}
 	} else if ( ambient != NULL ) {
-		const bool selfIllumAdd = ambient[ 2 ] > 0.5f;
+		const bool selfIllumAdd = ambient[ 2 ] > 0.5f && ambient[ 2 ] < 1.5f;
 		pipeline = hardwareSkinned ?
 			( selfIllumAdd ? state.worldAmbientCubeAddSkinnedPipeline : state.worldAmbientCubeSkinnedPipeline ) :
 			( selfIllumAdd ? state.worldAmbientCubeAddPipeline : state.worldAmbientCubePipeline );
+		if ( ambient[ 2 ] > 1.5f ) {
+			pipeline = hardwareSkinned ? state.worldAmbientShadowSkinnedPipeline : state.worldAmbientShadowPipeline;
+		}
 		if ( !litInteraction || pipeline == VK_NULL_HANDLE ) {
 			return;
 		}
@@ -10099,6 +10673,8 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 	EncodeModelRotation( surface->space->modelMatrix, pushConstants[ 23 ], pushConstants[ 27 ] );
 	bool notLitTerrain = false;
 	bool notLitShadowSplit = false;
+	bool amblitShadow = false;	// #265: an amblit surface's sun term, split as the terrain's
+	idVec3 amblitShadowColor( 1.0f, 1.0f, 1.0f );
 	idVec3 notLitShadowColor( 1.0f, 1.0f, 1.0f );
 	if ( litInteraction ) {
 		// interaction.vert/.frag: the light in the surface's model space, with
@@ -10119,7 +10695,11 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 			// multiplies it by the light colour; one factor here, its mean), and its
 			// foliage programs have none
 			float specularFactor = 1.0f;
-			if ( stage != NULL && stage->renderProgram != NULL &&
+			if ( view->renderWorld != NULL && !view->renderWorld->HasMap() ) {
+				// a GUI's world (the limbo and menu models) draws no interaction
+				// specular, as OpenGL since #251 (compat-ledger row 079)
+				specularFactor = 0.0f;
+			} else if ( stage != NULL && stage->renderProgram != NULL &&
 				idStr::Icmpn( stage->renderProgram->GetName(), "interaction/foliage", 19 ) == 0 ) {
 				specularFactor = 0.0f;
 			} else if ( stage != NULL && surface->materialRegisters != NULL ) {
@@ -10202,6 +10782,19 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		// Only the view's own sun: a second atmosphere light would add the term twice.
 		notLitTerrain = lightPass && megaTextureSurface && sceneAlbedoInteraction &&
 			light == view->atmosphereLight && r_megaDrawMethod.GetInteger() != 0;
+		// #265: an amblit surface (not terrain) under the shadowed sun.  Retail draws
+		// its sun term before the shadow volumes and then scales its shadowed pixels,
+		// sun included, by minSpecShadowColor; the light block has already scaled the
+		// ambient there, so the sun term goes in as minSpecShadowColor x sun
+		// everywhere, then the rest where unshadowed.
+		amblitShadow = lightPass && amblitShadowSplit && !unshadowed && !megaTextureSurface &&
+			light->lightDef != NULL && ( hardwareSkinned ? state.worldInteractionSkinnedUnshadowedPipeline :
+				state.worldInteractionUnshadowedPipeline ) != VK_NULL_HANDLE;
+		if ( amblitShadow ) {
+			const unsigned int packed = light->lightDef->minSpecShadowColor;	// sdColor4::PackColor
+			amblitShadowColor.Set( ( packed & 0xFF ) / 255.0f, ( ( packed >> 8 ) & 0xFF ) / 255.0f,
+				( ( packed >> 16 ) & 0xFF ) / 255.0f );
+		}
 		if ( notLitTerrain ) {
 			pushConstants[ 30 ] = cvarSystem->GetCVarFloat( "r_rayTracingAmbient" );	// the light block's ambient
 			if ( !unshadowed && light->lightDef != NULL ) {
@@ -10316,6 +10909,25 @@ void DrawVulkanLightInteraction( sdVulkanBackendState& state, const drawSurf_s* 
 		pushConstants[ 18 ] = 1.0f - notLitShadowColor.z;
 		pushConstants[ 30 ] = 0.0f;
 	}
+	if ( amblitShadow ) {
+		const VkPipeline unshadowedPipeline = hardwareSkinned ?
+			state.worldInteractionSkinnedUnshadowedPipeline : state.worldInteractionUnshadowedPipeline;
+		const idVec3 sunColor( pushConstants[ 36 ], pushConstants[ 37 ], pushConstants[ 38 ] );
+		state.CmdBindPipeline( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, unshadowedPipeline );
+		pushConstants[ 36 ] = sunColor.x * amblitShadowColor.x;
+		pushConstants[ 37 ] = sunColor.y * amblitShadowColor.y;
+		pushConstants[ 38 ] = sunColor.z * amblitShadowColor.z;
+		state.CmdPushConstants( frame.commandBuffer, pipelineLayout,
+			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+			sizeof( float ) * 40, pushConstants );
+		state.CmdDrawIndexed( frame.commandBuffer, tri->numIndexes, 1, 0, 0, 0 );
+		state.worldDrawCalls++;
+		state.worldInteractionDrawCalls++;
+		state.CmdBindPipeline( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
+		pushConstants[ 36 ] = sunColor.x * ( 1.0f - amblitShadowColor.x );
+		pushConstants[ 37 ] = sunColor.y * ( 1.0f - amblitShadowColor.y );
+		pushConstants[ 38 ] = sunColor.z * ( 1.0f - amblitShadowColor.z );
+	}
 	state.CmdPushConstants( frame.commandBuffer, pipelineLayout,
 		VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
 		sizeof( float ) * ( litInteraction ? 40 : 32 ), pushConstants );
@@ -10338,6 +10950,11 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 	// already-active frame and EndFrame still owns submission/presentation.
 	if ( !state->frameActive && !BeginFrame( 0, 0 ) ) {
 		return;
+	}
+	// the postprocess glow later in the frame takes this view's parameters, as
+	// OpenGL's render bindings do (a GUI world without an atmosphere keeps them)
+	if ( view->atmosphere != NULL ) {
+		state->glowAtmosphere = view->atmosphere;
 	}
 	state->worldViews++;
 	vulkanInstanceSurfaces.Begin( view );
@@ -10843,7 +11460,9 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 					VkClearAttachment clearAttachment;
 					memset( &clearAttachment, 0, sizeof( clearAttachment ) );
 					clearAttachment.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
-					clearAttachment.clearValue.depthStencil.stencil = 0;
+					// OpenGL's glClearStencil( 1 << ( stencilBits - 1 ) ): the shadow
+					// count's 0, which the interaction pipeline tests against
+					clearAttachment.clearValue.depthStencil.stencil = 128;
 
 					VkClearRect clearRect;
 					memset( &clearRect, 0, sizeof( clearRect ) );
@@ -10889,10 +11508,41 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 					}
 				}
 
-				// Render mtInteractions (atmosphere interactions on MegaTexture terrains)
+				// Render mtInteractions (atmosphere interactions on MegaTexture terrains,
+				// and the amblit surfaces under the sun).  Under a shadowed sun retail
+				// draws them unstenciled, then the shadow volumes, then multiplies their
+				// shadowed pixels by minSpecShadowColor (R_DrawMTInteractions,
+				// shadow/multiplitive): (ambient + sun) x minSpecShadowColor (#265).
+				// Here each amblit surface's shadowed ambient is scaled first (not a
+				// decal's: the surface under it scales that pixel once), then its sun
+				// term goes in split; the terrain keeps its own split.
+				const bool amblitShadow = lightHasShadows && light == view->atmosphereLight &&
+					r_megaDrawMethod.GetInteger() != 0 && light->lightDef != NULL &&
+					state->worldAmbientShadowPipeline != VK_NULL_HANDLE;
+				if ( amblitShadow ) {
+					const unsigned int packed = light->lightDef->minSpecShadowColor;	// sdColor4::PackColor
+					const float shadowTerms[ 8 ] = { 1.0f, 1.0f, 2.0f, 0.0f, ( packed & 0xFF ) / 255.0f,
+						( ( packed >> 8 ) & 0xFF ) / 255.0f, ( ( packed >> 16 ) & 0xFF ) / 255.0f, 1.0f };
+					for ( const drawSurf_s* surf = light->mtInteractions; surf != NULL; surf = surf->nextOnLight ) {
+						const idMaterial* material = surf->material;
+						if ( material == NULL || material->GetSort() >= static_cast< float >( SS_DECAL ) ) {
+							continue;
+						}
+						bool megaTexture = false;
+						for ( int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex ) {
+							megaTexture |= material->GetStage( stageIndex )->megaTexture != NULL;
+						}
+						if ( megaTexture ) {
+							continue;
+						}
+						vulkanInstanceSurfaces.ForEach( surf, [&]( const drawSurf_s* drawSurf ) {
+							DrawVulkanLightInteraction( *state, drawSurf, light, view, true, NULL, shadowTerms ); } );
+					}
+				}
 				for ( const drawSurf_s* surf = light->mtInteractions; surf != NULL; surf = surf->nextOnLight ) {
 					vulkanInstanceSurfaces.ForEach( surf, [&]( const drawSurf_s* drawSurf ) {
-						DrawVulkanLightInteraction( *state, drawSurf, light, view, !lightHasShadows ); } );
+						DrawVulkanLightInteraction( *state, drawSurf, light, view, !lightHasShadows,
+							NULL, NULL, amblitShadow ); } );
 				}
 
 				// Render globalInteractions
@@ -10984,13 +11634,45 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			first = false;
 		} );
 	}
+	// Stuff grass sorts as a decal (SS_DECAL) but lights itself, as retail's
+	// stuff/grass program does (the ambient cube plus the sun, times its tint).  The
+	// raster lighting block scales everything drawn before it by the flat ambient,
+	// which left the grass about a third as bright as OpenGL's (#270), so the grass
+	// moves after the other opaque and decal surfaces and starts the lighting.
+	{
+		// one pass: the opaque and decal surfaces, then the grass among them, then the rest
+		idList< vulkanExpandedSurface_t > ordered;
+		idList< vulkanExpandedSurface_t > grass;
+		ordered.SetGranularity( 1024 );
+		int firstAfterDecals = 0;
+		for ( ; firstAfterDecals < expandedSurfaces.Num(); ++firstAfterDecals ) {
+			const vulkanExpandedSurface_t& expanded = expandedSurfaces[ firstAfterDecals ];
+			if ( expanded.surface != NULL && expanded.surface->material != NULL &&
+				expanded.surface->material->GetSort() > static_cast< float >( SS_DECAL ) ) {
+				break;
+			}
+			if ( vulkanSurfaceSelections[ expanded.index ].stuffGrass ) {
+				grass.Append( expanded );
+			} else {
+				ordered.Append( expanded );
+			}
+		}
+		if ( grass.Num() > 0 ) {
+			ordered.Append( grass );
+			for ( int expandedIndex = firstAfterDecals; expandedIndex < expandedSurfaces.Num(); ++expandedIndex ) {
+				ordered.Append( expandedSurfaces[ expandedIndex ] );
+			}
+			expandedSurfaces = ordered;
+		}
+	}
 	for ( int expandedIndex = 0; expandedIndex < expandedSurfaces.Num(); ++expandedIndex ) {
 		const int surfaceIndex = expandedSurfaces[ expandedIndex ].index;
 		const drawSurf_s* surface = expandedSurfaces[ expandedIndex ].surface;
 		const drawSurf_s* rayTracingSurface = expandedSurfaces[ expandedIndex ].rayTracingSource ?
 			expandedSurfaces[ expandedIndex ].original : NULL;
 		if ( !rasterLightingDone && surface != NULL && surface->material != NULL &&
-			surface->material->GetSort() > static_cast< float >( SS_DECAL ) ) {
+			( surface->material->GetSort() > static_cast< float >( SS_DECAL ) ||
+			  vulkanSurfaceSelections[ surfaceIndex ].stuffGrass ) ) {
 			RunRasterLighting();
 			rasterLightingDone = true;
 		}
@@ -11474,7 +12156,28 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			if ( selectedStage->hasAlphaTest || selectedStuffGrassStage ) {
 				pushConstants[ 30 ] = selectedStage->hasAlphaTest ?
 					surface->materialRegisters[ selectedStage->alphaTestRegister ] : 0.4f;
-				pushConstants[ 31 ] = 1.0f;
+				// 2: also discard the grass's vertex-alpha fade against the dither
+				pushConstants[ 31 ] = selectedStuffGrassStage ? 2.0f : 1.0f;
+			}
+			if ( selectedStuffGrassStage ) {
+				// retail's stuff/grass light, for the up-facing grass normals: the ambient
+				// cube times its brightness (its flat colour here) plus the sun term
+				// clamp( ( N.sun * 0.5 + 0.5 ) * sunColor * r_lightScale ), which the ARB
+				// program passes in the clamped primary colour (#256)
+				const sdDeclAmbientCubeMap* cubeMap = surface->space->ambientCubeMap;
+				idVec3 light = cubeMap != NULL ? cubeMap->GetMinSpecAmbientColor() * cubeMap->GetBrightness() : vec3_zero;
+				if ( view->atmosphere != NULL ) {
+					idVec3 sunDirection = view->atmosphere->GetSunDirection();
+					sunDirection.Normalize();
+					const idVec3 sun = view->atmosphere->GetSunColor() *
+						( cvarSystem->GetCVarFloat( "r_lightScale" ) * ( sunDirection.z * 0.5f + 0.5f ) );
+					for ( int component = 0; component < 3; ++component ) {
+						light[ component ] += idMath::ClampFloat( 0.0f, 1.0f, sun[ component ] );
+					}
+				}
+				for ( int component = 0; component < 3; ++component ) {
+					pushConstants[ 16 + component ] *= light[ component ];
+				}
 			}
 		}
 
@@ -11953,6 +12656,89 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			rayTracingGeometries.Num(), rayTracingWaterGeometries.Begin(),
 			rayTracingWaterGeometries.Num(), rayTracingView );
 	}
+}
+
+// guis/postprocess's postprocess/glow material (#233).  Retail's stages:
+// downsample_glare (_currentRender -> _postProcessBuffer_1), blur_bilinear
+// horizontally (-> 0) and vertically (-> 1), then the glow over the screen:
+// clean * glare.x + blur * glare.y, saturation, contrast around 0.5, tint.  The
+// programs are Cg, so this runs their ports in glow.frag with the parameters of
+// the frame's view atmosphere, as OpenGL's render bindings carry them.
+bool sdVulkanBackend::DrawPostProcessGlow() {
+	if ( state == NULL || !state->frameActive || state->glowAtmosphere == NULL ||
+		state->glowBufferPipeline == VK_NULL_HANDLE ||
+		state->glowScreenPipeline == VK_NULL_HANDLE || r_vkSkipGui.GetBool() ) {
+		return false;
+	}
+	// the glow samples _currentRender: without a TRANSFER_SRC swapchain there is no
+	// copy, and its descriptor sets would name a null view (#272 review)
+	if ( !state->swapchainTransferSource || state->currentRenderResource.view == VK_NULL_HANDLE ||
+		state->currentRenderResource.sampler == VK_NULL_HANDLE ) {
+		return false;
+	}
+	if ( !EnsureGlowBuffers( *state ) || !CopyCurrentRender( *state ) ) {
+		return false;
+	}
+	sdVulkanFrame& frame = state->frames[ state->frameIndex ];
+	const sdDeclAtmosphere::postProcessParms_t& post = state->glowAtmosphere->GetPostProcessParms();
+	const float screenWidth = static_cast< float >( state->extent.width );
+	const float screenHeight = static_cast< float >( state->extent.height );
+	const float bufferWidth = static_cast< float >( state->glowBuffers[ 0 ].width );
+	const float bufferHeight = static_cast< float >( state->glowBuffers[ 0 ].height );
+	// glare, saturation and contrast, tint, source and target sizes, screen size
+	// and blur direction, then the pass and r_vkGlowDebug
+	float pushConstants[ 24 ] = {
+		post.glareParms.x, post.glareParms.y, post.glareParms.z, post.glareParms.w,
+		post.saturation, post.contrast, 0.0f, 0.0f,
+		post.tint.x, post.tint.y, post.tint.z, 0.0f,
+		screenWidth, screenHeight, bufferWidth, bufferHeight,
+		screenWidth, screenHeight, 0.0f, 0.0f,
+		0.0f, r_vkGlowDebug.GetBool() ? 1.0f : 0.0f, 0.0f, 0.0f
+	};
+	state->CmdEndRendering( frame.commandBuffer );
+	// downsample_glare
+	DrawGlowBufferPass( *state, frame.commandBuffer, 1, state->glowDescriptorSets[ 0 ],
+		pushConstants, 24 );
+	// blur_bilinear, "parameters 1, 0" then "parameters 0, 1"
+	pushConstants[ 12 ] = bufferWidth;
+	pushConstants[ 13 ] = bufferHeight;
+	pushConstants[ 18 ] = 1.0f;
+	pushConstants[ 20 ] = 1.0f;
+	DrawGlowBufferPass( *state, frame.commandBuffer, 0, state->glowDescriptorSets[ 1 ],
+		pushConstants, 24 );
+	pushConstants[ 18 ] = 0.0f;
+	pushConstants[ 19 ] = 1.0f;
+	DrawGlowBufferPass( *state, frame.commandBuffer, 1, state->glowDescriptorSets[ 2 ],
+		pushConstants, 24 );
+	// the glow, back on the swapchain image (colour and depth as the frame left them)
+	VkMemoryBarrier2 attachmentBarrier;
+	memset( &attachmentBarrier, 0, sizeof( attachmentBarrier ) );
+	attachmentBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+	attachmentBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT |
+		VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+	attachmentBarrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	attachmentBarrier.dstStageMask = attachmentBarrier.srcStageMask;
+	attachmentBarrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT |
+		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	VkDependencyInfo dependencyInfo;
+	memset( &dependencyInfo, 0, sizeof( dependencyInfo ) );
+	dependencyInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+	dependencyInfo.memoryBarrierCount = 1;
+	dependencyInfo.pMemoryBarriers = &attachmentBarrier;
+	state->CmdPipelineBarrier2( frame.commandBuffer, &dependencyInfo );
+	BeginSwapchainRendering( *state, frame.commandBuffer );
+	pushConstants[ 12 ] = screenWidth;
+	pushConstants[ 13 ] = screenHeight;
+	pushConstants[ 14 ] = screenWidth;
+	pushConstants[ 15 ] = screenHeight;
+	pushConstants[ 20 ] = 2.0f;
+	DrawGlowTriangle( *state, frame.commandBuffer, state->glowScreenPipeline,
+		state->glowDescriptorSets[ 3 ], state->extent.width, state->extent.height,
+		pushConstants, 24 );
+	state->guiDrawCalls++;
+	return true;
 }
 
 bool sdVulkanBackend::DrawGuiFan( const void* imageOwner,

@@ -33,6 +33,28 @@ extern glconfig_t glConfig;
 
 namespace {
 
+// The finished frame as _currentRender, and _postProcessBuffer_0/1 at a quarter
+// of it (RB_ARB2_SetupPostProcessingFrameBuffer's sizes), for a GUI post-process
+// material.  The GUI is submitted after the views, so there is no view def here.
+void GuiCopyFrameForPostProcess( int x, int y, int width, int height ) {
+	if ( globalImages == NULL || globalImages->currentRenderImage == NULL ) {
+		return;
+	}
+	const int bufferWidth = Max( 1, width >> 2 );
+	const int bufferHeight = Max( 1, height >> 2 );
+	for ( int index = 0; index < 2; ++index ) {
+		idImage* image = globalImages->postProcessBuffer[ index ];
+		if ( image != NULL && ( image->uploadWidth != bufferWidth || image->uploadHeight != bufferHeight ) ) {
+			image->FromParameters( bufferWidth, bufferHeight, GL_RGBA8, TT_RECT, TF_LINEAR, TR_CLAMP );
+		}
+	}
+	if ( rbinds != NULL ) {
+		rbinds->currentRenderTexelSize->Set( static_cast< float >( width ), static_cast< float >( height ),
+			1.0f / Max( width, 1 ), 1.0f / Max( height, 1 ) );
+	}
+	globalImages->currentRenderImage->CopyFramebuffer( x, y, width, height, false );
+}
+
 byte ClampCinematicChannel( int value ) {
 	return static_cast< byte >( idMath::ClampInt( 0, 255, value ) );
 }
@@ -543,24 +565,46 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 		idList< float > evaluated;
 		evaluated.SetNum( primitive.material->GetNumRegisters(), false );
 		primitive.material->EvaluateRegisters( evaluated.Begin(), primitive.materialParms, NULL, primitive.referenceSound, 0 );
-		for ( int stageIndex = 0; stageIndex < primitive.material->GetNumStages(); ++stageIndex ) {
-			const materialStage_t* stage = primitive.material->GetStage( stageIndex );
-			if ( evaluated[ stage->conditionRegister ] == 0.0f ) continue;
+		auto stageDrawable = [&]( const materialStage_t* stage ) {
+			if ( evaluated[ stage->conditionRegister ] == 0.0f ) return false;
 			// Missing optional GUI layers are skipped individually.  The material's
 			// editor image is only a preview and may be defaulted even though another
 			// program stage has all of its real images available.
-			bool stageHasDefaultedTexture = false;
-			for ( int textureIndex = 0; textureIndex < stage->numTextures; ++textureIndex ) {
-				const idImage* stageImage = stage->textures[ textureIndex ].image;
-				if ( stageImage != NULL && stageImage->defaulted ) {
-					stageHasDefaultedTexture = true;
-					break;
+			if ( primitive.referenceSound == NULL ) {
+				for ( int textureIndex = 0; textureIndex < stage->numTextures; ++textureIndex ) {
+					const idImage* stageImage = stage->textures[ textureIndex ].image;
+					if ( stageImage != NULL && stageImage->defaulted ) return false;
 				}
 			}
-			if ( primitive.referenceSound == NULL && stageHasDefaultedTexture ) continue;
 			// a program that failed to parse (retail's Cg postprocess passes) would
 			// draw its default constant orange over the whole view (#185)
-			if ( stage->renderProgram != NULL && stage->renderProgram->GetState() == DS_DEFAULTED ) continue;
+			return stage->renderProgram == NULL || stage->renderProgram->GetState() != DS_DEFAULTED;
+		};
+		// guis/postprocess draws postprocess/glow: stages that render into the
+		// quarter-size _postProcessBuffer_0/1 (destinationBuffer), all reading the
+		// finished frame as _currentRender (#233).  Those stages draw in the back
+		// buffer's corner, which only the material's last stage covers again, so
+		// the material draws whole or not at all (postprocess/heatsight's Cg has no
+		// port).
+		bool postProcess = false;
+		bool allDrawable = true;
+		for ( int stageIndex = 0; stageIndex < primitive.material->GetNumStages(); ++stageIndex ) {
+			const materialStage_t* stage = primitive.material->GetStage( stageIndex );
+			postProcess |= stage->destinationBuffer >= 0;
+			allDrawable &= stageDrawable( stage );
+		}
+		if ( postProcess && !allDrawable ) {
+			return;
+		}
+		// the drawable's own size (a HiDPI drawable is larger than the window)
+		GLint frameViewport[ 4 ] = { 0, 0, windowWidth, windowHeight };
+		if ( postProcess || primitive.material->TestMaterialFlag( MF_UPDATECURRENTRENDER ) ) {
+			glGetIntegerv( GL_VIEWPORT, frameViewport );
+			GuiCopyFrameForPostProcess( frameViewport[ 0 ], frameViewport[ 1 ], frameViewport[ 2 ], frameViewport[ 3 ] );
+		}
+		for ( int stageIndex = 0; stageIndex < primitive.material->GetNumStages(); ++stageIndex ) {
+			const materialStage_t* stage = primitive.material->GetStage( stageIndex );
+			if ( !stageDrawable( stage ) ) continue;
 			idVec4 stageColor;
 			idVec4 matrixS;
 			idVec4 matrixT;
@@ -618,6 +662,11 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 			if ( qglVertexAttrib4fvARB != NULL && rbinds != NULL ) {
 				qglVertexAttrib4fvARB( rbinds->colorAttrib->GetAttribIndex(), vertexColor );
 			}
+			idImage* destination = stage->destinationBuffer >= 0 && stage->destinationBuffer < 2 && globalImages != NULL ?
+				globalImages->postProcessBuffer[ stage->destinationBuffer ] : NULL;
+			if ( destination != NULL ) {
+				glViewport( frameViewport[ 0 ], frameViewport[ 1 ], destination->uploadWidth, destination->uploadHeight );
+			}
 			glBegin( GL_TRIANGLE_FAN );
 			for ( int j = 0; j < primitive.numVerts; j++ ) {
 				const idVec2& st = primitive.verts[ j ].st;
@@ -632,6 +681,10 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 				glVertex2f( primitive.verts[ j ].xy.x, primitive.verts[ j ].xy.y );
 			}
 			glEnd();
+			if ( destination != NULL ) {
+				destination->CopyFramebuffer( frameViewport[ 0 ], frameViewport[ 1 ], destination->uploadWidth, destination->uploadHeight, false );
+				glViewport( frameViewport[ 0 ], frameViewport[ 1 ], frameViewport[ 2 ], frameViewport[ 3 ] );
+			}
 		}
 	};
 
@@ -759,6 +812,16 @@ void sdGuiModel::SubmitFrameVulkan() {
 	auto submitPrimitive = [&]( const guiPrimitive_t& primitive ) {
 		if ( primitive.material == NULL || primitive.numVerts < 3 ) {
 			return;
+		}
+		// guis/postprocess's postprocess/glow (the blur template's three stages and
+		// the glow) is one native chain on Vulkan; its programs are Cg (#233)
+		for ( int stageIndex = 0; stageIndex < primitive.material->GetNumStages(); ++stageIndex ) {
+			const sdDeclRenderProgram* program = primitive.material->GetStage( stageIndex )->renderProgram;
+			if ( program != NULL && idStr::Icmp( program->GetName(), "postprocess/glow" ) == 0 ) {
+				flushBatch();
+				vulkanBackend.DrawPostProcessGlow();
+				return;
+			}
 		}
 		idImage* overrideImage = primitive.referenceSound != NULL ?
 			ResolveGuiImage( primitive.material, primitive.referenceSound ) : NULL;

@@ -2,30 +2,78 @@
 # Work queue
 
 The shared to-do list for every session. Coordinator log: [#133](https://github.com/jm2/openETQW/issues/133); see its latest comment for who coordinates now (coordination §2). Take items from the top. The coordinator keeps it
-in order, and every PR that changes an item's state updates its row. `owner` names the
+in order and refreshes it in batches (coordination §8); code PRs don't edit it. `owner` names the
 session that holds the item; `—` means nobody does. Before taking an item, check its PR or
 issue for anything newer than this file.
 
-**Working (2026-10-23).** The sessions are fixing the open issues. Owner, 2026-10-23: "continue the fixes, but I need kisakcod to make some serious progress so limit the multi-hour review runs until the very tail end when all the identified fixes for issues are in and it's absolutely necessary". The coordinator's plan for following it, which changes no merge gate: fix PRs get targeted tests and an independent review and wait, open. The kisakcod sessions have priority on shared hosts. At the end, one integration head (main plus every fix PR) gets the retail suite and the screenshot sets, which the gates still require, and the PRs merge in order on that evidence. Docs-only PRs merge as usual.
+**Direction (owner, 2026-10-27; coordination §9).** The 2026-10-25 park is over. Every
+session works the **code queue** below, top down: **major bugs first, then the approved
+features, and gate/evidence work last.** Progress means merged code that fixes a bug or
+ships a feature, with its test. A session that finds nothing in the code queue it can do
+files the next bug it can reproduce, or asks the coordinator; it does not start a docs or
+measurement PR instead.
 
-Updated: 2026-10-23 by `openETQW-linux` (coordinator): the combined run merged #202, #204, #206, #207, #210, #213 and #215 (§5); §1 is empty. Earlier: #180 (merged 2026-10-22), #198, #199 and #200 are in §5; M4's last item is done.
-Updated: 2026-10-22 by `openETQW-linux` (coordinator): the game #51 row with the Linux arm64
-evidence and the open owner ask, and the review state of §3 items 3, 8 and 9 and of #162.
-Updated 2026-10-21 after the overnight work (§5); earlier that day, merged since 2026-10-18
-were #145, #146, #149, #152, #153, #155–#158 and game #53–#56 (§5), and #159 and #160 were
-filed. Before that, 2026-10-18, after a pass over every doc.
+- **Bugs before gates.** A bug in an open issue outranks every gate, milestone and evidence
+  item, the combined run included.
+- **Fix, don't narrate.** When a measurement points at a cause, the next PR is the fix. An
+  investigation without a fix is time-boxed to one session-day, and its result goes on the
+  issue, not in this file.
+- **Docs budget.** Code PRs don't edit this file (AGENTS.md, work loop step 6). Docs-only PRs
+  are at most one for every four merged code PRs, and the coordinator batches queue, §5 and
+  provenance refreshes into them (coordination §8).
+- **Owner checks are not session work.** Items that wait on the owner sit in §4 and are
+  asked once with `fleet_ask`; nobody re-measures them while they wait.
 
-## 1. Open PRs, in merge order
+## 0. Code queue, in priority order
 
-| # | What | Owner | Head | Left to do |
+Take the top item your platform can do and nobody owns. Details and done-tests are on the
+issue.
+
+| # | Item | Kind | Owner | Done-test |
 |---|---|---|---|---|
+| 1 | [#294](https://github.com/jm2/openETQW/issues/294) `Waiting on BotThread` counts as a failure only when the match also fails a gameplay check (owner, 2026-10-27) | bug (tests) | — | A healthy match with waits passes; the same run with a forced gameplay failure still reports the marker (negative control); `m4-campaign` and `all-stock-maps` pass on one host |
+| 2 | [#290](https://github.com/jm2/openETQW/issues/290) 27 test files spawn with bare `Popen` and skip #287's port/process pre-flight | bug (tests) | — | No bare `subprocess.Popen` of an engine binary outside `tests/etqw_harness.py`; the touched tests pass on one host |
+| 3 | [#314](https://github.com/jm2/openETQW/pull/314) (draft) per-instance distance cull for OpenGL and RT, closes [#246](https://github.com/jm2/openETQW/issues/246) | feature (graphics) | — | The checklist on #314: retail hard-cut vs fade, `validate pr`, graphics gate (§8) |
+| 4 | [#306](https://github.com/jm2/openETQW/issues/306) ray-query lighting on Linux (and macOS where available) behind a runtime capability check (owner, 2026-10-27) | feature (graphics) | — | `r_rayTracing 1` on antec's RX 6400 draws RT lighting; a device without ray query falls back to raster with one log line; graphics gate (§8) |
+| 5 | [#315](https://github.com/jm2/openETQW/issues/315) distant-tree imposters | feature (graphics) | — | Far valley view shows tree cards on both APIs against a retail capture; graphics gate (§8) |
+| 6 | [#302](https://github.com/jm2/openETQW/issues/302) ~1.5x Linux x64 frame-work residual | investigation, time-boxed | `openETQW-linux` | One `-O2` frame-body profile on Linux x64 and Windows x64; then either a fix PR or close the issue with the profile. No AMDVLK arm (§9, 2026-10-27) |
+
+New bugs go into this table above the features, ranked by severity (crash, wrong
+gameplay, wrong picture, test harness), once they are filed as issues (§9, 2026-10-26).
+
+**Gate and evidence work, after the table is empty or blocked:** the combined run (a
+fresh retail suite per platform at current `main`, plus the five screenshot sets; owner,
+2026-10-23: at the tail end) and the M7 rows in `docs/platform-matrix.md`. Linux arm64 is
+done at `527c1ef`; the macOS leg is allowlisted (owner, 2026-10-27). Run a leg only on a
+host that has no code item it can take.
+
+**Merge procedure:** `docs/coordination.md` §8. Before touching rendering, read
+`docs/render-path.md`; before comparing with retail, `docs/retail-comparison.md`.
+Per-platform traps are in `docs/coordination.md` §5.
+
+Updated: 2026-10-27 by the owner (unparked; bugs first; the code queue).
+
+## 1. Open PRs
+
+The live list is `gh pr list -R jm2/openETQW` (and `-R jm2/openETQW-game`). This file no
+longer mirrors it. The coordinator merges in code-queue order (§0): bug fixes first.
 
 ## 2. Open issues, in priority order
 
 | # | What | Owner | Next step |
 |---|---|---|---|
+| [#294](https://github.com/jm2/openETQW/issues/294) | `Waiting on BotThread` is a hard failure marker, so a slow host fails a healthy match | — | Decided (owner, 2026-10-27): count it only when the match also fails a gameplay check. Code queue §0 item 1. |
+| [#197](https://github.com/jm2/openETQW/issues/197) | Fresh profile goes straight to the menu as "Player" (owner, 2026-10-23: fine if the name can be changed in-game) | owner | `ui_name` persists across restarts (checked on macOS). Left: the owner's 30-second real-keyboard check: Options > Game Settings > Name, type a name, Apply, restart, look at the field. |
+| [#302](https://github.com/jm2/openETQW/issues/302) | Linux x64 client frame work: a ~1.5x `work_p50` residual against Windows raster after the validation layer, `-O0` tree and lighting-path differences were removed | `openETQW-linux` | Code queue §0 item 6 (time-boxed). Measurements are on the issue. No AMDVLK arm (§9, 2026-10-27). |
+| [#296](https://github.com/jm2/openETQW/issues/296) | Linux had no retail-data folder picker | — | Done in #297 (§3 item 4). Left: the interactive checklist on a desktop — start with no retail data, Cancel stores nothing, a refused folder re-asks, five refusals fail, an accepted one is written. Unrun: no agent here can open a dialog. Close when the owner has tried it. |
+| [#290](https://github.com/jm2/openETQW/issues/290) | 27 test files spawn processes with bare `Popen` and bypass the harness pre-flight (the residual of #288/#289, which #287 fixed and which are closed) | — | Code queue §0 item 2. |
+| [#246](https://github.com/jm2/openETQW/issues/246) | Instanced trees and shrubs: they draw on both APIs since #248 and #252; the per-instance distance cull is left | — | No longer deferred (owner, 2026-10-27). Draft #314; imposters split to #315. Code queue §0 items 3 and 5. |
+| [#133](https://github.com/jm2/openETQW/issues/133) | Coordinator log | `openETQW-linux` | Stays open. |
+| [#306](https://github.com/jm2/openETQW/issues/306) | Linux and macOS clients have no ray-query lighting path; Windows x64 gets it by default | — | Decided (owner, 2026-10-27): port it behind a runtime capability check. Code queue §0 item 4. |
 
 ## 3. Milestone work, in order
+
+After §0. Most of what is left here waits on the owner (§4) or is evidence work.
 
 Each item names its acceptance test. Details are in the linked plan.
 
@@ -37,16 +85,68 @@ Each item names its acceptance test. Details are in the linked plan.
    first-person `clampDamped*` view is merged (#152 with game #54). Left: the owner decides
    which seats join the default list (§4).
 3. **M4, what is left**: done (#199, §5). Every M4 item listed in `STATUS.md` § Milestones now has a meson test.
-4. **Retail data discovery** (`STATUS.md` § Next steps, item 7): the Linux folder picker,
-   and a person trying the macOS and Windows pickers (owner).
-5. **Provenance labels** (`docs/provenance.md` §6): the minizip relabel and the other
-   open label questions. Acceptance: `provenance_post_split.py` reports no gap, the game's
-   `check_spdx.py` passes, and the §6 rows are resolved.
-6. **`docs/platform-matrix.md`** (release gate, M7): what is verified per platform, with
-   the evidence level, host and commit.
-7. **Release gate 5, third-party binaries:** review `src/openal/lib/openal32.lib`, both
-   copies of `eaxguid.lib` and zlib contrib's `.obj` files. Replace each, or record why it
-   stays (`STATUS.md` § Release gate, item 5).
+4. **Retail data discovery** (`STATUS.md` § Next steps, item 7): the Linux folder picker
+   is done, merged as `03d160c` (#297, issue #296): `Sys_PromptForRetailData` on Linux asks
+   through the first helper of zenity, kdialog and yad that is installed, with the
+   macOS/Windows rules — a Cancel stores nothing, an absent helper is skipped, and the
+   folder is written once it is accepted. One difference is deliberate: Linux's refusal
+   is a message dialog and then the folder dialog again, so only that dialog's Cancel
+   ends the sequence, where macOS offers Quit and Windows Cancel at the refusal. The
+   `retail-discovery` unit test covers each route's arguments, the helper's outcome, the
+   printed answer and the stored path's replace, and the same PR fixed #298 by writing
+   `basepath.txt` through a temporary file and a rename. The interactive check needs a
+   desktop and is a five-step checklist on the PR; **it has not been run** — nobody in the
+   fleet has a display. Left: a person trying the Linux, macOS and Windows pickers (owner),
+   the yad refusal dialog included, which no host here can open.
+5. **Provenance labels** (`docs/provenance.md` §6): done, merged as `a9aadd4` (#285,
+   `docs/provenance-labels`). It relabels the five minizip files and `eaxguid.lib` as
+   ThirdParty/Upstream and the four PDB/reconstruction-marked engine files as
+   Reconstruction_retail_RE; the openQ4 and post-split rows are resolved. Deferred with
+   reasons: jmarshall's licence (owner, release gate 1), a post-split CI gate
+   (release gate 3), and the history/`1223dc5` labels (repository recreation). Acceptance:
+   `provenance_post_split.py` reports no gap, the game's `check_spdx.py` passes, and the
+   §6 rows are resolved or explicitly deferred.
+6. **`docs/platform-matrix.md`** (release gate, M7): the evidence register exists
+   (merged as `d3a4d5b`, #284; per row the verified thing, platform, host, evidence level, engine/game
+   commits, data set and raw log or PR, with historical rows kept apart). A combined
+   five-platform run of the 77 non-soak tests was made on 2026-10-25/26 at engine
+   `0a44150` / game `7fbdf80`. Those rows are evidence for `0a44150` and nothing later:
+   `main` is now `527c1ef` and has carried source and test changes since (#292's test fix
+   `51f7449`, #297's picker, #301's deletions), so a fresh per-platform pass at current
+   `main` is a new leg, not a re-read of these numbers. The run: Linux x64
+   70 OK / 6 FAIL / 1 SKIP (real RX 6400), Linux arm64 73 / 3 / 1 (real GPU), Windows x64
+   70 / 5 / 2, Windows arm64 43 / 32 / 2 (mostly sandbox and display/frame-pacing; 11 of the 12
+   sandbox tests pass when re-run with `mkdtemp` replaced by `os.makedirs`, tests
+   unmodified, and the twelfth `all-stock-maps` is #294), macOS arm64
+   59 / 17 / 1 (software raster only, no GPU evidence). M7 stays open until the macOS
+   leg is re-run and each platform's session has checked its own row: the owner's GPU
+   broker is live on mbp16-m1max and `gpu-run metal-probe` returns `metal-device: OK
+   name=Apple M1 Max headless=false` (2026-10-26), so that leg waits on allowlisting the
+   suite probe, not on a decision, and the 59/17/1 software-raster row is what it replaces. The #292
+   failures are fixed in `51f7449`; the M7 pacing failures were host load and pass on
+   quiet reruns (#293 closed); #299 was closed as a measurement artifact —
+   `test_client_network.py:62` turned on the Khronos validation layer (the
+   `client-network-*` tests now start with `r_vkValidation 0`) and the perf tree `build/`
+   was `buildtype=debug` (`-O0`) — so the 30-35 GUI/s was neither the product nor a reason
+   to move the 40/s floor (closed 2026-10-26 with no test or floor change). #302 is
+   measured: layer off and both sides `debugoptimized`, Linux 240 GUI/s / `work_p50`
+   3.9-4.0 ms against Windows raster 232/s at cap 240 / 2.6 ms, same draw mix, so a ~1.5x
+   frame-work residual survives and fails nothing. Left: a `-O2` profile of the frame body
+   on both sides, and #306 (Linux and macOS have no ray-query path, Windows defaults to
+   it), which no test change addresses either way. Any perf row in this register must name
+   its build directory: `build/` on antec is `buildtype=debug`. #294 (the Windows arm64
+   BotThread marker) is an owner decision in §4, and the rest of the Windows arm64
+   failures are environment. Linux arm64 has since been re-run at `527c1ef` (post-merge,
+   `-O2`, real GPU): 76 OK / 0 FAIL / 1 SKIP, the skip `cross-os`. That is a separate row
+   in `platform-matrix.md` and does not close the M7 arm64 row at `0a44150`.
+7. **Release gate 5, third-party binaries:** done, merged as `493bed2` (#301, the re-cut of
+   #282/#281) — the seven unreferenced Windows binaries (`openal32.lib`, both `eaxguid.lib`,
+   zlib's four `contrib/masmx*/*.obj`) and the PowerPC `src/openal/osx/OpenAL.framework`
+   binary are deleted, not replaced: nothing links them. The owner approved the deletion of
+   all eight, including the previously owner-gated `src/sys/win32/eaxguid.lib`, on
+   2026-10-26. `docs/provenance.md` §6 holds the evidence and `STATUS.md` § Release gate
+   item 5 the record. The imported manifest rows stay as the census (deleted paths are not
+   pruned), so the post-split count is unchanged.
 8. **The M1 and M2 gaps** (`STATUS.md` § Milestones):
    - ~~M1: the `false` defaults of `build_engine` and `build_dedicated`~~: both default to `true` (#173);
    - M2: collision in the graphical client is never asserted;
@@ -70,15 +170,56 @@ Each item names its acceptance test. Details are in the linked plan.
     - ~~cross-OS pairs that include an arm64 host~~: done (#144). Linux arm64 (`macmini-m1`)
       passes X1–X4 both ways with Linux x64, Windows x64 and macOS arm64
       (issuecomment-6281426367, -6282183468, -6303053162, -6303056403);
-    - weapon fire seen by the other player (a headless peer can't observe it; needs a
-      Vulkan observer or a server-side check). The test is written on branch head `be49e04`
-      (after `8e06d7c`). Reviewed from the text diffs `e2070be2` (test) and `534c375c`
-      (engine), not from the `be49e04` object: no blocker, no should-fix, one nit
-      (`set g_debugWeaponState -1` is unconfirmed). macOS arm64 ran the earlier revision
-      `ed6735b7` twice at engine `1ff001f` + game `bb8e0c5` and it passed, but that revision
-      measured client 0 by position (the observer, not the shooter) with 2D drift only, so it
-      is not evidence for the revised test. Next: publish `be49e04` and run the revised test
-      once on each platform.
+    - ~~weapon fire seen by the other player~~: a headless client does receive it. Game
+      main prints `EVENT_TRACER: server broadcast` on the server and `client received`
+      on each client, and `weapon-fire-observer` requires the shooter and a second
+      headless client to receive every broadcast with the same start and end.
+      `clientClass covertops 1` selects the sniper through the class data; the test
+      asserts the GDF SPAWN line's class=covertops, that the server's
+      `g_debugWeaponState` diagnostic names `inventory/weapons/sniperrifle` for that
+      client (item presence in `SPAWN_ITEMS` does not prove the option took), and that
+      the shooter's own client number (client 1 on Linux arm64, not always 0) stays
+      within 2 u in 3D. The equipped check compares items under `inventory/weapons/`
+      only: GDF covertops also carries `inventory/tools/gdf_parachute` on some spawns
+      (seen on macOS, not on either Linux run), and exact set equality failed on it.
+      PR #283, branch `feat/m3-weapon-fire-observer` at a3b0db1 (after be49e04; base
+      a38e311, which predates #178/#199), published; the a3b0db1 delta is 8/-2 in the
+      equipped predicate. Test file 12,399 B, sha256 66ee9048.
+      Reviewed: macmini on the e2070be2/534c375c text diffs and mbp16 on the a3b0db1
+      delta, neither with a blocker (the one nit was the unconfirmed
+      `set g_debugWeaponState -1`); yoga read it as a Windows program and found no
+      path where a crashed or misbound run reports PASS.
+      Passing legs: antec, Linux x86_64, game a5fdfaf (older than the pin), valley,
+      retail 1.5 - shooter client 0, equipped sniper only, 8 broadcasts received by
+      both clients, 24 `playerPos` samples, drift 0.00 u, exits 0
+      (`/var/tmp/oe-m3-linux/run.log`); macmini-m1, Linux arm64 Fedora 44 Asahi, game
+      7fbdf80 - shooter client 1, sniper only, 8/8/8, 24 samples, drift 0.00 u,
+      exits 0 (`build/agent-work/logs/m3-weapon-fire-a3b0db1-arm64.log`); mbp16-m1max,
+      macOS arm64, game 7fbdf80, SDL offscreen software raster (outcome evidence only,
+      not GPU raster) - shooter client 1, sniper + parachute, 8/8/8, 24 samples,
+      drift 0.00 u, exits 0. The earlier ed6735b7 runs (6/6/6 receipts) hardcoded
+      client 0 and measured 2D drift on the observer; their receipt counts stand,
+      their drift evidence does not.
+      Windows x64 (antec-win, Windows 11 26300, MSVC 19.51, real Vulkan client) and
+      Windows arm64 (yoga-slim7x, Windows 11 ARM64, Adreno X1-85 raster) both pass:
+      8/8/8, 24 samples, drift 0.00 u, exits 0/0/0. Neither Windows host can run
+      ninja or Meson's test runner in its sandbox, so both built with msbuild and
+      ran the exact python command lines Meson registers: no testlog.txt and no
+      Meson timeout/skip accounting (recorded, not glossed).
+      Windows run procedure: check no leftover openETQW-ded process and that
+      29974-29976 are free before each test. Meson's TerminateProcess on timeout
+      skips the harness cleanup, so leftovers from one run poison the next; Windows
+      prints "FATAL ERROR", not the POSIX "FATAL SIGNAL CAUGHT" the test greps for,
+      so a hard crash shows only as an exit code (NTSTATUS). Both diagnostics are
+      implemented in PR #287, `tests/etqw_harness.py` only: exit-status messages
+      name the NTSTATUS or signal, and a pre-flight refuses to spawn when the port
+      is bound (by a process this run does not hold) or a leftover `openETQW-ded`
+      is alive. A refusal is a failure (exit 1), not a skip, and it names the port.
+      Test verdicts are otherwise unchanged.
+      Merged as #283 (`6361385`) on 2026-10-25 with game `7fbdf80`; the five legs are
+      Linux x64 (game `a5fdfaf`, older than the pin), Linux arm64, macOS arm64,
+      Windows x64 and Windows arm64. `docs/platform-matrix.md` carries the two Windows
+      rows from these runs.
 
     Acceptance: `cross-os` X1–X4 each way per pair, recorded like the evidence rows of
     2026-10-16, with the server's `playerPos` polled every 0.25 s (coordination §5).
@@ -96,6 +237,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   deferred it on 2026-09-25. Nothing to do until the owner reopens it.
 - **Publishing.** Both repositories stay private until the owner decides otherwise; the
   owner expects to recreate them first.
+- ~~**The BotThread marker as a failure (#294).**~~ Decided 2026-10-27: gate it on the match outcome (§0 item 1).
 - **The hull lead:** the p95 bound and each class's L, and which driver and pilot seats
   join the default list. Needs a review on a high-refresh display.
 - **Render portals, stage 2:** the network decision (`docs/render-portals.md`).
@@ -131,7 +273,49 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 
 ## 5. Recently done
 
-2026-10-22/23:
+2026-10-27 (`main` `6640d35`):
+- Tests: `client-network-join` and `client-network-listen` start the Vulkan client with
+  `r_vkValidation 0` (the engine default) instead of `1`, on the owner's word: the Khronos
+  layer is a diagnostic, not part of the measured product. The shared `VulkanClient`
+  default changes with it, but every other test that constructs it already passes
+  `r_vkValidation 0` itself, so only these two change; `campaign-client-maps` keeps
+  its own layer-on client
+- #308 Docs: post-merge Linux arm64 leg at `527c1ef` — 76 OK / 0 FAIL / 1 SKIP (`cross-os`); its own row, not M7 evidence (merged c422eeb)
+- #307 Docs: #302 measured (the validation layer, the `-O0` perf tree, two lighting paths), #299 closed as a measurement artifact, and the worktree recipe now says `-Dbuildtype=debugoptimized` (merged ea215a5)
+- #287 Test harness: readable child exit statuses (NTSTATUS and exception decode) and a port/leftover-process pre-flight; addresses #288 and #289, #290 remains (merged ce40c41)
+- #309 Docs: a third like-for-like arm for #302, Linux arm64 at `527c1ef` — `work_p50` 2.6 ms layer off / 68 GUI/s layer on, so the residual tracks the x64/RADV combination, not the client frame body (merged 39a0421)
+
+2026-10-26 (`main` `527c1ef`):
+- #304 Docs: `docs/platform-matrix.md`, the Windows arm64 row records the sandbox workaround — 11 of the 12 temp-directory failures re-run with `mkdtemp` replaced by `os.makedirs` and all 11 pass, tests unmodified; the twelfth, `all-stock-maps`, moves to the #294 bucket (merged 527c1ef)
+- #303 Docs: the #299 failure cites #302 as its cause (merged 7c223f7)
+- #301 Release gate 5: the seven unreferenced Windows binaries and the PowerPC OpenAL framework deleted, on the owner's approval (merged 493bed2)
+- #297 Linux: the retail-data folder picker (zenity, kdialog, yad, ledger 068), and `basepath.txt` written through a temporary file and a rename, which fixes #298 (merged 03d160c)
+- Closed with them: #293 (the M7 cap-60 pacing failures were host load; quiet reruns hold 60.0 fps and A10 about -1 ms)
+- Closed with them: #299 (the 30-35 GUI/s on Linux x64 was the Khronos validation layer that `test_client_network.py` turned on, on a `debug` perf tree — not a product floor; `client-network-join` passes at 46 GUI/s at `-O2` with the layer on, and no test or bound changed)
+
+2026-10-24/25 (the burn-down):
+- #285 Docs: provenance labels (minizip and eaxguid.lib -> ThirdParty/Upstream, four engine files -> Reconstruction_retail_RE; merged a9aadd4)
+- #284 Docs: `docs/platform-matrix.md`, the M7 evidence register (merged d3a4d5b)
+- #283 M3: `weapon-fire-observer`, a headless peer sees the other player's weapon tracers (five platforms; merged 6361385)
+- #280 Docs: resumption point for any session (sessions stopped for quota)
+- #279 Docs: the sessions' tribal knowledge (docs/render-path.md, docs/retail-comparison.md, coordination §5 platform notes)
+- #278 Docs: STATUS summary no longer lists #270 as open
+- #277 Docs: STATUS and the queue as of #276
+- #276 Queue: #270 fixed by #275
+- #275 Vulkan stuff grass draws after the raster lighting block, not under its flat ambient (fixes #270)
+- #274 Docs: state as of 2026-10-25 (burn-down done; sessions parked)
+- Closed since 2026-10-24: #267, #265, #262, #258, #256, #255, #253, #246 (reopened for the deferred part), #239, #233, #232, #219, #218, #216, #212, #211, #196, #193, #186, #185, #162, #148, #141, #122. #270 was split from #256.
+- #273 Vulkan: no interaction specular in GUI render worlds, as OpenGL since #251 (ledger 079)
+- #272 Vulkan draws guis/postprocess's glow natively, with retail's scene alpha (fixes #233 with #263)
+- #271 Vulkan shadow stencil counts around 128 and lights where 128 >= stencil, as OpenGL (fixes #267)
+- #268 Raster Vulkan: shadowed amblit surfaces end as (ambient + sun) × minSpecShadowColor, as retail's shadow/multiplitive pass (fixes #265)
+- #269 Stuff grass fades with distance on both APIs: _diffusionMask is a 16x16 ordered dither; Vulkan fades per instance (fixes #256; colour gap in #270)
+- #263 OpenGL draws retail's guis/postprocess glow (ARB ports of downsample, glare, blur, glow), the scene lift #233 measured
+- #266 Vulkan: image descriptors use the evicting allocator; currentRender material sets purged on swapchain recreate (#264 review)
+- #264 Vulkan: material descriptor sets freed with purged images and evicted when the pool is full (fixes #262)
+- #261 Vulkan: front-end descriptor sets in their own pool, hashed, freed with purged images, evicted when full (fixes #258)
+- #260 OpenGL forceClear follows glConfig.samples; clearer multisample fallback warning (#255 review)
+- #259 OpenGL: retry without multisampling when the requested r_multiSamples fails (fixes #255 on SDL3)
 - #257 Vulkan: sunlit opaque surfaces take retail's amblit ambient (minSpecAmbientColor) via ambSurf; others the cube plus its specular term (fixes #122's ambient gap)
 - #254 OpenGL: load qglSampleCoverageARB; the SDL3 window requests r_multiSamples (fixes #253)
 - #249 Raster Vulkan: retail's ambient cube (multiplicative, before the flat ambient), self-illumination, interaction specular; generated cubes no longer black (part of #122)
@@ -145,6 +329,8 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 - #243 Owner decisions of 2026-10-24 in coordination §9 (a contended re-run fails on a second failure; burn-down; #141 undeferred) and ledger row 078. Closed with evidence: #186 (macOS globe renders), #148 (no repro).
 - #244 Mouse: carry SDL's sub-pixel motion between events (fixes #141)
 - #241 Vulkan megatexture detail texture, with the CPU mipmap-state levels (part of #233)
+
+2026-10-23/24 (after the 2026-10-23 combined run; these wait on the next one too):
 - #236 (openETQW-win-arm64): Vulkan applies retail's linear atmosphere fog to world surfaces, raster (fog-once stencil) and RT (part of #233)
 - #238 (openETQW-win): Vulkan front-end pipelines gated on the stage cull, MoltenVK swizzle fallback, comment and dead-code cleanup (#229 and #234 follow-ups)
 - #240 (openETQW-linux): the default image is black outside developer mode, as Doom 3; missing terrain spec masks no longer light map edges (fixes #239)
@@ -163,6 +349,8 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 - #222 (openETQW-linux): OpenGL unbinds stale element and array buffers before client-pointer draws; fixes #218 and drops #221's glthread stopgap
 - #221 (openETQW-linux): Linux OpenGL turns off Mesa glthread (stopgap for #218's crash and GPU reset)
 - #220 (openETQW-mac): OpenGL decodes 3Dc (ATI1/ATI2) normal maps when the driver has no LATC; fixes macOS's part of #212
+
+2026-10-22/23:
 - #215 (part of #186): Vulkan ports retail's sfx/feAmbDecal and sfx/feAmbDecal_cloud, so the menu globe is lit by its ambient cube map, with night lights only on the dark side. Still brighter than retail, no visible terminator, atmosphere rim unchanged (#186 open). Combined run 2026-10-23 (as #202).
 - #213 (#159): all-stock-maps leaves area-0 samples inside a measured gap in retail's own AAS (salvage) out of aas_area_validity and reports them (owner: match retail). Combined run 2026-10-23 (as #202).
 - #210 (#208, #211): surfaces of equal sort draw in submission order (a stable merge sort, view entities first as the SDK does), so the menu's star field no longer covers the nebula; the game's sky-layer sortOffset is honoured. Combined run 2026-10-23 (as #202); smoke and vehicle glass were not in the sets.

@@ -199,7 +199,9 @@ def main(argv):
     finally:
         cl_code = cl.quit()
         code = srv.quit()
-        bad = h.scan_failures([l.text for l in srv.snapshot()] + [l.text for l in cl.snapshot()])
+        bad = h.scan_failures([l.text for l in srv.snapshot()] + [l.text for l in cl.snapshot()],
+                              # a bot-thread pacing warning fails only a failed run (#294)
+                              run_failed=bool(failures) or code != 0 or cl_code != 0)
         cl.cleanup()
         srv.cleanup()
     if bad or code != 0 or cl_code != 0:

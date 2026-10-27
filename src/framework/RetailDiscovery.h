@@ -67,6 +67,35 @@ namespace RetailDiscovery {
 	// the first line of a stored-path file, trimmed; false when there is none
 	bool	ReadStoredPath( const char *file, idStr &path );
 
+	// Linux's first-run folder picker (ledger 068): one helper program that can ask the
+	// player for a folder, with the arguments for each of its two dialogs
+	struct retailFolderChooser_t {
+		idStr		program;		// the executable's name, looked up on PATH
+		idStrList	messageArgs;	// the refusal dialog; the refusal text is the last argument
+		idStrList	folderArgs;		// the folder dialog
+	};
+
+	// Linux's folder-picker routes, in the order to try them: zenity, kdialog, yad
+	void	AppendLinuxFolderChoosers( idList< retailFolderChooser_t > &choosers );
+
+	// the path a chooser printed: its first line, trimmed; false when it is empty or not
+	// absolute (a helper that printed a message instead of a folder)
+	bool	ParseChooserOutput( const char *output, idStr &path );
+
+	// a finished helper's outcome, as the chooser sequence reads it
+	enum retailChooserResult_t {
+		CHOOSER_ABSENT,		// could not be started: try the next route
+		CHOOSER_CANCELLED,	// it ran and the player gave up: stop, store nothing
+		CHOOSER_PICKED		// it printed a folder
+	};
+
+	// The rule the sequence acts on, kept here so the unit test can pin it. exitCode is the
+	// helper's exit status: 127 when it could not be started, negative when a signal
+	// killed it. A helper that could not be started is ABSENT; one that was killed,
+	// exited non-zero, printed more than outputTruncated says the caller's buffer holds,
+	// or printed no folder is CANCELLED; otherwise the folder it printed is PICKED.
+	retailChooserResult_t ClassifyChooser( int exitCode, bool outputTruncated, const char *output, idStr &picked );
+
 	// probe the candidates in order; true and the root at the first match
 	bool	FindFirst( const idStrList &candidates, const char *source, idStr &root, idList<retailProbe_t> &probes );
 

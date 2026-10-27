@@ -134,7 +134,7 @@ def probe_map(binary: Path, data_path: Path, map_name: str, port: int, timeout: 
         "+spawnServer", map_name,
     ]
 
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         cmd,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,

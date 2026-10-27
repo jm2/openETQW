@@ -272,7 +272,7 @@ def run_live_mode_test(external_mode: int, duration_sec: float = 5.0) -> dict:
     ]
 
     start_time = time.time()
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         args,
         cwd=str(REPO_ROOT),
         stdin=subprocess.PIPE,

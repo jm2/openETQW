@@ -16,10 +16,35 @@ layout( location = 2 ) in float fragmentLighting;
 
 layout( location = 0 ) out vec4 outColor;
 
+// 1 in an opaque base pass: alpha is then the postprocess glow's weight, 0 as
+// retail's lit replace writes it, or 1 (the clear's) for an alpha-tested surface
+layout( constant_id = 0 ) const bool OPAQUE_BASE = false;
+
+// The 16x16 ordered-dither threshold of _diffusionMask (Image_init.cpp), 1/256..1.
+float DiffusionMask( ivec2 pixel ) {
+	int x = pixel.x & 15;
+	int xy = x ^ ( pixel.y & 15 );
+	int rank = ( ( xy & 1 ) << 7 ) | ( ( x & 1 ) << 6 ) | ( ( xy & 2 ) << 4 ) | ( ( x & 2 ) << 3 ) |
+		( ( xy & 4 ) << 1 ) | ( x & 4 ) | ( ( xy & 8 ) >> 2 ) | ( ( x & 8 ) >> 3 );
+	return float( min( 255, rank + 1 ) ) / 255.0;
+}
+
 void main() {
 	vec4 sampled = texture( ambientTexture, fragmentTexCoord );
 	if ( pc.parameters.w > 0.5 && sampled.a < pc.parameters.z ) {
 		discard;
 	}
+	if ( pc.parameters.w > 1.5 ) {
+		// stuff grass (#256): the vertex alpha is the instance's fade, discarded
+		// against the dither as retail's stuff/grass_alphatestcg does with $noiseMap
+		if ( fragmentColor.a < DiffusionMask( ivec2( gl_FragCoord.xy ) ) ) {
+			discard;
+		}
+		outColor = vec4( sampled.rgb * fragmentColor.rgb, OPAQUE_BASE ? 1.0 : sampled.a );
+		return;
+	}
 	outColor = sampled * fragmentColor;
+	if ( OPAQUE_BASE ) {
+		outColor.a = ( pc.parameters.w > 0.5 ? 1.0 : 0.0 );
+	}
 }

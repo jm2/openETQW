@@ -262,7 +262,7 @@ def run_adversarial_stress_suite():
     # Stage 1: Boot Dedicated Server on Valley
     # -------------------------------------------------------------
     print("[Stage 1] Booting authoritative dedicated server on Valley...")
-    server_proc = subprocess.Popen(
+    server_proc = h.spawn_engine(
         SERVER_ARGS,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -717,7 +717,7 @@ def test_capacity_overflow_crash():
     ]
 
     output_queue = queue.Queue()
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         crash_args,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
