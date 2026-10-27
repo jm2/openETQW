@@ -155,9 +155,11 @@ Each item names its acceptance test. Details are in the linked plan.
       skips the harness cleanup, so leftovers from one run poison the next; Windows
       prints "FATAL ERROR", not the POSIX "FATAL SIGNAL CAUGHT" the test greps for,
       so a hard crash shows only as an exit code (NTSTATUS). Both diagnostics are
-      implemented on `feat/win-harness-exit-diagnostics` (harness-only, no verdict
-      change): exit-status messages name the NTSTATUS or signal, and a pre-flight
-      refuses to spawn when the port is bound or a leftover `openETQW-ded` is alive.
+      implemented in PR #287, `tests/etqw_harness.py` only: exit-status messages
+      name the NTSTATUS or signal, and a pre-flight refuses to spawn when the port
+      is bound (by a process this run does not hold) or a leftover `openETQW-ded`
+      is alive. A refusal is a failure (exit 1), not a skip, and it names the port.
+      Test verdicts are otherwise unchanged.
       Merged as #283 (`6361385`) on 2026-10-25 with game `7fbdf80`; the five legs are
       Linux x64 (game `a5fdfaf`, older than the pin), Linux arm64, macOS arm64,
       Windows x64 and Windows arm64. `docs/platform-matrix.md` carries the two Windows

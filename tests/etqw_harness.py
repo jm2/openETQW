@@ -49,6 +49,11 @@ EXIT_FAIL = 1
 EXIT_SKIP = 77  # meson 'exitcode' protocol: 77 == SKIP
 
 
+# Coverage: this decode covers every process started through this module, because
+# quit() and kill() both return an ExitStatus.  A test that owns a bare
+# subprocess.Popen still formats the raw returncode itself; converting those is
+# issue #290, and this module does not claim them.
+#
 # Windows reports a crash as an NTSTATUS value above 0x7fffffff (Python keeps it
 # either signed or unsigned, depending on where the object was built).  Naming
 # the common ones keeps a failure message readable without changing the code's
@@ -70,7 +75,7 @@ def exit_status_text(code: Optional[int]) -> str:
     signal name added.  A normal (0 or positive) code is unchanged.
     """
     if code is None:
-        return "no exit code (the process did not exit)"
+        return "no exit code (the process never started, or has not exited)"
     value = int(code)
     if value == 0:
         return "0"
@@ -103,9 +108,9 @@ class ExitStatus(int):
     still compare the raw int, so no verdict changes.
     """
 
-    def __new__(cls, code: int):
+    def __new__(cls, code: int, text: Optional[str] = None):
         obj = int.__new__(cls, code)
-        obj.text = exit_status_text(code)
+        obj.text = text if text is not None else exit_status_text(code)
         return obj
 
     def __str__(self) -> str:
@@ -212,6 +217,111 @@ def _udp_port_error(port: int) -> Optional[OSError]:
         sock.close()
 
 
+def _windows_udp_port_owner(port: int) -> Optional[int]:
+    """PID from the IP Helper API's UDP owner table (Windows only)."""
+    import ctypes
+    from ctypes import wintypes
+
+    class MIB_UDPROW_OWNER_PID(ctypes.Structure):
+        _fields_ = [
+            ("dwLocalAddr", wintypes.DWORD),
+            ("dwLocalPort", wintypes.DWORD),
+            ("dwOwningPid", wintypes.DWORD),
+        ]
+
+    iphlpapi = ctypes.WinDLL("iphlpapi", use_last_error=True)
+    iphlpapi.GetExtendedUdpTable.argtypes = [
+        ctypes.c_void_p, ctypes.POINTER(wintypes.DWORD), wintypes.BOOL,
+        wintypes.DWORD, ctypes.c_int, wintypes.DWORD,
+    ]
+    iphlpapi.GetExtendedUdpTable.restype = wintypes.DWORD
+    AF_INET, UDP_TABLE_OWNER_PID = 2, 1
+    size = wintypes.DWORD(0)
+    iphlpapi.GetExtendedUdpTable(None, ctypes.byref(size), False, AF_INET,
+                                 UDP_TABLE_OWNER_PID, 0)
+    if size.value == 0:
+        return None
+    buffer = ctypes.create_string_buffer(size.value)
+    if iphlpapi.GetExtendedUdpTable(buffer, ctypes.byref(size), False, AF_INET,
+                                    UDP_TABLE_OWNER_PID, 0) != 0:
+        return None
+    base = ctypes.addressof(buffer)
+    count = ctypes.c_uint32.from_address(base).value
+    rows = (MIB_UDPROW_OWNER_PID * count).from_address(base + 4)
+    for row in rows:
+        # dwLocalPort holds the port in network byte order
+        local_port = ((row.dwLocalPort & 0xFF) << 8) | ((row.dwLocalPort >> 8) & 0xFF)
+        if local_port == port:
+            return int(row.dwOwningPid)
+    return None
+
+
+def _linux_udp_port_owner(port: int) -> Optional[int]:
+    """PID from /proc: the UDP socket inodes, then the fds that hold them."""
+    inodes: set[str] = set()
+    for table in ("/proc/net/udp", "/proc/net/udp6"):
+        try:
+            with open(table, encoding="ascii", errors="replace") as fh:
+                next(fh, None)
+                for line in fh:
+                    fields = line.split()
+                    if len(fields) < 10 or ":" not in fields[1]:
+                        continue
+                    try:
+                        local_port = int(fields[1].rsplit(":", 1)[1], 16)
+                    except ValueError:
+                        continue
+                    if local_port == port:
+                        inodes.add(fields[9])
+        except OSError:
+            continue
+    if not inodes:
+        return None
+    for name in os.listdir("/proc"):
+        if not name.isdigit():
+            continue
+        fd_dir = f"/proc/{name}/fd"
+        try:
+            fds = os.listdir(fd_dir)
+        except OSError:
+            continue
+        for fd in fds:
+            try:
+                target = os.readlink(f"{fd_dir}/{fd}")
+            except OSError:
+                continue
+            if target.startswith("socket:[") and target[8:-1] in inodes:
+                return int(name)
+    return None
+
+
+def _lsof_udp_port_owner(port: int) -> Optional[int]:
+    """PID from lsof, for platforms without /proc (macOS)."""
+    try:
+        out = subprocess.run(
+            ["lsof", "-nP", f"-iUDP:{port}", "-F", "p"], text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for line in out.stdout.splitlines():
+        if line.startswith("p") and line[1:].isdigit():
+            return int(line[1:])
+    return None
+
+
+def _udp_port_owner(port: int) -> Optional[int]:
+    """PID holding a bound UDP port, or None when the platform cannot say.
+
+    None never switches the check off: check_startup_ready still refuses an
+    unattributable port, so this only decides whether the holder is this run.
+    """
+    if os.name == "nt":
+        return _windows_udp_port_owner(port)
+    if sys.platform.startswith("linux"):
+        return _linux_udp_port_owner(port)
+    return _lsof_udp_port_owner(port)
+
+
 def _live_own_pids() -> set[int]:
     """PIDs of processes this test run started through this module."""
     with _LIVE_PROCS_LOCK:
@@ -300,10 +410,16 @@ def check_startup_ready(port: int) -> None:
             )
     error = _udp_port_error(port)
     if error is not None:
+        # mirror the process check above: a socket this run holds is not a squatter
+        owner = _udp_port_owner(port)
+        if owner is not None and owner in _live_own_pids():
+            return
+        holder = (f"pid {owner}" if owner is not None
+                  else "a process this platform cannot attribute")
         raise PreflightError(
             f"refusing to start on net_port {port}: UDP port {port} is already "
-            f"bound ({error}). A leftover test process or another program holds "
-            f"it; free the port before running the test."
+            f"bound ({error}); it is held by {holder}. A leftover test process "
+            f"or another program holds it; free the port before running the test."
         )
 
 
@@ -875,7 +991,12 @@ class DedicatedServer:
         self._reader.start()
 
     def preflight(self) -> None:
-        check_startup_ready(self.port)
+        try:
+            check_startup_ready(self.port)
+        except PreflightError as exc:
+            # one line a log scan can find before the traceback names the test
+            print(f"PREFLIGHT: {exc}", file=sys.stderr, flush=True)
+            raise
 
     def alive(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
@@ -946,9 +1067,12 @@ class DedicatedServer:
             return list(self.lines[start:end])
 
     def quit(self, timeout: float = 45.0) -> Optional[int]:
-        """Send 'quit' and wait for exit. Returns the exit code, or None if
-        the process had to be killed. The code is an ExitStatus: an int that
-        formats its NTSTATUS/signal meaning in failure messages."""
+        """Send 'quit' and wait for exit. Returns the exit code, or None when
+        the process was never started. The code is an ExitStatus: an int that
+        formats its NTSTATUS/signal meaning in failure messages. A process
+        that had to be killed after the timeout returns its status with the
+        reason in the text, so it no longer reads like a server that never
+        started."""
         if self.proc is None:
             return None
         if self.proc.poll() is None:
@@ -956,18 +1080,30 @@ class DedicatedServer:
             try:
                 self.proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
-                self.kill()
-                return None
+                return self.kill(f"killed after the 'quit' timeout of {timeout:.0f} s")
         if self._reader:
             self._reader.join(timeout=5.0)
-        code = self.proc.returncode
-        if code is not None and not isinstance(code, ExitStatus):
+        return self._exit_status()
+
+    def _exit_status(self) -> Optional[ExitStatus]:
+        """The process status as an ExitStatus, or None when there is none."""
+        code = self.proc.returncode if self.proc is not None else None
+        if code is None:
+            return None
+        if not isinstance(code, ExitStatus):
             code = ExitStatus(code)
             self.proc.returncode = code
         return code
 
-    def kill(self) -> None:
-        if self.proc is not None and self.proc.poll() is None:
+    def kill(self, reason: str = "killed") -> Optional[ExitStatus]:
+        """Kill the process and return its exit status (None if never started).
+
+        The reason goes into the status text when this call did the killing,
+        so a timeout kill says why it happened."""
+        if self.proc is None:
+            return None
+        killed = self.proc.poll() is None
+        if killed:
             try:
                 self.proc.kill()
                 self.proc.wait(timeout=5.0)
@@ -975,6 +1111,11 @@ class DedicatedServer:
                 pass
         if self._reader:
             self._reader.join(timeout=5.0)
+        status = self._exit_status()
+        if status is not None and killed:
+            status = ExitStatus(int(status), f"{exit_status_text(int(status))}; {reason}")
+            self.proc.returncode = status
+        return status
 
     def cleanup(self) -> None:
         self.kill()
