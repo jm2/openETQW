@@ -6,7 +6,7 @@
     "Doom3_GPL": 309,
     "ThirdParty": 3436,
     "Reconstruction_retail_RE": 65,
-    "Reconstruction_original": 397
+    "Reconstruction_original": 394
   },
   "postSplitCounts": {
     "Reconstruction_original": 279,
@@ -47700,9 +47700,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "e716e634e472355641098b60d067729170653d731628923362816c254ee24a20",
-      "canonicalSha256": "e716e634e472355641098b60d067729170653d731628923362816c254ee24a20",
-      "bytes": 1912,
+      "rawSha256": "27fd44dbeac3efefffcf19120aa56ef4afeb4963486acb17d5763cb6ca39ab30",
+      "canonicalSha256": "27fd44dbeac3efefffcf19120aa56ef4afeb4963486acb17d5763cb6ca39ab30",
+      "bytes": 2116,
       "addedAfterSplit": true,
       "addedIn": "3aad0094096d4512161114496a49b0963ce9de47",
       "spdx": null

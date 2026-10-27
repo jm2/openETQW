@@ -3264,8 +3264,10 @@ static void R_AddImposterCard( viewEntity_s* entitySpace, const sdDeclImposter* 
 		vert.SetBiTangent( up );
 		vert.SetColor( 0xFFFFFFFF );
 	}
-	// the same winding as the models' triangles: GL's front-sided materials cull
-	// GL_FRONT, and the countdown goes the other way round
+	// TL, BR, BL then TL, TR, BR: clockwise on screen, the orientation the
+	// front-sided materials keep, because GL_Cull( CT_FRONT_SIDED ) draws with
+	// glCullFace( GL_FRONT ).  Wound the other way the quad is issued and then
+	// culled entirely, which is why the OpenGL cards drew nothing.
 	tri->indexes[ 0 ] = 0;
 	tri->indexes[ 1 ] = 2;
 	tri->indexes[ 2 ] = 3;
