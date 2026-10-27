@@ -287,7 +287,7 @@ def run_valley_match_test():
     # Phase 1: Boot Authoritative Dedicated Server on Valley
     # -------------------------------------------------------------
     print("[Phase 1] Spawning dedicated server hosting 'valley'...")
-    server_proc = subprocess.Popen(
+    server_proc = h.spawn_engine(
         SERVER_ARGS,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,

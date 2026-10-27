@@ -113,7 +113,7 @@ def run_instance(
     ]
 
     start_time = time.time()
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         args,
         cwd=str(REPO_ROOT),
         stdin=subprocess.PIPE,

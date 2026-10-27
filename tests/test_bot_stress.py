@@ -114,7 +114,7 @@ def launch_server(port: int, extra_cvars=None):
     args.extend(["+spawnServer", "valley"])
 
     output_queue = queue.Queue()
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         args,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,

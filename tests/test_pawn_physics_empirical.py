@@ -202,7 +202,7 @@ def test_phase3_live_cvar_probes():
         "+spawnServer", "valley"
     ]
 
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         args,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -263,7 +263,7 @@ def test_phase4_pawn_spawn_and_ground_contact():
     out_q = queue.Queue()
 
     print("[1] Spawning dedicated server on Valley...")
-    server_proc = subprocess.Popen(
+    server_proc = h.spawn_engine(
         server_args,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -291,7 +291,7 @@ def test_phase4_pawn_spawn_and_ground_contact():
     assert server_ready, "Server failed to initialize Valley in 60s"
 
     print("[2] Spawning loopback client...")
-    client_proc = subprocess.Popen(
+    client_proc = h.spawn_engine(
         client_args,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,

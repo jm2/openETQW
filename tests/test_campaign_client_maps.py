@@ -78,7 +78,7 @@ def run_map(client, data, map_name, render_seconds, log_path, team="gdf", at=Non
             "+devmap", map_name, "+clientTeam", team, "+clientClass", "soldier", "+closeLimbo"]
     lines = []
     q = queue.Queue()
-    proc = subprocess.Popen(args, cwd=str(REPO_ROOT), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+    proc = h.spawn_engine(args, cwd=str(REPO_ROOT), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, text=True, bufsize=1, errors="replace")
 
     def reader():

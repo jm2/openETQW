@@ -226,7 +226,7 @@ def run_multiclient_test():
 
     # 1. Start Server
     print("[1] Spawning authoritative dedicated server on Valley...")
-    server_proc = subprocess.Popen(
+    server_proc = h.spawn_engine(
         SERVER_ARGS,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -270,7 +270,7 @@ def run_multiclient_test():
     print("\n[2] Dedicated server active on Valley! Spawning Client 1 (GDF_Soldier)...")
 
     # 2. Start Client 1
-    client1_proc = subprocess.Popen(
+    client1_proc = h.spawn_engine(
         CLIENT1_ARGS,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -312,7 +312,7 @@ def run_multiclient_test():
     print("\n[3] Spawning Client 2 (Strogg_Soldier)...")
 
     # 3. Start Client 2
-    client2_proc = subprocess.Popen(
+    client2_proc = h.spawn_engine(
         CLIENT2_ARGS,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,

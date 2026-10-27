@@ -108,7 +108,7 @@ def launch_client(extra_args: list[str]) -> tuple[subprocess.Popen, queue.Queue[
         "+closeLimbo",
     ] + extra_args
 
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         args,
         cwd=str(REPO_ROOT),
         stdin=subprocess.PIPE,

@@ -119,7 +119,7 @@ def launch_dedicated_server(port, desc=""):
         "+spawnServer", "valley"
     ]
 
-    proc = subprocess.Popen(
+    proc = h.spawn_engine(
         server_args,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
