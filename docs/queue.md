@@ -53,10 +53,7 @@ filed. Before that, 2026-10-18, after a pass over every doc.
 
 ## 1. Open PRs, in merge order
 
-| # | State | What |
-|---|---|---|
-| [#287](https://github.com/jm2/openETQW/pull/287) | open, no review yet | Test harness only: a Windows child's exit status is decoded into something readable (NTSTATUS, exception code) instead of a generic non-zero, and a fixed-port test pre-flights its port and any leftover `ded` before it starts. Addresses #288 and #289; the residual in #290 (27 test files spawn with bare `Popen`) is not in this PR. Owner-requested; nothing in it changes a test's assertions. |
-
+None (last merged: #287 at `ce40c41`).
 Closed 2026-10-26 as superseded by #301, on the owner's word: [#282](https://github.com/jm2/openETQW/pull/282) (earlier re-cut: the same seven binaries, no framework, and it prunes manifest rows) and [#281](https://github.com/jm2/openETQW/pull/281) (the original branch). Their branches stay; #301 is the PR that carries the deletion.
 
 ## 2. Open issues, in priority order
