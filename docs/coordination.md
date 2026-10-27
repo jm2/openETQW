@@ -329,10 +329,17 @@ without a desktop. On `macmini-m1`, add `--timeout-multiplier 3` to `meson test`
   ln -sfn $W/game $W/openETQW-game     # the engine's meson finds ../openETQW-game
   (cd $W/game && meson setup build -Duse_pch=false && ninja -C build)
   cd $W/engine && meson setup build -Duse_pch=false -Dplatform_backend=sdl3 \
+    -Dbuildtype=debugoptimized \
     -Dbuild_engine=true -Dbuild_dedicated=true -Dbuild_games=true -Dbuild_tests=true && ninja -C build
   ln -sfn ../../openETQW-game/build/game_x64.so build/game_x64.so
   ```
   Without the four `-Dbuild_*` options the engine configures, but no binaries are built.
+  `-Dbuildtype=debugoptimized` is not optional. Meson's default in this tree is
+  `buildtype=debug` (`optimization 0`), and a `-O0` client does about 2.5x the frame work of an
+  `-O2` one on the same GPU (9.2 ms against 3.9 ms `work_p50` on the RX 6400, #302). A pass/fail
+  from a `debug` tree is still valid; a frame-timing, GUI-rate or frame-pacing number from one is
+  not, and perf work must name the build directory it came from (`build/` on `antec` is `debug`;
+  `builddir-validate-pr` is `debugoptimized`).
   Remove the worktrees afterwards: `git worktree remove --force …`, then `git worktree prune`.
 - Full retail suite in that tree (66 tests, about 65 minutes on 2026-10-09):
   `SDL_VIDEO_DRIVER=offscreen ETQW_DATA_PATH=$HOME/etqw_data TMPDIR=/var/tmp meson test -C build -j 1 --no-rebuild --logbase <name>`.
