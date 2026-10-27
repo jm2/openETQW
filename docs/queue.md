@@ -105,7 +105,7 @@ Each item names its acceptance test. Details are in the linked plan.
    59 / 17 / 1 (software raster only, no GPU evidence). M7 stays open until the macOS
    leg's owner decision and each platform's session has checked its own row. The #292
    failures are fixed in `51f7449`; the M7 pacing failures were host load and pass on
-   quiet reruns (#293 closed); open are #299 (Linux x64), #294 and the Windows arm64
+   quiet reruns (#293 closed); open are #299 and #302 (Linux x64 frame work), #294 and the Windows arm64
    environment items.
 7. **Release gate 5, third-party binaries:** in [#301](https://github.com/jm2/openETQW/pull/301) —
    the seven unreferenced Windows binaries (`openal32.lib`, both `eaxguid.lib`, zlib's four
