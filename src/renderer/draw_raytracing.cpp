@@ -1,6 +1,6 @@
 // Copyright (C) 2007 Id Software, Inc.
 //
-// Hardware ray-query lighting for the x64 Vulkan renderer.  This translation
+// Hardware ray-query lighting for the Vulkan renderer.  This translation
 // unit deliberately owns capability policy, acceleration structures,
 // descriptors, and dispatch.  VulkanBackend.cpp only supplies live ETQW
 // geometry handles and the current framebuffer.
@@ -16,6 +16,12 @@
 
 namespace {
 
+// Windows builds have shipped this path on by default since it was written, so
+// they keep that default; _WIN64 covers both x64 and arm64, and arm64 devices
+// that cannot ray trace fall back below.  Everywhere else the path has not been
+// exercised, so it stays off and is opt-in through r_rayTracing; when it is
+// requested the device capability check in R_RayTracingConfigureDevice decides,
+// and a device without ray query falls back to rasterization with one log line.
 #if defined( _WIN64 )
 const char* RAY_TRACING_DEFAULT = "1";
 #else
@@ -681,11 +687,7 @@ sdRayTracingDeviceConfiguration::sdRayTracingDeviceConfiguration() {
 }
 
 bool R_RayTracingRequested() {
-#if defined( _WIN64 )
 	return r_rayTracing.GetBool();
-#else
-	return false;
-#endif
 }
 
 void R_RayTracingResetBackendSelection() {
@@ -728,10 +730,13 @@ bool R_RayTracingConfigureDevice(
 		reason = "could not read Vulkan device extensions";
 		return false;
 	}
+	// Ray query is reported first: the other two are its Vulkan dependencies, so
+	// a device without ray query would otherwise be told it lacks deferred host
+	// operations, which reads as an unrelated capability problem.
 	const char* requiredExtensions[ 3 ] = {
-		VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+		VK_KHR_RAY_QUERY_EXTENSION_NAME,
 		VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
-		VK_KHR_RAY_QUERY_EXTENSION_NAME
+		VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME
 	};
 	for ( int extensionIndex = 0; extensionIndex < 3; ++extensionIndex ) {
 		if ( !HasExtension( extensions, requiredExtensions[ extensionIndex ] ) ) {
@@ -1014,9 +1019,6 @@ bool CreateDepthSampler( sdRayTracingState& state ) {
 
 bool R_RayTracingInit( const sdRayTracingVulkanContext& context ) {
 	R_RayTracingShutdown();
-#if !defined( _WIN64 )
-	return false;
-#endif
 	if ( !R_RayTracingRequested() || context.device == VK_NULL_HANDLE ||
 		context.physicalDevice == VK_NULL_HANDLE ||
 		context.GetDeviceProcAddr == NULL || context.frameCount == 0 ||
