@@ -113,6 +113,14 @@ SPAWNED_RE = re.compile(r"PLAYER_POS:.*spectating 0")
 SHOT_RE = re.compile(r"r_vkScreenshot: (wrote|could not|the swapchain|swapchain format)")
 SIZE_RE = re.compile(r"r_vkScreenshot: wrote (\d+)x(\d+)")
 SHRUNK_RE = re.compile(r"window: \d+x\d+ does not fit the primary display; using \d+x\d+")
+# FRAME_POSE is the game's per-draw line: view=x,y,z,pitch,yaw,roll of the view that frame was
+# drawn with (openETQW-game src/game/PlayerView.cpp). It is what proves a capture is the view
+# that was asked for rather than the limbo/guided camera or an older view.
+FRAME_POSE_RE = re.compile(
+    r"FRAME_POSE:.*? view=(-?[\d.]+),(-?[\d.]+),(-?[\d.]+),(-?[\d.]+),(-?[\d.]+),(-?[\d.]+)")
+VIEW_MATCH_XY = 2.0        # units; setviewpos puts the eye exactly on the commanded x/y
+VIEW_MATCH_ANGLE = 0.5     # degrees; the drawn angles are the commanded ones
+VIEW_MATCH_TIMEOUT = 5.0   # seconds to wait for a matching draw after the settle
 
 
 def find_client(explicit: str | None) -> Path:
@@ -154,6 +162,7 @@ class Client:
             self.log.close()
             raise RuntimeError(f"cannot start the client: {e}") from e
         self.lines: "queue.Queue[str | None]" = queue.Queue()
+        self.last_pose: "tuple[float, ...] | None" = None
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
 
@@ -181,10 +190,32 @@ class Client:
                 continue
             if line is None:
                 return None
+            pose = FRAME_POSE_RE.search(line)
+            if pose:
+                self.last_pose = tuple(float(group) for group in pose.groups())
             result = predicate(line)
             if result:
                 return result
         return None
+
+    def wait_view(self, x: float, y: float, yaw: float, pitch: float, timeout: float) -> bool:
+        """True once a FRAME_POSE shows the client drawing the commanded view.
+
+        z is deliberately not compared: setviewpos puts the eye at the anchor's z and the
+        player then settles onto the ground, so the drawn z is legitimately lower. A frame
+        from any other view (the limbo/guided camera, or a view the console never reached)
+        does not match, and the caller must not capture it.
+        """
+        def drawn(line):
+            # only a FRAME_POSE says what was drawn: without this, a later console echo
+            # would re-test the previous pose and could match before the client redraws
+            if not FRAME_POSE_RE.search(line) or self.last_pose is None:
+                return False
+            pose = self.last_pose
+            dyaw = (pose[4] - yaw + 180.0) % 360.0 - 180.0
+            return (abs(pose[0] - x) <= VIEW_MATCH_XY and abs(pose[1] - y) <= VIEW_MATCH_XY
+                    and abs(pose[3] - pitch) <= VIEW_MATCH_ANGLE and abs(dyaw) <= VIEW_MATCH_ANGLE)
+        return self.wait_for(drawn, timeout) is not None
 
     def close(self):
         self.send("quit")
@@ -216,7 +247,9 @@ def capture_map(client_bin: Path, workdir: Path, data: Path, out: Path, map_name
             # changed default cannot change the captures
             "+set", "r_renderAPI", "vulkan", "+set", "r_fullscreen", "0", "+set", "r_mode", "12",
             "+set", "r_multiSamples", "0", "+set", "r_vkValidation", "0", "+set", "r_rayTracing", rt,
-            "+set", "com_logFrameTiming", "1", "+set", "g_logFramePoses", "0"]
+            # the per-draw view: capture_map refuses to shoot a frame that is not the one it
+            # asked for, and this line is the only place that says which view was drawn
+            "+set", "com_logFrameTiming", "1", "+set", "g_logFramePoses", "1"]
     for i in range(0, len(extra), 2):
         args += ["+set", extra[i], extra[i + 1]]
     args += ["+devmap", map_name, "+clientTeam", team, "+clientClass", cls, "+closeLimbo"]
@@ -232,8 +265,10 @@ def capture_map(client_bin: Path, workdir: Path, data: Path, out: Path, map_name
                 break
         else:
             raise RuntimeError(f"{tag}: the player never spawned")
-        time.sleep(settle)
+        # god before the settle: the spawn can still be falling, and a death in that window
+        # leaves the client in limbo, where setviewpos moves a player nobody is looking through
         client.send("god")
+        time.sleep(settle)
         if map_name in anchors:
             x, y, z, yaw = anchors[map_name]
             spawn = (x, y, z, yaw, 0.0)
@@ -256,6 +291,12 @@ def capture_map(client_bin: Path, workdir: Path, data: Path, out: Path, map_name
             # setviewpos takes the eye position; it subtracts the view height itself
             client.send(f"setviewpos {x:.2f} {y:.2f} {z:.2f} {yaw:.2f} {pitch:.2f} 0")
             time.sleep(settle)
+            if not client.wait_view(x, y, yaw, pitch, VIEW_MATCH_TIMEOUT):
+                raise RuntimeError(
+                    f"{tag}_{name}: the client is not drawing the commanded view "
+                    f"({x:.2f},{y:.2f} yaw {yaw:.2f} pitch {pitch:.2f}); last FRAME_POSE view "
+                    f"{client.last_pose}. Shooting it would capture some other view (a limbo "
+                    f"camera, or a command the console never reached)")
             path = out / f"{tag}_{name}.tga"
             if path.exists():
                 path.unlink()
