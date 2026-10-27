@@ -126,19 +126,21 @@ Each item names its acceptance test. Details are in the linked plan.
    name=Apple M1 Max headless=false` (2026-10-26), so that leg waits on allowlisting the
    suite probe, not on a decision, and the 59/17/1 software-raster row is what it replaces. The #292
    failures are fixed in `51f7449`; the M7 pacing failures were host load and pass on
-   quiet reruns (#293 closed); #299 was closed as a measurement artifact — `test_client_network.py:62` turned on the
-   Khronos validation layer (the `client-network-*` tests now start with `r_vkValidation 0`) and the perf tree `build/` was `buildtype=debug` (`-O0`) — so the 30-35 GUI/s
-   was neither the product nor a reason to move the 40/s floor (closed 2026-10-26 with no test or
-   floor change). #302 is measured: layer off and both
-   sides `debugoptimized`, Linux 240 GUI/s / `work_p50` 3.9-4.0 ms against Windows raster 232/s at cap
-   240 / 2.6 ms, same draw mix, so a ~1.5x frame-work residual survives and fails nothing. Left: a
-   `-O2` profile of the frame body on both sides, and #306 (Linux and macOS have no ray-query path,
-   Windows defaults to it), which no test change addresses either way. Any perf row in this register
-   must name its build directory: `build/` on antec is `buildtype=debug`. #294 (the Windows arm64 BotThread marker) is an
-   owner decision in §4, and the
-   rest of the Windows arm64 failures are environment. Linux arm64 has since been re-run at `527c1ef` (post-merge, `-O2`, real GPU):
-   76 OK / 0 FAIL / 1 SKIP, the skip `cross-os`. That is a separate row in `platform-matrix.md`
-   and does not close the M7 arm64 row at `0a44150`.
+   quiet reruns (#293 closed); #299 was closed as a measurement artifact —
+   `test_client_network.py:62` turned on the Khronos validation layer (the
+   `client-network-*` tests now start with `r_vkValidation 0`) and the perf tree `build/`
+   was `buildtype=debug` (`-O0`) — so the 30-35 GUI/s was neither the product nor a reason
+   to move the 40/s floor (closed 2026-10-26 with no test or floor change). #302 is
+   measured: layer off and both sides `debugoptimized`, Linux 240 GUI/s / `work_p50`
+   3.9-4.0 ms against Windows raster 232/s at cap 240 / 2.6 ms, same draw mix, so a ~1.5x
+   frame-work residual survives and fails nothing. Left: a `-O2` profile of the frame body
+   on both sides, and #306 (Linux and macOS have no ray-query path, Windows defaults to
+   it), which no test change addresses either way. Any perf row in this register must name
+   its build directory: `build/` on antec is `buildtype=debug`. #294 (the Windows arm64
+   BotThread marker) is an owner decision in §4, and the rest of the Windows arm64
+   failures are environment. Linux arm64 has since been re-run at `527c1ef` (post-merge,
+   `-O2`, real GPU): 76 OK / 0 FAIL / 1 SKIP, the skip `cross-os`. That is a separate row
+   in `platform-matrix.md` and does not close the M7 arm64 row at `0a44150`.
 7. **Release gate 5, third-party binaries:** done, merged as `493bed2` (#301, the re-cut of
    #282/#281) — the seven unreferenced Windows binaries (`openal32.lib`, both `eaxguid.lib`,
    zlib's four `contrib/masmx*/*.obj`) and the PowerPC `src/openal/osx/OpenAL.framework`
