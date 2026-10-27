@@ -206,8 +206,10 @@ class Client:
         from any other view (the limbo/guided camera, or a view the console never reached)
         does not match, and the caller must not capture it.
         """
-        def drawn(_line):
-            if self.last_pose is None:
+        def drawn(line):
+            # only a FRAME_POSE says what was drawn: without this, a later console echo
+            # would re-test the previous pose and could match before the client redraws
+            if not FRAME_POSE_RE.search(line) or self.last_pose is None:
                 return False
             pose = self.last_pose
             dyaw = (pose[4] - yaw + 180.0) % 360.0 - 180.0
