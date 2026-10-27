@@ -17,11 +17,12 @@ including Switchworks or DeepSeek ones, can resume from this file and `main` alo
   a per-instance distance cull for OpenGL and ray tracing, and is part of the deferred #246
   feature, so leave it until the owner reopens #246. Every other non-`main` branch in both
   repositories is older and either merged or abandoned; don't resume from it.
-- **Superseded in part, 2026-10-26:** one PR is open ([#287](https://github.com/jm2/openETQW/pull/287), §1) and §2
-  now lists eleven issues in nine rows; the tree state below is otherwise as described.
+- **Superseded in part, 2026-10-27:** #287 is merged (§5) and §1 is empty; §2 lists eleven issues in
+  nine rows; the tree state below is otherwise as described.
 - **Next work, in order:**
   1. the combined run below — its retail suite has been run once as the M7 register run but
-     no leg of it is a clean pass, and what is left is a fresh pass at current `main` plus the
+     no leg of it is a clean pass; what is left is a fresh pass on the remaining four platforms
+     (Linux arm64 is done at `527c1ef`, `docs/platform-matrix.md` § Post-merge legs) plus the
      screenshot sets;
   2. #197, the owner's check;
   3. §3's milestone items.
@@ -40,9 +41,9 @@ including Switchworks or DeepSeek ones, can resume from this file and `main` alo
   4. push, wait about 5 s, then `gh pr merge N --merge --match-head-commit <head>`;
   5. delete the branch.
 
-**Outstanding gate work: the combined run.** Owner, 2026-10-23: full retail suites and screenshot sets wait for one combined run at the tail end, so the kisakcod sessions keep priority on shared hosts. The retail suite has been run: the five-platform 77-test run behind `docs/platform-matrix.md` (§3 item 6) is that run, made at engine `0a44150` / game `7fbdf80`, and **none of its five legs is a clean pass** (6, 3, 5, 32 and 17 failures), each attributed row by row. Still outstanding, and not implied by it: the **screenshot sets from all five platforms** (never taken), and a **fresh suite at current `main`** — `main` has carried source and test changes since `0a44150` (#292 `51f7449`, #297, #301), so the M7 rows are evidence for `0a44150` only. Per-platform legs at current `main` are the next runs; file an issue for any regression.
+**Outstanding gate work: the combined run.** Owner, 2026-10-23: full retail suites and screenshot sets wait for one combined run at the tail end, so the kisakcod sessions keep priority on shared hosts. The retail suite has been run: the five-platform 77-test run behind `docs/platform-matrix.md` (§3 item 6) is that run, made at engine `0a44150` / game `7fbdf80`, and **none of its five legs is a clean pass** (6, 3, 5, 32 and 17 failures), each attributed row by row. Still outstanding, and not implied by it: the **screenshot sets from all five platforms** (never taken), and a **fresh suite at current `main`** — `main` has carried source and test changes since `0a44150` (#292 `51f7449`, #297, #301), so the M7 rows are evidence for `0a44150` only. Per-platform legs at current `main` are the next runs — Linux arm64 has been done at `527c1ef` (76 / 0 / 1, `docs/platform-matrix.md` § Post-merge legs); file an issue for any regression.
 
-Updated: 2026-10-27 by `openETQW-linux` (coordinator): #301, #297, #303, #304, #307 and #287 merged (§5), so `main` is `ce40c41`; §1 is empty; §2 lists the eleven open issues in nine rows; §3 items 4, 6 and 7 updated; §4 gains the BotThread-marker rule (#294); the combined run and screenshot work re-stated at the top.
+Updated: 2026-10-27 by `openETQW-linux` (coordinator): #301, #297, #303, #304, #307 and #287 merged (§5), so `main` is `ce40c41`; §1 is empty; §2 lists the eleven open issues in nine rows; §3 item 6 updated; §5 gains the 2026-10-27 entries; the combined run and screenshot work re-stated at the top.
 Updated: 2026-10-25 by `openETQW-linux` (coordinator): §1 empty; §2 is #197 and #246 (#270 fixed by #275); #220–#276 in §5, #268 added.
 Updated: 2026-10-23 by `openETQW-linux` (coordinator): the combined run merged #202, #204, #206, #207, #210, #213 and #215 (§5). Earlier: #180 (merged 2026-10-22), #198, #199 and #200 are in §5; M4's last item is done.
 Updated: 2026-10-22 by `openETQW-linux` (coordinator): the game #51 row with the Linux arm64
