@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5554,
+  "totalFiles": 5555,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 394
   },
   "postSplitCounts": {
-    "Reconstruction_original": 275,
+    "Reconstruction_original": 276,
     "ThirdParty": 1,
     "Doom3_GPL": 2,
     "SDK": 2
@@ -49307,6 +49307,18 @@
       "bytes": 6042,
       "addedAfterSplit": true,
       "addedIn": "b4d1bae31d5ce88b70e62c2ffb86e372f1c12391",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
+      "path": "tests/test_harness_failure_markers.py",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "5360f74a86ec14c02986ee3d130b17ae8ac8ad905c0c2b001e096587a66f05c0",
+      "canonicalSha256": "5360f74a86ec14c02986ee3d130b17ae8ac8ad905c0c2b001e096587a66f05c0",
+      "bytes": 7497,
+      "addedAfterSplit": true,
+      "addedIn": "c98004002df248ee7695299768ac2b603d1a0517",
       "spdx": "GPL-3.0-or-later"
     },
     {
