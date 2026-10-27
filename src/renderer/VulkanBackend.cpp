@@ -449,7 +449,7 @@ typedef sdHashMapGeneric< const void*, int, sdHashCompareDefault,
 	sdVulkanPointerHash > sdVulkanResourceLookup;
 
 void AppendRayTracingInstances( idList< sdRayTracingGeometry >& destination,
-	const sdRayTracingGeometry& source, const viewEntity_s* space ) {
+	const sdRayTracingGeometry& source, const viewEntity_s* space, const viewDef_s* view ) {
 	if ( space == NULL || space->numInsts <= 0 || space->insts == NULL ) {
 		destination.Append( source );
 		return;
@@ -457,6 +457,12 @@ void AppendRayTracingInstances( idList< sdRayTracingGeometry >& destination,
 	for ( int instanceIndex = 0; instanceIndex < space->numInsts;
 		++instanceIndex ) {
 		const sdInstInfo& instance = space->insts[ instanceIndex ];
+		// The raster paths' per-instance maxVisDist cut, so a tree the view no
+		// longer draws doesn't still shadow or reflect (#246).
+		if ( !R_DistanceVisibility( instance.fadeOrigin, idMath::Ftoi( instance.maxVisDist ),
+			idMath::Ftoi( instance.minVisDist ), view ) ) {
+			continue;
+		}
 		sdRayTracingGeometry geometry = source;
 		geometry.transform[ 0 ] = instance.inst.axis[ 0 ].x;
 		geometry.transform[ 1 ] = instance.inst.axis[ 1 ].x;
@@ -11815,7 +11821,7 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			geometry.transform[ 10 ] = modelMatrix[ 10 ];
 			geometry.transform[ 11 ] = modelMatrix[ 14 ];
 			AppendRayTracingInstances( rayTracingGeometries, geometry,
-				rayTracingSurface->space );
+				rayTracingSurface->space, view );
 		}
 		state->worldResourceReady++;
 		VkDescriptorSet materialDescriptorSet = VK_NULL_HANDLE;
@@ -11918,7 +11924,7 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			geometry.normal[ 2 ] = worldWaterNormal.z;
 			geometry.normal[ 3 ] = 0.0f;
 			AppendRayTracingInstances( rayTracingWaterGeometries, geometry,
-				rayTracingSurface->space );
+				rayTracingSurface->space, view );
 		}
 		VkDescriptorSet heatHazeDescriptorSet = VK_NULL_HANDLE;
 		const bool heatHazeTexturesAvailable = selectedHeatHazeStage &&
