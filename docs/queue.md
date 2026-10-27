@@ -119,7 +119,10 @@ Each item names its acceptance test. Details are in the linked plan.
    sandbox tests pass when re-run with `mkdtemp` replaced by `os.makedirs`, tests
    unmodified, and the twelfth `all-stock-maps` is #294), macOS arm64
    59 / 17 / 1 (software raster only, no GPU evidence). M7 stays open until the macOS
-   leg's owner decision and each platform's session has checked its own row. The #292
+   leg is re-run and each platform's session has checked its own row: the owner's GPU
+   broker is live on mbp16-m1max and `gpu-run metal-probe` returns `metal-device: OK
+   name=Apple M1 Max headless=false` (2026-10-26), so that leg waits on allowlisting the
+   suite probe, not on a decision, and the 59/17/1 software-raster row is what it replaces. The #292
    failures are fixed in `51f7449`; the M7 pacing failures were host load and pass on
    quiet reruns (#293 closed); the Linux x64 GUI-rate floor (#299) is the Khronos validation
    layer that `test_client_network.py` turns on — Linux 33 GUI/s with it and 108 without, on
