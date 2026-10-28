@@ -3158,10 +3158,10 @@ R_AddImposterCard
 
 #315.  One instance past its maxVisDist draws the imposter declaration's card
 where the model no longer is: a billboard sized from the decl's scalex/scaley,
-offset by its origin, textured with the sub-image for the view angle.  Retail's
-card shader is a Cg program (imposters/lit) that is not ported (ledger 077), so
-the card goes through the ordinary world material pipeline with the decl's
-material.
+offset by its origin, textured with the sub-image for the view angle.  The
+decl's material names retail's Cg program imposters/lit; base/glprogs carries
+our ARB port of it (#315), so on OpenGL the card draws through the ordinary
+world material pipeline instead of being skipped as unported Cg (ledger 077).
 =================
 */
 static void R_AddImposterCard( viewEntity_s* entitySpace, const sdDeclImposter* imposter,
@@ -3264,12 +3264,16 @@ static void R_AddImposterCard( viewEntity_s* entitySpace, const sdDeclImposter* 
 		vert.SetBiTangent( up );
 		vert.SetColor( 0xFFFFFFFF );
 	}
-	tri->indexes[ 0 ] = 3;
+	// TL, BR, BL then TL, TR, BR: clockwise on screen, the orientation the
+	// front-sided materials keep, because GL_Cull( CT_FRONT_SIDED ) draws with
+	// glCullFace( GL_FRONT ).  Wound the other way the quad is issued and then
+	// culled entirely, which is why the OpenGL cards drew nothing.
+	tri->indexes[ 0 ] = 0;
 	tri->indexes[ 1 ] = 2;
-	tri->indexes[ 2 ] = 0;
-	tri->indexes[ 3 ] = 2;
+	tri->indexes[ 2 ] = 3;
+	tri->indexes[ 3 ] = 0;
 	tri->indexes[ 4 ] = 1;
-	tri->indexes[ 5 ] = 0;
+	tri->indexes[ 5 ] = 2;
 	tri->ambientCache = vertexCache.AllocFrameTemp( tri->verts,
 		tri->numVerts * sizeof( tri->verts[ 0 ] ) );
 	tri->indexCache = vertexCache.AllocFrameTemp( tri->indexes,
