@@ -32,8 +32,7 @@ issue.
 | # | Item | Kind | Owner | Done-test |
 |---|---|---|---|---|
 | 1 | [#325](https://github.com/jm2/openETQW/issues/325) Uncapping the Windows x64 Vulkan client makes it 7x slower: 31 ms/frame with a 17-24 ms fence at `com_maxFPS 0` vs 4.17 ms at 240 | bug (renderer) | — | The issue's done-test: a second Windows x64 host at `com_maxFPS 240` and `0`; uncapped `dt_p50` must not exceed capped; then the swapchain/fence path explained or fixed |
-| 2 | [#302](https://github.com/jm2/openETQW/issues/302) ~1.5x Linux x64 frame-work residual | investigation, time-boxed | `openETQW-linux` | Profile posted 2026-10-27: 14,723 flat samples, engine 48.8% / RADV 32.5%, no Linux-specific leaf; equal work +0.3 ms, not 1.5x. Windows profile unavailable (no sampler). Owner disposition pending: close with the profile |
-| 3 | Retail capture procedure (owner, 2026-10-27: its own queue item, after the current merge gates) | evidence / tooling | — | A documented, host-checked route to a retail 1.5 reference frame for #315/#323 and later comparisons; no retail data in either repository |
+| 2 | Retail capture procedure (owner, 2026-10-27: its own queue item, after the current merge gates) | evidence / tooling | — | A documented, host-checked route to a retail 1.5 reference frame; #315, #323 and #329 merged without one, so it now serves later comparisons rather than gating them; no retail data in either repository |
 
 New bugs go into this table above the features, ranked by severity (crash, wrong
 gameplay, wrong picture, test harness), once they are filed as issues (§9, 2026-10-26).
@@ -48,7 +47,7 @@ host that has no code item it can take.
 `docs/render-path.md`; before comparing with retail, `docs/retail-comparison.md`.
 Per-platform traps are in `docs/coordination.md` §5.
 
-Updated: 2026-10-27 by the coordinator (batch refresh: #294 as #319, #290 as #320, #306 as #322, #314 (direct), #315-part-1 as #323, #321 as #328, and #315's GL half as #329 on the owner's waiver, so the code queue is #325 as the one open bug, #302 profiled with no fix indicated, and the retail capture item).
+Updated: 2026-10-28 by the coordinator (close refresh: #246, #290, #302, #315 and #321 closed on the owner's decision, so the queue is #325 as the one open bug and the retail capture item; #327 merged as `c8f05ef`).
 
 ## 1. Open PRs
 
@@ -61,11 +60,7 @@ longer mirrors it. The coordinator merges in code-queue order (§0): bug fixes f
 |---|---|---|---|
 | [#325](https://github.com/jm2/openETQW/issues/325) | Uncapping the Windows x64 Vulkan client makes it 7x slower (31 ms/frame, 17-24 ms fence) while the default 240 cap holds 4.17 ms | — | Filed from #302. Needs a second Windows x64 host; no session can settle the mechanism on the one we have. Code queue §0 item 1. |
 | [#197](https://github.com/jm2/openETQW/issues/197) | Fresh profile goes straight to the menu as "Player" (owner, 2026-10-23: fine if the name can be changed in-game) | owner | `ui_name` persists across restarts (checked on macOS). Left: the owner's 30-second real-keyboard check: Options > Game Settings > Name, type a name, Apply, restart, look at the field. |
-| [#302](https://github.com/jm2/openETQW/issues/302) | Linux x64 client frame work: a ~1.5x `work_p50` residual against Windows raster after the validation layer, `-O0` tree and lighting-path differences were removed | `openETQW-linux` | Profile posted 2026-10-27: 14,723 flat samples, no Linux-specific leaf, equal work +0.3 ms; Windows half unavailable. Recommended closing with the profile. No AMDVLK arm (§9, 2026-10-27). |
 | [#296](https://github.com/jm2/openETQW/issues/296) | Linux had no retail-data folder picker | — | Done in #297 (§3 item 4). Left: the interactive checklist on a desktop — start with no retail data, Cancel stores nothing, a refused folder re-asks, five refusals fail, an accepted one is written. Unrun: no agent here can open a dialog. Close when the owner has tried it. |
-| [#290](https://github.com/jm2/openETQW/issues/290) | 27 test files spawn processes with bare `Popen` and bypass the harness pre-flight (the residual of #288/#289, which #287 fixed and which are closed) | — | Fixed and merged as #320 (`1f16b23`); the issue is still open only because nobody closed it. Owner to close. |
-| [#246](https://github.com/jm2/openETQW/issues/246) | Instanced trees and shrubs: they draw on both APIs since #248 and #252; the per-instance distance cull is left | — | Everything the issue records is merged: the cull as #314 (`5b21e7c`), imposter cards on Vulkan as #323 (`cad67cd`) and on OpenGL as #329 (`e8a63ff`). Owner to close. |
-| [#315](https://github.com/jm2/openETQW/issues/315) | Distant-tree imposter cards: the decl `origin` offset is still unconfirmed against a retail frame | — | Vulkan cards merged as #323 and the GL/ARB half as #329 (`e8a63ff`). Left open only for the retail reference, which is the queued capture item; the Windows arm64/macOS cells are waived, not verified. Owner to close, or keep open until the capture lands. |
 | [#133](https://github.com/jm2/openETQW/issues/133) | Coordinator log | `openETQW-linux` | Stays open. |
 
 ## 3. Milestone work, in order
@@ -131,10 +126,12 @@ Each item names its acceptance test. Details are in the linked plan.
    4.34 ms with a 1.46 ms fence against Windows raster 2.63 ms with a 0.05 ms fence, so
    equal work is +0.3 ms / +12%, not 1.5x; 14,723 flat samples put 48.8% in the engine,
    32.5% in RADV and 10.2% in libc, with no Linux-specific leaf over 9%. The Windows
-   profile is unavailable (no sampler, no second host) and the issue is recommended to
-   close with that record. #306 is fixed as #322: ray query is behind a device capability
-   check, so a Linux or macOS client on a capable driver takes the RT path and otherwise
-   falls back with one log line. Any perf row in this register must name
+   profile is a stack-sampling gap (no sampler, no second Windows x64 host on the fleet),
+   not a pass; the equal-work residual from the two ~250 fps arms is 2.70 ms Linux against
+   2.58 ms Windows, ~4.6%. #302 was closed on 2026-10-28 with that record. #306 is fixed as
+   #322: ray query is behind a device capability check, so a Linux or macOS client on a
+   capable driver takes the RT path and otherwise falls back with one log line. Any perf
+   row in this register must name
    its build directory: `build/` on antec is `buildtype=debug`. #294 (the Windows arm64
    BotThread marker) is fixed as #319, and the rest of the Windows arm64
    failures are environment. Linux arm64 has since been re-run at `527c1ef` (post-merge,
@@ -273,6 +270,15 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   human at the controls", are judged by people on real displays (M5 D3), not by a test.
 
 ## 5. Recently done
+
+2026-10-28 (`main` `c8f05ef`):
+- Closed on the owner's decision, each with its record on the issue: #246 and #315 (the
+  distant-tree imposters merged on both renderers as #323 and #329), #290 (merged as
+  #320), #302 (the profile in the M7 paragraph below, plus the #325 successor) and #321
+  (merged as #328); #327 merged the docs batch as `c8f05ef`
+- #325 filed (uncapping the Windows x64 Vulkan client stalls it at ~31 ms/frame with a
+  17-24 ms fence); present mode, pixels, scene and a second rendering client are
+  excluded on that host, so it needs a second Windows x64 host
 
 2026-10-27 (`main` `e8a63ff`):
 - Tests: `client-network-join` and `client-network-listen` start the Vulkan client with

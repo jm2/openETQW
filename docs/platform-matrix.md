@@ -106,9 +106,11 @@ These runs are recorded so they are not mistaken for gate evidence.
 The M7 gate stays open. A combined five-platform run now exists at `0a44150` / `7fbdf80`
 (2026-10-25/26, section above), covering the merged work from #220 to #276, but no leg is
 a clean pass: the #292 failures are fixed in `51f7449`, the cap-60/high-refresh failures
-on Windows x64 and Linux x64 were host load (quiet reruns pass), and what remains is #302's
-~1.5x `work_p50` residual on Linux x64 at `-O2` (no test bound fails; #299 closed as the
-validation layer on a `buildtype=debug` tree), the `mixed-caps` A1 margin (58.0 vs 58.8 fps
+on Windows x64 and Linux x64 were host load (quiet reruns pass), and the last
+measurement-shaped entry was the #302 residual on Linux x64 at `-O2` (no test bound fails;
+closed 2026-10-28 — equal work within ~5% of Windows once each arm's fence wait is removed,
+and the Windows profile recorded as a stack-sampling gap; #299 closed as the validation
+layer on a `buildtype=debug` tree), the `mixed-caps` A1 margin (58.0 vs 58.8 fps
 on a quiet host, every other check green), the Windows arm64 no-display set plus #294 (which
 now also holds `all-stock-maps`; the sandbox `mkdtemp` set re-runs 11 of 12 under the
 workaround), and the macOS arm64 leg, which has no GPU evidence yet: the owner's GPU broker
