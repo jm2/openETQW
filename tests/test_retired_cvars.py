@@ -33,7 +33,6 @@ from __future__ import annotations
 import argparse
 import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 
 import etqw_harness as h
@@ -90,7 +89,7 @@ def main() -> int:
                 print(f"    {line}")
 
     queries = ["+" + name for name in RETIRED]  # a bare name prints the CVar, or "Unknown command"
-    with tempfile.TemporaryDirectory(prefix="openetqw-retired-cvars-") as tmp:
+    with h.PrivateTempDir(prefix="openetqw-retired-cvars-") as tmp:
         root = Path(tmp)
         (root / "base").mkdir()
         (root / "save").mkdir()

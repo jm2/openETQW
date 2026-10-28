@@ -39,7 +39,6 @@ import argparse
 import re
 import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 
 import etqw_harness as h
@@ -92,7 +91,7 @@ def main() -> int:
     # caps once per frame (com_maxFPS won whenever both had changed)
     queries = ["+wait", "5", "+com_maxFPS", "+com_unlock_maxFPS"]  # a bare name prints the CVar
     both = lambda v: [("com_maxFPS", v), ("com_unlock_maxFPS", v)]  # noqa: E731
-    with tempfile.TemporaryDirectory(prefix="openetqw-frame-cap-") as tmp:
+    with h.PrivateTempDir(prefix="openetqw-frame-cap-") as tmp:
 
         def fresh_root(name: str, configs: dict[str, str]) -> Path:
             """A synthetic data root of its own (the server writes its config back)."""

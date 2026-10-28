@@ -58,7 +58,6 @@ import platform
 import re
 import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
 
@@ -336,7 +335,7 @@ def main(argv) -> int:
         os.environ.setdefault("SDL_VIDEO_DRIVER", "offscreen")
 
     h.install_signal_handlers()
-    log_dir = Path(args.log_dir) if args.log_dir else Path(tempfile.mkdtemp(prefix="etqw-m2-parity-"))
+    log_dir = Path(args.log_dir) if args.log_dir else h.make_private_dir("etqw-m2-parity-")
     log_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"host={platform.node()} os={platform.platform()} arch={platform.machine()}")

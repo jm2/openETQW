@@ -79,7 +79,6 @@ import json
 import os
 import shutil
 import sys
-import tempfile
 import threading
 import time
 from pathlib import Path
@@ -403,7 +402,7 @@ def run_map(map_name: str, map_index: int, cfg: argparse.Namespace, ctx: dict) -
         cvars["bot_threadMinFrameDelay"] = str(cfg.bot_think_delay)
     for name, value in cfg.extra_cvars:
         cvars[name] = value
-    savepath = Path(tempfile.mkdtemp(prefix=f"save-{map_name}-", dir=ctx["tmp_root"]))
+    savepath = H.make_private_dir(f"save-{map_name}-", dir=ctx["tmp_root"])
     server = H.DedicatedServer(ctx["binary"], ctx["data_path"], map_name, port,
                                log_path=log_path, cvars=cvars, savepath=savepath)
     res.metrics.update({"port": port, "log": str(log_path)})
@@ -828,7 +827,7 @@ def main(argv: list[str]) -> int:
             "aas_vehicleb": H.retail_aas_counts(paks, m, "aas_vehicleb"),
             "nav": H.retail_nav_header(paks, m),
         }
-    tmp_root = Path(tempfile.mkdtemp(prefix="openetqw-stockmaps-"))
+    tmp_root = H.make_private_dir("openetqw-stockmaps-")
     keep_tmp_root = cfg.log_dir is None  # logs live inside it then
     cfg.log_dir = cfg.log_dir or str(tmp_root / "logs")
     Path(cfg.log_dir).mkdir(parents=True, exist_ok=True)

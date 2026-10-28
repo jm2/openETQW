@@ -554,12 +554,56 @@ def build_binary(kind: str) -> Path:
     return next((c for c in candidates if c.is_file()), candidates[0])
 
 
+# Mode for make_private_dir.  POSIX keeps tempfile.mkdtemp's 0o700.  On Windows the
+# mode must stay the default: since Python 3.13 (CVE-2024-4030) os.mkdir(path, 0o700),
+# and so tempfile.mkdtemp, gives the directory an owner-only DACL there.  A process
+# on a restricted token (the Codex Windows sandbox, openai/codex#19791) cannot write
+# through that DACL, so the engine could not write its generated SPIR-V
+# (vkprogs/cache/...) under fs_savepath, Vulkan init failed and the client fell back
+# to OpenGL.  The default mode inherits the temp root's ACL, as any other dir does.
+PRIVATE_DIR_MODE = 0o777 if os.name == "nt" else 0o700
+
+
+def make_private_dir(prefix: str = "etqw-", dir: Optional[os.PathLike | str] = None) -> Path:
+    """A new, empty, uniquely named directory under `dir` (default: the temp root),
+    like tempfile.mkdtemp but without the owner-only DACL it applies on Windows (see
+    PRIVATE_DIR_MODE).  os.makedirs(exist_ok=False) never reuses an existing path,
+    so the name is as race-free as mkdtemp's.  The caller removes it."""
+    parent = Path(dir) if dir is not None else Path(tempfile.gettempdir())
+    names = tempfile._get_candidate_names()  # mkdtemp's own name source
+    for _ in range(tempfile.TMP_MAX):
+        path = parent / f"{prefix}{next(names)}"
+        try:
+            os.makedirs(path, mode=PRIVATE_DIR_MODE, exist_ok=False)
+        except FileExistsError:
+            continue
+        return Path(os.path.abspath(path))
+    raise FileExistsError(f"no unused directory name with prefix {prefix!r} under {parent}")
+
+
+class PrivateTempDir:
+    """tempfile.TemporaryDirectory's shape (a context manager yielding the path as a
+    str, removed on exit) over make_private_dir."""
+
+    def __init__(self, prefix: str = "etqw-", dir: Optional[os.PathLike | str] = None):
+        self.name = str(make_private_dir(prefix, dir))
+
+    def __enter__(self) -> str:
+        return self.name
+
+    def __exit__(self, *exc) -> None:
+        self.cleanup()
+
+    def cleanup(self) -> None:
+        shutil.rmtree(self.name, ignore_errors=True)
+
+
 def private_savepath(prefix: str) -> Path:
     """An empty fs_savepath for this test run, removed at exit.  The engine writes
     the archived cvars a test sets with +set (r_rayTracing, r_vkValidation,
     com_maxFPS, ...) to <savepath>/base/etqwconfig.cfg; with the shared default
     (the repository's base/) they carry into later runs and other tests."""
-    path = Path(tempfile.mkdtemp(prefix=prefix))
+    path = make_private_dir(prefix)
     atexit.register(shutil.rmtree, path, True)
     return path
 
@@ -991,7 +1035,7 @@ class DedicatedServer:
         self.cvars = dict(cvars or {})
         self.extra_args = list(extra_args or [])
         self._own_savepath = savepath is None
-        self.savepath = Path(savepath) if savepath else Path(tempfile.mkdtemp(prefix=f"etqw-{map_name}-"))
+        self.savepath = Path(savepath) if savepath else make_private_dir(f"etqw-{map_name}-")
         # the working directory (default: the save path); the Vulkan client finds
         # vkprogs/ relative to it, so it runs from the repository root
         self.cwd = Path(cwd) if cwd else None

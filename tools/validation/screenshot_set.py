@@ -58,7 +58,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from pathlib import Path
@@ -240,7 +239,8 @@ def view_target(spawn, offset, yaw_delta, pitch):
 def capture_map(client_bin: Path, workdir: Path, data: Path, out: Path, map_name: str, team: str,
                 cls: str, rt: str, extra: list[str], settle: float, anchors: dict) -> list[dict]:
     tag = f"{map_name}_rt{rt}"
-    savepath = Path(tempfile.mkdtemp(prefix="etqw-shots-"))
+    import etqw_harness as h  # noqa: E402
+    savepath = h.make_private_dir("etqw-shots-")  # not mkdtemp: see h.PRIVATE_DIR_MODE
     args = [str(client_bin), "+set", "fs_basepath", str(data), "+set", "fs_savepath", str(savepath),
             "+set", "fs_game", "base", "+set", "si_rules", "sdGameRulesObjective",
             # mode 12 is WIDTH x HEIGHT (Common.cpp's mode table) and r_mode's default; set here so a

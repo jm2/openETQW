@@ -29,7 +29,6 @@ import argparse
 import shutil
 import subprocess
 import sys
-import tempfile
 import zipfile
 from pathlib import Path
 
@@ -80,7 +79,7 @@ def main() -> int:
             for line in out.splitlines()[-30:]:
                 print(f"    {line}")
 
-    with tempfile.TemporaryDirectory(prefix="openetqw-install-check-") as tmp:
+    with h.PrivateTempDir(prefix="openetqw-install-check-") as tmp:
         root = Path(tmp)
         (root / "base").mkdir()
         (root / "save").mkdir()
