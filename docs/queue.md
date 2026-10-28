@@ -31,12 +31,9 @@ issue.
 
 | # | Item | Kind | Owner | Done-test |
 |---|---|---|---|---|
-| 1 | [#294](https://github.com/jm2/openETQW/issues/294) `Waiting on BotThread` counts as a failure only when the match also fails a gameplay check (owner, 2026-10-27) | bug (tests) | — | A healthy match with waits passes; the same run with a forced gameplay failure still reports the marker (negative control); `m4-campaign` and `all-stock-maps` pass on one host |
-| 2 | [#290](https://github.com/jm2/openETQW/issues/290) 27 test files spawn with bare `Popen` and skip #287's port/process pre-flight | bug (tests) | — | No bare `subprocess.Popen` of an engine binary outside `tests/etqw_harness.py`; the touched tests pass on one host |
-| 3 | [#314](https://github.com/jm2/openETQW/pull/314) (draft) per-instance distance cull for OpenGL and RT, closes [#246](https://github.com/jm2/openETQW/issues/246) | feature (graphics) | — | The checklist on #314: retail hard-cut vs fade, `validate pr`, graphics gate (§8) |
-| 4 | [#306](https://github.com/jm2/openETQW/issues/306) ray-query lighting on Linux (and macOS where available) behind a runtime capability check (owner, 2026-10-27) | feature (graphics) | — | `r_rayTracing 1` on antec's RX 6400 draws RT lighting; a device without ray query falls back to raster with one log line; graphics gate (§8) |
-| 5 | [#315](https://github.com/jm2/openETQW/issues/315) distant-tree imposters | feature (graphics) | — | Far valley view shows tree cards on both APIs against a retail capture; graphics gate (§8) |
-| 6 | [#302](https://github.com/jm2/openETQW/issues/302) ~1.5x Linux x64 frame-work residual | investigation, time-boxed | `openETQW-linux` | One `-O2` frame-body profile on Linux x64 and Windows x64; then either a fix PR or close the issue with the profile. No AMDVLK arm (§9, 2026-10-27) |
+| 1 | [#325](https://github.com/jm2/openETQW/issues/325) Uncapping the Windows x64 Vulkan client makes it 7x slower: 31 ms/frame with a 17-24 ms fence at `com_maxFPS 0` vs 4.17 ms at 240 | bug (renderer) | — | The issue's done-test: a second Windows x64 host at `com_maxFPS 240` and `0`; uncapped `dt_p50` must not exceed capped; then the swapchain/fence path explained or fixed |
+| 2 | [#302](https://github.com/jm2/openETQW/issues/302) ~1.5x Linux x64 frame-work residual | investigation, time-boxed | `openETQW-linux` | Profile posted 2026-10-27: 14,723 flat samples, engine 48.8% / RADV 32.5%, no Linux-specific leaf; equal work +0.3 ms, not 1.5x. Windows profile unavailable (no sampler). Owner disposition pending: close with the profile |
+| 3 | Retail capture procedure (owner, 2026-10-27: its own queue item, after the current merge gates) | evidence / tooling | — | A documented, host-checked route to a retail 1.5 reference frame for #315/#323 and later comparisons; no retail data in either repository |
 
 New bugs go into this table above the features, ranked by severity (crash, wrong
 gameplay, wrong picture, test harness), once they are filed as issues (§9, 2026-10-26).
@@ -51,7 +48,7 @@ host that has no code item it can take.
 `docs/render-path.md`; before comparing with retail, `docs/retail-comparison.md`.
 Per-platform traps are in `docs/coordination.md` §5.
 
-Updated: 2026-10-27 by the owner (unparked; bugs first; the code queue).
+Updated: 2026-10-27 by the coordinator (batch refresh: #294 as #319, #290 as #320, #306 as #322, #314 (direct), #315-part-1 as #323, #321 as #328, and #315's GL half as #329 on the owner's waiver, so the code queue is #325 as the one open bug, #302 profiled with no fix indicated, and the retail capture item).
 
 ## 1. Open PRs
 
@@ -62,14 +59,14 @@ longer mirrors it. The coordinator merges in code-queue order (§0): bug fixes f
 
 | # | What | Owner | Next step |
 |---|---|---|---|
-| [#294](https://github.com/jm2/openETQW/issues/294) | `Waiting on BotThread` is a hard failure marker, so a slow host fails a healthy match | — | Decided (owner, 2026-10-27): count it only when the match also fails a gameplay check. Code queue §0 item 1. |
+| [#325](https://github.com/jm2/openETQW/issues/325) | Uncapping the Windows x64 Vulkan client makes it 7x slower (31 ms/frame, 17-24 ms fence) while the default 240 cap holds 4.17 ms | — | Filed from #302. Needs a second Windows x64 host; no session can settle the mechanism on the one we have. Code queue §0 item 1. |
 | [#197](https://github.com/jm2/openETQW/issues/197) | Fresh profile goes straight to the menu as "Player" (owner, 2026-10-23: fine if the name can be changed in-game) | owner | `ui_name` persists across restarts (checked on macOS). Left: the owner's 30-second real-keyboard check: Options > Game Settings > Name, type a name, Apply, restart, look at the field. |
-| [#302](https://github.com/jm2/openETQW/issues/302) | Linux x64 client frame work: a ~1.5x `work_p50` residual against Windows raster after the validation layer, `-O0` tree and lighting-path differences were removed | `openETQW-linux` | Code queue §0 item 6 (time-boxed). Measurements are on the issue. No AMDVLK arm (§9, 2026-10-27). |
+| [#302](https://github.com/jm2/openETQW/issues/302) | Linux x64 client frame work: a ~1.5x `work_p50` residual against Windows raster after the validation layer, `-O0` tree and lighting-path differences were removed | `openETQW-linux` | Profile posted 2026-10-27: 14,723 flat samples, no Linux-specific leaf, equal work +0.3 ms; Windows half unavailable. Recommended closing with the profile. No AMDVLK arm (§9, 2026-10-27). |
 | [#296](https://github.com/jm2/openETQW/issues/296) | Linux had no retail-data folder picker | — | Done in #297 (§3 item 4). Left: the interactive checklist on a desktop — start with no retail data, Cancel stores nothing, a refused folder re-asks, five refusals fail, an accepted one is written. Unrun: no agent here can open a dialog. Close when the owner has tried it. |
-| [#290](https://github.com/jm2/openETQW/issues/290) | 27 test files spawn processes with bare `Popen` and bypass the harness pre-flight (the residual of #288/#289, which #287 fixed and which are closed) | — | Code queue §0 item 2. |
-| [#246](https://github.com/jm2/openETQW/issues/246) | Instanced trees and shrubs: they draw on both APIs since #248 and #252; the per-instance distance cull is left | — | No longer deferred (owner, 2026-10-27). Draft #314; imposters split to #315. Code queue §0 items 3 and 5. |
+| [#290](https://github.com/jm2/openETQW/issues/290) | 27 test files spawn processes with bare `Popen` and bypass the harness pre-flight (the residual of #288/#289, which #287 fixed and which are closed) | — | Fixed and merged as #320 (`1f16b23`); the issue is still open only because nobody closed it. Owner to close. |
+| [#246](https://github.com/jm2/openETQW/issues/246) | Instanced trees and shrubs: they draw on both APIs since #248 and #252; the per-instance distance cull is left | — | Everything the issue records is merged: the cull as #314 (`5b21e7c`), imposter cards on Vulkan as #323 (`cad67cd`) and on OpenGL as #329 (`e8a63ff`). Owner to close. |
+| [#315](https://github.com/jm2/openETQW/issues/315) | Distant-tree imposter cards: the decl `origin` offset is still unconfirmed against a retail frame | — | Vulkan cards merged as #323 and the GL/ARB half as #329 (`e8a63ff`). Left open only for the retail reference, which is the queued capture item; the Windows arm64/macOS cells are waived, not verified. Owner to close, or keep open until the capture lands. |
 | [#133](https://github.com/jm2/openETQW/issues/133) | Coordinator log | `openETQW-linux` | Stays open. |
-| [#306](https://github.com/jm2/openETQW/issues/306) | Linux and macOS clients have no ray-query lighting path; Windows x64 gets it by default | — | Decided (owner, 2026-10-27): port it behind a runtime capability check. Code queue §0 item 4. |
 
 ## 3. Milestone work, in order
 
@@ -111,13 +108,14 @@ Each item names its acceptance test. Details are in the linked plan.
    commits, data set and raw log or PR, with historical rows kept apart). A combined
    five-platform run of the 77 non-soak tests was made on 2026-10-25/26 at engine
    `0a44150` / game `7fbdf80`. Those rows are evidence for `0a44150` and nothing later:
-   `main` is now `527c1ef` and has carried source and test changes since (#292's test fix
-   `51f7449`, #297's picker, #301's deletions), so a fresh per-platform pass at current
+   `main` is now `f93e6f1` and has carried source and test changes since (#292's test fix
+   `51f7449`, #297's picker, #301's deletions, #314/#322/#323's renderer changes, #319/#320/#328's
+   test fixes), so a fresh per-platform pass at current
    `main` is a new leg, not a re-read of these numbers. The run: Linux x64
    70 OK / 6 FAIL / 1 SKIP (real RX 6400), Linux arm64 73 / 3 / 1 (real GPU), Windows x64
    70 / 5 / 2, Windows arm64 43 / 32 / 2 (mostly sandbox and display/frame-pacing; 11 of the 12
    sandbox tests pass when re-run with `mkdtemp` replaced by `os.makedirs`, tests
-   unmodified, and the twelfth `all-stock-maps` is #294), macOS arm64
+   unmodified, and the twelfth `all-stock-maps` was #294, fixed by #319), macOS arm64
    59 / 17 / 1 (software raster only, no GPU evidence). M7 stays open until the macOS
    leg is re-run and each platform's session has checked its own row: the owner's GPU
    broker is live on mbp16-m1max and `gpu-run metal-probe` returns `metal-device: OK
@@ -129,13 +127,16 @@ Each item names its acceptance test. Details are in the linked plan.
    `client-network-*` tests now start with `r_vkValidation 0`) and the perf tree `build/`
    was `buildtype=debug` (`-O0`) — so the 30-35 GUI/s was neither the product nor a reason
    to move the 40/s floor (closed 2026-10-26 with no test or floor change). #302 is
-   measured: layer off and both sides `debugoptimized`, Linux 240 GUI/s / `work_p50`
-   3.9-4.0 ms against Windows raster 232/s at cap 240 / 2.6 ms, same draw mix, so a ~1.5x
-   frame-work residual survives and fails nothing. Left: a `-O2` profile of the frame body
-   on both sides, and #306 (Linux and macOS have no ray-query path, Windows defaults to
-   it), which no test change addresses either way. Any perf row in this register must name
+   profiled at `f93e6f1`: layer off and both sides `debugoptimized`, Linux `work_p50`
+   4.34 ms with a 1.46 ms fence against Windows raster 2.63 ms with a 0.05 ms fence, so
+   equal work is +0.3 ms / +12%, not 1.5x; 14,723 flat samples put 48.8% in the engine,
+   32.5% in RADV and 10.2% in libc, with no Linux-specific leaf over 9%. The Windows
+   profile is unavailable (no sampler, no second host) and the issue is recommended to
+   close with that record. #306 is fixed as #322: ray query is behind a device capability
+   check, so a Linux or macOS client on a capable driver takes the RT path and otherwise
+   falls back with one log line. Any perf row in this register must name
    its build directory: `build/` on antec is `buildtype=debug`. #294 (the Windows arm64
-   BotThread marker) is an owner decision in §4, and the rest of the Windows arm64
+   BotThread marker) is fixed as #319, and the rest of the Windows arm64
    failures are environment. Linux arm64 has since been re-run at `527c1ef` (post-merge,
    `-O2`, real GPU): 76 OK / 0 FAIL / 1 SKIP, the skip `cross-os`. That is a separate row
    in `platform-matrix.md` and does not close the M7 arm64 row at `0a44150`.
@@ -237,7 +238,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   deferred it on 2026-09-25. Nothing to do until the owner reopens it.
 - **Publishing.** Both repositories stay private until the owner decides otherwise; the
   owner expects to recreate them first.
-- ~~**The BotThread marker as a failure (#294).**~~ Decided 2026-10-27: gate it on the match outcome (§0 item 1).
+- ~~**The BotThread marker as a failure (#294).**~~ Decided 2026-10-27: gate it on the match outcome (implemented as #319).
 - **The hull lead:** the p95 bound and each class's L, and which driver and pilot seats
   join the default list. Needs a review on a high-refresh display.
 - **Render portals, stage 2:** the network decision (`docs/render-portals.md`).
@@ -273,13 +274,14 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 
 ## 5. Recently done
 
-2026-10-27 (`main` `6640d35`):
+2026-10-27 (`main` `e8a63ff`):
 - Tests: `client-network-join` and `client-network-listen` start the Vulkan client with
   `r_vkValidation 0` (the engine default) instead of `1`, on the owner's word: the Khronos
   layer is a diagnostic, not part of the measured product. The shared `VulkanClient`
   default changes with it, but every other test that constructs it already passes
   `r_vkValidation 0` itself, so only these two change; `campaign-client-maps` keeps
   its own layer-on client
+- #329 OpenGL: ARB ports of `imposters/lit` and `imposters/lit_foliage`, the card triangles wound like the model's (they were front-face culled) and the atmosphere term corrected to the fog amount Cg writes, so the far view draws the cards on GL in foliage colour (#315; merged e8a63ff)
 - #308 Docs: post-merge Linux arm64 leg at `527c1ef` — 76 OK / 0 FAIL / 1 SKIP (`cross-os`); its own row, not M7 evidence (merged c422eeb)
 - #307 Docs: #302 measured (the validation layer, the `-O0` perf tree, two lighting paths), #299 closed as a measurement artifact, and the worktree recipe now says `-Dbuildtype=debugoptimized` (merged ea215a5)
 - #287 Test harness: readable child exit statuses (NTSTATUS and exception decode) and a port/leftover-process pre-flight; addresses #288 and #289, #290 remains (merged ce40c41)
