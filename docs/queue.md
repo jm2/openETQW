@@ -32,9 +32,8 @@ issue.
 | # | Item | Kind | Owner | Done-test |
 |---|---|---|---|---|
 | 1 | [#325](https://github.com/jm2/openETQW/issues/325) Uncapping the Windows x64 Vulkan client makes it 7x slower: 31 ms/frame with a 17-24 ms fence at `com_maxFPS 0` vs 4.17 ms at 240 | bug (renderer) | — | The issue's done-test: a second Windows x64 host at `com_maxFPS 240` and `0`; uncapped `dt_p50` must not exceed capped; then the swapchain/fence path explained or fixed |
-| 2 | [#315](https://github.com/jm2/openETQW/issues/315) OpenGL/ARB half: cards on the GL path, in review as PR #329 (gate posted at `5c7a383`) | feature (graphics) | `openETQW-linux-arm64` | Far valley view with `r_skipImposters 1` against default shows cards on GL as well as Vulkan; ledger row 077 updated; Windows arm64/macOS cells waived, retail reference stays queued |
-| 3 | [#302](https://github.com/jm2/openETQW/issues/302) ~1.5x Linux x64 frame-work residual | investigation, time-boxed | `openETQW-linux` | Profile posted 2026-10-27: 14,723 flat samples, engine 48.8% / RADV 32.5%, no Linux-specific leaf; equal work +0.3 ms, not 1.5x. Windows profile unavailable (no sampler). Owner disposition pending: close with the profile |
-| 4 | Retail capture procedure (owner, 2026-10-27: its own queue item, after the current merge gates) | evidence / tooling | — | A documented, host-checked route to a retail 1.5 reference frame for #315/#323 and later comparisons; no retail data in either repository |
+| 2 | [#302](https://github.com/jm2/openETQW/issues/302) ~1.5x Linux x64 frame-work residual | investigation, time-boxed | `openETQW-linux` | Profile posted 2026-10-27: 14,723 flat samples, engine 48.8% / RADV 32.5%, no Linux-specific leaf; equal work +0.3 ms, not 1.5x. Windows profile unavailable (no sampler). Owner disposition pending: close with the profile |
+| 3 | Retail capture procedure (owner, 2026-10-27: its own queue item, after the current merge gates) | evidence / tooling | — | A documented, host-checked route to a retail 1.5 reference frame for #315/#323 and later comparisons; no retail data in either repository |
 
 New bugs go into this table above the features, ranked by severity (crash, wrong
 gameplay, wrong picture, test harness), once they are filed as issues (§9, 2026-10-26).
@@ -49,7 +48,7 @@ host that has no code item it can take.
 `docs/render-path.md`; before comparing with retail, `docs/retail-comparison.md`.
 Per-platform traps are in `docs/coordination.md` §5.
 
-Updated: 2026-10-27 by the coordinator (batch refresh: #294/#306/#314/#315-part-1/#321/#322/#323 merged as #319/#320/#314/#323/#328/#322; #325 is the one open bug, #329 is the remaining GL half in review, #302 is profiled with no fix indicated, retail capture queued).
+Updated: 2026-10-27 by the coordinator (batch refresh: #294/#306/#314/#315-part-1/#321/#322/#323 merged as #319/#320/#314/#323/#328/#322, and #315's GL half as #329 on the owner's waiver, so the code queue is #325 as the one open bug, #302 profiled with no fix indicated, and the retail capture item).
 
 ## 1. Open PRs
 
@@ -65,8 +64,8 @@ longer mirrors it. The coordinator merges in code-queue order (§0): bug fixes f
 | [#302](https://github.com/jm2/openETQW/issues/302) | Linux x64 client frame work: a ~1.5x `work_p50` residual against Windows raster after the validation layer, `-O0` tree and lighting-path differences were removed | `openETQW-linux` | Profile posted 2026-10-27: 14,723 flat samples, no Linux-specific leaf, equal work +0.3 ms; Windows half unavailable. Recommended closing with the profile. No AMDVLK arm (§9, 2026-10-27). |
 | [#296](https://github.com/jm2/openETQW/issues/296) | Linux had no retail-data folder picker | — | Done in #297 (§3 item 4). Left: the interactive checklist on a desktop — start with no retail data, Cancel stores nothing, a refused folder re-asks, five refusals fail, an accepted one is written. Unrun: no agent here can open a dialog. Close when the owner has tried it. |
 | [#290](https://github.com/jm2/openETQW/issues/290) | 27 test files spawn processes with bare `Popen` and bypass the harness pre-flight (the residual of #288/#289, which #287 fixed and which are closed) | — | Fixed and merged as #320 (`1f16b23`); the issue is still open only because nobody closed it. Owner to close. |
-| [#246](https://github.com/jm2/openETQW/issues/246) | Instanced trees and shrubs: they draw on both APIs since #248 and #252; the per-instance distance cull is left | — | Cull merged as #314; imposter cards merged for Vulkan as #323 and the GL/ARB half is #329 in review. Close when #329 merges. |
-| [#315](https://github.com/jm2/openETQW/issues/315) | Distant-tree imposter cards: the decl `origin` offset is still unconfirmed against a retail frame | `openETQW-linux-arm64` | Vulkan cards merged as #323; GL/ARB cards in review as #329 (gate posted at `5c7a383`). Retail reference stays the queued capture item; Windows arm64/macOS cells waived, not verified. |
+| [#246](https://github.com/jm2/openETQW/issues/246) | Instanced trees and shrubs: they draw on both APIs since #248 and #252; the per-instance distance cull is left | — | Everything the issue records is merged: the cull as #314 (`5b21e7c`), imposter cards on Vulkan as #323 (`cad67cd`) and on OpenGL as #329 (`e8a63ff`). Owner to close. |
+| [#315](https://github.com/jm2/openETQW/issues/315) | Distant-tree imposter cards: the decl `origin` offset is still unconfirmed against a retail frame | — | Vulkan cards merged as #323 and the GL/ARB half as #329 (`e8a63ff`). Left open only for the retail reference, which is the queued capture item; the Windows arm64/macOS cells are waived, not verified. Owner to close, or keep open until the capture lands. |
 | [#133](https://github.com/jm2/openETQW/issues/133) | Coordinator log | `openETQW-linux` | Stays open. |
 
 ## 3. Milestone work, in order
@@ -275,13 +274,14 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 
 ## 5. Recently done
 
-2026-10-27 (`main` `6640d35`):
+2026-10-27 (`main` `e8a63ff`):
 - Tests: `client-network-join` and `client-network-listen` start the Vulkan client with
   `r_vkValidation 0` (the engine default) instead of `1`, on the owner's word: the Khronos
   layer is a diagnostic, not part of the measured product. The shared `VulkanClient`
   default changes with it, but every other test that constructs it already passes
   `r_vkValidation 0` itself, so only these two change; `campaign-client-maps` keeps
   its own layer-on client
+- #329 OpenGL: ARB ports of `imposters/lit` and `imposters/lit_foliage`, the card triangles wound like the model's (they were front-face culled) and the atmosphere term corrected to the fog amount Cg writes, so the far view draws the cards on GL in foliage colour (#315; merged e8a63ff)
 - #308 Docs: post-merge Linux arm64 leg at `527c1ef` — 76 OK / 0 FAIL / 1 SKIP (`cross-os`); its own row, not M7 evidence (merged c422eeb)
 - #307 Docs: #302 measured (the validation layer, the `-O0` perf tree, two lighting paths), #299 closed as a measurement artifact, and the worktree recipe now says `-Dbuildtype=debugoptimized` (merged ea215a5)
 - #287 Test harness: readable child exit statuses (NTSTATUS and exception decode) and a port/leftover-process pre-flight; addresses #288 and #289, #290 remains (merged ce40c41)
