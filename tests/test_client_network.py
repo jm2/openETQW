@@ -57,10 +57,9 @@ class VulkanClient(h.DedicatedServer):
         args = [str(self.binary), "+set", "fs_basepath", str(self.data_path), "+set", "fs_game", "base",
                 "+set", "fs_savepath", str(self.savepath), "+set", "net_port", str(self.port),
                 "+set", "r_renderAPI", "vulkan", "+set", "r_fullscreen", "0",
-                # the Khronos validation layer where installed costs frame time, so
-                # it stays off (the engine default); a caller's cvars come later and
-                # win, so a test that wants it can turn it on
-                "+set", "r_vkValidation", "0"]
+                # the validation layer where installed (off by default); a caller's
+                # cvars come later and win (frame-poses turns it off)
+                "+set", "r_vkValidation", "1"]
         for k, v in self.cvars.items():
             args += ["+set", str(k), str(v)]
         if self.listen_map:
