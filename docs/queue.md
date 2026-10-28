@@ -275,6 +275,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-28 (review of the DeepSeek merges since 2026-10-25):
+- #333 Docs: review guardrails — an owner decision a PR relies on must be on `main` or quoted from the owner directly; switching off a diagnostic an existing test reads counts as weakening; draw/cull reviews check both distance boundaries, the cvar overrides and a capture pair (`AGENTS.md` rules 1 and 4, `docs/coordination.md` §7)
 - #332 Review fixes for the DeepSeek merges: client-network tests run with `r_vkValidation 1` again (#313's owner decision was not on `main`); imposter cards only past maxVisDist, never for too-near instances or double-drawn (#323); the Windows leftover-process pre-flight warns unless the port is held (#287); weapon-fire also scans the shared failure markers (#283); zenity/yad dialogs pass `--no-markup` (#297)
 2026-10-27 (`main` `e8a63ff`):
 - Tests: `client-network-join` and `client-network-listen` start the Vulkan client with
