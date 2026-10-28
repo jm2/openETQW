@@ -61,6 +61,7 @@ longer mirrors it. The coordinator merges in code-queue order (§0): bug fixes f
 | [#325](https://github.com/jm2/openETQW/issues/325) | Uncapping the Windows x64 Vulkan client makes it 7x slower (31 ms/frame, 17-24 ms fence) while the default 240 cap holds 4.17 ms | — | Filed from #302. Needs a second Windows x64 host; no session can settle the mechanism on the one we have. Code queue §0 item 1. |
 | [#197](https://github.com/jm2/openETQW/issues/197) | Fresh profile goes straight to the menu as "Player" (owner, 2026-10-23: fine if the name can be changed in-game) | owner | `ui_name` persists across restarts (checked on macOS). Left: the owner's 30-second real-keyboard check: Options > Game Settings > Name, type a name, Apply, restart, look at the field. |
 | [#296](https://github.com/jm2/openETQW/issues/296) | Linux had no retail-data folder picker | — | Done in #297 (§3 item 4). Left: the interactive checklist on a desktop — start with no retail data, Cancel stores nothing, a refused folder re-asks, five refusals fail, an accepted one is written. Unrun: no agent here can open a dialog. Close when the owner has tried it. |
+| [#317](https://github.com/jm2/openETQW/issues/317) | Render portals, stage 2: the network/visibility decision | owner | Owner-gated (§4). Stage 1 is parked as the draft PR #318 on `feat/render-portal-culling`; nothing merges from it until the owner decides the network model. |
 | [#133](https://github.com/jm2/openETQW/issues/133) | Coordinator log | `openETQW-linux` | Stays open. |
 
 ## 3. Milestone work, in order
@@ -238,7 +239,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 - ~~**The BotThread marker as a failure (#294).**~~ Decided 2026-10-27: gate it on the match outcome (implemented as #319).
 - **The hull lead:** the p95 bound and each class's L, and which driver and pilot seats
   join the default list. Needs a review on a high-refresh display.
-- **Render portals, stage 2:** the network decision (`docs/render-portals.md`).
+- **Render portals, stage 2 (#317):** the network decision (`docs/render-portals.md`); stage 1 is the parked draft PR #318.
 - **A Windows run on an NVIDIA or Intel GPU** (`STATUS.md` § Next steps, item 3). No such
   host is in the fleet; the owner would have to provide one.
 - **Hosted CI:** comes back only with Actions minutes. Until then, local checks replace it.
