@@ -48,7 +48,7 @@ host that has no code item it can take.
 `docs/render-path.md`; before comparing with retail, `docs/retail-comparison.md`.
 Per-platform traps are in `docs/coordination.md` §5.
 
-Updated: 2026-10-27 by the coordinator (batch refresh: #294/#306/#314/#315-part-1/#321/#322/#323 merged as #319/#320/#314/#323/#328/#322, and #315's GL half as #329 on the owner's waiver, so the code queue is #325 as the one open bug, #302 profiled with no fix indicated, and the retail capture item).
+Updated: 2026-10-27 by the coordinator (batch refresh: #294 as #319, #290 as #320, #306 as #322, #314 (direct), #315-part-1 as #323, #321 as #328, and #315's GL half as #329 on the owner's waiver, so the code queue is #325 as the one open bug, #302 profiled with no fix indicated, and the retail capture item).
 
 ## 1. Open PRs
 
@@ -238,7 +238,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
   deferred it on 2026-09-25. Nothing to do until the owner reopens it.
 - **Publishing.** Both repositories stay private until the owner decides otherwise; the
   owner expects to recreate them first.
-- ~~**The BotThread marker as a failure (#294).**~~ Decided 2026-10-27: gate it on the match outcome (§0 item 1).
+- ~~**The BotThread marker as a failure (#294).**~~ Decided 2026-10-27: gate it on the match outcome (implemented as #319).
 - **The hull lead:** the p95 bound and each class's L, and which driver and pilot seats
   join the default list. Needs a review on a high-refresh display.
 - **Render portals, stage 2:** the network decision (`docs/render-portals.md`).
