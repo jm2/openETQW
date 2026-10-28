@@ -642,6 +642,7 @@ void RetailDiscovery::AppendLinuxFolderChoosers( idList< retailFolderChooser_t >
 	zenity.messageArgs.Append( "--warning" );
 	zenity.messageArgs.Append( "--title" );
 	zenity.messageArgs.Append( title );
+	zenity.messageArgs.Append( "--no-markup" );	// the text names a folder, which may hold & or <
 	zenity.messageArgs.Append( "--text" );
 	zenity.folderArgs.Append( "--file-selection" );
 	zenity.folderArgs.Append( "--directory" );
@@ -664,6 +665,7 @@ void RetailDiscovery::AppendLinuxFolderChoosers( idList< retailFolderChooser_t >
 	yad.program = "yad";
 	yad.messageArgs.Append( "--title" );
 	yad.messageArgs.Append( title );
+	yad.messageArgs.Append( "--no-markup" );	// the text names a folder, which may hold & or <
 	yad.messageArgs.Append( "--text" );
 	yad.folderArgs.Append( "--file" );
 	yad.folderArgs.Append( "--directory" );
