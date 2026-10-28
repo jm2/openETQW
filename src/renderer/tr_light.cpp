@@ -3311,17 +3311,24 @@ static void R_AddImposterDrawsurfs( viewEntity_s* space, const viewDef_s* view,
 	if ( space->numInsts > 0 && space->insts != NULL ) {
 		for ( int instanceIndex = 0; instanceIndex < space->numInsts; ++instanceIndex ) {
 			const sdInstInfo& instance = space->insts[ instanceIndex ];
-			const bool modelDrawn = R_DistanceVisibility( instance.fadeOrigin,
-				idMath::Ftoi( instance.maxVisDist ), idMath::Ftoi( instance.minVisDist ), view );
-			// the model is drawn inside the distance and the card outside it; a
-			// forced imposter draws the card where the model would have been
-			if ( modelDrawn != forceImposter ) continue;
+			if ( forceImposter ) {
+				// a forced imposter draws the card where the model would have been
+				if ( !R_DistanceVisibility( instance.fadeOrigin, idMath::Ftoi( instance.maxVisDist ),
+					idMath::Ftoi( instance.minVisDist ), view ) ) continue;
+			} else if ( !R_BeyondMaxVisDist( instance.fadeOrigin, idMath::Ftoi( instance.maxVisDist ), view ) ) {
+				// the card stands in only past maxVisDist: an instance hidden for being
+				// nearer than minVisDist, or by r_useMaxVisDist 0, draws nothing
+				continue;
+			}
 			R_AddImposterCard( space, imposter, instance, view, counters );
 		}
 		return;
 	}
-	// an entity with an imposter and no per-instance data: its own distance decides
-	if ( !forceImposter && space->entityDef->maxVisDist <= 0 ) return;
+	// An entity with an imposter and no per-instance data.  Without forceImposter its
+	// model is culled past maxVisDist before it reaches view->viewEntities, so it never
+	// gets here then, and drawing a card while its model is still drawn would show both:
+	// only a forced imposter draws a card on this path.
+	if ( !forceImposter ) return;
 	sdInstInfo instance;
 	instance.inst.origin = space->entityDef->origin;
 	instance.inst.axis.Identity();

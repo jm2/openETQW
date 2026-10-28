@@ -78,7 +78,12 @@ def near(a, b):
 
 
 def fatal_lines(proc, start=0):
-    return [line.text for line in proc.snapshot(start) if any(m in line.text for m in FATAL)]
+    # the shared markers (bind failures, ERROR-banner drops, AAS and wrong-thread
+    # markers) as every other retail test checks them, plus this test's own crash strings
+    texts = [line.text for line in proc.snapshot(start)]
+    bad = [t for t in texts if any(m in t for m in FATAL)]
+    bad += [f["text"] for f in h.scan_failures(texts) if f["text"] not in bad]
+    return bad
 
 
 def positions(srv, clients):

@@ -1298,6 +1298,18 @@ bool R_DistanceVisibility( const idVec3& origin, int maxVisDist, int minVisDist,
 	return fovDistance >= minVisDist * distanceScale && fovDistance <= maxVisDist * distanceScale;
 }
 
+// True only when origin lies past maxVisDist by R_DistanceVisibility's own measure:
+// the one case where an instance's model is dropped and its imposter card should stand in.
+// Nearer than minVisDist, or hidden because r_useMaxVisDist is 0, is not "beyond".
+bool R_BeyondMaxVisDist( const idVec3& origin, int maxVisDist, const viewDef_s* viewDef ) {
+	if ( viewDef == NULL || maxVisDist <= 0 ) {
+		return false;
+	}
+	const float distance = ( viewDef->renderView.vieworg - origin ).Length() + r_visDistOfs.GetFloat();
+	const float fovDistance = distance * ( viewDef->renderView.fov_x * ( 1.0f / 90.0f ) );
+	return fovDistance > maxVisDist * r_visDistMult.GetFloat();
+}
+
 bool R_CullLocalBoxToViewdef( const idBounds& bounds, const float modelMatrix[ 16 ], const viewDef_s* viewDef ) {
 	return viewDef != NULL && R_CullLocalBox( bounds, modelMatrix, viewDef->numPlanes, viewDef->frustum );
 }
