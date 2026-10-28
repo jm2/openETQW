@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5555,
+  "totalFiles": 5558,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 394
   },
   "postSplitCounts": {
-    "Reconstruction_original": 276,
+    "Reconstruction_original": 279,
     "ThirdParty": 1,
     "Doom3_GPL": 2,
     "SDK": 2
@@ -47681,6 +47681,42 @@
       "bytes": 725,
       "addedAfterSplit": true,
       "addedIn": "092acbbdce43087f5bb8fa6cd06e74897a4a33f7",
+      "spdx": null
+    },
+    {
+      "path": "base/glprogs/imposters/lit.fp",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "2f68233c01c994fae4cfdc08a46b8d0e47afb08ab226dfe7b29418b9d8ca503f",
+      "canonicalSha256": "2f68233c01c994fae4cfdc08a46b8d0e47afb08ab226dfe7b29418b9d8ca503f",
+      "bytes": 1098,
+      "addedAfterSplit": true,
+      "addedIn": "3aad0094096d4512161114496a49b0963ce9de47",
+      "spdx": null
+    },
+    {
+      "path": "base/glprogs/imposters/lit.vp",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "283e97e091238169b201f84746b1e873c16b1f9c9930e8ee7b696e2bf1aa6919",
+      "canonicalSha256": "283e97e091238169b201f84746b1e873c16b1f9c9930e8ee7b696e2bf1aa6919",
+      "bytes": 2358,
+      "addedAfterSplit": true,
+      "addedIn": "3aad0094096d4512161114496a49b0963ce9de47",
+      "spdx": null
+    },
+    {
+      "path": "base/glprogs/imposters/lit_foliage.fp",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "dc069fa21aa6c667b2fe246c792087e73a87234ad7e5fe9c728472ee341f34ce",
+      "canonicalSha256": "dc069fa21aa6c667b2fe246c792087e73a87234ad7e5fe9c728472ee341f34ce",
+      "bytes": 1532,
+      "addedAfterSplit": true,
+      "addedIn": "3aad0094096d4512161114496a49b0963ce9de47",
       "spdx": null
     },
     {
