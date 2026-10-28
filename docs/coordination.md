@@ -714,8 +714,9 @@ PR, each with a severity (blocker, should-fix, nit) and a file and line. It chec
 - For graphics changes, look at every contact sheet yourself. A heuristic warning only
   points at something; the look decides.
 - Does a PR quote an owner decision? Find its row on `main` (§9 or `STATUS.md` § Owner
-  decisions). If it isn't there, that's a blocker (`AGENTS.md` rule 1). #313 turned off
-  the validation layer on a decision that was never recorded, and was reverted (#332).
+  decisions), or the owner's own message the PR quotes. If neither exists, that's a
+  blocker (`AGENTS.md` rule 1). #313 turned off the validation layer on a decision that
+  was never recorded; #332 restored it.
 - Does a test change switch off a diagnostic, narrow a marker scan or change an inherited
   default? That is weakening (`AGENTS.md` rule 4).
 - For anything that decides whether something is drawn, culled or replaced (distance cull,
