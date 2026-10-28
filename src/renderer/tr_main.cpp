@@ -1300,7 +1300,8 @@ bool R_DistanceVisibility( const idVec3& origin, int maxVisDist, int minVisDist,
 
 // True only when origin lies past maxVisDist by R_DistanceVisibility's own measure:
 // the one case where an instance's model is dropped and its imposter card should stand in.
-// Nearer than minVisDist, or hidden because r_useMaxVisDist is 0, is not "beyond".
+// Nearer than minVisDist is not "beyond". r_useMaxVisDist is not consulted: past maxVisDist
+// the card still stands in even when that cvar hides the model at every distance.
 bool R_BeyondMaxVisDist( const idVec3& origin, int maxVisDist, const viewDef_s* viewDef ) {
 	if ( viewDef == NULL || maxVisDist <= 0 ) {
 		return false;

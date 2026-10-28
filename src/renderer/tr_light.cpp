@@ -3316,8 +3316,8 @@ static void R_AddImposterDrawsurfs( viewEntity_s* space, const viewDef_s* view,
 				if ( !R_DistanceVisibility( instance.fadeOrigin, idMath::Ftoi( instance.maxVisDist ),
 					idMath::Ftoi( instance.minVisDist ), view ) ) continue;
 			} else if ( !R_BeyondMaxVisDist( instance.fadeOrigin, idMath::Ftoi( instance.maxVisDist ), view ) ) {
-				// the card stands in only past maxVisDist: an instance hidden for being
-				// nearer than minVisDist, or by r_useMaxVisDist 0, draws nothing
+				// the card stands in only past maxVisDist: an instance nearer than
+				// minVisDist draws nothing (r_useMaxVisDist 0 does not suppress the card)
 				continue;
 			}
 			R_AddImposterCard( space, imposter, instance, view, counters );
