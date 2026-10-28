@@ -21,7 +21,7 @@ import platform
 import shutil
 import subprocess
 import sys
-import tempfile
+import private_dirs
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -118,7 +118,7 @@ def check(helper: Helper, game: Path) -> None:
     r = helper.run(*base, "--release", env=env)
     expect(sum("--buildtype=release" in line for line in steps(r.stdout)) == 2, f"{tag}: --release reaches both builds")
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with private_dirs.PrivateTempDir(prefix="openetqw-build-scripts-") as tmp:
         bd = Path(tmp) / "eb"
         (bd / "meson-private").mkdir(parents=True)
         (bd / "meson-private" / "coredata.dat").write_bytes(b"")
@@ -171,7 +171,7 @@ def main() -> int:
         print("SKIP: no shell to run the helpers")
         return 77
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with private_dirs.PrivateTempDir(prefix="openetqw-build-scripts-") as tmp:
         game = Path(tmp).resolve() / "game"
         game.mkdir()
         (game / "meson.build").write_text("project('stand-in')\n")

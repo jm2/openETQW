@@ -25,7 +25,7 @@ import stat
 import subprocess
 import sys
 import tarfile
-import tempfile
+import private_dirs
 import zipfile
 from pathlib import Path
 from types import ModuleType
@@ -370,7 +370,7 @@ def verify_assets(artifact_dir: Path, expected: list[str], *mode: str) -> subpro
 
 
 def expect_asset_rejected(work: Path, name: str, builder, needle: str, label: str) -> None:
-    artifact_dir = Path(tempfile.mkdtemp(prefix="reject-", dir=work))
+    artifact_dir = private_dirs.make_private_dir("reject-", dir=work)
     builder(artifact_dir / name)
     result = verify_assets(artifact_dir, [name], "--manifest", str(artifact_dir.parent / f"{artifact_dir.name}.json"))
     check(result.returncode == 1 and needle in result.stderr, f"asset set: rejects {label}", output_of(result))
@@ -737,7 +737,7 @@ def main() -> int:
     if shutil.which("git") is None:
         print("SKIP: git is not on PATH")
         return 77
-    work = Path(tempfile.mkdtemp(prefix="openetqw-release-tools-"))
+    work = private_dirs.make_private_dir("openetqw-release-tools-")
     try:
         repo = init_repo(work / "engine")
         test_release_version_first_part(repo)
