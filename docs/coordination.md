@@ -713,6 +713,19 @@ PR, each with a severity (blocker, should-fix, nit) and a file and line. It chec
   retail tests did not skip.
 - For graphics changes, look at every contact sheet yourself. A heuristic warning only
   points at something; the look decides.
+- Does a PR quote an owner decision? Find its row on `main` (§9 or `STATUS.md` § Owner
+  decisions). If it isn't there, that's a blocker (`AGENTS.md` rule 1). #313 turned off
+  the validation layer on a decision that was never recorded, and was reverted (#332).
+- Does a test change switch off a diagnostic, narrow a marker scan or change an inherited
+  default? That is weakening (`AGENTS.md` rule 4).
+- For anything that decides whether something is drawn, culled or replaced (distance cull,
+  imposters, LOD, fades): check both boundaries (nearer than the minimum, past the
+  maximum) and every cvar override (`r_useMaxVisDist` 0 and > 1, `r_visDistMult`). Reuse
+  the existing test (`R_DistanceVisibility`) rather than inverting it: the inverse of
+  "visible" is not "far". #323 drew imposter cards in front of the camera that way (#332).
+- Was the change looked at in the running game, at the view it changes, against `main`?
+  A capture pair (feature on and off, or `main` and the PR) settles more than code reading.
+  `docs/render-path.md` and `docs/retail-comparison.md` give the method.
 
 CodeRabbit's first review counts when it comes. Don't wait for its hourly quota; use a
 session review instead (owner, 2026-09-30). Every actionable CodeRabbit finding is
