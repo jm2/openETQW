@@ -128,12 +128,13 @@ Each item names its acceptance test. Details are in the linked plan.
    equal work is +0.3 ms / +12%, not 1.5x; 14,723 flat samples put 48.8% in the engine,
    32.5% in RADV and 10.2% in libc, with no Linux-specific leaf over 9%. The Windows
    profile is a stack-sampling gap (no sampler, no second Windows x64 host on the fleet),
-   not a pass; the equal-work residual from the two ~250 fps arms is 2.70 ms Linux against
-   2.58 ms Windows, ~4.6%. #302 was closed on 2026-10-28 with that record. #306 is fixed as
-   #322: ray query is behind a device capability check, so a Linux or macOS client on a
-   capable driver takes the RT path and otherwise falls back with one log line. Any perf
-   row in this register must name
-   its build directory: `build/` on antec is `buildtype=debug`. #294 (the Windows arm64
+   not a pass; the equal-work residual from the two capped arms is 2.70 ms Linux (3.89 −
+   1.19) against 2.58 ms Windows (2.63 − 0.05), 4-6% frame body (4.6% on the 3.89 ms arm,
+   6.2% on the second Linux arm at 2.74 ms). #302 was closed on 2026-10-28 with that
+   record. #306 is fixed as #322: ray query is behind a device capability check, so a
+   Linux or macOS client on a capable driver takes the RT path and otherwise falls back
+   with one log line. Any perf row in this register must name its build directory:
+   `build/` on antec is `buildtype=debug`. #294 (the Windows arm64
    BotThread marker) is fixed as #319, and the rest of the Windows arm64
    failures are environment. Linux arm64 has since been re-run at `527c1ef` (post-merge,
    `-O2`, real GPU): 76 OK / 0 FAIL / 1 SKIP, the skip `cross-os`. That is a separate row

@@ -108,7 +108,7 @@ The M7 gate stays open. A combined five-platform run now exists at `0a44150` / `
 a clean pass: the #292 failures are fixed in `51f7449`, the cap-60/high-refresh failures
 on Windows x64 and Linux x64 were host load (quiet reruns pass), and the last
 measurement-shaped entry was the #302 residual on Linux x64 at `-O2` (no test bound fails;
-closed 2026-10-28 — equal work within ~5% of Windows once each arm's fence wait is removed,
+closed 2026-10-28 — equal work within 4-6% of Windows once each arm's fence wait is removed,
 and the Windows profile recorded as a stack-sampling gap; #299 closed as the validation
 layer on a `buildtype=debug` tree), the `mixed-caps` A1 margin (58.0 vs 58.8 fps
 on a quiet host, every other check green), the Windows arm64 no-display set plus #294 (which
