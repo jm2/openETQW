@@ -42,7 +42,7 @@ public:
 	virtual void InitContext( const glimpParms_t& parms ) override {
 		InitVideo();
 		// The OpenGL path (explicit or the Vulkan fallback) draws stencil shadows
-		// and assumes 24/8 (glConfig, as win_opengl.cpp requests); SDL's defaults
+		// and assumes 24/8 (glConfig, as the old Win32 OpenGL setup requested); SDL's defaults
 		// are a 16-bit depth buffer and no stencil. Set before any window exists.
 		SDL_GL_SetAttribute( SDL_GL_RED_SIZE, 8 );
 		SDL_GL_SetAttribute( SDL_GL_GREEN_SIZE, 8 );
@@ -51,7 +51,7 @@ public:
 		SDL_GL_SetAttribute( SDL_GL_DEPTH_SIZE, 24 );
 		SDL_GL_SetAttribute( SDL_GL_STENCIL_SIZE, 8 );
 		SDL_GL_SetAttribute( SDL_GL_DOUBLEBUFFER, 1 );
-		// r_multiSamples, as win_opengl.cpp requests it; without these the OpenGL
+		// r_multiSamples, as the old Win32 OpenGL setup requested it; without these the OpenGL
 		// framebuffer was never multisampled, so glConfig.samples stayed 0 and the
 		// sample-coverage fade could not run (#253).
 		SDL_GL_SetAttribute( SDL_GL_MULTISAMPLEBUFFERS, parms.multiSamples.multi > 1 ? 1 : 0 );
