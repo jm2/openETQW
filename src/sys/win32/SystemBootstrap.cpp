@@ -1109,7 +1109,7 @@ void Sys_ShowWindow( bool show ) {
 
 // The splash bitmap (IDB_ETQW_SPLASH) is purged retail content and cannot
 // ship, so there is no splash to show on Windows either; the POSIX layer
-// stubs this the same way.  win32/splashscreen.cpp keeps the window code.
+// stubs this the same way.
 void Sys_ShowSplashScreen( bool show ) {
 }
 
