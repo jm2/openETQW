@@ -20,11 +20,13 @@ tracing is available:
   U1  the first frame the client draws fails (r_vkTestFailFrame 2 on the command line). That
       frame creates images (the loading screen uses them for the first time). Its "frame not
       submitted" line must report at least one image created and its uploads submitted alone.
-  U2  after the map loads, with r_vkPrepareAhead 0 so that nothing is held across a recreate:
-      RECREATES times, an r_swapInterval toggle and r_vkTestFailFrame 2 in one console line.
-      The failed frame is the one that recreates the swapchain, so it records the first layout
-      transitions of the new _currentRender and glow buffers. Each "frame not submitted" line
-      must report at least one rolled back.
+      (The command line's +set is applied again once the game has initialized, so a second
+      frame fails then; it is not judged.)
+  U2  the player spawns, so every frame copies _currentRender for the first-person weapon.
+      Then, with r_vkPrepareAhead 0 so that nothing is held across a recreate, RECREATES times:
+      an r_swapInterval toggle and r_vkTestFailFrame 2 in one console line. The failed frame is
+      the one that recreates the swapchain, so it records the new _currentRender's first layout
+      transition. Each "frame not submitted" line must report at least one rolled back.
   U3  Vulkan frames go on after the injections: MIN_TIMING_WINDOWS FRAME_TIMING windows, each
       with at least MIN_FRAMES presented Vulkan frames.
   U4  no Vulkan validation error, VK_ERROR_ or device loss in the client log. This is the check
@@ -46,7 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import etqw_harness as h  # noqa: E402
 from test_campaign_client_maps import BAD_MARKERS, find_client  # noqa: E402
 from test_frame_poses import DevmapClient  # noqa: E402
-from test_reconnect_restart import Failed  # noqa: E402
+from test_reconnect_restart import Failed, spawn  # noqa: E402
 from test_remote_client_map_change import READY  # noqa: E402
 
 RECREATES = 4
@@ -120,6 +122,9 @@ def main(argv):
             if not ok:
                 failures.append(f"U1: the first failed frame did not exercise #343 or lost its uploads: {m.group(0)}")
 
+        cl.slot = 0
+        spawn(cl, cl, "gdf", timeout=60.0)
+        time.sleep(1.0)
         cl.send("set r_vkPrepareAhead 0")
         time.sleep(0.5)
         rolled_back = []
