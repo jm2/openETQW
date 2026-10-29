@@ -17,8 +17,9 @@ r_vkValidation 1 so the Khronos layer reports misuse wherever it is installed. I
 FAILURES_PER_MODE failures of each kind, more than the swapchain holds images, and then:
 
   F1  every injected failure was reached (its "r_vkTestFailFrame N" line)
-  F2  frames go on: at least MIN_TIMING_WINDOWS FRAME_TIMING windows after the last
-      injection, each with at least MIN_FRAMES frames
+  F2  Vulkan frames go on: at least MIN_TIMING_WINDOWS FRAME_TIMING windows after the last
+      injection, each with at least MIN_FRAMES presented Vulkan frames (vk_frames, not the
+      engine's frames, which keep counting while BeginFrame fails)
   F3  no Vulkan validation error, VK_ERROR_ or device loss in the client log; whether the
       layer was active is reported
 
@@ -41,7 +42,7 @@ from test_remote_client_map_change import READY  # noqa: E402
 FAILURES_PER_MODE = 6
 MIN_TIMING_WINDOWS = 3
 MIN_FRAMES = 10
-TIMING_RE = re.compile(r"FRAME_TIMING: window_ms=([\d.]+) frames=(\d+)")
+TIMING_RE = re.compile(r"FRAME_TIMING: .* vk_frames=(\d+)")
 
 
 def main(argv):
@@ -98,13 +99,13 @@ def main(argv):
             hit = cl.wait_for(lambda s: TIMING_RE.search(s), max(0.1, deadline - time.monotonic()), mark)
             if not hit:
                 break
-            windows.append(int(hit[2].group(2)))
+            windows.append(int(hit[2].group(1)))
             mark = hit[0] + 1
         ok = len(windows) >= MIN_TIMING_WINDOWS and all(f >= MIN_FRAMES for f in windows)
-        print(f"  F2 {'pass' if ok else 'FAIL'}: FRAME_TIMING windows after the injections: frames {windows}"
+        print(f"  F2 {'pass' if ok else 'FAIL'}: FRAME_TIMING windows after the injections: vk_frames {windows}"
               f" (need {MIN_TIMING_WINDOWS} windows of at least {MIN_FRAMES})")
         if not ok:
-            failures.append(f"F2: frames did not go on after the injected failures (windows {windows})")
+            failures.append(f"F2: Vulkan frames did not go on after the injected failures (vk_frames {windows})")
     except Failed as e:
         failures.append(str(e))
     finally:
