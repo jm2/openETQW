@@ -248,6 +248,15 @@ test(
   timeout: 30,
 )
 
+# The retail reference capture tool's offline parts: the output guard, PNG, boxes, views
+test(
+  'retail-capture-tool',
+  py,
+  args: [meson.project_source_root() / 'tests' / 'test_retail_capture_tool.py'],
+  suite: 'unit',
+  timeout: 30,
+)
+
 # 6. Client lifecycle & graphics verification test
 if build_engine
   campaign_client = meson.project_build_root() / engine_client_binary_name

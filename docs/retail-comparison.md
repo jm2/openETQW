@@ -9,6 +9,25 @@ Written 2026-10-25 from the 2026-10-23 to 10-25 rendering work (#212, #233, #246
 
 ## 1. Running retail
 
+- **The scripted route:** `tools/validation/retail_capture.py` does all of §1 and §2 in one
+  command and writes the mean of several grabs per view, plus `capture.json` with the §4
+  box means (the part that can be published):
+
+  ```
+  python3 tools/validation/retail_capture.py --retail-dir <extracted retail tree> \
+      --out <dir outside both repositories> --map valley \
+      [--anchors <our screenshot_set.json>] [--views <views.json>] [--set "g_skipPostProcess 1"]
+  ```
+
+  Without `--views` it takes `screenshot_set.py`'s own views around the map's anchor, so
+  the two sides line up. It applies the §3 resets unless `--keep-profile-spec` is given,
+  refuses an `--out` inside any git work tree, and stops the compositor and retail when it
+  ends, on an exception, SIGTERM or SIGHUP. Only a SIGKILL of the script leaves them
+  running; stop those by PID. It needs `mutter`, the 32-bit retail runtime libraries and libX11/libXtst; it uses
+  the GPU, so check host claims first. The extracted tree is the two retail packages
+  unpacked into one scratch directory (`etqw.x86` beside `base/pak000.pk4`…`pak008.pk4`).
+  Its unit test (`retail-capture-tool`) covers only the offline parts; a change to the
+  driving code needs a real capture, looked at, before it merges.
 - **Linux x64 is the reference host.** The retail Linux client (`etqw.x86`, 32-bit) runs from
   an extracted retail tree. Start it from its own directory with `LD_LIBRARY_PATH=.` and a
   private profile: `+set fs_savepath <dir> +set fs_userpath <dir> +set r_fullscreen 0
@@ -17,9 +36,11 @@ Written 2026-10-25 from the 2026-10-23 to 10-25 rendering work (#212, #233, #246
 - **Run it under a private headless compositor**, never on the owner's desktop:
   `mutter --headless --wayland --wayland-display=<name> --virtual-monitor 1024x768`.
   Retail is an X client, so it runs on that compositor's Xwayland. Find the X display in
-  the compositor's log ("Using public X11 display :N"). Take its auth file from the
-  matching `Xwayland` process's `-auth` argument; the newest
-  `/run/user/<uid>/.mutter-Xwaylandauth.*` can belong to someone else's compositor.
+  the compositor's log ("Using public X11 display :N"). Mutter starts Xwayland only when
+  the first X client connects, so there is no `-auth` argument to read beforehand: try
+  each `/run/user/<uid>/.mutter-Xwaylandauth.*` made since the compositor started, newest
+  first, until the display opens. The newest one overall can belong to someone else's
+  compositor.
 - **Stop what you started, by PID.** Never `pkill -f` or `pgrep -f` a pattern that also
   appears in your own command line: it matches your own shell and kills it.
 - **Never use `SDL_VIDEO_DRIVER=offscreen` with OpenGL** on the Linux x64 host (it reset the
@@ -35,6 +56,17 @@ Written 2026-10-25 from the 2026-10-23 to 10-25 rendering work (#212, #233, #246
     is open, its top 200 rows are dark and a cyan line sits near row 235.
 - **Reading a cvar:** `condump <file>` after typing the cvar's name writes `"name" is:"v"
   default:"d"`, plus the help text, to `base/<file>`.
+- **Traps the script handles:**
+  - a fresh profile starts with the console **open**, so toggle it by its observed state,
+    never blindly;
+  - keys reach retail through its top-level (the compositor's frame window), while
+    `XGetImage` must read the inner 640×480 window: the frame adds a title bar, and the
+    compositor's screen-sized InputOnly window answers `XGetImage` with BadMatch;
+  - `devmap <map>` under retail's default campaign rules fails with "User Map Start Denied
+    'Unknown Campaign'"; set `si_rules sdGameRulesObjective` first;
+  - the "Create User" login dialog doesn't block console commands or `devmap`;
+  - Xlib's default error handler exits the process, so install one, or an X error leaves
+    retail and the compositor running.
 - **Spawning:** after a map loads, limbo is open. `0` picks GDF and Return deploys, with the
   console closed. `l` toggles limbo in game.
 - **Moving the camera:** `setviewpos x y z yaw pitch 0`. Retail ignores pitch while you
