@@ -37,7 +37,11 @@ two directions. A map can add views at fixed positions (EXTRA_VIEWS: canyon's ha
 --anchors does not move. A capture with --anchors takes the other capture's positions, the
 old canyon anchor included when that capture predates the outdoor one. compare lists an extra
 view only one side took as "missing in base" or "not taken by head", neither a problem; a
-standard view, map or mode the head lacks is "missing in head", a problem. The heuristics only
+standard view, map or mode the head lacks is "missing in head", a problem. Ground views are
+taken on foot (#341): outskirts spawns in the air, and capture waits for the player to land
+before it records the anchor and before each ground view. Capture both sides with this script,
+and do not reuse an outskirts anchor from a capture made before #341: it was recorded mid-fall,
+so its noclip views keep that height. The heuristics only
 warn (a near-black viewmodel corner, a sky band of one flat colour, an all-black or one-colour
 frame); the decision is made by looking at the sheets.
 
@@ -227,12 +231,29 @@ class Client:
                     and abs(pose[3] - pitch) <= VIEW_MATCH_ANGLE and abs(dyaw) <= VIEW_MATCH_ANGLE)
         return self.wait_for(drawn, timeout) is not None
 
+    def drain(self):
+        """Discard the lines read so far (FRAME_POSE still updates last_pose)."""
+        while True:
+            try:
+                line = self.lines.get_nowait()
+            except queue.Empty:
+                return
+            if line is None:
+                self.lines.put(None)   # the client has gone: leave that for wait_for
+                return
+            pose = FRAME_POSE_RE.search(line)
+            if pose:
+                self.last_pose = tuple(float(group) for group in pose.groups())
+
     def wait_landed(self, timeout: float) -> bool | None:
         """Wait until the player stands on the ground (#341).
 
         True if it had to wait (it was falling, so its weapon is still coming up), False if
         it already stood on the ground, None if it did not land within timeout.
         """
+        # drop what is already queued: a spawn-loop PLAYER_POS (spectating 1) or a late answer
+        # to an earlier poll must not count as on the ground now
+        self.drain()
         deadline = time.monotonic() + timeout
         standing = 0
         fell = False
