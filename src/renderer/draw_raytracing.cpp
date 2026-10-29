@@ -1201,6 +1201,24 @@ void R_RayTracingBeginFrame( unsigned int frameIndex ) {
 	}
 }
 
+// Every BLAS build sets the entry's buildSerial to the frame's, and a deforming entry is
+// rebuilt each frame anyway, so the entries built under this serial are this frame's builds.
+int R_RayTracingAbandonFrame() {
+	if ( rayTracingState == NULL || rayTracingState->blasCache == NULL ) {
+		return 0;
+	}
+	int abandoned = 0;
+	idList< sdRayTracingBlasCacheEntry >& cache = *rayTracingState->blasCache;
+	for ( int cacheIndex = 0; cacheIndex < cache.Num(); ++cacheIndex ) {
+		sdRayTracingBlasCacheEntry& entry = cache[ cacheIndex ];
+		if ( entry.built && entry.buildSerial == rayTracingState->buildSerial ) {
+			entry.built = false;
+			++abandoned;
+		}
+	}
+	return abandoned;
+}
+
 namespace {
 
 void AccelerationStructureBarrier( sdRayTracingState& state,

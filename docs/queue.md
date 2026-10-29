@@ -272,6 +272,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-28/29 (the combined run at `7031119` and its follow-ups):
+- #346 (`fix/343-failed-frame-uploads`, openETQW-win): a frame that fails in EndFrame submits its recorded uploads alone and rolls back its first-layout flags and BLAS marks; new `failed-frame-uploads` (U4 layer scan fails without the fix). Fixes #343. Tool-window variant: #347.
 - #348 (`docs/no-pii-phase1`, openETQW-linux): public-release phase 1 (owner-approved 2026-10-29). AGENTS rule 10 and CONTRIBUTING name hosts by platform only; `tools/ci/check_no_pii.py` (unit test `no-pii`, `--diff` for branches and commit messages, private names as SHA-256 digests); 9 docs baselined for phase 2.
 - #345 (`fix/341-parachute-spawn`, openETQW-win-arm64): screenshot_set waits for the player to land before the anchor and each ground view; outskirts A/B worst 0.4% on Windows arm64 (was 7.7%, parachute). Fixes #341. Old outskirts anchors must not be reused.
 - #344 (#338, openETQW-win): ray tracing prewarms every acceleration-structure build configuration at init (one table, RAY_TRACING_BUILD_CONFIGS; full build key plus a size bucket), so AMD's first-use BVH-build shader compile (about 650 ms, in play at the first deforming BLAS) moves to startup (cold about 2.3 s, warm about 30 ms); RAY_TRACING_UNWARMED_BUILD reports any play build whose key wasn't prewarmed; r_vkLogSlowCalls diagnostic; test rt-build-prewarm

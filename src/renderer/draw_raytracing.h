@@ -94,6 +94,9 @@ void R_RayTracingShutdown();
 void R_RayTracingPurgeGeometryCache();
 bool R_RayTracingIsInitialized();
 void R_RayTracingBeginFrame( unsigned int frameIndex );
+// #343: the frame recorded since R_RayTracingBeginFrame was never submitted; returns how many
+// BLAS builds it recorded, which are marked not built so the next frame records them again
+int R_RayTracingAbandonFrame();
 
 bool R_RayTracingDrawView( const viewDef_s* view,
 	const sdRayTracingGeometry* geometries, int geometryCount,
