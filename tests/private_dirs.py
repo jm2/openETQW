@@ -35,14 +35,14 @@ PRIVATE_DIR_MODE = 0o777 if os.name == "nt" else 0o700
 def make_private_dir(prefix: str = "etqw-", dir: Optional[os.PathLike | str] = None) -> Path:
     """A new, empty, uniquely named directory under `dir` (default: the temp root),
     like tempfile.mkdtemp but without the owner-only DACL it applies on Windows (see
-    PRIVATE_DIR_MODE). os.makedirs(exist_ok=False) never reuses an existing path,
+    PRIVATE_DIR_MODE). os.mkdir never reuses an existing path,
     so the name is as race-free as mkdtemp's. The caller removes it."""
     parent = Path(dir) if dir is not None else Path(tempfile.gettempdir())
-    names = tempfile._get_candidate_names()  # mkdtemp's own name source
+    names = tempfile._get_candidate_names()  # mkdtemp's own name source (private CPython API)
     for _ in range(tempfile.TMP_MAX):
         path = parent / f"{prefix}{next(names)}"
         try:
-            os.makedirs(path, mode=PRIVATE_DIR_MODE, exist_ok=False)
+            os.mkdir(path, PRIVATE_DIR_MODE)  # like mkdtemp: a missing parent raises
         except FileExistsError:
             continue
         return Path(os.path.abspath(path))

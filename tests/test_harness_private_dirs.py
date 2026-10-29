@@ -6,10 +6,10 @@ Since Python 3.13 (CVE-2024-4030), tempfile.mkdtemp and TemporaryDirectory creat
 their directory on Windows with an owner-only DACL. A process on a restricted token
 (the Codex Windows sandbox, openai/codex#19791) cannot write through it, so the
 engine could not write its generated SPIR-V (vkprogs/cache/...) under the test's
-fs_savepath, Vulkan init failed, and every client run on yoga-slim7x fell back to
+fs_savepath, Vulkan init failed, and every client run on the Windows arm64 host fell back to
 OpenGL on D3D12, and the tool tests (release-tools, packaging-tools,
 build-scripts, ...) failed at setup. private_dirs.make_private_dir (re-exported by
-etqw_harness) uses os.makedirs with the default mode on Windows and mkdtemp's 0o700
+etqw_harness) uses os.mkdir with the default mode on Windows and mkdtemp's 0o700
 on POSIX.
 
 No engine, no retail data, no ports. Pinned here:
@@ -110,7 +110,7 @@ def main() -> int:
     # script under tests/ (tool tests too: their setup failed in the sandbox), and
     # those under tools/ that hand the engine a save or dev path.
     sets_engine_dir = re.compile(r"\bfs_(savepath|devpath)\b")
-    mkdtemp_call = re.compile(r"\btempfile\.mkdtemp\(|\bTemporaryDirectory\(")
+    mkdtemp_call = re.compile(r"\bmkdtemp\(|\bTemporaryDirectory\(")
     me = Path(__file__).resolve()
     for root in (REPO_ROOT / "tests", REPO_ROOT / "tools"):
         for path in sorted(root.rglob("*.py")):
