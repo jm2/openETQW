@@ -156,7 +156,7 @@ Both repositories are private, and no release has been made. The `screenshots-pr
 2. **SDK-licensed code linked into engine binaries: not cleared; exceptions approved by the owner (2026-09-25).**
    - The engine links the game repo's SDK idLib (`libidLib.a`, 72 objects) and compiles the staged SDK `DeclType.cpp`, 189 staged SDK headers and `BuildDefines.inc`; three unit tests also compile the SDK `BitMsg.cpp`. `docs/provenance.md` §4 lists them (E1–E4).
    - The owner approved them as tracked exceptions on openQ4's precedent (A6; `docs/decisions/0001-sdk-code-in-the-engine-build.md`). Condition: every engine package carries the SDK EULA as well as the GPL. Met since PR #19: `meson install` puts it under `licenses/ETQW-SDK`, checked by meson `install-licenses`. That clears the item for the engine binaries.
-   - Engine history holds SDK files through jmarshall's root commits (the owner left them in place). SDK EULA §5 (the EULA must accompany each copy) is met for them by `EULA_SDK_ETQW.txt` at the repository root since 2026-10-29 (`docs/provenance.md` §6).
+   - Engine history holds SDK files through jmarshall's root commits (the owner left them in place). SDK EULA §5 (the EULA must accompany each copy) is met for them by `EULA_SDK_ETQW.txt` at the repository root since 2026-10-29 (`docs/provenance.md` §6). No other condition of this item is recorded as open; declaring it cleared is the owner's call.
 3. **`docs/provenance.md` coverage: not cleared.**
    - `docs/provenance-manifest.json` classifies 5,274 imported files.
    - Files added after the split: in it since 2026-10-07 (213 entries then, 230 at b318c87: 193 engine, 37 game; `addedAfterSplit`; `tools/build/provenance_post_split.py` reports and adds later ones).
