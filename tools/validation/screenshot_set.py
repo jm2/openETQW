@@ -108,6 +108,10 @@ WIDTH, HEIGHT = 1280, 720   # r_mode 12, which capture sets
 ACTIVE_RE = re.compile(r"FRAME_TIMING: window_ms=[\d.]+ frames=\d+ ticks=(\d+)")
 VIEWPOS_RE = re.compile(r"\(\s*(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s*\)\s+(-?[\d.]+)\s+(-?[\d.]+)")
 SPAWNED_RE = re.compile(r"PLAYER_POS:.*spectating 0")
+# the game's playerPos answer (openETQW-game src/game/gamesys/SysCmds.cpp): ground is 1 once
+# the player stands on something; vel's z is the fall speed
+PLAYER_GROUND_RE = re.compile(
+    r"PLAYER_POS: \(.*?\) vel: \(\s*-?[\d.]+,\s*-?[\d.]+,\s*(-?[\d.]+)\) ground: (\d)")
 SHOT_RE = re.compile(r"r_vkScreenshot: (wrote|could not|the swapchain|swapchain format)")
 SIZE_RE = re.compile(r"r_vkScreenshot: wrote (\d+)x(\d+)")
 SHRUNK_RE = re.compile(r"window: \d+x\d+ does not fit the primary display; using \d+x\d+")
@@ -119,6 +123,14 @@ FRAME_POSE_RE = re.compile(
 VIEW_MATCH_XY = 2.0        # units; setviewpos puts the eye exactly on the commanded x/y
 VIEW_MATCH_ANGLE = 0.5     # degrees; the drawn angles are the commanded ones
 VIEW_MATCH_TIMEOUT = 5.0   # seconds to wait for a matching draw after the settle
+# Outskirts' GDF spawns are in the air: the player falls on a parachute for several seconds,
+# with no weapon, and a view put above the ground falls the same way (#341). A ground view is
+# taken only once playerPos says the player stands still on the ground, and a player that had
+# to land gets WEAPON_RAISE seconds more for the weapon to come back up.
+LAND_TIMEOUT = 60.0        # seconds to wait for the player to land
+LAND_POLLS = 3             # consecutive on-ground answers that count as landed
+LAND_SPEED = 1.0           # units/s; a fall speed below this is standing
+WEAPON_RAISE = 2.0         # seconds; the parachute's put-away and the weapon's raise
 
 
 def find_client(explicit: str | None) -> Path:
@@ -215,6 +227,30 @@ class Client:
                     and abs(pose[3] - pitch) <= VIEW_MATCH_ANGLE and abs(dyaw) <= VIEW_MATCH_ANGLE)
         return self.wait_for(drawn, timeout) is not None
 
+    def wait_landed(self, timeout: float) -> bool | None:
+        """Wait until the player stands on the ground (#341).
+
+        True if it had to wait (it was falling, so its weapon is still coming up), False if
+        it already stood on the ground, None if it did not land within timeout.
+        """
+        deadline = time.monotonic() + timeout
+        standing = 0
+        fell = False
+        while time.monotonic() < deadline:
+            self.send("playerPos")
+            found = self.wait_for(lambda s: PLAYER_GROUND_RE.search(s), 1.0)
+            if not found:
+                standing = 0
+            elif found.group(2) == "1" and abs(float(found.group(1))) < LAND_SPEED:
+                standing += 1
+                if standing >= LAND_POLLS:
+                    return fell
+            else:
+                standing = 0
+                fell = True
+            time.sleep(0.1)
+        return None
+
     def close(self):
         self.send("quit")
         try:
@@ -268,6 +304,13 @@ def capture_map(client_bin: Path, workdir: Path, data: Path, out: Path, map_name
         # leaves the client in limbo, where setviewpos moves a player nobody is looking through
         client.send("god")
         time.sleep(settle)
+        # on foot before the anchor is recorded: a spawn still in the air would put every
+        # ground view in the air too (#341)
+        landed = client.wait_landed(LAND_TIMEOUT)
+        if landed is None:
+            raise RuntimeError(f"{tag}: the player did not land within {LAND_TIMEOUT:.0f} s")
+        if landed:
+            time.sleep(WEAPON_RAISE)
         if map_name in anchors:
             x, y, z, yaw = anchors[map_name]
             spawn = (x, y, z, yaw, 0.0)
@@ -290,6 +333,14 @@ def capture_map(client_bin: Path, workdir: Path, data: Path, out: Path, map_name
             # setviewpos takes the eye position; it subtracts the view height itself
             client.send(f"setviewpos {x:.2f} {y:.2f} {z:.2f} {yaw:.2f} {pitch:.2f} 0")
             time.sleep(settle)
+            if not needs_noclip:
+                # an anchor above the ground (one recorded mid-fall before #341) drops the
+                # player again; shoot the view on foot, not on the way down
+                landed = client.wait_landed(LAND_TIMEOUT)
+                if landed is None:
+                    raise RuntimeError(f"{tag}_{name}: the player did not land within {LAND_TIMEOUT:.0f} s")
+                if landed:
+                    time.sleep(WEAPON_RAISE)
             if not client.wait_view(x, y, yaw, pitch, VIEW_MATCH_TIMEOUT):
                 raise RuntimeError(
                     f"{tag}_{name}: the client is not drawing the commanded view "
