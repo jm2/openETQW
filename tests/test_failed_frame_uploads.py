@@ -133,19 +133,20 @@ def main(argv):
             cl.send(f"set r_swapInterval {i % 2}; set r_vkTestFailFrame 2")
             if not cl.wait_for_text(FAILING_LINE, 10.0, mark):
                 raise Failed(f"U2: injected failure {i + 1} was never reached: the client stopped drawing frames")
+            # without its "frame not submitted" line the injections go on, so U4 still judges them
             seen = cl.wait_for(lambda s: ABANDON_RE.search(s), 5.0, mark)
-            if not seen:
-                raise Failed(f"U2: injected failure {i + 1} printed no 'Vulkan: frame not submitted' line")
-            m = seen[2]
-            reports.append(m.group(0))
-            rolled_back.append(int(m.group(3)))
+            if seen:
+                reports.append(seen[2].group(0))
+                rolled_back.append(int(seen[2].group(3)))
+            else:
+                rolled_back.append(None)
             time.sleep(0.5)
-        ok = all(n >= 1 for n in rolled_back)
+        ok = all(n is not None and n >= 1 for n in rolled_back)
         print(f"  U2 {'pass' if ok else 'FAIL'}: {RECREATES} recreate frames failed; first layout transitions rolled"
-              f" back {rolled_back} (need at least 1 each)")
+              f" back {rolled_back} (need at least 1 each; None: no 'frame not submitted' line)")
         if not ok:
-            failures.append(f"U2: a failed recreate frame rolled back no first layout transition ({rolled_back}):"
-                            " it did not exercise #343")
+            failures.append(f"U2: a failed recreate frame reported no first layout transition rolled back"
+                            f" ({rolled_back}): it did not exercise #343")
         cl.send("set r_vkPrepareAhead 1")
 
         mark = cl.mark()
