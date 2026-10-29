@@ -18,7 +18,12 @@ fence wait began, and the frame's acquire time). For each draw, "begin-to-draw" 
 FRAME_POSE time minus the FRAME_SYNC time of the same frame: BeginFrame's waits plus the
 draw's preparation.
 
-  B1  r_vkPrepareAhead 1: the median begin-to-draw is at most BEGIN_TO_DRAW_MS
+  B0  'set r_swapInterval 1' recreated the swapchain in FIFO mode (a new "Vulkan swapchain:"
+      line with present mode 2)
+  B1  r_vkPrepareAhead 1: the median begin-to-draw is at most BEGIN_TO_DRAW_MS. It is
+      judged on every host, but it only shows the acquire was taken ahead where the
+      acquire blocks (B2's precondition); elsewhere it guards the fence wait and the
+      command-pool reset that r_vkPrepareAhead already moved, and its line says so.
   B2  negative control, r_vkPrepareAhead 0 (the acquire in BeginFrame again): where the
       acquire blocks (its median at least BLOCKING_ACQUIRE_MS), the median begin-to-draw
       exceeds BEGIN_TO_DRAW_MS by CONTROL_MARGIN_MS. Where it does not block (a present
@@ -45,6 +50,8 @@ BEGIN_TO_DRAW_MS = 2.0
 BLOCKING_ACQUIRE_MS = 2.0
 CONTROL_MARGIN_MS = 1.0
 MIN_FRAMES = 100
+FIFO_PRESENT_MODE = 2   # VK_PRESENT_MODE_FIFO_KHR
+SWAPCHAIN_RE = re.compile(r"Vulkan swapchain: .* present mode (\d+)")
 SYNC_RE = re.compile(r"FRAME_SYNC: us=(\d+) fence_us=(\d+) acquire_us=(\d+)")
 
 
@@ -103,8 +110,10 @@ def main(argv):
         if not cl.wait_for(lambda s: s.strip() == f"AA_END {name}", 10.0, begin):
             raise Failed(f"the client never echoed the end of phase {name}")
         lines = [ln.text for ln in cl.snapshot(begin)]
-        start = next(i for i, s in enumerate(lines) if s.strip() == f"AA_BEGIN {name}")
-        end = next(i for i, s in enumerate(lines) if s.strip() == f"AA_END {name}")
+        start = next((i for i, s in enumerate(lines) if s.strip() == f"AA_BEGIN {name}"), None)
+        end = next((i for i, s in enumerate(lines) if s.strip() == f"AA_END {name}"), None)
+        if start is None or end is None:
+            raise Failed(f"phase {name}: the client's log lacks AA_BEGIN or AA_END after the phase's mark")
         rows = frames(lines[start:end])
         if len(rows) < MIN_FRAMES:
             raise Failed(f"phase {name}: only {len(rows)} frames with FRAME_POSE and FRAME_SYNC (need {MIN_FRAMES})")
@@ -125,7 +134,15 @@ def main(argv):
         cl.send("set com_maxFPS 0")
         # FIFO from here on: BeginFrame recreates the swapchain while EndFrame holds an
         # image acquired ahead (ReleaseAheadImage)
+        mark = cl.mark()
         cl.send("set r_swapInterval 1")
+        hit = cl.wait_for(lambda s: (m := SWAPCHAIN_RE.search(s)) is not None
+                          and int(m.group(1)) == FIFO_PRESENT_MODE, 10.0, mark)
+        if not hit:
+            raise Failed("B0: no new 'Vulkan swapchain:' line with present mode 2 (FIFO) after"
+                         " 'set r_swapInterval 1': the swapchain was not recreated")
+        line = getattr(hit[1], "text", hit[1])
+        print(f"  B0 pass: the swapchain was recreated in FIFO mode ({str(line).strip()})")
         time.sleep(1.5)
 
         ahead = phase("ahead", args.phase_seconds)
@@ -137,15 +154,18 @@ def main(argv):
         time.sleep(1.0)
 
         b2d, acq = summary(ahead)
+        c_b2d, c_acq = summary(control)
+        blocking = c_acq >= BLOCKING_ACQUIRE_MS
         ok = b2d <= BEGIN_TO_DRAW_MS
+        scope = ("the acquire blocks on this host, so this shows it was taken ahead" if blocking else
+                 "the acquire does not block on this host, so this guards only the fence wait and pool reset")
         print(f"  B1 {'pass' if ok else 'FAIL'}: r_vkPrepareAhead 1: {len(ahead)} frames, median begin-to-draw"
-              f" {b2d:.2f} ms (need <= {BEGIN_TO_DRAW_MS:.1f}), median acquire {acq:.2f} ms (done ahead)")
+              f" {b2d:.2f} ms (need <= {BEGIN_TO_DRAW_MS:.1f}), median acquire {acq:.2f} ms; {scope}")
         if not ok:
             failures.append(f"B1: with r_vkPrepareAhead 1 the median begin-to-draw is {b2d:.2f} ms"
                             f" (need <= {BEGIN_TO_DRAW_MS:.1f}): a wait still falls between the fraction and the draw")
 
-        c_b2d, c_acq = summary(control)
-        if c_acq < BLOCKING_ACQUIRE_MS:
+        if not blocking:
             print(f"  B2 report: r_vkPrepareAhead 0: median acquire {c_acq:.2f} ms, below {BLOCKING_ACQUIRE_MS:.1f}:"
                   f" the acquire does not block on this host, so the control is not judged"
                   f" (median begin-to-draw {c_b2d:.2f} ms)")
