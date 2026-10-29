@@ -713,7 +713,7 @@ def main(argv):
             "net_allowCheats": "1"}
     # r_vkValidation 0: this test measures frame rates, and the Khronos validation layer,
     # where it is installed (Linux, not the macOS host), cut the uncapped rate from about
-    # 370 to 56 fps on antec. campaign-client-maps keeps it on to catch spec violations.
+    # 370 to 56 fps on the Linux x64 host. campaign-client-maps keeps it on to catch spec violations.
     view_cvars = {"com_unlockFPS": "1", "r_swapInterval": "0", "r_vkValidation": "0",
                   "in_yawSpeed": "90", "in_angleSpeedKey": "1"}
     if mode == "join":

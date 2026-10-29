@@ -1009,7 +1009,7 @@ int Com_GetGameTimeLeft() {
 	// M5 step 10 follow-up: plus the real time since the residual was measured (the frame's
 	// start), so a frame whose ticks or prediction took long presents the moment it is
 	// prepared, not the moment it began (a 15 ms tick on a slow host drew a tick frame at
-	// 1/33 15 ms late, frame-poses A8 on macmini-m1). The tick loop still tests the
+	// 1/33 15 ms late, frame-poses A8 on the macOS host). The tick loop still tests the
 	// residual itself; besides the presented fraction this only shortens com_unlockFPS 0's
 	// wait for the next tick by the frame's work (Com_GetGameTimeLeft, idCommonLocal::Frame)
 	// (in game time: the residual is scaled by com_timescale, Com_UpdateGameTime)
