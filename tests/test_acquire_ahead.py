@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
 """
 acquire-ahead (#335): a Vulkan frame's swapchain-image acquire falls before the frame
 computes its fraction, not between that fraction and the draw.
