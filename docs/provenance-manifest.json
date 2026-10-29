@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5562,
+  "totalFiles": 5563,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 394
   },
   "postSplitCounts": {
-    "Reconstruction_original": 283,
+    "Reconstruction_original": 284,
     "ThirdParty": 1,
     "Doom3_GPL": 2,
     "SDK": 2
@@ -49050,9 +49050,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "e189982cc122da4a2ca6fe48eab295ed127132dc73e65bc6181b928cee8b8809",
-      "canonicalSha256": "e189982cc122da4a2ca6fe48eab295ed127132dc73e65bc6181b928cee8b8809",
-      "bytes": 42707,
+      "rawSha256": "57c0e05f6e1502d658cc34f1ada7f65858167ae82786c565cf01a1d14e810592",
+      "canonicalSha256": "57c0e05f6e1502d658cc34f1ada7f65858167ae82786c565cf01a1d14e810592",
+      "bytes": 43448,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": "GPL-3.0-or-later"
@@ -49079,6 +49079,18 @@
       "bytes": 9810,
       "addedAfterSplit": true,
       "addedIn": "a61fb91e25fafb3904cb1f684a0c79977e30e3bc",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
+      "path": "tests/test_acquire_ahead.py",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "86f9f8991b513242c66b78f4744fbb19f9bf8bc47afc9ce0997c4deadd9b390b",
+      "canonicalSha256": "86f9f8991b513242c66b78f4744fbb19f9bf8bc47afc9ce0997c4deadd9b390b",
+      "bytes": 8219,
+      "addedAfterSplit": true,
+      "addedIn": "71c94787a7de465d521721d34d3c805600a113ba",
       "spdx": "GPL-3.0-or-later"
     },
     {
