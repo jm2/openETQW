@@ -21,8 +21,9 @@ Written 2026-10-25 from the 2026-10-23 to 10-25 rendering work (#212, #233, #246
 
   Without `--views` it takes `screenshot_set.py`'s own views around the map's anchor, so
   the two sides line up. It applies the §3 resets unless `--keep-profile-spec` is given,
-  refuses an `--out` inside either repository, and stops the compositor and retail when it
-  ends. It needs `mutter`, the 32-bit retail runtime libraries and libX11/libXtst; it uses
+  refuses an `--out` inside any git work tree, and stops the compositor and retail when it
+  ends, on an exception, SIGTERM or SIGHUP. Only a SIGKILL of the script leaves them
+  running; stop those by PID. It needs `mutter`, the 32-bit retail runtime libraries and libX11/libXtst; it uses
   the GPU, so check host claims first. The extracted tree is the two retail packages
   unpacked into one scratch directory (`etqw.x86` beside `base/pak000.pk4`…`pak008.pk4`).
   Its unit test (`retail-capture-tool`) covers only the offline parts; a change to the

@@ -4,8 +4,10 @@
 
 The capture itself needs the retail client, mutter and a GPU, so it is run by hand
 (docs/retail-comparison.md § 1). Pinned here, with no retail data, display or ports:
-  * --out inside either repository is refused before anything starts (AGENTS.md rule 3);
+  * --out inside this repository is refused before anything starts (AGENTS.md rule 3);
   * write_png writes a PNG whose decoded pixels are the input;
+  * --out inside any git work tree is refused (a worktree run guards the main checkout too);
+  * bgrx_to_rgb swaps B and R and skips row padding;
   * mean_frames rounds the per-pixel mean, and box_means scales the § 4 boxes to the grab;
   * without --views, the views are screenshot_set.py's VIEWS (and EXTRA_VIEWS) around the
     map's anchor, so a retail capture lines up with ours.
@@ -59,6 +61,8 @@ def read_png(path: Path) -> tuple[int, int, bytes]:
 
 def main() -> int:
     rc = load()
+    sys.path.insert(0, str(REPO_ROOT / "tests"))
+    import private_dirs
 
     # the output guard runs before the compositor or retail start
     proc = subprocess.run([sys.executable, str(TOOL), "--retail-dir", str(REPO_ROOT),
@@ -67,11 +71,24 @@ def main() -> int:
     expect(proc.returncode != 0 and "never enter a repository" in proc.stderr,
            f"--out inside the repository is refused (rc {proc.returncode}: {proc.stderr.strip()[-200:]})")
     expect(not (REPO_ROOT / "build" / "retail-shots").exists(), "the refused --out is not created")
+    # any git work tree is refused, not only this one (a worktree run must not write into
+    # the main checkout or the game repository either)
+    with private_dirs.PrivateTempDir(prefix="openetqw-retail-capture-git-") as tmp:
+        (Path(tmp) / "repo" / ".git").mkdir(parents=True)
+        expect(rc.in_repository(Path(tmp) / "repo" / "a") is None,
+               "an empty .git directory is not a repository")
+        (Path(tmp) / "repo" / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+        expect(rc.in_repository(Path(tmp) / "repo" / "a" / "b") == (Path(tmp) / "repo").resolve(),
+               "a directory under another repository's work tree is refused")
+        (Path(tmp) / "wt").mkdir()
+        (Path(tmp) / "wt" / ".git").write_text("gitdir: /elsewhere/.git/worktrees/wt\n")
+        expect(rc.in_repository(Path(tmp) / "wt" / "x") == (Path(tmp) / "wt").resolve(),
+               "a directory under a git worktree is refused")
+        expect(rc.in_repository(Path(tmp).parent) is None or (Path(tmp).parent / ".git").exists(),
+               "a directory outside any work tree is allowed")
 
     w, h = 5, 3
     rgb = bytes((x * 40 + y * 7 + c) % 256 for y in range(h) for x in range(w) for c in range(3))
-    sys.path.insert(0, str(REPO_ROOT / "tests"))
-    import private_dirs
     with private_dirs.PrivateTempDir(prefix="openetqw-retail-capture-test-") as tmp:
         path = Path(tmp) / "t.png"
         rc.write_png(path, w, h, rgb)
@@ -80,11 +97,26 @@ def main() -> int:
     m = rc.mean_frames([(1, 1, bytes([10, 20, 31])), (1, 1, bytes([11, 20, 32]))])
     expect(m == (1, 1, bytes([11, 20, 32])), f"mean_frames rounds half up: {m}")
 
+    # a gradient frame at twice 640x480: R = x mod 256, G = y mod 256 (in 640x480 units),
+    # B = 7. A box in the wrong place, or
+    # scaled wrongly, moves its mean.
     W, H = 1280, 960
-    flat = bytes([100, 150, 200]) * (W * H)
-    boxes = rc.box_means(W, H, flat)
-    expect(set(boxes) == set(rc.BOXES) and all(v == [100.0, 150.0, 200.0] for v in boxes.values()),
-           f"box_means over a flat frame: {boxes}")
+    grad = bytes(v for y in range(H) for x in range(W) for v in (x // 2 % 256, y // 2 % 256, 7))
+    boxes = rc.box_means(W, H, grad)
+    for name, (x0, y0, x1, y1) in rc.BOXES.items():
+        want = [round(sum(v % 256 for v in range(x0, x1)) / (x1 - x0), 2),
+                round(sum(v % 256 for v in range(y0, y1)) / (y1 - y0), 2), 7.0]
+        expect(boxes.get(name) == want, f"box_means {name}: {boxes.get(name)} != {want}")
+
+    # BGRX rows with padding past 4 * w (stride > 4 * w), as XGetImage can return
+    w2, h2, stride = 3, 2, 16
+    raw = bytearray(stride * h2)
+    for y in range(h2):
+        for x in range(w2):
+            raw[y * stride + x * 4: y * stride + x * 4 + 4] = bytes([10 * x + y, 50 + x, 100 + y, 0xEE])
+        raw[y * stride + w2 * 4: (y + 1) * stride] = b"\xAA" * (stride - w2 * 4)
+    want = bytes(v for y in range(h2) for x in range(w2) for v in (100 + y, 50 + x, 10 * x + y))
+    expect(rc.bgrx_to_rgb(bytes(raw), w2, h2, stride) == want, "bgrx_to_rgb swaps B and R and skips row padding")
 
     class Args:
         views = None

@@ -16,7 +16,8 @@ both repositories: retail frames never enter them (AGENTS.md rule 3). Each view 
 <map>_<view>.png (the mean of --frames grabs) and one capture.json with the mean RGB of the
 docs/retail-comparison.md § 4 boxes, which are the part that can be published.
 
-Views: --views is a JSON list of {"name", "x", "y", "z", "yaw", "pitch"}; without it the
+Views: --views is a JSON list of {"name", "x", "y", "z", "yaw", "pitch", "noclip"} (noclip
+optional, for views off the ground); without it the
 script takes screenshot_set.py's own views (its VIEWS table) around the --anchors position
 for the map. The retail-settings resets of docs/retail-comparison.md § 3 are applied unless
 --keep-profile-spec is given; --set adds console commands (`--set "g_skipPostProcess 1"`).
@@ -94,16 +95,28 @@ class Compositor:
         # compositor started; the newest one overall can belong to someone else's compositor
         # (docs/retail-comparison.md § 1), so X.open tries each made since, newest first.
         run = Path(f"/run/user/{os.getuid()}")
-        files = [p for p in run.glob(".mutter-Xwaylandauth.*") if p.stat().st_mtime >= self.started - 1]
-        return [str(p) for p in sorted(files, key=lambda p: p.stat().st_mtime, reverse=True)]
+        files = []
+        for p in run.glob(".mutter-Xwaylandauth.*"):
+            try:
+                mtime = p.stat().st_mtime
+            except OSError:  # gone since the glob
+                continue
+            if mtime >= self.started - 1:
+                files.append((mtime, str(p)))
+        return [p for _, p in sorted(files, reverse=True)]
 
     def close(self) -> None:
-        if self.proc.poll() is None:
+        # mutter leads its own session group, Xwayland included; nothing else is in it
+        try:
             os.killpg(self.proc.pid, signal.SIGTERM)
-            try:
-                self.proc.wait(10)
-            except subprocess.TimeoutExpired:
-                os.killpg(self.proc.pid, signal.SIGKILL)
+            self.proc.wait(10)
+        except (ProcessLookupError, subprocess.TimeoutExpired):
+            pass
+        try:
+            os.killpg(self.proc.pid, signal.SIGKILL)  # a straggling Xwayland
+        except ProcessLookupError:
+            pass
+        self.proc.wait()
         self.log.close()
 
 
@@ -115,7 +128,8 @@ class XImage(ctypes.Structure):
                 ("byte_order", ctypes.c_int), ("bitmap_unit", ctypes.c_int),
                 ("bitmap_bit_order", ctypes.c_int), ("bitmap_pad", ctypes.c_int),
                 ("depth", ctypes.c_int), ("bytes_per_line", ctypes.c_int),
-                ("bits_per_pixel", ctypes.c_int)]
+                ("bits_per_pixel", ctypes.c_int), ("red_mask", ctypes.c_ulong),
+                ("green_mask", ctypes.c_ulong), ("blue_mask", ctypes.c_ulong)]
 
 
 class XWindowAttributes(ctypes.Structure):
@@ -130,15 +144,21 @@ class XWindowAttributes(ctypes.Structure):
                 ("override_redirect", ctypes.c_int), ("screen", ctypes.c_void_p)]
 
 
+class XErrorEvent(ctypes.Structure):
+    _fields_ = [("type", ctypes.c_int), ("display", ctypes.c_void_p), ("resourceid", ctypes.c_ulong),
+                ("serial", ctypes.c_ulong), ("error_code", ctypes.c_ubyte), ("request_code", ctypes.c_ubyte),
+                ("minor_code", ctypes.c_ubyte)]
+
+
 # Xlib's default error handler exits the process, which would leave retail and the compositor
 # running; record the error instead and let the caller see the failed call
 X_ERRORS: list[int] = []
-_XErrorHandler = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
+_XErrorHandler = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.POINTER(XErrorEvent))
 
 
 @_XErrorHandler
 def _record_x_error(_dpy, event):
-    X_ERRORS.append(ctypes.cast(event, ctypes.POINTER(ctypes.c_ubyte))[16])  # XErrorEvent.error_code
+    X_ERRORS.append(event.contents.error_code)
     return 0
 
 
@@ -273,22 +293,31 @@ class X:
         if not img:
             raise RuntimeError(f"XGetImage of window {win:#x} ({w}x{h}) failed, X errors {X_ERRORS}")
         im = img.contents
-        if im.bits_per_pixel != 32:
-            raise RuntimeError(f"unexpected {im.bits_per_pixel} bpp")
+        if (im.bits_per_pixel, im.byte_order, im.red_mask, im.blue_mask) != (32, 0, 0xFF0000, 0xFF):
+            fmt = (im.bits_per_pixel, im.byte_order, hex(im.red_mask), hex(im.blue_mask))
+            self.x.XFree(im.data)
+            self.x.XFree(img)
+            raise RuntimeError(f"unexpected image format {fmt}: expected 32 bpp LSBFirst BGRX")
         raw = ctypes.string_at(im.data, im.bytes_per_line * h)
         stride = im.bytes_per_line
         self.x.XFree(im.data)
         self.x.XFree(img)
-        rgb = bytearray(w * h * 3)
-        for row in range(h):  # BGRX, little-endian
-            src = raw[row * stride: row * stride + w * 4]
-            out = rgb[row * w * 3:(row + 1) * w * 3]
-            out[0::3], out[1::3], out[2::3] = src[2::4], src[1::4], src[0::4]
-            rgb[row * w * 3:(row + 1) * w * 3] = out
-        return w, h, bytes(rgb)
+        return w, h, bgrx_to_rgb(raw, w, h, stride)
 
 
 # --- images ---------------------------------------------------------------------------------------
+
+def bgrx_to_rgb(raw: bytes, w: int, h: int, stride: int) -> bytes:
+    """32 bpp LSBFirst BGRX rows (stride bytes each, stride >= 4 * w) to packed RGB."""
+    rgb = bytearray(w * h * 3)
+    for row in range(h):
+        src = raw[row * stride: row * stride + w * 4]
+        base = row * w * 3
+        rgb[base:base + w * 3:3] = src[2::4]
+        rgb[base + 1:base + w * 3:3] = src[1::4]
+        rgb[base + 2:base + w * 3:3] = src[0::4]
+    return bytes(rgb)
+
 
 def mean_frames(frames: list[tuple[int, int, bytes]]) -> tuple[int, int, bytes]:
     w, h = frames[0][0], frames[0][1]
@@ -331,12 +360,18 @@ def box_means(w: int, h: int, rgb: bytes) -> dict:
 
 # --- retail ---------------------------------------------------------------------------------------
 
-def inside(path: Path, root: Path) -> bool:
-    try:
-        path.resolve().relative_to(root.resolve())
-        return True
-    except ValueError:
-        return False
+def in_repository(path: Path) -> Path | None:
+    """The git work tree (or worktree) holding path, or None. Any repository counts: a guard
+    on named roots misses the main checkout when the tool runs from a worktree, and the game
+    repository wherever it is checked out."""
+    for d in [path.resolve(), *path.resolve().parents]:
+        git = d / ".git"
+        # a repository's .git directory has HEAD; a worktree's .git is a "gitdir:" file. An
+        # empty stray .git directory is not a repository.
+        if (git.is_dir() and (git / "HEAD").is_file()) or \
+                (git.is_file() and git.read_text(errors="replace").startswith("gitdir:")):
+            return d
+    return None
 
 
 class Retail:
@@ -383,7 +418,7 @@ class Retail:
         for _ in range(4):
             if self.console_open() == want_open:
                 return
-            self.xw.game_window()  # the frame can be replaced as the window maps
+            self.win = self.xw.game_window() or self.win  # the frame can be replaced as the window maps
             self.xw.focus(self.win)
             self.xw.key(KEYSYMS["`"])
             time.sleep(0.8)
@@ -402,12 +437,6 @@ class Retail:
         time.sleep(0.4)
         self.set_console(False)
 
-    def console_log(self) -> str:
-        for p in (self.profile / "base" / "qconsole.log", self.profile / "qconsole.log"):
-            if p.is_file():
-                return p.read_text(errors="replace")
-        return ""
-
     def close(self) -> None:
         if self.proc.poll() is None:
             self.proc.terminate()
@@ -415,7 +444,10 @@ class Retail:
                 self.proc.wait(15)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
-                self.proc.wait(5)
+                try:
+                    self.proc.wait(5)
+                except subprocess.TimeoutExpired:
+                    pass  # the compositor's close still runs; retail dies with its display
         self.log.close()
 
 
@@ -442,7 +474,7 @@ def main() -> int:
     ap.add_argument("--retail-dir", required=True, type=Path, help="extracted retail tree with etqw.x86 and base/")
     ap.add_argument("--out", required=True, type=Path, help="output directory, outside both repositories")
     ap.add_argument("--map", default="valley")
-    ap.add_argument("--views", help="JSON list of {name, x, y, z, yaw, pitch}")
+    ap.add_argument("--views", help="JSON list of {name, x, y, z, yaw, pitch[, noclip]}")
     ap.add_argument("--anchors", help="screenshot_set.json whose anchor positions to reuse")
     ap.add_argument("--set", action="append", default=[], help="extra console command, repeatable")
     ap.add_argument("--keep-profile-spec", action="store_true", help="don't apply the § 3 resets")
@@ -451,10 +483,9 @@ def main() -> int:
     ap.add_argument("--load-wait", type=float, default=75.0, help="seconds for the map to load")
     a = ap.parse_args()
 
-    game_repo = Path(os.environ.get("OPENETQW_GAME_REPO", REPO_ROOT.parent / "openETQW-game"))
-    for root in (REPO_ROOT, game_repo):
-        if inside(a.out, root):
-            raise SystemExit(f"--out {a.out} is inside {root}: retail frames never enter a repository")
+    repo = in_repository(a.out)
+    if repo:
+        raise SystemExit(f"--out {a.out} is inside {repo}: retail frames never enter a repository")
     if not (a.retail_dir / "etqw.x86").is_file() or not (a.retail_dir / "base" / "pak000.pk4").is_file():
         raise SystemExit(f"{a.retail_dir} has no etqw.x86 and base/pak000.pk4")
     if shutil.which("mutter") is None:
@@ -462,6 +493,11 @@ def main() -> int:
     ss = load_screenshot_set()
     views = views_for(a, ss)
 
+    # SIGTERM/SIGHUP would end Python without the finally below, orphaning retail and mutter
+    def _stop(signum, _frame):
+        raise SystemExit(128 + signum)
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, _stop)
     a.out.mkdir(parents=True, exist_ok=True)
     work = a.out / "work"
     work.mkdir(exist_ok=True)
@@ -507,12 +543,12 @@ def main() -> int:
             write_png(png, w, h, rgb)
             report["views"].append({**v, "file": png.name, "size": [w, h], "boxes": box_means(w, h, rgb)})
             print(f"  {v['name']}: {w}x{h} -> {png}", flush=True)
-        log = retail.console_log()
-        report["console_errors"] = [l for l in log.splitlines() if "ERROR" in l or "WARNING: Unknown command" in l][:20]
     finally:
-        if retail:
-            retail.close()
-        comp.close()
+        try:
+            if retail:
+                retail.close()
+        finally:
+            comp.close()
         (a.out / "capture.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
         shutil.rmtree(work, ignore_errors=True)
     return 0 if report["views"] else 1
