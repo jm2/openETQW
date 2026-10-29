@@ -61,8 +61,8 @@ get CI back: both stay private until the maintainer decides to publish.
    (`gh release create -R jm2/openETQW-ops screenshots-prNNN --prerelease --title "Screenshots for #NNN" --notes "..."`,
    then `gh release upload -R jm2/openETQW-ops screenshots-prNNN <files>`; one release per
    PR), and post `compare.md` on the PR. Other contributors keep their sheets and describe
-   what they saw. The author and a reviewing session look at every sheet before the merge and are the
-   gate: the numbers and the heuristic warnings (a near-black viewmodel, a flat sky) only
+   what they saw, and the maintainer looks at the sheets. The author and a reviewer look at
+   every sheet before the merge and are the gate: the numbers and the heuristic warnings (a near-black viewmodel, a flat sky) only
    point at things, and their look decides. The owner is asked only when something is
    ambiguous, for example when it is unclear what retail looks like (owner, 2026-10-09). The
    tests check numbers only, and a dark viewmodel and a sky drawn as a box went unnoticed

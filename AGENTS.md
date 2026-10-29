@@ -37,8 +37,9 @@ them.
 2. **Never rewrite published history.** No `git push --force`, no `--force-with-lease`, no
    rebasing a pushed branch. Merge `main` into a branch instead of rebasing it.
 3. **Never commit retail data.** That means paks, retail executables, PDBs, disassembly or
-   decompiler output, packet captures, or screenshots of retail. The rule covers both
-   repositories and their whole history.
+   decompiler output, packet captures, or screenshots and captures that show retail game
+   content, our own engine's included. The rule covers both repositories, their whole history
+   and their releases.
 4. **Never weaken a test to make it pass.** That includes raising a tolerance, deleting a
    check or marking it known-broken. Switching off what an existing check depends on
    counts too: turning off a diagnostic the test reads (`r_vkValidation`, a log or marker

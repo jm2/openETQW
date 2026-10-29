@@ -2,9 +2,9 @@
 
 The plan for `docs/vehicle-responsiveness.md` stage 7: drawing your own vehicle's hull, and what it carries, up to one tick ahead of the last tick, per vehicle class.
 
-Written 2026-10-06 by the Mac session against engine main 2f8698d and game main d9acb36. It refines stage 7's predictor after a first measurement (§2). Stage 7's `PredictNextPose`, the physics' own step on a copy, is essentially exact in free flight, but poor on the ground. Extrapolating the presentation's own tick samples is the better predictor on the ground and needs no physics code, but it amplifies a network client's decay noise. So the plan keeps both as candidates, and adds a hybrid, with the choice per class made by the measurement step. Everything else in stage 7 stands. Line numbers drift; re-check before relying on one.
+Written 2026-10-06 on macOS against engine main 2f8698d and game main d9acb36. It refines stage 7's predictor after a first measurement (§2). Stage 7's `PredictNextPose`, the physics' own step on a copy, is essentially exact in free flight, but poor on the ground. Extrapolating the presentation's own tick samples is the better predictor on the ground and needs no physics code, but it amplifies a network client's decay noise. So the plan keeps both as candidates, and adds a hybrid, with the choice per class made by the measurement step. Everything else in stage 7 stands. Line numbers drift; re-check before relying on one.
 
-**Evidence level.** §2's numbers were measured on this Mac (M1 Max, macOS 27.0.1) with `tools/analysis/veh_pred.py`. The rest is read from code *[inspected]* or reasoned from it *[derived]*, and is marked so where it matters.
+**Evidence level.** §2's numbers were measured on the macOS host (M1 Max, macOS 27.0.1) with `tools/analysis/veh_pred.py`. The rest is read from code *[inspected]* or reasoned from it *[derived]*, and is marked so where it matters.
 
 ## 1. Why
 
@@ -196,10 +196,10 @@ A hull trace in `SampleTick` against the world is **not** proposed. It would bou
 The choice between S, P and H is technical: step 2's numbers decide it. The owner should still see that stage 7's physics step stays a candidate, and why (§2).
 
 
-**Decided (owner, 2026-10-07, relayed by the Linux session):**
+**Decided (owner, 2026-10-07):**
 - **Question 2, the impact overshoot:** accept the soft guard (the spike fallback, the length cap, L per class). No tick-side clip trace.
 - **Question 4, the decay on your own vehicle:** keep retail's prediction-error decay. Measure its effect on the lead from a network client's `VEH_PRED` first (§6), and revisit only if it shows as wobble.
-- **Related:** turret and IK joint blending for gunner views will be built in presentation, beyond D2, with its own ledger row (the Linux session). The default frame cap is 240 (m5-plan step 18, the win-arm64 session).
+- **Related:** turret and IK joint blending for gunner views will be built in presentation, beyond D2, with its own ledger row. The default frame cap is 240 (m5-plan step 18).
 
 **Still open:** questions 1 and 3, the per-class p95 bound and L, and which driver and pilot seats join the default list. They need the measurements below and the owner's review on a high-refresh display.
 
@@ -220,7 +220,7 @@ The questions as asked:
    - Then repeat on a join client with `g_logVehiclePred`, to see the decay noise, and on a listen host. That needs a client-side drive (`clientMove`), as `seat-poses` does. **Done 2026-10-20 (§6; meson `lead-measure-join` and `lead-measure-listen`, with the game's `g_leadMeasureDrive 0`).**
 3. **Implement (game). Done 2026-10-07 (ledger 067).**
    - The three-sample predictor, the α draw, the fade and the impact guard in `sdPresentation`, plus `g_unlock_vehicleLead` and `VEH_PRED`.
-   - It touches `Presentation.{h,cpp}`, which the Linux session is changing for the stage 5 chase-view look (branch `m5/14-stage5-chase-look`). The merge order is agreed with it before this step starts, and this step is rebased on its result.
+   - It touches `Presentation.{h,cpp}`, which was being changed for the stage 5 chase-view look (branch `m5/14-stage5-chase-look`). The merge order is agreed with it before this step starts, and this step is rebased on its result.
    - Ledger row (next free number): "Your own vehicle's hull drawn up to one tick ahead, per class (beyond retail; owner 2026-09-29)".
 4. **Test (engine). Done 2026-10-07: `seat-poses` H0–H3 and `seat-gate` run B (H4).** `seat-poses` gains a lead phase at caps 60 and 120, with the badger listed at L = 1. Its checks:
    - **H0:** the lead was on: `SEAT_PRESENT` counts blended draws, and `FRAME_POSE` carries `lead=`.
@@ -314,9 +314,9 @@ On a network client the render entity is the predicted pose after prediction-err
     - Its median is 0.012 u or less in every mode.
     - Its p95 is 0.09 u or less in single player and on the listen host, and 0.63 u or less on the client.
     - P alone has a p95 of 1.13–1.16 u everywhere except the anansi on the client (0.03–0.05).
-  - **Logs:** on the Windows x64 host in `C:\Users\<name>\openetqw-evidence\lead-client-2026-10-20\final\` (`devmap-N/`, `listen-N/`, `join-N/`, `aggregate.txt`).
+  - **Logs:** kept on the Windows x64 host (`lead-client-2026-10-20/final/`: `devmap-N/`, `listen-N/`, `join-N/`, `aggregate.txt`), not published.
 - Whether to keep the decay on your own vehicle at all: kept, by the owner's 2026-10-07 decision (§4).
-- **An option for question 1 (suggested by the Linux session):** choose the predictor by role.
+- **An option for question 1 (suggested in review):** choose the predictor by role.
   - On a network client (`gameLocal.isClient`), use P, or H with P on the ground too, for every class, since the decay inflates S there.
   - In authoritative games (single player, the listen host), keep each class's own choice (S on the ground).
   - It is a small change in `sdSeatGate::LeadForClass`, and the class's L is unchanged. It needs the same review on a high-refresh display.

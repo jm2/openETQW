@@ -475,7 +475,7 @@ Done 2026-09-30: the fix, `AIR_CTL` and meson `aircraft-reprediction` are built 
   5. **Elsewhere.** `vehicle-physics-golden`, `high-refresh-determinism`, `seat-gate` and the frame-poses tests are unchanged.
 - **The residual rule.** A fix-on pair that fails check 1 or 3 is a residual, unless a duplicated command or a prediction restart explains it. If one remains, `oldCmdAngles` and `collective` are networked, as the owner decided.
 
-**Results (2026-09-30, this Mac, game `m5/14a-air-control`; the range over three runs)** *[measured]*
+**Results (2026-09-30, the macOS host, game `m5/14a-air-control`; the range over three runs)** *[measured]*
 
 | Leg (advanced controls) | Client ahead (P−S) | Roll pairs with `base` differing | Moving-collective pairs with `coll` differing | Angular-velocity error at `since=2` (roll and collective phases), p95 |
 |---|---|---|---|---|
