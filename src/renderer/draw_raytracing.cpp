@@ -79,6 +79,33 @@ const unsigned int RAY_TRACING_PREWARM_GRID_COLUMNS = 128;
 const unsigned int RAY_TRACING_PREWARM_GRID_ROWS = 256;
 const unsigned int RAY_TRACING_PREWARM_TRIANGLES[] = { 1, 64, 4096, 65536 };
 const unsigned int RAY_TRACING_PREWARM_INSTANCES[] = { 1, 64, 4096 };
+const int RAY_TRACING_PREWARM_TRIANGLE_RUNGS =
+	sizeof( RAY_TRACING_PREWARM_TRIANGLES ) / sizeof( RAY_TRACING_PREWARM_TRIANGLES[ 0 ] );
+const int RAY_TRACING_PREWARM_INSTANCE_RUNGS =
+	sizeof( RAY_TRACING_PREWARM_INSTANCES ) / sizeof( RAY_TRACING_PREWARM_INSTANCES[ 0 ] );
+
+// What a driver may compile a BVH build against: every field of the build and of its
+// geometry except addresses and counts, plus the build's size bucket (PrewarmSizeBucket).
+// The prewarm records the key of each build it makes, and NoteBuild looks up the key of
+// each build made in play, so a play build that differs from every prewarmed one in any of
+// these (a changed flag, a new geometry format, a build bypassing DescribeBuild, a size past
+// the ladder) is reported.
+struct sdRayTracingBuildKey {
+	VkAccelerationStructureTypeKHR			type;
+	VkBuildAccelerationStructureFlagsKHR	flags;
+	VkBuildAccelerationStructureModeKHR		mode;
+	unsigned int							geometryCount;
+	VkGeometryTypeKHR						geometryType;	// of the first geometry
+	VkGeometryFlagsKHR						geometryFlags;
+	VkFormat								vertexFormat;	// triangles
+	VkDeviceSize							vertexStride;
+	VkIndexType								indexType;
+	bool									transform;		// triangles: transformData set
+	VkBool32								arrayOfPointers;	// instances
+	int										sizeBucket;
+};
+
+const int MAX_RAY_TRACING_BUILD_KEYS = 64;
 
 idCVar r_rayTracing(
 	"r_rayTracing",
@@ -246,7 +273,9 @@ struct sdRayTracingState {
 	unsigned long long buildSerial;
 	VkQueue queue;					// the prewarm's one submit
 	unsigned int queueFamilyIndex;
-	bool builtKinds[ RAY_TRACING_BUILD_KINDS ];	// prewarmed, or built once in play
+	// the keys of the builds prewarmed, then of each one first built in play
+	sdRayTracingBuildKey buildKeys[ MAX_RAY_TRACING_BUILD_KEYS ];
+	int buildKeyCount;
 
 	PFN_vkGetDeviceProcAddr GetDeviceProcAddr;
 	PFN_vkCreateBuffer CreateBuffer;
@@ -1313,16 +1342,95 @@ void DescribeBuild( VkAccelerationStructureBuildGeometryInfoKHR& build,
 	build.pGeometries = geometry;
 }
 
-// Called for every build recorded in play. A configuration neither prewarmed nor built
-// before is the first-use compile #338 is about: say so once, for the rt-build-prewarm test.
-void NoteBuild( sdRayTracingState& state, rayTracingBuildKind_t kind,
+// The rung of the prewarm ladder a build of this many primitives counts as warmed by: the
+// smallest at or above it. A build past the ladder's top gets a bucket nothing prewarms.
+int PrewarmSizeBucket( VkAccelerationStructureTypeKHR type, unsigned int primitiveCount ) {
+	const bool topLevel = type == VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+	const unsigned int* ladder = topLevel ? RAY_TRACING_PREWARM_INSTANCES : RAY_TRACING_PREWARM_TRIANGLES;
+	const int rungs = topLevel ? RAY_TRACING_PREWARM_INSTANCE_RUNGS : RAY_TRACING_PREWARM_TRIANGLE_RUNGS;
+	for ( int rung = 0; rung < rungs; ++rung ) {
+		if ( primitiveCount <= ladder[ rung ] ) {
+			return rung;
+		}
+	}
+	return rungs;
+}
+
+sdRayTracingBuildKey MakeBuildKey( const VkAccelerationStructureBuildGeometryInfoKHR& build,
 	unsigned int primitiveCount ) {
-	if ( state.builtKinds[ kind ] ) {
+	sdRayTracingBuildKey key;
+	memset( &key, 0, sizeof( key ) );
+	key.type = build.type;
+	key.flags = build.flags;
+	key.mode = build.mode;
+	key.geometryCount = build.geometryCount;
+	const VkAccelerationStructureGeometryKHR* geometry = build.pGeometries != NULL ? build.pGeometries :
+		( build.ppGeometries != NULL ? build.ppGeometries[ 0 ] : NULL );
+	if ( geometry != NULL && build.geometryCount != 0 ) {
+		key.geometryType = geometry->geometryType;
+		key.geometryFlags = geometry->flags;
+		if ( geometry->geometryType == VK_GEOMETRY_TYPE_TRIANGLES_KHR ) {
+			const VkAccelerationStructureGeometryTrianglesDataKHR& triangles = geometry->geometry.triangles;
+			key.vertexFormat = triangles.vertexFormat;
+			key.vertexStride = triangles.vertexStride;
+			key.indexType = triangles.indexType;
+			key.transform = triangles.transformData.deviceAddress != 0;
+		} else if ( geometry->geometryType == VK_GEOMETRY_TYPE_INSTANCES_KHR ) {
+			key.arrayOfPointers = geometry->geometry.instances.arrayOfPointers;
+		}
+	}
+	key.sizeBucket = PrewarmSizeBucket( build.type, primitiveCount );
+	return key;
+}
+
+bool BuildKeysEqual( const sdRayTracingBuildKey& a, const sdRayTracingBuildKey& b ) {
+	return a.type == b.type && a.flags == b.flags && a.mode == b.mode &&
+		a.geometryCount == b.geometryCount && a.geometryType == b.geometryType &&
+		a.geometryFlags == b.geometryFlags && a.vertexFormat == b.vertexFormat &&
+		a.vertexStride == b.vertexStride && a.indexType == b.indexType &&
+		a.transform == b.transform && a.arrayOfPointers == b.arrayOfPointers &&
+		a.sizeBucket == b.sizeBucket;
+}
+
+// Adds a key unless it is known; returns whether it was.
+bool KnowBuildKey( sdRayTracingState& state, const sdRayTracingBuildKey& key ) {
+	for ( int i = 0; i < state.buildKeyCount; ++i ) {
+		if ( BuildKeysEqual( state.buildKeys[ i ], key ) ) {
+			return true;
+		}
+	}
+	if ( state.buildKeyCount < MAX_RAY_TRACING_BUILD_KEYS ) {
+		state.buildKeys[ state.buildKeyCount++ ] = key;
+	}
+	return false;
+}
+
+// Called for every build recorded in play. A build whose key the prewarm did not build is
+// the first-use compile #338 is about: say so once per key, for the rt-build-prewarm test.
+void NoteBuild( sdRayTracingState& state, const VkAccelerationStructureBuildGeometryInfoKHR& build,
+	unsigned int primitiveCount ) {
+	const sdRayTracingBuildKey key = MakeBuildKey( build, primitiveCount );
+	if ( KnowBuildKey( state, key ) ) {
 		return;
 	}
-	state.builtKinds[ kind ] = true;
-	common->Printf( "RAY_TRACING_UNWARMED_BUILD: the first %s build (%u primitives) was recorded in play, "
-		"not prewarmed at init\n", RAY_TRACING_BUILD_CONFIGS[ kind ].name, primitiveCount );
+	const char* name = "unlisted";
+	for ( int kind = 0; kind < RAY_TRACING_BUILD_KINDS; ++kind ) {
+		const sdRayTracingBuildConfig& config = RAY_TRACING_BUILD_CONFIGS[ kind ];
+		if ( config.type == key.type && config.flags == key.flags && config.mode == key.mode ) {
+			name = config.name;
+			break;
+		}
+	}
+	const bool topLevel = key.type == VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+	const int rungs = topLevel ? RAY_TRACING_PREWARM_INSTANCE_RUNGS : RAY_TRACING_PREWARM_TRIANGLE_RUNGS;
+	common->Printf( "RAY_TRACING_UNWARMED_BUILD: %s build, %u primitives (size bucket %d of %d), was recorded in "
+		"play and not prewarmed at init: type %d flags 0x%x mode %d, %u geometries, geometry type %d flags 0x%x, "
+		"vertex format %d stride %llu, index type %d, transform %d, array of pointers %d\n",
+		name, primitiveCount, key.sizeBucket, rungs, static_cast< int >( key.type ),
+		static_cast< unsigned int >( key.flags ), static_cast< int >( key.mode ), key.geometryCount,
+		static_cast< int >( key.geometryType ), static_cast< unsigned int >( key.geometryFlags ),
+		static_cast< int >( key.vertexFormat ), static_cast< unsigned long long >( key.vertexStride ),
+		static_cast< int >( key.indexType ), key.transform ? 1 : 0, static_cast< int >( key.arrayOfPointers ) );
 }
 
 void DescribeBlasGeometry( const sdRayTracingState& state,
@@ -1347,10 +1455,8 @@ bool PrewarmAccelerationStructureBuilds( sdRayTracingState& state ) {
 	const unsigned int rows = RAY_TRACING_PREWARM_GRID_ROWS;
 	const unsigned int vertexCount = ( columns + 1 ) * ( rows + 1 );
 	const unsigned int triangleCount = columns * rows * 2;
-	const int triangleSizes = sizeof( RAY_TRACING_PREWARM_TRIANGLES ) / sizeof( RAY_TRACING_PREWARM_TRIANGLES[ 0 ] );
-	const int instanceSizes = sizeof( RAY_TRACING_PREWARM_INSTANCES ) / sizeof( RAY_TRACING_PREWARM_INSTANCES[ 0 ] );
-	const unsigned int maxInstances = RAY_TRACING_PREWARM_INSTANCES[ instanceSizes - 1 ];
-	assert( RAY_TRACING_PREWARM_TRIANGLES[ triangleSizes - 1 ] <= triangleCount );
+	const unsigned int maxInstances = RAY_TRACING_PREWARM_INSTANCES[ RAY_TRACING_PREWARM_INSTANCE_RUNGS - 1 ];
+	assert( RAY_TRACING_PREWARM_TRIANGLES[ RAY_TRACING_PREWARM_TRIANGLE_RUNGS - 1 ] <= triangleCount );
 	assert( sizeof( glIndex_t ) == 4 || vertexCount <= 65536 );
 
 	const VkBufferUsageFlags inputUsage = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
@@ -1404,7 +1510,8 @@ bool PrewarmAccelerationStructureBuilds( sdRayTracingState& state ) {
 				topLevel ) {
 				continue;
 			}
-			for ( int size = 0; size < ( topLevel ? instanceSizes : triangleSizes ); ++size ) {
+			const int rungs = topLevel ? RAY_TRACING_PREWARM_INSTANCE_RUNGS : RAY_TRACING_PREWARM_TRIANGLE_RUNGS;
+			for ( int size = 0; size < rungs; ++size ) {
 				const prewarmBuild_t build = { static_cast< rayTracingBuildKind_t >( kind ), sizes[ size ] };
 				builds.Append( build );
 			}
@@ -1413,9 +1520,11 @@ bool PrewarmAccelerationStructureBuilds( sdRayTracingState& state ) {
 	idList< VkAccelerationStructureGeometryKHR > geometries;
 	idList< VkAccelerationStructureBuildGeometryInfoKHR > buildInfos;
 	idList< sdRayTracingAccelerationStructure > structures;
+	idList< sdRayTracingBuildKey > keys;	// recorded as the play builds will be (NoteBuild)
 	geometries.SetNum( builds.Num() );
 	buildInfos.SetNum( builds.Num() );
 	structures.SetNum( builds.Num() );
+	keys.SetNum( builds.Num() );
 	VkDeviceSize scratchSize = 0;
 	bool succeeded = true;
 	int firstBlas = -1;
@@ -1428,6 +1537,7 @@ bool PrewarmAccelerationStructureBuilds( sdRayTracingState& state ) {
 				BufferAddress( state, indices.buffer ) );
 		}
 		DescribeBuild( buildInfos[ i ], builds[ i ].kind, &geometries[ i ] );
+		keys[ i ] = MakeBuildKey( buildInfos[ i ], builds[ i ].primitiveCount );
 		VkAccelerationStructureBuildSizesInfoKHR sizes;
 		memset( &sizes, 0, sizeof( sizes ) );
 		sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
@@ -1537,8 +1647,8 @@ bool PrewarmAccelerationStructureBuilds( sdRayTracingState& state ) {
 	if ( !succeeded ) {
 		return false;
 	}
-	for ( int kind = 0; kind < RAY_TRACING_BUILD_KINDS; ++kind ) {
-		state.builtKinds[ kind ] = true;
+	for ( int i = 0; i < keys.Num(); ++i ) {
+		KnowBuildKey( state, keys[ i ] );
 	}
 	common->Printf( "Ray tracing: prewarmed %d acceleration-structure builds (%d configurations) in %.1f ms\n",
 		builds.Num(), static_cast< int >( RAY_TRACING_BUILD_KINDS ),
@@ -1720,8 +1830,7 @@ bool BuildAccelerationStructures( sdRayTracingState& state,
 				range->primitiveCount, entry.deforming ? "deforming" : "static",
 				static_cast< int >( blasGeometries[ buildIndex ].geometry.triangles.indexType ) );
 		}
-		NoteBuild( state, entry.deforming ? RAY_TRACING_BUILD_DEFORMING_BLAS :
-			RAY_TRACING_BUILD_STATIC_BLAS, range->primitiveCount );
+		NoteBuild( state, build, range->primitiveCount );
 		state.CmdBuildAccelerationStructuresKHR( commandBuffer, 1, &build,
 			&range );
 		entry.built = true;
@@ -1749,7 +1858,7 @@ bool BuildAccelerationStructures( sdRayTracingState& state,
 	memset( &tlasRange, 0, sizeof( tlasRange ) );
 	tlasRange.primitiveCount = instanceCount;
 	const VkAccelerationStructureBuildRangeInfoKHR* tlasRangePointer = &tlasRange;
-	NoteBuild( state, RAY_TRACING_BUILD_TLAS, instanceCount );
+	NoteBuild( state, tlasBuild, instanceCount );
 	state.CmdBuildAccelerationStructuresKHR( commandBuffer, 1, &tlasBuild,
 		&tlasRangePointer );
 	frame.usedAccelerationStructures = true;
