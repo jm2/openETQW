@@ -10,6 +10,7 @@
 
 #include "draw_raytracing.h"
 #include "RuntimeSpirvCompiler.h"
+#include "VulkanSlowCall.h"
 #include "draw_local.h"
 #include "Material.h"
 #include "../decllib/declAtmosphere.h"
@@ -1403,6 +1404,12 @@ bool BuildAccelerationStructures( sdRayTracingState& state,
 		build.scratchData.deviceAddress = scratchAddress;
 		const VkAccelerationStructureBuildRangeInfoKHR* range =
 			&blasRanges[ buildIndex ];
+		sdVulkanSlowCallScope slowBlas( "BLAS build" );
+		if ( slowBlas.Active() ) {
+			slowBlas.detail = va( " %u triangles, %s, index type %d",
+				range->primitiveCount, entry.deforming ? "deforming" : "static",
+				static_cast< int >( blasGeometries[ buildIndex ].geometry.triangles.indexType ) );
+		}
 		state.CmdBuildAccelerationStructuresKHR( commandBuffer, 1, &build,
 			&range );
 		entry.built = true;
@@ -1687,12 +1694,15 @@ bool R_RayTracingDrawView( const viewDef_s* view,
 	state.CmdEndRendering( context.commandBuffer );
 	unsigned int waterGeometryStart = 0;
 	unsigned int validWaterGeometryCount = 0;
-	if ( !BuildAccelerationStructures( state, frame, context.frameIndex,
-		context.commandBuffer,
-		geometries, geometryCount, waterGeometries, waterGeometryCount,
-		waterGeometryStart, validWaterGeometryCount ) ) {
-		ResumeDynamicRendering( state, context );
-		return false;
+	{
+		sdVulkanSlowCallScope slowBuild( "BuildAccelerationStructures" );
+		if ( !BuildAccelerationStructures( state, frame, context.frameIndex,
+			context.commandBuffer,
+			geometries, geometryCount, waterGeometries, waterGeometryCount,
+			waterGeometryStart, validWaterGeometryCount ) ) {
+			ResumeDynamicRendering( state, context );
+			return false;
+		}
 	}
 	byte* lightingDestination = static_cast< byte* >(
 		frame.viewLighting.mapped ) + lightingOffset;
@@ -1732,15 +1742,21 @@ bool R_RayTracingDrawView( const viewDef_s* view,
 	unsigned int passIndex = 0;
 	state.CmdPushConstants( context.commandBuffer, state.pipelineLayout,
 		VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( passIndex ), &passIndex );
-	state.CmdDispatch( context.commandBuffer,
-		( context.viewport.extent.width + 7 ) / 8,
-		( context.viewport.extent.height + 7 ) / 8, 1 );
+	{
+		sdVulkanSlowCallScope slowDispatch( "ray-query lighting dispatch" );
+		state.CmdDispatch( context.commandBuffer,
+			( context.viewport.extent.width + 7 ) / 8,
+			( context.viewport.extent.height + 7 ) / 8, 1 );
+	}
 	if ( validWaterGeometryCount != 0 &&
 		viewData->waterParameters[ 1 ] > 0.0f &&
 		context.reflectionImage != VK_NULL_HANDLE &&
 		context.reflectionImageView != VK_NULL_HANDLE &&
 		context.reflectionSampler != VK_NULL_HANDLE ) {
-		CopyLitSceneForReflections( state, context );
+		{
+			sdVulkanSlowCallScope slowCopy( "CopyLitSceneForReflections" );
+			CopyLitSceneForReflections( state, context );
+		}
 		passIndex = 1;
 		state.CmdPushConstants( context.commandBuffer, state.pipelineLayout,
 			VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( passIndex ), &passIndex );

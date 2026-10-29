@@ -8,6 +8,7 @@
 #include "RendererJobs.h"
 #include "RendererMetrics.h"
 #include "FrameSyncTiming.h"
+#include "VulkanSlowCall.h"
 #include "tr_render.h"
 #include "draw_local.h"
 #include "Material.h"
@@ -55,6 +56,16 @@ extern idCVar r_useExternalShadows;
 extern idCVar r_shadowPolygonFactor;
 extern idCVar r_shadowPolygonOffset;
 extern idCVar r_skipAtmosInteractions;
+
+// VulkanSlowCall.h; draw_raytracing.cpp times its passes with it too
+idCVar r_vkLogSlowCalls(
+	"r_vkLogSlowCalls",
+	"0",
+	CVAR_RENDERER | CVAR_INTEGER | CVAR_NOCHEAT,
+	"print a VK_SLOW_CALL line, with the time it began on the FRAME_POSE clock, for each image or buffer upload, "
+	"immediate submit, recorded view and ray-tracing step that takes at least this many milliseconds "
+	"(0 = off; test diagnostic)"
+);
 
 namespace {
 
@@ -3291,6 +3302,7 @@ bool CreatePooledBuffer( sdVulkanBackendState& state, VkBufferUsageFlags usage,
 
 bool SubmitImmediate( sdVulkanBackendState& state, VkCommandPool commandPool,
 	VkCommandBuffer commandBuffer ) {
+	sdVulkanSlowCallScope slowCall( "SubmitImmediate" );
 	if ( !CheckVulkanResult( state.EndCommandBuffer( commandBuffer ),
 		"vkEndCommandBuffer(upload)" ) ) {
 		state.DestroyCommandPool( state.device, commandPool, NULL );
@@ -9034,6 +9046,10 @@ bool sdVulkanBackend::UploadImage2D( const void* owner,
 	const unsigned char* rgba, int width, int height, int mipLevels,
 	bool linearFilter, bool repeat ) {
 	RENDER_METRIC_SCOPE( "Vulkan create/upload image" );
+	sdVulkanSlowCallScope slowCall( "UploadImage2D" );
+	if ( slowCall.Active() ) {
+		slowCall.detail = va( " %dx%d mips %d", width, height, mipLevels );
+	}
 	if ( state == NULL || state->device == VK_NULL_HANDLE || owner == NULL ||
 		rgba == NULL || width <= 0 || height <= 0 ) {
 		return false;
@@ -9188,6 +9204,7 @@ bool sdVulkanBackend::UploadImage2D( const void* owner,
 
 		int mipWidth = width;
 		int mipHeight = height;
+		sdVulkanSlowCallScope slowBlits( "UploadImage2D mip blits" );
 		for ( int level = 1; level < mipLevels; ++level ) {
 			VkImageMemoryBarrier2 toSource;
 			memset( &toSource, 0, sizeof( toSource ) );
@@ -9428,6 +9445,11 @@ bool sdVulkanBackend::UploadBlockImage2D( const void* owner, vulkanBlockFormat_t
 	const unsigned char* blocks, size_t blockDataBytes, int width, int height,
 	int mipLevels, bool linearFilter, bool repeat ) {
 	RENDER_METRIC_SCOPE( "Vulkan create/upload image" );
+	sdVulkanSlowCallScope slowCall( "UploadBlockImage2D" );
+	if ( slowCall.Active() ) {
+		slowCall.detail = va( " format %d %dx%d mips %d", static_cast< int >( blockFormat ), width,
+			height, mipLevels );
+	}
 	vulkanBlockFormatInfo_t info;
 	if ( owner == NULL || blocks == NULL || width <= 0 || height <= 0 ||
 		mipLevels < 1 || !SupportsBlockFormat( blockFormat, linearFilter ) ||
@@ -9578,6 +9600,10 @@ bool sdVulkanBackend::UploadBlockImage2D( const void* owner, vulkanBlockFormat_t
 bool sdVulkanBackend::UploadImageCube( const void* owner,
 	const unsigned char* const rgba[ 6 ], int size, bool linearFilter ) {
 	RENDER_METRIC_SCOPE( "Vulkan create/upload cube image" );
+	sdVulkanSlowCallScope slowCall( "UploadImageCube" );
+	if ( slowCall.Active() ) {
+		slowCall.detail = va( " %d", size );
+	}
 	if ( state == NULL || state->device == VK_NULL_HANDLE || owner == NULL ||
 		rgba == NULL || size <= 0 ) {
 		return false;
@@ -9889,6 +9915,10 @@ bool sdVulkanBackend::CanQueueImageUpload( int bytes ) const {
 
 bool sdVulkanBackend::UpdateImage2D( const void* owner, int mipLevel,
 	int x, int y, int width, int height, const unsigned char* rgba ) {
+	sdVulkanSlowCallScope slowCall( "UpdateImage2D" );
+	if ( slowCall.Active() ) {
+		slowCall.detail = va( " mip %d %dx%d", mipLevel, width, height );
+	}
 	if ( state == NULL || owner == NULL || rgba == NULL || mipLevel < 0 ||
 		x < 0 || y < 0 || width <= 0 || height <= 0 ) {
 		return false;
@@ -10149,6 +10179,10 @@ void sdVulkanBackend::DestroyImage( const void* owner ) {
 bool sdVulkanBackend::UploadBuffer( const void* owner, const void* data,
 	int bytes, bool indexBuffer, bool frameTemporary ) {
 	RENDER_METRIC_SCOPE( "Vulkan create/upload buffer" );
+	sdVulkanSlowCallScope slowCall( "UploadBuffer" );
+	if ( slowCall.Active() ) {
+		slowCall.detail = va( " %d bytes", bytes );
+	}
 	if ( state == NULL || state->device == VK_NULL_HANDLE || owner == NULL ||
 		data == NULL || bytes <= 0 ) {
 		return false;
@@ -11023,6 +11057,7 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 		return;
 	}
 	RENDER_METRIC_SCOPE( "Vulkan DrawView CPU" );
+	sdVulkanSlowCallScope slowCall( "DrawView" );
 	state->worldViewAttempts++;
 	// ETQW can submit the 3D render world before idRenderSystem::BeginFrame;
 	// OpenGL's immediate path tolerated that ordering.  Start the Vulkan command
@@ -11788,12 +11823,17 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 			continue;
 		}
 		if ( selectedMegaTexture != NULL ) {
+			sdVulkanSlowCallScope slowMega( "MegaTexture update" );
 			selectedMegaTexture->UpdateMapping( view->renderWorld );
 			selectedMegaTexture->SetMappingForSurface( surface->geo );
 			selectedMegaTexture->UpdateForViewOrigin(
 				view->renderView.vieworg, view->renderView.time );
 		}
 		if ( !selectedImage->IsLoaded() ) {
+			sdVulkanSlowCallScope slowImage( "image first use" );
+			if ( slowImage.Active() ) {
+				slowImage.detail = va( " %s", selectedImage->imgName.c_str() );
+			}
 			selectedImage->BindFragment();
 		}
 		if ( !selectedImage->IsLoaded() || selectedImage->defaulted ) {
@@ -12735,6 +12775,11 @@ void sdVulkanBackend::DrawView( const viewDef_s* view ) {
 		rayTracingView.viewport.extent.height = static_cast< unsigned int >(
 			Min( viewportHeight, static_cast< int >( state->extent.height ) -
 				rayTracingView.viewport.offset.y ) );
+		sdVulkanSlowCallScope slowRayTracing( "R_RayTracingDrawView" );
+		if ( slowRayTracing.Active() ) {
+			slowRayTracing.detail = va( " %d geometries, %d water", rayTracingGeometries.Num(),
+				rayTracingWaterGeometries.Num() );
+		}
 		R_RayTracingDrawView( view, rayTracingGeometries.Begin(),
 			rayTracingGeometries.Num(), rayTracingWaterGeometries.Begin(),
 			rayTracingWaterGeometries.Num(), rayTracingView );
