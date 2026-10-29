@@ -272,6 +272,7 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 ## 5. Recently done
 
 2026-10-28/29 (the combined run at `7031119` and its follow-ups):
+- #349 (`chore/drop-unshipped-jmarshall`, openETQW-win) with game #62: 40 engine and 3 game jmarshall files no build compiles removed (owner 2026-10-29: no licence grant). validate pr PASSED from scratch on Windows x64, Linux x64 and macOS arm64. #347 is now dead code.
 - #346 (`fix/343-failed-frame-uploads`, openETQW-win): a frame that fails in EndFrame submits its recorded uploads alone and rolls back its first-layout flags and BLAS marks; new `failed-frame-uploads` (U4 layer scan fails without the fix). Fixes #343. Tool-window variant: #347.
 - #348 (`docs/no-pii-phase1`, openETQW-linux): public-release phase 1 (owner-approved 2026-10-29). AGENTS rule 10 and CONTRIBUTING name hosts by platform only; `tools/ci/check_no_pii.py` (unit test `no-pii`, `--diff` for branches and commit messages, private names as SHA-256 digests); 9 docs baselined for phase 2.
 - #345 (`fix/341-parachute-spawn`, openETQW-win-arm64): screenshot_set waits for the player to land before the anchor and each ground view; outskirts A/B worst 0.4% on Windows arm64 (was 7.7%, parachute). Fixes #341. Old outskirts anchors must not be reused.
