@@ -118,7 +118,7 @@ These runs are recorded so they are not mistaken for gate evidence.
 
 | Platform | Latest full retail suite on record | Date | Commits | Result |
 |---|---|---|---|---|
-| Linux arm64 | 80 tests | 2026-10-28 | `7031119` / `7fbdf80` | 79 OK, 0 FAIL, 1 SKIP (`cross-os`), as its session reported it; its row is not yet in the 2026-10-28 section (the session went offline before adding it), so the evidence on record is still 76 / 0 / 1 at `527c1ef` |
+| Linux arm64 | 77 tests | 2026-10-26 | `527c1ef` / `7fbdf80` | 76 OK, 0 FAIL, 1 SKIP (`cross-os`) on the post-merge leg at `-O2`. The 2026-10-28 run at `7031119` (79 OK, 0 FAIL, 1 SKIP) was reported by message; its row is pending (that section) |
 | Linux x86_64 | 80 tests | 2026-10-28 | `7031119` / `7fbdf80` | 79 OK, 0 FAIL, 1 SKIP (`cross-os`); clean |
 | Windows 11 x64 | 80 tests | 2026-10-28 | `7031119` / `7fbdf80` | 78 OK, 0 FAIL, 2 SKIP (`cross-os`, `client-server-timeout`); clean |
 | Windows 11 arm64 | 80 tests | 2026-10-28 | `7031119` / `7fbdf80` | 78 OK, 0 FAIL, 2 SKIP; clean, and the first suite on Vulkan (no OpenGL/D3D12 fallback) |
