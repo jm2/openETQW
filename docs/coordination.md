@@ -232,6 +232,12 @@ try something locally; never quote that run as evidence. For a single test, use
 `meson test -C <builddir> -j 1 <name>`. List the tests with `meson test -C <builddir> --list`.
 
 **All platforms, notes from the sessions (2026-10-20):**
+- **A timing arm needs `r_vkValidation 0`.** `VulkanClient` in `tests/test_client_network.py`
+  starts every client with `r_vkValidation 1`, and the caller's cvars come later and win.
+  A new frame-timing, frame-pacing or rate arm that doesn't pass `r_vkValidation 0` runs
+  under the Khronos layer where it is installed, at about 20 ms a frame. It then measures
+  the layer, not the change (2026-10-28, from the #325 measurements). Turning validation off
+  in an existing check is still a rule-4 change; a new timing arm sets it from the start.
 - **The raw log carries the test environment, tokens included.** Each entry in
   `meson-logs/testlog.txt` starts with "Inherited environment:", the session's whole
   environment. Under Claude Code that includes its messaging token. Never upload, paste or
