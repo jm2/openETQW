@@ -18,7 +18,7 @@
 #                        secrets are set, else an ad hoc signed tar.gz
 #   release   the exact asset set checked (tools/build/verify_release_asset_set.py),
 #             the changelog, and the GitHub release created or updated; a draft by
-#             default, since the release gate in readme.md is not cleared
+#             default, since the release gate in STATUS.md is not cleared
 #
 # A published release must be dispatched from main; a draft may come from any
 # pushed branch (to exercise the pipeline). The companion is required: while it is
