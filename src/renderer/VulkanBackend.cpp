@@ -157,6 +157,14 @@ idCVar r_vkPrepareAhead(
 	"fraction, not between ClientUpdateView and the draw (0 = do all three in BeginFrame, as before)"
 );
 
+idCVar r_vkTestFailFrame(
+	"r_vkTestFailFrame",
+	"0",
+	CVAR_RENDERER | CVAR_INTEGER | CVAR_CHEAT,
+	"test only (#337): fail the next frame after its swapchain image is acquired, as a failed Vulkan call would: "
+	"1 = in BeginFrame, 2 = in EndFrame before the submit; resets itself to 0"
+);
+
 idCVar r_vkLogFrameSync(
 	"r_vkLogFrameSync",
 	"0",
@@ -2447,8 +2455,9 @@ bool CreateBufferAllocation( sdVulkanBackendState& state, VkDeviceSize bytes,
 	VkBuffer& buffer, VkDeviceMemory& memory );
 
 /*
-r_vkPrepareAhead (#335): give up an image EndFrame acquired ahead before its swapchain is
-recreated or destroyed. Its acquire signals aheadSemaphore, and a binary semaphore with a
+r_vkPrepareAhead (#335): give up a held image (acquired ahead, or kept by a failed frame)
+before the swapchain is destroyed at shutdown; BeginFrame never recreates the swapchain
+while one is held (#340). Its acquire signals aheadSemaphore, and a binary semaphore with a
 pending signal cannot be reused or safely destroyed, so an empty submit waits on it and
 the device drains. The image itself goes with the old swapchain.
 */
@@ -2692,6 +2701,67 @@ void RestoreSignaledFence( sdVulkanBackendState& state, sdVulkanFrame& frame ) {
 	createInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 	createInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 	state.CreateFence( state.device, &createInfo, NULL, &frame.fence );
+}
+
+/*
+#337: a Radiant tool-window frame that fails after its image was acquired gives it up. The
+acquire left the frame's imageAvailable semaphore with a pending signal and the image owned
+by the application. An empty submit waits on the semaphore, so the next acquire into it is
+valid, and the swapchain is marked dirty, so its recreate returns the image (without that,
+each failure keeps one more image until the acquire blocks for good). This recovers on the
+Windows drivers the tool window runs on; the main window keeps the image instead
+(KeepAcquiredImage), which MoltenVK needs.
+*/
+void AbandonAcquiredImage( sdVulkanBackendState& state, sdVulkanFrame& frame, bool& swapchainDirty ) {
+	RestoreSignaledFence( state, frame );
+	swapchainDirty = true;
+	if ( frame.imageAvailable == VK_NULL_HANDLE || state.QueueSubmit2 == NULL ) {
+		state.DeviceWaitIdle( state.device );
+		return;
+	}
+	VkSemaphoreSubmitInfo waitInfo;
+	memset( &waitInfo, 0, sizeof( waitInfo ) );
+	waitInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+	waitInfo.semaphore = frame.imageAvailable;
+	waitInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+	VkSubmitInfo2 submitInfo;
+	memset( &submitInfo, 0, sizeof( submitInfo ) );
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+	submitInfo.waitSemaphoreInfoCount = 1;
+	submitInfo.pWaitSemaphoreInfos = &waitInfo;
+	CheckVulkanResult( state.QueueSubmit2( state.graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE ),
+		"vkQueueSubmit2(abandon acquired image)" );
+	state.DeviceWaitIdle( state.device );
+}
+
+/*
+#337, #340: a main-window frame that fails after its acquire keeps the image for the next
+frame instead of giving it up: the image and the semaphore its acquire signals move to the
+slot r_vkPrepareAhead uses (aheadSemaphore, aheadImageIndex), and the next BeginFrame draws
+and presents it. Nothing was submitted for it (imageInitialized is set only after a
+submit), and aheadSemaphore is idle here: no image is held, so no acquire is pending on it,
+and its last wait finished before the fence BeginFrame waited for. Unlike giving the image
+up, this needs no recreate and loses no drawable on MoltenVK.
+*/
+void KeepAcquiredImage( sdVulkanBackendState& state, sdVulkanFrame& frame ) {
+	RestoreSignaledFence( state, frame );
+	// the restored fence is signaled, so the next BeginFrame on this slot frees what was
+	// retired meanwhile at once; the other slot's submission may still use it, so let the
+	// device drain first (a failed frame is rare, the wait is cheap)
+	state.DeviceWaitIdle( state.device );
+	if ( state.aheadImageHeld ) {
+		// cannot happen (BeginFrame takes the held image before it acquires); never
+		// overwrite a held image's semaphore
+		bool dirty = true;
+		AbandonAcquiredImage( state, frame, dirty );
+		state.swapchainDirty = true;
+		return;
+	}
+	const VkSemaphore acquired = frame.imageAvailable;
+	frame.imageAvailable = state.aheadSemaphore;
+	state.aheadSemaphore = acquired;
+	state.aheadImageIndex = state.imageIndex;
+	state.aheadImageHeld = true;
 }
 
 bool FindMemoryType( const sdVulkanBackendState& state, unsigned int typeBits,
@@ -7300,9 +7370,13 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 		state->swapInterval != swapInterval ) {
 		state->swapchainDirty = true;
 	}
-	if ( state->swapchainDirty ) {
+	// a held image (acquired ahead, or kept by a frame that failed) is drawn and presented
+	// first: the swapchain is recreated on the frame after, when nothing is held. Giving
+	// an unpresented image up does not return its drawable on MoltenVK (#340), so each
+	// recreate with one held would lose a drawable for good. The frame in between draws
+	// at the old size, which the image still has.
+	if ( state->swapchainDirty && !state->aheadImageHeld ) {
 		RENDER_METRIC_SCOPE( "Vulkan recreate swapchain" );
-		ReleaseAheadImage( *state );
 		state->DeviceWaitIdle( state->device );
 		if ( !CreateSwapchain( *state, width, height ) ) {
 			return false;
@@ -7380,6 +7454,12 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 	if ( acquireResult == VK_SUBOPTIMAL_KHR ) {
 		state->swapchainDirty = true;
 	}
+	if ( r_vkTestFailFrame.GetInteger() == 1 ) {
+		r_vkTestFailFrame.SetInteger( 0 );
+		common->Printf( "Vulkan: r_vkTestFailFrame 1: failing this frame after its acquire\n" );
+		KeepAcquiredImage( *state, frame );
+		return false;
+	}
 
 	{
 		RENDER_METRIC_SCOPE( "Vulkan reset command frame" );
@@ -7391,7 +7471,7 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 		frame.commandPoolReset = false;
 		pendingAheadPoolUsec = 0;
 		if ( !fenceReset || !poolReset ) {
-			RestoreSignaledFence( *state, frame );
+			KeepAcquiredImage( *state, frame );
 			return false;
 		}
 		VkCommandBufferBeginInfo beginInfo;
@@ -7400,13 +7480,13 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 		if ( !CheckVulkanResult( state->BeginCommandBuffer( frame.commandBuffer,
 			&beginInfo ), "vkBeginCommandBuffer" ) ) {
-			RestoreSignaledFence( *state, frame );
+			KeepAcquiredImage( *state, frame );
 			return false;
 		}
 		if ( !CheckVulkanResult( state->BeginCommandBuffer(
 			frame.imageUploadCommandBuffer, &beginInfo ),
 			"vkBeginCommandBuffer(image uploads)" ) ) {
-			RestoreSignaledFence( *state, frame );
+			KeepAcquiredImage( *state, frame );
 			return false;
 		}
 	}
@@ -7693,7 +7773,7 @@ void sdVulkanBackend::EndFrame( bool ) {
 	state->CmdPipelineBarrier2( frame.commandBuffer, &dependencyInfo );
 		if ( !CheckVulkanResult( state->EndCommandBuffer( frame.commandBuffer ),
 			"vkEndCommandBuffer" ) ) {
-			RestoreSignaledFence( *state, frame );
+			KeepAcquiredImage( *state, frame );
 			DiscardVulkanScreenshot( *state );
 			state->frameActive = false;
 			return;
@@ -7701,11 +7781,20 @@ void sdVulkanBackend::EndFrame( bool ) {
 		if ( !CheckVulkanResult( state->EndCommandBuffer(
 			frame.imageUploadCommandBuffer ),
 			"vkEndCommandBuffer(image uploads)" ) ) {
-			RestoreSignaledFence( *state, frame );
+			KeepAcquiredImage( *state, frame );
 			DiscardVulkanScreenshot( *state );
 			state->frameActive = false;
 			return;
 		}
+	}
+
+	if ( r_vkTestFailFrame.GetInteger() == 2 ) {
+		r_vkTestFailFrame.SetInteger( 0 );
+		common->Printf( "Vulkan: r_vkTestFailFrame 2: failing this frame before its submit\n" );
+		KeepAcquiredImage( *state, frame );
+		DiscardVulkanScreenshot( *state );
+		state->frameActive = false;
+		return;
 	}
 
 	VkSemaphoreSubmitInfo waitInfo;
@@ -7746,7 +7835,7 @@ void sdVulkanBackend::EndFrame( bool ) {
 		const uint64_t submitStart = SyncNowUsec();
 		if ( !CheckVulkanResult( state->QueueSubmit2( state->graphicsQueue, 1,
 			&submitInfo, frame.fence ), "vkQueueSubmit2" ) ) {
-			RestoreSignaledFence( *state, frame );
+			KeepAcquiredImage( *state, frame );
 			DiscardVulkanScreenshot( *state );
 			state->frameActive = false;
 			return;
@@ -7802,8 +7891,8 @@ void sdVulkanBackend::EndFrame( bool ) {
 	// the next frame samples input and ClientUpdateView computes its fraction, not in BeginFrame
 	// between that fraction and the draw. The fence is left signaled (BeginFrame resets it), so a
 	// frame that never begins leaves no fence to restore; the image it would have drawn to stays
-	// held until BeginFrame uses it, or ReleaseAheadImage gives it up on a swapchain recreate or
-	// at teardown.
+	// held until BeginFrame draws and presents it (a recreate waits for that), or ReleaseAheadImage
+	// gives it up at teardown.
 	if ( r_vkPrepareAhead.GetBool() ) {
 		sdVulkanFrame& next = state->frames[ state->frameIndex ];
 		RENDER_METRIC_SCOPE( "Vulkan prepare next frame" );
@@ -7942,7 +8031,7 @@ bool sdVulkanBackend::BeginToolWindow( void* nativeWindow, int width, int height
 		"vkResetFences(Radiant)" ) ||
 		!CheckVulkanResult( state->ResetCommandPool( state->device,
 			frame.commandPool, 0 ), "vkResetCommandPool(Radiant)" ) ) {
-		RestoreSignaledFence( *state, frame );
+		AbandonAcquiredImage( *state, frame, tool->dirty );
 		return false;
 	}
 	frame.commandPoolReset = false;
@@ -7952,7 +8041,7 @@ bool sdVulkanBackend::BeginToolWindow( void* nativeWindow, int width, int height
 	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 	if ( !CheckVulkanResult( state->BeginCommandBuffer( frame.commandBuffer,
 		&beginInfo ), "vkBeginCommandBuffer(Radiant)" ) ) {
-		RestoreSignaledFence( *state, frame );
+		AbandonAcquiredImage( *state, frame, tool->dirty );
 		return false;
 	}
 	VkImageMemoryBarrier2 barriers[ 2 ];
@@ -8756,7 +8845,7 @@ void sdVulkanBackend::EndToolWindow() {
 	state->CmdPipelineBarrier2( frame.commandBuffer, &dependencyInfo );
 	if ( !CheckVulkanResult( state->EndCommandBuffer( frame.commandBuffer ),
 		"vkEndCommandBuffer(Radiant)" ) ) {
-		RestoreSignaledFence( *state, frame );
+		AbandonAcquiredImage( *state, frame, tool->dirty );
 		state->toolFrameActive = false;
 		state->activeToolWindow = NULL;
 		return;
@@ -8786,7 +8875,7 @@ void sdVulkanBackend::EndToolWindow() {
 	submitInfo.pSignalSemaphoreInfos = &signalInfo;
 	if ( !CheckVulkanResult( state->QueueSubmit2( state->graphicsQueue, 1,
 		&submitInfo, frame.fence ), "vkQueueSubmit2(Radiant)" ) ) {
-		RestoreSignaledFence( *state, frame );
+		AbandonAcquiredImage( *state, frame, tool->dirty );
 		state->toolFrameActive = false;
 		state->activeToolWindow = NULL;
 		return;
