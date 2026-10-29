@@ -397,17 +397,20 @@ def check_startup_ready(port: int) -> None:
     stdin still answers SYNC and the run stalls until a 180 s snapshot timeout.
     Check before spawning instead, and fail with a message that names the port.
     """
+    error = _udp_port_error(port)
+    leftover_note = ""
     if os.name == "nt":
         own = _live_own_pids()
         leftover = [(pid, name) for pid, name in _windows_server_processes() if pid not in own]
         if leftover:
             listing = ", ".join(f"{name} (pid {pid})" for pid, name in leftover)
-            raise PreflightError(
-                f"refusing to start on net_port {port}: leftover openETQW-ded "
-                f"process is alive: {listing}. Stop it before running the test "
-                f"(Meson's TerminateProcess on timeout skips harness cleanup)."
-            )
-    error = _udp_port_error(port)
+            leftover_note = (f" A leftover openETQW-ded process is alive: {listing} "
+                             f"(Meson's TerminateProcess on timeout skips harness cleanup).")
+            if error is None:
+                # only a held port stalls the run; a server on another port (a manual
+                # one, or a cross-os leg) is reported, not refused
+                print(f"PREFLIGHT warning: net_port {port} is free, but{leftover_note}",
+                      file=sys.stderr, flush=True)
     if error is not None:
         # mirror the process check above: a socket this run holds is not a squatter
         owner = _udp_port_owner(port)
@@ -419,6 +422,7 @@ def check_startup_ready(port: int) -> None:
             f"refusing to start on net_port {port}: UDP port {port} is already "
             f"bound ({error}); it is held by {holder}. A leftover test process "
             f"or another program holds it; free the port before running the test."
+            f"{leftover_note}"
         )
 
 

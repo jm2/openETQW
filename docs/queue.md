@@ -274,13 +274,16 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 
 ## 5. Recently done
 
+2026-10-28 (review of the DeepSeek merges since 2026-10-25):
+- #333 Docs: review guardrails — an owner decision a PR relies on must be on `main` or quoted from the owner directly; switching off a diagnostic an existing test reads counts as weakening; draw/cull reviews check both distance boundaries, the cvar overrides and a capture pair (`AGENTS.md` rules 1 and 4, `docs/coordination.md` §7)
+- #332 Review fixes for the DeepSeek merges: client-network tests run with `r_vkValidation 1` again (#313's owner decision was not on `main`); imposter cards only past maxVisDist, never for too-near instances or double-drawn (#323); the Windows leftover-process pre-flight warns unless the port is held (#287); weapon-fire also scans the shared failure markers (#283); zenity/yad dialogs pass `--no-markup` (#297)
 2026-10-27 (`main` `e8a63ff`):
 - Tests: `client-network-join` and `client-network-listen` start the Vulkan client with
   `r_vkValidation 0` (the engine default) instead of `1`, on the owner's word: the Khronos
   layer is a diagnostic, not part of the measured product. The shared `VulkanClient`
   default changes with it, but every other test that constructs it already passes
   `r_vkValidation 0` itself, so only these two change; `campaign-client-maps` keeps
-  its own layer-on client
+  its own layer-on client. Reverted by #332: the owner decision was never on `main`
 - #329 OpenGL: ARB ports of `imposters/lit` and `imposters/lit_foliage`, the card triangles wound like the model's (they were front-face culled) and the atmosphere term corrected to the fog amount Cg writes, so the far view draws the cards on GL in foliage colour (#315; merged e8a63ff)
 - #308 Docs: post-merge Linux arm64 leg at `527c1ef` — 76 OK / 0 FAIL / 1 SKIP (`cross-os`); its own row, not M7 evidence (merged c422eeb)
 - #307 Docs: #302 measured (the validation layer, the `-O0` perf tree, two lighting paths), #299 closed as a measurement artifact, and the worktree recipe now says `-Dbuildtype=debugoptimized` (merged ea215a5)
