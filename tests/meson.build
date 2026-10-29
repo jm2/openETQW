@@ -1243,3 +1243,25 @@ if build_engine
     is_parallel: false,
   )
 endif
+
+# 12c. Acceleration-structure builds prewarmed at ray-tracing init (#338): two single-player
+#      Vulkan clients on valley with ray tracing turn a full circle; with the prewarm no build
+#      in play is the first of its configuration, and without it (the negative control) the
+#      static BLAS, deforming BLAS and TLAS first builds are reported. Skips without ray tracing.
+if build_engine
+  test(
+    'rt-build-prewarm',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_rt_build_prewarm.py',
+      '--client-binary', campaign_client,
+      '--port', '29890',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'rt-build-prewarm',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
+endif

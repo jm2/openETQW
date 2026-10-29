@@ -7183,6 +7183,8 @@ bool sdVulkanBackend::Init( void* nativeWindow, int width, int height ) {
 			state->depthStencilFormat : VK_FORMAT_D32_SFLOAT_S8_UINT;
 		rayTracingContext.frameCount = NUM_VULKAN_FRAMES;
 		rayTracingContext.GetDeviceProcAddr = state->GetDeviceProcAddr;
+		rayTracingContext.queue = state->graphicsQueue;
+		rayTracingContext.queueFamilyIndex = state->queueFamilyIndex;
 		if ( !R_RayTracingInit( rayTracingContext ) ) {
 			common->Printf( "Vulkan ray tracing initialization failed (falling back to rasterization)\n" );
 		}
