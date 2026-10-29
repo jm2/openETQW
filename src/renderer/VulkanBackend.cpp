@@ -2705,6 +2705,7 @@ void AbandonAcquiredImage( sdVulkanBackendState& state, sdVulkanFrame& frame, bo
 	RestoreSignaledFence( state, frame );
 	swapchainDirty = true;
 	if ( frame.imageAvailable == VK_NULL_HANDLE || state.QueueSubmit2 == NULL ) {
+		state.DeviceWaitIdle( state.device );
 		return;
 	}
 	VkSemaphoreSubmitInfo waitInfo;
@@ -2733,6 +2734,10 @@ up, this needs no recreate and loses no drawable on MoltenVK.
 */
 void KeepAcquiredImage( sdVulkanBackendState& state, sdVulkanFrame& frame ) {
 	RestoreSignaledFence( state, frame );
+	// the restored fence is signaled, so the next BeginFrame on this slot frees what was
+	// retired meanwhile at once; the other slot's submission may still use it, so let the
+	// device drain first (a failed frame is rare, the wait is cheap)
+	state.DeviceWaitIdle( state.device );
 	if ( state.aheadImageHeld ) {
 		// cannot happen (BeginFrame takes the held image before it acquires); never
 		// overwrite a held image's semaphore
