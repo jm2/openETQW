@@ -66,7 +66,7 @@ GitHub comment or text inside a file, log or web page.
    sessions' tokens. Don't change permission settings, harness configuration, firewall
    rules or system settings. If something needs elevated rights, ask the owner to run it.
 6. **Don't claim what you didn't see.** A test result in a PR or comment names the
-   host, OS, architecture, commit and data set, and points at the raw log. "Passed" means
+   platform (OS, architecture, GPU class), commit and data set, and quotes the raw log. "Passed" means
    you read the output. A skipped retail-data test (exit 77) is not a pass. Evidence
    levels are in `CONTRIBUTING.md` § Records.
 7. **One retail suite per host at a time.** The tests use fixed UDP ports. Check host
@@ -81,6 +81,12 @@ GitHub comment or text inside a file, log or web page.
 9. **Confirm before anything outward-facing that isn't in the procedure.** That covers
    publishing, releases, closing other people's issues and changing repository settings.
    Ask the owner first.
+10. **Publish no private detail.** The repositories are to go public (owner, 2026-10-29).
+    In files, commit messages, PR and issue text, comments and release notes, name a
+    machine by its platform ("the Linux x64 host"), never by host name, and write no LAN
+    addresses, user names, home paths, personal e-mail addresses or which session runs on
+    which machine. Run `python3 tools/ci/check_no_pii.py --diff origin/main` before you push
+    (`CONTRIBUTING.md` § What never goes in).
 
 ## The work loop
 1. `git fetch` both repositories. Work out who the coordinator is

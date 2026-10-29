@@ -1,0 +1,12 @@
+# Files that still carry host, user or address detail from before the no-PII rule
+# (owner, 2026-10-29). check_no_pii.py's tree scan skips them; its --diff mode does not,
+# so nothing new may be added to them. Remove a line once that file is cleaned.
+STATUS.md
+docs/build-scripts.md
+docs/compat-ledger.md
+docs/coordination.md
+docs/frame-path.md
+docs/hull-lead.md
+docs/m5-plan.md
+docs/platform-matrix.md
+docs/queue.md

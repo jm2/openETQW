@@ -94,7 +94,7 @@ SERVER_ARGS = [
     # from the command line, rather than whenever the script's stdin reaches the
     # server. With the thread and a stdin join, the bots took one of a few routes
     # chosen by timing; first combat came 17-80 s into monitoring, and once never
-    # within the window. Inline with a fixed join, 10 runs on antec all met at
+    # within the window. Inline with a fixed join, 10 runs on the Linux x64 host all met at
     # 19.8-22.3 s. The checks below are unchanged. Threaded bot AI stays covered in the
     # suite by all-stock-maps (botThreadStats), the m4-* tests and valley-match.
     "+set", "bot_threading", "0",

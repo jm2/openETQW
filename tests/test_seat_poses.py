@@ -1131,7 +1131,7 @@ def main(argv):
             return [p for p in moving_poses(poses) if p["seat"] is not None and seat_fields(p["seat"])[1:] == (0, 0)]
 
         def badger_stalled(poses):
-            # the badger never moved (#160: 0 moving draws once on antec): driven once more, as a
+            # the badger never moved (#160: 0 moving draws once on the Linux x64 host): driven once more, as a
             # stalled jetpack is; a second stall fails H3 below
             n = len(driver_seated_moving(poses))
             return None if n >= MIN_PAIRS else f"the badger barely moved: {n} moving draws in its driver's seat"
