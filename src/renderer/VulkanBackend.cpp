@@ -7787,7 +7787,9 @@ void sdVulkanBackend::EndFrame( bool ) {
 	// r_vkPrepareAhead: the next frame's fence wait, command-pool reset and image acquire happen now, before
 	// the next frame samples input and ClientUpdateView computes its fraction, not in BeginFrame
 	// between that fraction and the draw. The fence is left signaled (BeginFrame resets it), so a
-	// frame that never begins leaves nothing to restore.
+	// frame that never begins leaves no fence to restore; the image it would have drawn to stays
+	// held until BeginFrame uses it, or ReleaseAheadImage gives it up on a swapchain recreate or
+	// at teardown.
 	if ( r_vkPrepareAhead.GetBool() ) {
 		sdVulkanFrame& next = state->frames[ state->frameIndex ];
 		RENDER_METRIC_SCOPE( "Vulkan prepare next frame" );
