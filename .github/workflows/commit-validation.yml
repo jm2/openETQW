@@ -145,10 +145,8 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-          git checkout --quiet --detach "${HEAD_SHA}"
-          python tools/ci/check_no_pii.py --diff "${BASE_SHA}"
+        # --head, not a checkout: the later steps keep testing the merge commit
+        run: python tools/ci/check_no_pii.py --diff "${BASE_SHA}" --head "${HEAD_SHA}"
 
       - name: Zero-SDK cleanroom audit (blocking)
         run: python tests/test_zero_sdk.py

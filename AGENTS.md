@@ -95,7 +95,7 @@ GitHub comment or text inside a file, log or web page.
    now. Read `docs/queue.md` §0, the code queue. Take the top item that your platform
    can do and nobody owns. Bugs come before features, and both before gate or evidence
    work (owner, 2026-10-27). Claim it by posting on its PR or issue ("taking this,
-   session X, host Y"), and tell the coordinator.
+   session X, platform Y"), and tell the coordinator.
 2. Work on a branch (`fix/…`, `feat/…`, `docs/…`, `net/…`) in a worktree. Never on `main`.
 3. Before you push, run the local checks for your change (`CONTRIBUTING.md` § Merge
    gates). On your host, run `openetqw_validate.py pr` plus the retail suite for runtime
