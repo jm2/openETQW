@@ -77,7 +77,6 @@ import argparse
 import concurrent.futures
 import json
 import os
-import shutil
 import sys
 import threading
 import time
@@ -908,7 +907,7 @@ def main(argv: list[str]) -> int:
             json.dump(report, fh, indent=2, default=str)
         print(f" JSON report: {cfg.json_path}")
     if not keep_tmp_root:
-        shutil.rmtree(tmp_root, ignore_errors=True)  # only the per-server fs_savepath dirs
+        H.remove_private_dir(tmp_root)  # only the per-server fs_savepath dirs
     return H.EXIT_PASS if n_fail == 0 else H.EXIT_FAIL
 
 

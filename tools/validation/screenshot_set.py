@@ -55,7 +55,6 @@ import os
 import platform
 import queue
 import re
-import shutil
 import subprocess
 import sys
 import threading
@@ -313,7 +312,7 @@ def capture_map(client_bin: Path, workdir: Path, data: Path, out: Path, map_name
                 raise RuntimeError(f"{tag}: the client exited (code {client.proc.returncode})")
     finally:
         client.close()
-        shutil.rmtree(savepath, ignore_errors=True)
+        h.remove_private_dir(savepath)
     return results
 
 

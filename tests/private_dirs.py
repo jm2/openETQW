@@ -10,7 +10,11 @@ failed and the client fell back to OpenGL, and the tool tests failed at setup.
 
 make_private_dir uses the default mode on Windows, so the directory inherits the
 temp root's ACL like any other, and mkdtemp's 0o700 on POSIX, so Linux and macOS
-behave as before. This module has no side effects on import (etqw_harness sets
+behave as before. On Windows the default parent is the per-user temp root
+(%TEMP%, under the user's profile, which other standard users can't read), so the
+inherited ACL is no wider than the user's own; a caller that passes a shared `dir`
+gets that directory's ACL. The contents are test configs, logs and shader caches,
+not secrets. This module has no side effects on import (etqw_harness sets
 XDG_DATA_HOME and LOCALAPPDATA), so tests that don't use the harness import it
 directly; etqw_harness re-exports both names.
 """

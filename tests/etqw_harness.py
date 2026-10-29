@@ -27,7 +27,6 @@ import math
 import os
 import platform
 import re
-import shutil
 import signal
 import socket
 import struct
@@ -563,6 +562,7 @@ import private_dirs  # noqa: E402
 PRIVATE_DIR_MODE = private_dirs.PRIVATE_DIR_MODE
 PrivateTempDir = private_dirs.PrivateTempDir
 make_private_dir = private_dirs.make_private_dir
+remove_private_dir = private_dirs.remove_private_dir
 
 
 def private_savepath(prefix: str) -> Path:
@@ -571,7 +571,7 @@ def private_savepath(prefix: str) -> Path:
     com_maxFPS, ...) to <savepath>/base/etqwconfig.cfg; with the shared default
     (the repository's base/) they carry into later runs and other tests."""
     path = make_private_dir(prefix)
-    atexit.register(shutil.rmtree, path, True)
+    atexit.register(remove_private_dir, path)
     return path
 
 
@@ -1207,7 +1207,7 @@ class DedicatedServer:
             if self.proc in _LIVE_PROCS:
                 _LIVE_PROCS.remove(self.proc)
         if self._own_savepath:
-            shutil.rmtree(self.savepath, ignore_errors=True)
+            remove_private_dir(self.savepath)
 
 
 # ---------------------------------------------------------------------------

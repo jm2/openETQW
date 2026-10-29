@@ -31,7 +31,6 @@ from __future__ import annotations
 import argparse
 import os
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -67,7 +66,7 @@ def run_client(*extra_args: str, env_overrides: dict[str, str] | None = None) ->
     try:
         return _run_client(savepath, *extra_args, env_overrides=env_overrides)
     finally:
-        shutil.rmtree(savepath, ignore_errors=True)
+        h.remove_private_dir(savepath)
 
 
 def _run_client(savepath: Path, *extra_args: str, env_overrides: dict[str, str] | None = None) -> tuple[int, str]:
