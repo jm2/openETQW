@@ -22,7 +22,7 @@ import os
 import subprocess
 import sys
 import tarfile
-import tempfile
+import private_dirs
 import zipfile
 from pathlib import Path
 from types import ModuleType
@@ -288,7 +288,7 @@ def main() -> int:
     if subprocess.run(["git", "-C", str(ROOT), "rev-parse"], capture_output=True).returncode != 0:
         print("SKIP: not a git checkout")
         return 77
-    with tempfile.TemporaryDirectory(prefix="openetqw-packaging-test-") as temporary:
+    with private_dirs.PrivateTempDir(prefix="openetqw-packaging-test-") as temporary:
         tmp = Path(temporary)
         test_validator(tmp)
         test_package_release(tmp)

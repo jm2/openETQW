@@ -31,10 +31,8 @@ from __future__ import annotations
 import argparse
 import os
 import re
-import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 import etqw_harness as h
@@ -64,11 +62,11 @@ CLIENT_BIN = _find_client_binary()
 
 
 def run_client(*extra_args: str, env_overrides: dict[str, str] | None = None) -> tuple[int, str]:
-    savepath = Path(tempfile.mkdtemp(prefix="etqw-render-api-"))
+    savepath = h.make_private_dir("etqw-render-api-")
     try:
         return _run_client(savepath, *extra_args, env_overrides=env_overrides)
     finally:
-        shutil.rmtree(savepath, ignore_errors=True)
+        h.remove_private_dir(savepath)
 
 
 def _run_client(savepath: Path, *extra_args: str, env_overrides: dict[str, str] | None = None) -> tuple[int, str]:

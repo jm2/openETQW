@@ -238,6 +238,16 @@ test(
   timeout: 30,
 )
 
+# Harness private dirs: no mkdtemp owner-only DACL on Windows, so a sandboxed engine
+# can write its SPIR-V cache under fs_savepath (openai/codex#19791)
+test(
+  'harness-private-dirs',
+  py,
+  args: [meson.project_source_root() / 'tests' / 'test_harness_private_dirs.py'],
+  suite: 'unit',
+  timeout: 30,
+)
+
 # 6. Client lifecycle & graphics verification test
 if build_engine
   campaign_client = meson.project_build_root() / engine_client_binary_name

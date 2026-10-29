@@ -27,7 +27,6 @@ import math
 import os
 import platform
 import re
-import shutil
 import signal
 import socket
 import struct
@@ -558,13 +557,25 @@ def build_binary(kind: str) -> Path:
     return next((c for c in candidates if c.is_file()), candidates[0])
 
 
+# make_private_dir / PrivateTempDir live in private_dirs.py (no side effects, so the
+# tool tests that don't use the harness can import them too); re-exported here.
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+import private_dirs  # noqa: E402
+
+PRIVATE_DIR_MODE = private_dirs.PRIVATE_DIR_MODE
+PrivateTempDir = private_dirs.PrivateTempDir
+make_private_dir = private_dirs.make_private_dir
+remove_private_dir = private_dirs.remove_private_dir
+
+
 def private_savepath(prefix: str) -> Path:
     """An empty fs_savepath for this test run, removed at exit.  The engine writes
     the archived cvars a test sets with +set (r_rayTracing, r_vkValidation,
     com_maxFPS, ...) to <savepath>/base/etqwconfig.cfg; with the shared default
     (the repository's base/) they carry into later runs and other tests."""
-    path = Path(tempfile.mkdtemp(prefix=prefix))
-    atexit.register(shutil.rmtree, path, True)
+    path = make_private_dir(prefix)
+    atexit.register(remove_private_dir, path)
     return path
 
 
@@ -995,7 +1006,7 @@ class DedicatedServer:
         self.cvars = dict(cvars or {})
         self.extra_args = list(extra_args or [])
         self._own_savepath = savepath is None
-        self.savepath = Path(savepath) if savepath else Path(tempfile.mkdtemp(prefix=f"etqw-{map_name}-"))
+        self.savepath = Path(savepath) if savepath else make_private_dir(f"etqw-{map_name}-")
         # the working directory (default: the save path); the Vulkan client finds
         # vkprogs/ relative to it, so it runs from the repository root
         self.cwd = Path(cwd) if cwd else None
@@ -1200,7 +1211,7 @@ class DedicatedServer:
             if self.proc in _LIVE_PROCS:
                 _LIVE_PROCS.remove(self.proc)
         if self._own_savepath:
-            shutil.rmtree(self.savepath, ignore_errors=True)
+            remove_private_dir(self.savepath)
 
 
 # ---------------------------------------------------------------------------
