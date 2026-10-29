@@ -95,7 +95,7 @@ N2 and N3 give the ud and f of each violation, split by where the call ran (from
 line order): between ticks, a snapshot read, or inside a predicted tick, a client
 moveable's Think (rvClientMoveable::Think calls SetupClientAoR). Before step 6 the
 snapshot reads already passed, but a client moveable's Think ran the smooth
-interpolation with a stale fraction in some runs (2 of 11 on antec, and on macOS).
+interpolation with a stale fraction in some runs (2 of 11 on the Linux x64 host, and on macOS).
 
 Also reported, not judged: the server's smooth camera from the cycle on (post tpo/tpa),
 as each tick's offset from the midpoint of its two neighbours, sampled at a few ticks

@@ -27,7 +27,7 @@ handling would pass them. This test catches it:
    golden (REFERENCE) at fixed precision: the tick, vehicle, class, control kind,
    atRest and collision time exactly, the continuous values within TOLERANCE.
    The tolerances are three to four times the largest difference that a small
-   floating-point change alone produced on antec: fused multiply-adds
+   floating-point change alone produced on the Linux x64 host: fused multiply-adds
    (GCC 16, x86-64, -march=x86-64-v3 -ffp-contract=fast against the baseline
    build, 2026-09-30: origin 0.24, linear velocity 3.3, quaternion 0.0017,
    angular velocity 0.073, steering 0.037). The real builds use

@@ -20,6 +20,7 @@ get CI back: both stay private until the owner decides to publish.
    - `python3 tools/ci/check_python.py` (syntax and pyflakes over `tests/` and `tools/`; needs `pyflakes==4.0.0`, the version CI used)
    - `python3 tools/ci/check_integration_skips.py` (every retail-data test must exit 77 without data; it starts stub binaries, never a real server)
    - `python3 tools/ci/check_include_case.py` (every `#include` matches the file's letter case; Linux is case-sensitive, macOS is not)
+   - `python3 tools/ci/check_no_pii.py --diff origin/main` (nothing the branch adds, commit messages included, names a private host, user, LAN address, e-mail or home path; § What never goes in)
    - `meson test -C build --suite unit` (asset-free unit tests, including the zero-SDK audit, the licence texts in the
      install set and the retail-install check on synthetic paks)
 2. **Retail-data suite for runtime changes.** Anything touching the engine, the game or the
@@ -33,7 +34,7 @@ get CI back: both stay private until the owner decides to publish.
    the game module, it also needs the stub decl from `etqw_harness.write_synthetic_stub_decls`:
    without it `game->Init()` fails, and a failed `game->Init()` stops the engine. Check that
    the retail-data tests ran rather than skipped: a run that skips them does not meet this gate.
-   Put the result in the PR with the host, OS, architecture, commit and data set. The tests use
+   Put the result in the PR with the platform (OS, architecture, GPU class), commit and data set. The tests use
    fixed UDP ports, so run one suite at a time on a host.
    **Vehicle or physics changes** (anything under `src/game/vehicles` or `src/game/physics` in
    openETQW-game) must also pass `vehicle-physics-golden` (M5 step 5a; it is part of the full
@@ -95,6 +96,17 @@ The engine builds against the game at the commit pinned in `tools/ci/companion.r
 - Retail game data, retail executables, PDBs, raw disassembly or decompiler output, and
   packet captures. This holds for both repositories and their whole history.
 - SDK-licensed files. They belong in `openETQW-game`.
+- Private detail about the people and machines behind the work (owner, 2026-10-29; the
+  repositories are to go public). Name a machine by its platform ("the Linux x64 host",
+  "the Windows arm64 host"), never by host name. No LAN addresses or service ports of
+  personal machines, user names, home paths (write `$HOME/etqw_data`, `C:\Users\<name>`),
+  personal e-mail addresses, or which session runs on which machine. This covers files,
+  commit messages, PR and issue text, comments and release notes. Logs stay on the host
+  that made them; quote the lines that matter. `tools/ci/check_no_pii.py` enforces the
+  file and commit part: its tree scan in the unit suite, its `--diff` mode for what a
+  branch adds. A new private name goes into `tools/ci/pii_terms.sha256` as a digest
+  (`--add-term NAME`), never as text. The files in `tools/ci/pii_baseline.txt` predate the
+  rule and are being cleaned; add nothing to them that the rule forbids.
 - New engine code carries `SPDX-License-Identifier: GPL-3.0-or-later`. Code adapted from
   Doom 3, dhewm3, RBDOOM-3-BFG or openQ4 keeps its original notices, gets an
   `SPDX-License-Identifier` line, and its donor commit is recorded in `docs/provenance.md`.
@@ -102,10 +114,10 @@ The engine builds against the game at the commit pinned in `tools/ci/companion.r
 ## Where a defect goes
 Every defect or bug found is filed as a GitHub issue in the repository that owns the
 code, after searching the open issues for a duplicate. One issue per defect, with the
-symptom, the exact steps to reproduce it and the environment (host, OS, commit, data set),
+symptom, the exact steps to reproduce it and the environment (platform, OS, commit, data set),
 the mechanism with `file:line`, the scope (what the fix may touch and what it must not),
 and a done-test a reviewer can run.
-Put host measurements in the issue itself. Defects are not tracked in beads (`bd`,
+Put the measurements in the issue itself. Defects are not tracked in beads (`bd`,
 `.beads`): beads are gascity-only, and existing beads are left where they are (owner
 decision, `docs/coordination.md` §9, 2026-10-26).
 
@@ -113,4 +125,4 @@ decision, `docs/coordination.md` §9, 2026-10-26).
 Record deliberate deviations from retail 1.5 in `docs/compat-ledger.md` and file origins
 in `docs/provenance.md`. Keep `STATUS.md` honest about what was verified: each claim
 carries its evidence level (`inspected` < `configured` < `compiled` < `unit-tested` <
-`launched` < `map-loaded` < `match-tested`), host, OS, architecture and commit.
+`launched` < `map-loaded` < `match-tested`), platform (OS, architecture, GPU class) and commit.

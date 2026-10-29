@@ -3,7 +3,7 @@
 # Commit Validation: every pull request (as openQ4's commit-validation.yml).
 #
 #   lint          actionlint (+ shellcheck of tools/ci and tools/validation)
-#   script-smoke  Python hygiene, include case, Zero-SDK audit, Meson source-manifest
+#   script-smoke  Python hygiene, include case, no private detail, Zero-SDK audit, Meson source-manifest
 #                 stress, "every integration test skips without retail data", and a
 #                 dry run of both validation profiles
 #   validate      the 'pr' profile of tools/validation/openetqw_validate.py on Linux
@@ -120,6 +120,8 @@ jobs:
         uses: actions/checkout@v7
         with:
           persist-credentials: false
+          # full history: check_no_pii.py --diff needs the merge base
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v7
@@ -134,6 +136,17 @@ jobs:
 
       - name: Include letter case (Linux is case-sensitive; macOS is not)
         run: python tools/ci/check_include_case.py
+
+      - name: No private detail in tracked files
+        run: python tools/ci/check_no_pii.py
+
+      - name: No private detail added by this pull request (files and commit messages)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # --head, not a checkout: the later steps keep testing the merge commit
+        run: python tools/ci/check_no_pii.py --diff "${BASE_SHA}" --head "${HEAD_SHA}"
 
       - name: Zero-SDK cleanroom audit (blocking)
         run: python tests/test_zero_sdk.py
