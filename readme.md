@@ -38,7 +38,7 @@ arm64.
 
 ## Multiplayer
 
-OpenETQW players can play each other over a LAN, across all supported platforms. OpenETQW
+OpenETQW players can play each other over a LAN, between macOS, Linux and Windows. OpenETQW
 uses its own network protocol, so it can't join retail ET:QW servers, and retail clients
 can't join OpenETQW servers: a retail client is turned away at connect with "Server uses
 protocol 20293.5".
@@ -46,7 +46,7 @@ protocol 20293.5".
 ## Where things stand
 
 The engine builds and runs on all five platforms. The dedicated server loads every stock
-map with its scripts and bot navigation, and bots play. The Vulkan client renders the maps,
+map with its scripts and bot navigation, and bots move. The Vulkan client renders the maps,
 joins dedicated servers and hosts listen servers. Automated tests cover servers with
 several clients, reconnects and map changes, dropped and kicked players, a long session over
 a lossy connection, and LAN games between macOS, Linux and Windows in every direction.
@@ -256,7 +256,8 @@ ETQW_DATA_PATH=/path/to/etqw meson test -C build -j 1
 ETQW_DATA_PATH=/path/to/etqw meson test -C build -j 1 --no-suite soak
 ```
 
-Without game data, the tests that need it report as skipped.
+Without game data (any of `pak000`–`pak008` missing), the tests that need it report as
+skipped.
 
 ## Running it directly
 
@@ -274,11 +275,11 @@ build/openETQW-client_arm64 +set fs_basepath "$ETQW_DATA_PATH" +set fs_game base
 
 OpenETQW is built from several sources, each under its own terms:
 
-- **The engine code in this repository** is under the GNU General Public License, version
-  3 or later ([`LICENSE`](LICENSE)). Code that comes from id Software's Doom 3 GPL release
+- **Code written for OpenETQW** is under the GNU General Public License, version 3 or later
+  ([`LICENSE`](LICENSE)). Code that comes from id Software's Doom 3 GPL release
   keeps id's notices and additional terms.
-- **Third-party libraries** keep their own licences; their notices are in their folders and
-  in `licenses/` of every install.
+- **Third-party libraries** keep their own licences; their notices are in their source
+  folders.
 - **The game module** (in `openETQW-game`) is id Software's ET:QW 1.5 SDK code, under the
   *Enemy Territory: Quake Wars SDK Limited Use License Agreement* (the SDK EULA,
   [`EULA_SDK_ETQW.txt`](EULA_SDK_ETQW.txt)), plus new files under the MIT licence. The SDK
@@ -288,7 +289,8 @@ OpenETQW is built from several sources, each under its own terms:
 - **Early history.** OpenETQW began as a fork of jmarshall's ET:QW source reconstruction,
   and this repository's history starts with his commits. The first three
   (`b8f61ab`, `d131a72`, `e1407bc`) include the SDK code, which is covered by the SDK EULA
-  above, not by the GPL; it was moved to the game repository in `9043b91`.
+  above, not by the GPL; it was moved to the game repository in `9043b91`. Code that came
+  from his reconstruction keeps his authorship.
 
 [`docs/provenance.md`](docs/provenance.md) records where each file came from.
 
