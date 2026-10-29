@@ -20,6 +20,11 @@ FAILURES_PER_MODE failures of each kind, more than the swapchain holds images, a
   F2  Vulkan frames go on: at least MIN_TIMING_WINDOWS FRAME_TIMING windows after the last
       injection, each with at least MIN_FRAMES presented Vulkan frames (vk_frames, not the
       engine's frames, which keep counting while BeginFrame fails)
+  F4  swapchain recreates don't lose images either: RECREATES toggles of r_swapInterval
+      (each a recreate, with r_vkPrepareAhead holding an image acquired ahead) are all seen
+      as new "Vulkan swapchain:" lines, and Vulkan frames go on as in F2. On MoltenVK a
+      drawable given up unpresented never comes back, so before #340 every recreate lost
+      one, and after three the client presented about 4 frames a second
   F3  no Vulkan validation error, VK_ERROR_ or device loss in the client log; whether the
       layer was active is reported
 
@@ -42,6 +47,8 @@ from test_remote_client_map_change import READY  # noqa: E402
 FAILURES_PER_MODE = 6
 MIN_TIMING_WINDOWS = 3
 MIN_FRAMES = 10
+RECREATES = 8
+SWAPCHAIN_LINE = "Vulkan swapchain:"
 TIMING_RE = re.compile(r"FRAME_TIMING: .* vk_frames=(\d+)")
 
 
@@ -78,6 +85,18 @@ def main(argv):
         if cl.sync(60.0) is None:
             raise Failed("the client never answered a console echo after the map loaded")
 
+        def vk_windows():
+            mark = cl.mark()
+            found = []
+            deadline = time.monotonic() + 15.0
+            while len(found) < MIN_TIMING_WINDOWS and time.monotonic() < deadline:
+                hit = cl.wait_for(lambda s: TIMING_RE.search(s), max(0.1, deadline - time.monotonic()), mark)
+                if not hit:
+                    break
+                found.append(int(hit[2].group(1)))
+                mark = hit[0] + 1
+            return found
+
         reached = 0
         for i in range(FAILURES_PER_MODE):
             for mode in (1, 2):
@@ -92,20 +111,26 @@ def main(argv):
         print(f"  F1 pass: {reached} injected failures reached ({FAILURES_PER_MODE} in BeginFrame,"
               f" {FAILURES_PER_MODE} in EndFrame)")
 
-        mark = cl.mark()
-        windows = []
-        deadline = time.monotonic() + 15.0
-        while len(windows) < MIN_TIMING_WINDOWS and time.monotonic() < deadline:
-            hit = cl.wait_for(lambda s: TIMING_RE.search(s), max(0.1, deadline - time.monotonic()), mark)
-            if not hit:
-                break
-            windows.append(int(hit[2].group(1)))
-            mark = hit[0] + 1
+        windows = vk_windows()
         ok = len(windows) >= MIN_TIMING_WINDOWS and all(f >= MIN_FRAMES for f in windows)
         print(f"  F2 {'pass' if ok else 'FAIL'}: FRAME_TIMING windows after the injections: vk_frames {windows}"
               f" (need {MIN_TIMING_WINDOWS} windows of at least {MIN_FRAMES})")
         if not ok:
             failures.append(f"F2: Vulkan frames did not go on after the injected failures (vk_frames {windows})")
+
+        mark = cl.mark()
+        for i in range(RECREATES):
+            cl.send(f"set r_swapInterval {i % 2}")
+            time.sleep(0.5)
+        cl.send("set r_swapInterval 1")
+        time.sleep(0.5)
+        recreated = sum(1 for ln in cl.snapshot(mark) if SWAPCHAIN_LINE in ln.text)
+        windows = vk_windows()
+        ok = recreated >= RECREATES and len(windows) >= MIN_TIMING_WINDOWS and all(f >= MIN_FRAMES for f in windows)
+        print(f"  F4 {'pass' if ok else 'FAIL'}: {recreated} swapchain recreates (need {RECREATES}), then vk_frames"
+              f" {windows} (need {MIN_TIMING_WINDOWS} windows of at least {MIN_FRAMES})")
+        if not ok:
+            failures.append(f"F4: after {recreated} swapchain recreates Vulkan frames did not go on (vk_frames {windows})")
     except Failed as e:
         failures.append(str(e))
     finally:
