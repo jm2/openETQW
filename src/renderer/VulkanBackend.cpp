@@ -146,6 +146,14 @@ idCVar r_vkPrepareAhead(
 	"fraction, not between ClientUpdateView and the draw (0 = do all three in BeginFrame, as before)"
 );
 
+idCVar r_vkTestFailFrame(
+	"r_vkTestFailFrame",
+	"0",
+	CVAR_RENDERER | CVAR_INTEGER | CVAR_CHEAT,
+	"test only (#337): fail the next frame after its swapchain image is acquired, as a failed Vulkan call would: "
+	"1 = in BeginFrame, 2 = in EndFrame before the submit; resets itself to 0"
+);
+
 idCVar r_vkLogFrameSync(
 	"r_vkLogFrameSync",
 	"0",
@@ -2681,6 +2689,34 @@ void RestoreSignaledFence( sdVulkanBackendState& state, sdVulkanFrame& frame ) {
 	createInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 	createInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 	state.CreateFence( state.device, &createInfo, NULL, &frame.fence );
+}
+
+/*
+#337: a frame that fails after its swapchain image was acquired gives that image up. The
+acquire left the frame's imageAvailable semaphore with a pending signal and the image owned
+by the application. An empty submit waits on the semaphore, so the next acquire into it is
+valid, and the swapchain is marked dirty, so its recreate returns the image (without that,
+each failure keeps one more image until the acquire blocks for good).
+*/
+void AbandonAcquiredImage( sdVulkanBackendState& state, sdVulkanFrame& frame, bool& swapchainDirty ) {
+	RestoreSignaledFence( state, frame );
+	swapchainDirty = true;
+	if ( frame.imageAvailable == VK_NULL_HANDLE || state.QueueSubmit2 == NULL ) {
+		return;
+	}
+	VkSemaphoreSubmitInfo waitInfo;
+	memset( &waitInfo, 0, sizeof( waitInfo ) );
+	waitInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+	waitInfo.semaphore = frame.imageAvailable;
+	waitInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+	VkSubmitInfo2 submitInfo;
+	memset( &submitInfo, 0, sizeof( submitInfo ) );
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+	submitInfo.waitSemaphoreInfoCount = 1;
+	submitInfo.pWaitSemaphoreInfos = &waitInfo;
+	CheckVulkanResult( state.QueueSubmit2( state.graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE ),
+		"vkQueueSubmit2(abandon acquired image)" );
+	state.DeviceWaitIdle( state.device );
 }
 
 bool FindMemoryType( const sdVulkanBackendState& state, unsigned int typeBits,
@@ -7366,6 +7402,12 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 	if ( acquireResult == VK_SUBOPTIMAL_KHR ) {
 		state->swapchainDirty = true;
 	}
+	if ( r_vkTestFailFrame.GetInteger() == 1 ) {
+		r_vkTestFailFrame.SetInteger( 0 );
+		common->Printf( "Vulkan: r_vkTestFailFrame 1: failing this frame after its acquire\n" );
+		AbandonAcquiredImage( *state, frame, state->swapchainDirty );
+		return false;
+	}
 
 	{
 		RENDER_METRIC_SCOPE( "Vulkan reset command frame" );
@@ -7377,7 +7419,7 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 		frame.commandPoolReset = false;
 		pendingAheadPoolUsec = 0;
 		if ( !fenceReset || !poolReset ) {
-			RestoreSignaledFence( *state, frame );
+			AbandonAcquiredImage( *state, frame, state->swapchainDirty );
 			return false;
 		}
 		VkCommandBufferBeginInfo beginInfo;
@@ -7386,13 +7428,13 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 		if ( !CheckVulkanResult( state->BeginCommandBuffer( frame.commandBuffer,
 			&beginInfo ), "vkBeginCommandBuffer" ) ) {
-			RestoreSignaledFence( *state, frame );
+			AbandonAcquiredImage( *state, frame, state->swapchainDirty );
 			return false;
 		}
 		if ( !CheckVulkanResult( state->BeginCommandBuffer(
 			frame.imageUploadCommandBuffer, &beginInfo ),
 			"vkBeginCommandBuffer(image uploads)" ) ) {
-			RestoreSignaledFence( *state, frame );
+			AbandonAcquiredImage( *state, frame, state->swapchainDirty );
 			return false;
 		}
 	}
@@ -7679,7 +7721,7 @@ void sdVulkanBackend::EndFrame( bool ) {
 	state->CmdPipelineBarrier2( frame.commandBuffer, &dependencyInfo );
 		if ( !CheckVulkanResult( state->EndCommandBuffer( frame.commandBuffer ),
 			"vkEndCommandBuffer" ) ) {
-			RestoreSignaledFence( *state, frame );
+			AbandonAcquiredImage( *state, frame, state->swapchainDirty );
 			DiscardVulkanScreenshot( *state );
 			state->frameActive = false;
 			return;
@@ -7687,11 +7729,20 @@ void sdVulkanBackend::EndFrame( bool ) {
 		if ( !CheckVulkanResult( state->EndCommandBuffer(
 			frame.imageUploadCommandBuffer ),
 			"vkEndCommandBuffer(image uploads)" ) ) {
-			RestoreSignaledFence( *state, frame );
+			AbandonAcquiredImage( *state, frame, state->swapchainDirty );
 			DiscardVulkanScreenshot( *state );
 			state->frameActive = false;
 			return;
 		}
+	}
+
+	if ( r_vkTestFailFrame.GetInteger() == 2 ) {
+		r_vkTestFailFrame.SetInteger( 0 );
+		common->Printf( "Vulkan: r_vkTestFailFrame 2: failing this frame before its submit\n" );
+		AbandonAcquiredImage( *state, frame, state->swapchainDirty );
+		DiscardVulkanScreenshot( *state );
+		state->frameActive = false;
+		return;
 	}
 
 	VkSemaphoreSubmitInfo waitInfo;
@@ -7732,7 +7783,7 @@ void sdVulkanBackend::EndFrame( bool ) {
 		const uint64_t submitStart = SyncNowUsec();
 		if ( !CheckVulkanResult( state->QueueSubmit2( state->graphicsQueue, 1,
 			&submitInfo, frame.fence ), "vkQueueSubmit2" ) ) {
-			RestoreSignaledFence( *state, frame );
+			AbandonAcquiredImage( *state, frame, state->swapchainDirty );
 			DiscardVulkanScreenshot( *state );
 			state->frameActive = false;
 			return;
@@ -7928,7 +7979,7 @@ bool sdVulkanBackend::BeginToolWindow( void* nativeWindow, int width, int height
 		"vkResetFences(Radiant)" ) ||
 		!CheckVulkanResult( state->ResetCommandPool( state->device,
 			frame.commandPool, 0 ), "vkResetCommandPool(Radiant)" ) ) {
-		RestoreSignaledFence( *state, frame );
+		AbandonAcquiredImage( *state, frame, tool->dirty );
 		return false;
 	}
 	frame.commandPoolReset = false;
@@ -7938,7 +7989,7 @@ bool sdVulkanBackend::BeginToolWindow( void* nativeWindow, int width, int height
 	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 	if ( !CheckVulkanResult( state->BeginCommandBuffer( frame.commandBuffer,
 		&beginInfo ), "vkBeginCommandBuffer(Radiant)" ) ) {
-		RestoreSignaledFence( *state, frame );
+		AbandonAcquiredImage( *state, frame, tool->dirty );
 		return false;
 	}
 	VkImageMemoryBarrier2 barriers[ 2 ];
@@ -8742,7 +8793,7 @@ void sdVulkanBackend::EndToolWindow() {
 	state->CmdPipelineBarrier2( frame.commandBuffer, &dependencyInfo );
 	if ( !CheckVulkanResult( state->EndCommandBuffer( frame.commandBuffer ),
 		"vkEndCommandBuffer(Radiant)" ) ) {
-		RestoreSignaledFence( *state, frame );
+		AbandonAcquiredImage( *state, frame, tool->dirty );
 		state->toolFrameActive = false;
 		state->activeToolWindow = NULL;
 		return;
@@ -8772,7 +8823,7 @@ void sdVulkanBackend::EndToolWindow() {
 	submitInfo.pSignalSemaphoreInfos = &signalInfo;
 	if ( !CheckVulkanResult( state->QueueSubmit2( state->graphicsQueue, 1,
 		&submitInfo, frame.fence ), "vkQueueSubmit2(Radiant)" ) ) {
-		RestoreSignaledFence( *state, frame );
+		AbandonAcquiredImage( *state, frame, tool->dirty );
 		state->toolFrameActive = false;
 		state->activeToolWindow = NULL;
 		return;
