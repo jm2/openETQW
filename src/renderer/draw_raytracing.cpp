@@ -10,6 +10,7 @@
 
 #include "draw_raytracing.h"
 #include "RuntimeSpirvCompiler.h"
+#include "VulkanSlowCall.h"
 #include "draw_local.h"
 #include "Material.h"
 #include "../decllib/declAtmosphere.h"
@@ -37,11 +38,89 @@ const unsigned int RAY_TRACING_SOLID_INSTANCE_MASK = 0x01u;
 const unsigned int RAY_TRACING_WATER_INSTANCE_MASK = 0x02u;
 const VkDeviceSize RAY_TRACING_VIEW_STRIDE = 64 * 1024;
 
+// Every acceleration-structure build configuration this file records, one row each
+// (#338). The run-time builds take their type, flags and mode from this table, and
+// PrewarmAccelerationStructureBuilds builds every row at init: a driver that compiles
+// its BVH-build shaders on the first build of a configuration (AMD's: about 650 ms on a
+// cold per-executable shader cache) then does it at startup, not when the first
+// deforming surface comes into view in a game. A configuration added here is prewarmed
+// with no other change; one used without a row here does not compile.
+enum rayTracingBuildKind_t {
+	RAY_TRACING_BUILD_STATIC_BLAS,
+	RAY_TRACING_BUILD_DEFORMING_BLAS,	// rebuilt every frame it is drawn
+	RAY_TRACING_BUILD_TLAS,
+	RAY_TRACING_BUILD_KINDS
+};
+
+struct sdRayTracingBuildConfig {
+	const char*								name;
+	VkAccelerationStructureTypeKHR			type;
+	VkBuildAccelerationStructureFlagsKHR	flags;
+	VkBuildAccelerationStructureModeKHR		mode;
+};
+
+const sdRayTracingBuildConfig RAY_TRACING_BUILD_CONFIGS[ RAY_TRACING_BUILD_KINDS ] = {
+	{ "static BLAS", VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
+		VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR,
+		VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR },
+	{ "deforming BLAS", VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
+		VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR,
+		VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR },
+	{ "TLAS", VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
+		VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR,
+		VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR },
+};
+
+// The prewarm builds each configuration at several sizes, since a driver may choose its
+// build path by primitive count: BLASes of up to 65536 triangles (a 128x256 grid of
+// quads, 33153 vertices, so 16-bit indices reach them all) and TLASes of up to 4096
+// instances.
+const unsigned int RAY_TRACING_PREWARM_GRID_COLUMNS = 128;
+const unsigned int RAY_TRACING_PREWARM_GRID_ROWS = 256;
+const unsigned int RAY_TRACING_PREWARM_TRIANGLES[] = { 1, 64, 4096, 65536 };
+const unsigned int RAY_TRACING_PREWARM_INSTANCES[] = { 1, 64, 4096 };
+const int RAY_TRACING_PREWARM_TRIANGLE_RUNGS =
+	sizeof( RAY_TRACING_PREWARM_TRIANGLES ) / sizeof( RAY_TRACING_PREWARM_TRIANGLES[ 0 ] );
+const int RAY_TRACING_PREWARM_INSTANCE_RUNGS =
+	sizeof( RAY_TRACING_PREWARM_INSTANCES ) / sizeof( RAY_TRACING_PREWARM_INSTANCES[ 0 ] );
+
+// What a driver may compile a BVH build against: every field of the build and of its
+// geometry except addresses and counts, plus the build's size bucket (PrewarmSizeBucket).
+// The prewarm records the key of each build it makes, and NoteBuild looks up the key of
+// each build made in play, so a play build that differs from every prewarmed one in any of
+// these (a changed flag, a new geometry format, a build bypassing DescribeBuild, a size past
+// the ladder) is reported.
+struct sdRayTracingBuildKey {
+	VkAccelerationStructureTypeKHR			type;
+	VkBuildAccelerationStructureFlagsKHR	flags;
+	VkBuildAccelerationStructureModeKHR		mode;
+	unsigned int							geometryCount;
+	VkGeometryTypeKHR						geometryType;	// of the first geometry
+	VkGeometryFlagsKHR						geometryFlags;
+	VkFormat								vertexFormat;	// triangles
+	VkDeviceSize							vertexStride;
+	VkIndexType								indexType;
+	bool									transform;		// triangles: transformData set
+	VkBool32								arrayOfPointers;	// instances
+	int										sizeBucket;
+};
+
+const int MAX_RAY_TRACING_BUILD_KEYS = 64;
+
 idCVar r_rayTracing(
 	"r_rayTracing",
 	RAY_TRACING_DEFAULT,
 	CVAR_RENDERER | CVAR_ARCHIVE | CVAR_BOOL | CVAR_LATCH | CVAR_NOCHEAT,
 	"use x64 Vulkan ray-query lighting and shadows; a renderer restart is required"
+);
+
+idCVar r_rayTracingPrewarmBuilds(
+	"r_rayTracingPrewarmBuilds",
+	"1",
+	CVAR_RENDERER | CVAR_BOOL | CVAR_NOCHEAT,
+	"at ray-tracing init, build every acceleration-structure configuration once, so a driver that compiles its "
+	"build shaders on first use does it then and not in play (0 = off, the rt-build-prewarm test's control); "
+	"read at init"
 );
 
 idCVar r_rayTracingShadowStrength(
@@ -192,6 +271,11 @@ struct sdRayTracingState {
 	sdRayTracingFrame frames[ MAX_RAY_TRACING_FRAMES ];
 	idList< sdRayTracingBlasCacheEntry >* blasCache;
 	unsigned long long buildSerial;
+	VkQueue queue;					// the prewarm's one submit
+	unsigned int queueFamilyIndex;
+	// the keys of the builds prewarmed, then of each one first built in play
+	sdRayTracingBuildKey buildKeys[ MAX_RAY_TRACING_BUILD_KEYS ];
+	int buildKeyCount;
 
 	PFN_vkGetDeviceProcAddr GetDeviceProcAddr;
 	PFN_vkCreateBuffer CreateBuffer;
@@ -230,6 +314,13 @@ struct sdRayTracingState {
 	PFN_vkCmdPushConstants CmdPushConstants;
 	PFN_vkCmdCopyImage CmdCopyImage;
 	PFN_vkCmdDispatch CmdDispatch;
+	PFN_vkCreateCommandPool CreateCommandPool;
+	PFN_vkDestroyCommandPool DestroyCommandPool;
+	PFN_vkAllocateCommandBuffers AllocateCommandBuffers;
+	PFN_vkBeginCommandBuffer BeginCommandBuffer;
+	PFN_vkEndCommandBuffer EndCommandBuffer;
+	PFN_vkQueueSubmit QueueSubmit;
+	PFN_vkQueueWaitIdle QueueWaitIdle;
 
 	sdRayTracingState() {
 		memset( this, 0, sizeof( *this ) );
@@ -321,6 +412,13 @@ bool LoadRayTracingFunctions( sdRayTracingState& state ) {
 	LOAD_RT_FUNCTION( CmdPushConstants );
 	LOAD_RT_FUNCTION( CmdCopyImage );
 	LOAD_RT_FUNCTION( CmdDispatch );
+	LOAD_RT_FUNCTION( CreateCommandPool );
+	LOAD_RT_FUNCTION( DestroyCommandPool );
+	LOAD_RT_FUNCTION( AllocateCommandBuffers );
+	LOAD_RT_FUNCTION( BeginCommandBuffer );
+	LOAD_RT_FUNCTION( EndCommandBuffer );
+	LOAD_RT_FUNCTION( QueueSubmit );
+	LOAD_RT_FUNCTION( QueueWaitIdle );
 #undef LOAD_RT_FUNCTION
 	if ( loaded ) {
 		R_VkTrackMemoryFunctions( state.AllocateMemory, state.FreeMemory );
@@ -1015,6 +1113,8 @@ bool CreateDepthSampler( sdRayTracingState& state ) {
 		"vkCreateSampler(ray-tracing depth)" );
 }
 
+bool PrewarmAccelerationStructureBuilds( sdRayTracingState& state );
+
 } // namespace
 
 bool R_RayTracingInit( const sdRayTracingVulkanContext& context ) {
@@ -1036,6 +1136,8 @@ bool R_RayTracingInit( const sdRayTracingVulkanContext& context ) {
 	state.depthFormat = context.depthFormat;
 	state.frameCount = context.frameCount;
 	state.GetDeviceProcAddr = context.GetDeviceProcAddr;
+	state.queue = context.queue;
+	state.queueFamilyIndex = context.queueFamilyIndex;
 	if ( !LoadRayTracingFunctions( state ) ||
 		!CreateRayTracingDescriptors( state ) ||
 		!CreateDepthSampler( state ) ||
@@ -1046,6 +1148,12 @@ bool R_RayTracingInit( const sdRayTracingVulkanContext& context ) {
 	}
 	common->Printf( "Ray tracing: Vulkan ray-query lighting active (%u frames)\n",
 		state.frameCount );
+	// an optimisation only: without it the first build of each configuration in play
+	// may stall while the driver compiles (#338), so a failure is reported, not fatal
+	if ( r_rayTracingPrewarmBuilds.GetBool() && !PrewarmAccelerationStructureBuilds( state ) ) {
+		common->Warning( "Ray tracing: the acceleration-structure build prewarm failed; the first build of "
+			"each kind in play may stall" );
+	}
 	return true;
 }
 
@@ -1188,10 +1296,11 @@ int AcquireBlasCacheEntry( sdRayTracingState& state,
 	return cache.Append( entry );
 }
 
-void DescribeBlasGeometry( const sdRayTracingState& state,
-	const sdRayTracingBlasCacheEntry& entry,
-	VkAccelerationStructureGeometryKHR& geometry,
-	VkAccelerationStructureBuildRangeInfoKHR& range ) {
+// A BLAS's one geometry: the run-time builds and the prewarm describe theirs here, so
+// they agree on everything a driver may compile against (vertex format and stride,
+// index type, geometry flags).
+void DescribeTriangles( VkAccelerationStructureGeometryKHR& geometry,
+	VkDeviceAddress vertices, unsigned int vertexCount, VkDeviceAddress indices ) {
 	memset( &geometry, 0, sizeof( geometry ) );
 	geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
 	geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
@@ -1201,16 +1310,350 @@ void DescribeBlasGeometry( const sdRayTracingState& state,
 	geometry.geometry.triangles.sType =
 		VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
 	geometry.geometry.triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
-	geometry.geometry.triangles.vertexData.deviceAddress =
-		BufferAddress( state, entry.vertexBuffer ) + entry.vertexOffset;
+	geometry.geometry.triangles.vertexData.deviceAddress = vertices;
 	geometry.geometry.triangles.vertexStride = sizeof( idDrawVert );
-	geometry.geometry.triangles.maxVertex = entry.vertexCount - 1;
+	geometry.geometry.triangles.maxVertex = vertexCount - 1;
 	geometry.geometry.triangles.indexType = sizeof( glIndex_t ) == 2 ?
 		VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
-	geometry.geometry.triangles.indexData.deviceAddress =
-		BufferAddress( state, entry.indexBuffer ) + entry.indexOffset;
+	geometry.geometry.triangles.indexData.deviceAddress = indices;
+}
+
+// A TLAS's one geometry, the instance array.
+void DescribeInstances( VkAccelerationStructureGeometryKHR& geometry,
+	VkDeviceAddress instances ) {
+	memset( &geometry, 0, sizeof( geometry ) );
+	geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+	geometry.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
+	geometry.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
+	geometry.geometry.instances.sType =
+		VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
+	geometry.geometry.instances.data.deviceAddress = instances;
+}
+
+void DescribeBuild( VkAccelerationStructureBuildGeometryInfoKHR& build,
+	rayTracingBuildKind_t kind, const VkAccelerationStructureGeometryKHR* geometry ) {
+	const sdRayTracingBuildConfig& config = RAY_TRACING_BUILD_CONFIGS[ kind ];
+	memset( &build, 0, sizeof( build ) );
+	build.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+	build.type = config.type;
+	build.flags = config.flags;
+	build.mode = config.mode;
+	build.geometryCount = 1;
+	build.pGeometries = geometry;
+}
+
+// The rung of the prewarm ladder a build of this many primitives counts as warmed by: the
+// smallest at or above it. A build past the ladder's top gets a bucket nothing prewarms.
+int PrewarmSizeBucket( VkAccelerationStructureTypeKHR type, unsigned int primitiveCount ) {
+	const bool topLevel = type == VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+	const unsigned int* ladder = topLevel ? RAY_TRACING_PREWARM_INSTANCES : RAY_TRACING_PREWARM_TRIANGLES;
+	const int rungs = topLevel ? RAY_TRACING_PREWARM_INSTANCE_RUNGS : RAY_TRACING_PREWARM_TRIANGLE_RUNGS;
+	for ( int rung = 0; rung < rungs; ++rung ) {
+		if ( primitiveCount <= ladder[ rung ] ) {
+			return rung;
+		}
+	}
+	return rungs;
+}
+
+sdRayTracingBuildKey MakeBuildKey( const VkAccelerationStructureBuildGeometryInfoKHR& build,
+	unsigned int primitiveCount ) {
+	sdRayTracingBuildKey key;
+	memset( &key, 0, sizeof( key ) );
+	key.type = build.type;
+	key.flags = build.flags;
+	key.mode = build.mode;
+	key.geometryCount = build.geometryCount;
+	const VkAccelerationStructureGeometryKHR* geometry = build.pGeometries != NULL ? build.pGeometries :
+		( build.ppGeometries != NULL ? build.ppGeometries[ 0 ] : NULL );
+	if ( geometry != NULL && build.geometryCount != 0 ) {
+		key.geometryType = geometry->geometryType;
+		key.geometryFlags = geometry->flags;
+		if ( geometry->geometryType == VK_GEOMETRY_TYPE_TRIANGLES_KHR ) {
+			const VkAccelerationStructureGeometryTrianglesDataKHR& triangles = geometry->geometry.triangles;
+			key.vertexFormat = triangles.vertexFormat;
+			key.vertexStride = triangles.vertexStride;
+			key.indexType = triangles.indexType;
+			key.transform = triangles.transformData.deviceAddress != 0;
+		} else if ( geometry->geometryType == VK_GEOMETRY_TYPE_INSTANCES_KHR ) {
+			key.arrayOfPointers = geometry->geometry.instances.arrayOfPointers;
+		}
+	}
+	key.sizeBucket = PrewarmSizeBucket( build.type, primitiveCount );
+	return key;
+}
+
+bool BuildKeysEqual( const sdRayTracingBuildKey& a, const sdRayTracingBuildKey& b ) {
+	return a.type == b.type && a.flags == b.flags && a.mode == b.mode &&
+		a.geometryCount == b.geometryCount && a.geometryType == b.geometryType &&
+		a.geometryFlags == b.geometryFlags && a.vertexFormat == b.vertexFormat &&
+		a.vertexStride == b.vertexStride && a.indexType == b.indexType &&
+		a.transform == b.transform && a.arrayOfPointers == b.arrayOfPointers &&
+		a.sizeBucket == b.sizeBucket;
+}
+
+// Adds a key unless it is known; returns whether it was.
+bool KnowBuildKey( sdRayTracingState& state, const sdRayTracingBuildKey& key ) {
+	for ( int i = 0; i < state.buildKeyCount; ++i ) {
+		if ( BuildKeysEqual( state.buildKeys[ i ], key ) ) {
+			return true;
+		}
+	}
+	if ( state.buildKeyCount < MAX_RAY_TRACING_BUILD_KEYS ) {
+		state.buildKeys[ state.buildKeyCount++ ] = key;
+	}
+	return false;
+}
+
+// Called for every build recorded in play. A build whose key the prewarm did not build is
+// the first-use compile #338 is about: say so once per key, for the rt-build-prewarm test.
+void NoteBuild( sdRayTracingState& state, const VkAccelerationStructureBuildGeometryInfoKHR& build,
+	unsigned int primitiveCount ) {
+	const sdRayTracingBuildKey key = MakeBuildKey( build, primitiveCount );
+	if ( KnowBuildKey( state, key ) ) {
+		return;
+	}
+	const char* name = "unlisted";
+	for ( int kind = 0; kind < RAY_TRACING_BUILD_KINDS; ++kind ) {
+		const sdRayTracingBuildConfig& config = RAY_TRACING_BUILD_CONFIGS[ kind ];
+		if ( config.type == key.type && config.flags == key.flags && config.mode == key.mode ) {
+			name = config.name;
+			break;
+		}
+	}
+	const bool topLevel = key.type == VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+	const int rungs = topLevel ? RAY_TRACING_PREWARM_INSTANCE_RUNGS : RAY_TRACING_PREWARM_TRIANGLE_RUNGS;
+	common->Printf( "RAY_TRACING_UNWARMED_BUILD: %s build, %u primitives (size bucket %d of %d), was recorded in "
+		"play and not prewarmed at init: type %d flags 0x%x mode %d, %u geometries, geometry type %d flags 0x%x, "
+		"vertex format %d stride %llu, index type %d, transform %d, array of pointers %d\n",
+		name, primitiveCount, key.sizeBucket, rungs, static_cast< int >( key.type ),
+		static_cast< unsigned int >( key.flags ), static_cast< int >( key.mode ), key.geometryCount,
+		static_cast< int >( key.geometryType ), static_cast< unsigned int >( key.geometryFlags ),
+		static_cast< int >( key.vertexFormat ), static_cast< unsigned long long >( key.vertexStride ),
+		static_cast< int >( key.indexType ), key.transform ? 1 : 0, static_cast< int >( key.arrayOfPointers ) );
+}
+
+void DescribeBlasGeometry( const sdRayTracingState& state,
+	const sdRayTracingBlasCacheEntry& entry,
+	VkAccelerationStructureGeometryKHR& geometry,
+	VkAccelerationStructureBuildRangeInfoKHR& range ) {
+	DescribeTriangles( geometry,
+		BufferAddress( state, entry.vertexBuffer ) + entry.vertexOffset, entry.vertexCount,
+		BufferAddress( state, entry.indexBuffer ) + entry.indexOffset );
 	memset( &range, 0, sizeof( range ) );
 	range.primitiveCount = entry.indexCount / 3;
+}
+
+// Builds every row of RAY_TRACING_BUILD_CONFIGS at each prewarm size, in one command
+// buffer on the idle queue, then frees it all (#338).
+bool PrewarmAccelerationStructureBuilds( sdRayTracingState& state ) {
+	if ( state.queue == VK_NULL_HANDLE ) {
+		return false;
+	}
+	const double startTicks = Sys_GetClockTicks();
+	const unsigned int columns = RAY_TRACING_PREWARM_GRID_COLUMNS;
+	const unsigned int rows = RAY_TRACING_PREWARM_GRID_ROWS;
+	const unsigned int vertexCount = ( columns + 1 ) * ( rows + 1 );
+	const unsigned int triangleCount = columns * rows * 2;
+	const unsigned int maxInstances = RAY_TRACING_PREWARM_INSTANCES[ RAY_TRACING_PREWARM_INSTANCE_RUNGS - 1 ];
+	assert( RAY_TRACING_PREWARM_TRIANGLES[ RAY_TRACING_PREWARM_TRIANGLE_RUNGS - 1 ] <= triangleCount );
+	assert( sizeof( glIndex_t ) == 4 || vertexCount <= 65536 );
+
+	const VkBufferUsageFlags inputUsage = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+		VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+	const VkMemoryPropertyFlags hostMemory = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+		VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+	sdRayTracingBuffer vertices;
+	sdRayTracingBuffer indices;
+	sdRayTracingBuffer instances;
+	sdRayTracingBuffer scratch;
+	if ( !CreateBuffer( state, vertexCount * sizeof( idDrawVert ), inputUsage, hostMemory, true, vertices ) ||
+		!CreateBuffer( state, triangleCount * 3 * sizeof( glIndex_t ), inputUsage, hostMemory, true, indices ) ||
+		!CreateBuffer( state, maxInstances * sizeof( VkAccelerationStructureInstanceKHR ), inputUsage,
+			hostMemory, true, instances ) ) {
+		DestroyBuffer( state, vertices );
+		DestroyBuffer( state, indices );
+		DestroyBuffer( state, instances );
+		return false;
+	}
+	// a flat grid; a prefix of its triangles is itself a valid mesh
+	idDrawVert* vertex = static_cast< idDrawVert* >( vertices.mapped );
+	memset( vertex, 0, vertexCount * sizeof( idDrawVert ) );
+	for ( unsigned int y = 0; y <= rows; ++y ) {
+		for ( unsigned int x = 0; x <= columns; ++x ) {
+			vertex[ y * ( columns + 1 ) + x ].xyz.Set( static_cast< float >( x ), static_cast< float >( y ), 0.0f );
+		}
+	}
+	glIndex_t* index = static_cast< glIndex_t* >( indices.mapped );
+	for ( unsigned int y = 0; y < rows; ++y ) {
+		for ( unsigned int x = 0; x < columns; ++x ) {
+			const unsigned int corner = y * ( columns + 1 ) + x;
+			const unsigned int quad[ 6 ] = { corner, corner + 1, corner + columns + 1,
+				corner + 1, corner + columns + 2, corner + columns + 1 };
+			for ( int i = 0; i < 6; ++i ) {
+				*index++ = static_cast< glIndex_t >( quad[ i ] );
+			}
+		}
+	}
+
+	// one build per (configuration, size); the BLASes first, so the TLASes can use one
+	struct prewarmBuild_t {
+		rayTracingBuildKind_t kind;
+		unsigned int primitiveCount;
+	};
+	idList< prewarmBuild_t > builds;
+	for ( int pass = 0; pass < 2; ++pass ) {
+		const bool topLevel = pass == 1;
+		const unsigned int* sizes = topLevel ? RAY_TRACING_PREWARM_INSTANCES : RAY_TRACING_PREWARM_TRIANGLES;
+		for ( int kind = 0; kind < RAY_TRACING_BUILD_KINDS; ++kind ) {
+			if ( ( RAY_TRACING_BUILD_CONFIGS[ kind ].type == VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR ) !=
+				topLevel ) {
+				continue;
+			}
+			const int rungs = topLevel ? RAY_TRACING_PREWARM_INSTANCE_RUNGS : RAY_TRACING_PREWARM_TRIANGLE_RUNGS;
+			for ( int size = 0; size < rungs; ++size ) {
+				const prewarmBuild_t build = { static_cast< rayTracingBuildKind_t >( kind ), sizes[ size ] };
+				builds.Append( build );
+			}
+		}
+	}
+	idList< VkAccelerationStructureGeometryKHR > geometries;
+	idList< VkAccelerationStructureBuildGeometryInfoKHR > buildInfos;
+	idList< sdRayTracingAccelerationStructure > structures;
+	idList< sdRayTracingBuildKey > keys;	// recorded as the play builds will be (NoteBuild)
+	geometries.SetNum( builds.Num() );
+	buildInfos.SetNum( builds.Num() );
+	structures.SetNum( builds.Num() );
+	keys.SetNum( builds.Num() );
+	VkDeviceSize scratchSize = 0;
+	bool succeeded = true;
+	int firstBlas = -1;
+	for ( int i = 0; i < builds.Num() && succeeded; ++i ) {
+		const sdRayTracingBuildConfig& config = RAY_TRACING_BUILD_CONFIGS[ builds[ i ].kind ];
+		if ( config.type == VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR ) {
+			DescribeInstances( geometries[ i ], BufferAddress( state, instances.buffer ) );
+		} else {
+			DescribeTriangles( geometries[ i ], BufferAddress( state, vertices.buffer ), vertexCount,
+				BufferAddress( state, indices.buffer ) );
+		}
+		DescribeBuild( buildInfos[ i ], builds[ i ].kind, &geometries[ i ] );
+		keys[ i ] = MakeBuildKey( buildInfos[ i ], builds[ i ].primitiveCount );
+		VkAccelerationStructureBuildSizesInfoKHR sizes;
+		memset( &sizes, 0, sizeof( sizes ) );
+		sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+		state.GetAccelerationStructureBuildSizesKHR( state.device,
+			VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfos[ i ],
+			&builds[ i ].primitiveCount, &sizes );
+		succeeded = EnsureAccelerationStructure( state, structures[ i ], config.type,
+			sizes.accelerationStructureSize, true );
+		scratchSize = Max( scratchSize, sizes.buildScratchSize );
+		if ( firstBlas < 0 && config.type == VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR ) {
+			firstBlas = i;
+		}
+	}
+	succeeded = succeeded && firstBlas >= 0 && CreateBuffer( state, scratchSize,
+		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, false, scratch );
+	if ( succeeded ) {
+		// every instance points at one of the BLASes built first in the same submit
+		VkAccelerationStructureDeviceAddressInfoKHR addressInfo;
+		memset( &addressInfo, 0, sizeof( addressInfo ) );
+		addressInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
+		addressInfo.accelerationStructure = structures[ firstBlas ].handle;
+		const VkDeviceAddress blasAddress = state.GetAccelerationStructureDeviceAddressKHR( state.device,
+			&addressInfo );
+		VkAccelerationStructureInstanceKHR* instance =
+			static_cast< VkAccelerationStructureInstanceKHR* >( instances.mapped );
+		memset( instance, 0, maxInstances * sizeof( VkAccelerationStructureInstanceKHR ) );
+		for ( unsigned int i = 0; i < maxInstances; ++i ) {
+			instance[ i ].transform.matrix[ 0 ][ 0 ] = 1.0f;
+			instance[ i ].transform.matrix[ 1 ][ 1 ] = 1.0f;
+			instance[ i ].transform.matrix[ 2 ][ 2 ] = 1.0f;
+			instance[ i ].transform.matrix[ 2 ][ 3 ] = static_cast< float >( i );
+			instance[ i ].mask = RAY_TRACING_SOLID_INSTANCE_MASK;
+			instance[ i ].flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+			instance[ i ].accelerationStructureReference = blasAddress;
+		}
+	}
+
+	VkCommandPool commandPool = VK_NULL_HANDLE;
+	VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+	if ( succeeded ) {
+		VkCommandPoolCreateInfo poolInfo;
+		memset( &poolInfo, 0, sizeof( poolInfo ) );
+		poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+		poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+		poolInfo.queueFamilyIndex = state.queueFamilyIndex;
+		succeeded = CheckRayTracingResult( state.CreateCommandPool( state.device, &poolInfo, NULL,
+			&commandPool ), "vkCreateCommandPool(ray-tracing prewarm)" );
+	}
+	if ( succeeded ) {
+		VkCommandBufferAllocateInfo allocateInfo;
+		memset( &allocateInfo, 0, sizeof( allocateInfo ) );
+		allocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		allocateInfo.commandPool = commandPool;
+		allocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		allocateInfo.commandBufferCount = 1;
+		VkCommandBufferBeginInfo beginInfo;
+		memset( &beginInfo, 0, sizeof( beginInfo ) );
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		succeeded = CheckRayTracingResult( state.AllocateCommandBuffers( state.device, &allocateInfo,
+			&commandBuffer ), "vkAllocateCommandBuffers(ray-tracing prewarm)" ) &&
+			CheckRayTracingResult( state.BeginCommandBuffer( commandBuffer, &beginInfo ),
+				"vkBeginCommandBuffer(ray-tracing prewarm)" );
+	}
+	if ( succeeded ) {
+		const VkDeviceAddress scratchAddress = BufferAddress( state, scratch.buffer );
+		for ( int i = 0; i < builds.Num(); ++i ) {
+			buildInfos[ i ].dstAccelerationStructure = structures[ i ].handle;
+			buildInfos[ i ].scratchData.deviceAddress = scratchAddress;
+			VkAccelerationStructureBuildRangeInfoKHR range;
+			memset( &range, 0, sizeof( range ) );
+			range.primitiveCount = builds[ i ].primitiveCount;
+			const VkAccelerationStructureBuildRangeInfoKHR* rangePointer = &range;
+			state.CmdBuildAccelerationStructuresKHR( commandBuffer, 1, &buildInfos[ i ], &rangePointer );
+			// the builds share the scratch buffer, and the TLASes read the BLAS
+			AccelerationStructureBarrier( state, commandBuffer,
+				VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+				VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+				VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+				VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR |
+				VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR );
+		}
+		VkSubmitInfo submitInfo;
+		memset( &submitInfo, 0, sizeof( submitInfo ) );
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &commandBuffer;
+		succeeded = CheckRayTracingResult( state.EndCommandBuffer( commandBuffer ),
+			"vkEndCommandBuffer(ray-tracing prewarm)" ) &&
+			CheckRayTracingResult( state.QueueSubmit( state.queue, 1, &submitInfo, VK_NULL_HANDLE ),
+				"vkQueueSubmit(ray-tracing prewarm)" ) &&
+			CheckRayTracingResult( state.QueueWaitIdle( state.queue ),
+				"vkQueueWaitIdle(ray-tracing prewarm)" );
+	}
+
+	if ( commandPool != VK_NULL_HANDLE ) {
+		state.DestroyCommandPool( state.device, commandPool, NULL );
+	}
+	for ( int i = 0; i < structures.Num(); ++i ) {
+		DestroyAccelerationStructure( state, structures[ i ] );
+	}
+	DestroyBuffer( state, scratch );
+	DestroyBuffer( state, instances );
+	DestroyBuffer( state, indices );
+	DestroyBuffer( state, vertices );
+	if ( !succeeded ) {
+		return false;
+	}
+	for ( int i = 0; i < keys.Num(); ++i ) {
+		KnowBuildKey( state, keys[ i ] );
+	}
+	common->Printf( "Ray tracing: prewarmed %d acceleration-structure builds (%d configurations) in %.1f ms\n",
+		builds.Num(), static_cast< int >( RAY_TRACING_BUILD_KINDS ),
+		( Sys_GetClockTicks() - startTicks ) * 1000.0 / Sys_ClockTicksPerSecond() );
+	return true;
 }
 
 bool BuildAccelerationStructures( sdRayTracingState& state,
@@ -1278,16 +1721,8 @@ bool BuildAccelerationStructures( sdRayTracingState& state,
 			blasRanges[ buildIndex ] );
 		VkAccelerationStructureBuildGeometryInfoKHR& build =
 			blasBuilds[ buildIndex ];
-		memset( &build, 0, sizeof( build ) );
-		build.sType =
-			VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
-		build.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-		build.flags = entry.deforming ?
-			VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR :
-			VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
-		build.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-		build.geometryCount = 1;
-		build.pGeometries = &blasGeometries[ buildIndex ];
+		DescribeBuild( build, entry.deforming ? RAY_TRACING_BUILD_DEFORMING_BLAS :
+			RAY_TRACING_BUILD_STATIC_BLAS, &blasGeometries[ buildIndex ] );
 		VkAccelerationStructureBuildSizesInfoKHR& sizes = blasSizes[ buildIndex ];
 		memset( &sizes, 0, sizeof( sizes ) );
 		sizes.sType =
@@ -1345,23 +1780,9 @@ bool BuildAccelerationStructures( sdRayTracingState& state,
 	}
 
 	VkAccelerationStructureGeometryKHR tlasGeometry;
-	memset( &tlasGeometry, 0, sizeof( tlasGeometry ) );
-	tlasGeometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
-	tlasGeometry.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
-	tlasGeometry.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
-	tlasGeometry.geometry.instances.sType =
-		VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
-	tlasGeometry.geometry.instances.data.deviceAddress =
-		BufferAddress( state, frame.instances.buffer );
+	DescribeInstances( tlasGeometry, BufferAddress( state, frame.instances.buffer ) );
 	VkAccelerationStructureBuildGeometryInfoKHR tlasBuild;
-	memset( &tlasBuild, 0, sizeof( tlasBuild ) );
-	tlasBuild.sType =
-		VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
-	tlasBuild.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
-	tlasBuild.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
-	tlasBuild.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-	tlasBuild.geometryCount = 1;
-	tlasBuild.pGeometries = &tlasGeometry;
+	DescribeBuild( tlasBuild, RAY_TRACING_BUILD_TLAS, &tlasGeometry );
 	const unsigned int instanceCount = instanceInputs.Num();
 	VkAccelerationStructureBuildSizesInfoKHR tlasSizes;
 	memset( &tlasSizes, 0, sizeof( tlasSizes ) );
@@ -1403,6 +1824,13 @@ bool BuildAccelerationStructures( sdRayTracingState& state,
 		build.scratchData.deviceAddress = scratchAddress;
 		const VkAccelerationStructureBuildRangeInfoKHR* range =
 			&blasRanges[ buildIndex ];
+		sdVulkanSlowCallScope slowBlas( "BLAS build" );
+		if ( slowBlas.Active() ) {
+			slowBlas.detail = va( " %u triangles, %s, index type %d",
+				range->primitiveCount, entry.deforming ? "deforming" : "static",
+				static_cast< int >( blasGeometries[ buildIndex ].geometry.triangles.indexType ) );
+		}
+		NoteBuild( state, build, range->primitiveCount );
 		state.CmdBuildAccelerationStructuresKHR( commandBuffer, 1, &build,
 			&range );
 		entry.built = true;
@@ -1430,6 +1858,7 @@ bool BuildAccelerationStructures( sdRayTracingState& state,
 	memset( &tlasRange, 0, sizeof( tlasRange ) );
 	tlasRange.primitiveCount = instanceCount;
 	const VkAccelerationStructureBuildRangeInfoKHR* tlasRangePointer = &tlasRange;
+	NoteBuild( state, tlasBuild, instanceCount );
 	state.CmdBuildAccelerationStructuresKHR( commandBuffer, 1, &tlasBuild,
 		&tlasRangePointer );
 	frame.usedAccelerationStructures = true;
@@ -1687,12 +2116,15 @@ bool R_RayTracingDrawView( const viewDef_s* view,
 	state.CmdEndRendering( context.commandBuffer );
 	unsigned int waterGeometryStart = 0;
 	unsigned int validWaterGeometryCount = 0;
-	if ( !BuildAccelerationStructures( state, frame, context.frameIndex,
-		context.commandBuffer,
-		geometries, geometryCount, waterGeometries, waterGeometryCount,
-		waterGeometryStart, validWaterGeometryCount ) ) {
-		ResumeDynamicRendering( state, context );
-		return false;
+	{
+		sdVulkanSlowCallScope slowBuild( "BuildAccelerationStructures" );
+		if ( !BuildAccelerationStructures( state, frame, context.frameIndex,
+			context.commandBuffer,
+			geometries, geometryCount, waterGeometries, waterGeometryCount,
+			waterGeometryStart, validWaterGeometryCount ) ) {
+			ResumeDynamicRendering( state, context );
+			return false;
+		}
 	}
 	byte* lightingDestination = static_cast< byte* >(
 		frame.viewLighting.mapped ) + lightingOffset;
@@ -1732,15 +2164,21 @@ bool R_RayTracingDrawView( const viewDef_s* view,
 	unsigned int passIndex = 0;
 	state.CmdPushConstants( context.commandBuffer, state.pipelineLayout,
 		VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( passIndex ), &passIndex );
-	state.CmdDispatch( context.commandBuffer,
-		( context.viewport.extent.width + 7 ) / 8,
-		( context.viewport.extent.height + 7 ) / 8, 1 );
+	{
+		sdVulkanSlowCallScope slowDispatch( "ray-query lighting dispatch" );
+		state.CmdDispatch( context.commandBuffer,
+			( context.viewport.extent.width + 7 ) / 8,
+			( context.viewport.extent.height + 7 ) / 8, 1 );
+	}
 	if ( validWaterGeometryCount != 0 &&
 		viewData->waterParameters[ 1 ] > 0.0f &&
 		context.reflectionImage != VK_NULL_HANDLE &&
 		context.reflectionImageView != VK_NULL_HANDLE &&
 		context.reflectionSampler != VK_NULL_HANDLE ) {
-		CopyLitSceneForReflections( state, context );
+		{
+			sdVulkanSlowCallScope slowCopy( "CopyLitSceneForReflections" );
+			CopyLitSceneForReflections( state, context );
+		}
 		passIndex = 1;
 		state.CmdPushConstants( context.commandBuffer, state.pipelineLayout,
 			VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( passIndex ), &passIndex );

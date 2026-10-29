@@ -35,6 +35,8 @@ struct sdRayTracingVulkanContext {
 	VkFormat				depthFormat;
 	unsigned int			frameCount;
 	PFN_vkGetDeviceProcAddr	GetDeviceProcAddr;
+	VkQueue					queue;				// idle at init: the build prewarm submits once and waits (#338)
+	unsigned int			queueFamilyIndex;
 };
 
 struct sdRayTracingGeometry {

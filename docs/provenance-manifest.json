@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5564,
+  "totalFiles": 5566,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 394
   },
   "postSplitCounts": {
-    "Reconstruction_original": 285,
+    "Reconstruction_original": 287,
     "ThirdParty": 1,
     "Doom3_GPL": 2,
     "SDK": 2
@@ -48252,9 +48252,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "868e80e56943bf24384273fe2c42424b6e9ba5bdb8e099f53d39741bd2720962",
-      "canonicalSha256": "868e80e56943bf24384273fe2c42424b6e9ba5bdb8e099f53d39741bd2720962",
-      "bytes": 44218,
+      "rawSha256": "9769f101d87278437722e33860e9a295ea9462610a2ad0ee61b8ceb2d3db7736",
+      "canonicalSha256": "9769f101d87278437722e33860e9a295ea9462610a2ad0ee61b8ceb2d3db7736",
+      "bytes": 44680,
       "addedAfterSplit": true,
       "addedIn": "bcba1a665ec1fe2674896af8cffbb62c5a2de127",
       "spdx": "GPL-3.0-or-later"
@@ -48593,6 +48593,18 @@
       "bytes": 3729,
       "addedAfterSplit": true,
       "addedIn": "ed2de0dd8a85639e9071f68ecc80c12e2d3e2d55",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
+      "path": "src/renderer/VulkanSlowCall.h",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "1fae3b25f5b04e9f69a0e7f42870707e9c7e6acfc0005eae81be4d7e36f4af04",
+      "canonicalSha256": "1fae3b25f5b04e9f69a0e7f42870707e9c7e6acfc0005eae81be4d7e36f4af04",
+      "bytes": 1417,
+      "addedAfterSplit": true,
+      "addedIn": "292cfbec35e58ee4c43973d07298b417c85ae0cd",
       "spdx": "GPL-3.0-or-later"
     },
     {
@@ -49050,9 +49062,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "cdcfad965fec0a9407e5d2ea3f0083226c7a751bfaeae2227327242e709920f2",
-      "canonicalSha256": "cdcfad965fec0a9407e5d2ea3f0083226c7a751bfaeae2227327242e709920f2",
-      "bytes": 44173,
+      "rawSha256": "f978f878d9ad319b804f736c4648bf70aba3a769396bf7bf141cf6a77e392367",
+      "canonicalSha256": "f978f878d9ad319b804f736c4648bf70aba3a769396bf7bf141cf6a77e392367",
+      "bytes": 45009,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": "GPL-3.0-or-later"
@@ -49350,9 +49362,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "9ea1f1bd8e6d7b4d7ed46895ca1efeb6632d0593b46612403b92bdb858fc05e5",
-      "canonicalSha256": "9ea1f1bd8e6d7b4d7ed46895ca1efeb6632d0593b46612403b92bdb858fc05e5",
-      "bytes": 54476,
+      "rawSha256": "f949ad264d957767afc366711cc315d4d23d3be6cd6fee1186c24cf376b72ede",
+      "canonicalSha256": "f949ad264d957767afc366711cc315d4d23d3be6cd6fee1186c24cf376b72ede",
+      "bytes": 54621,
       "addedAfterSplit": true,
       "addedIn": "c818ae2ed1a958f7bba1a37d7f0bba70d16aaa79",
       "spdx": "GPL-3.0-or-later"
@@ -49835,6 +49847,18 @@
       "bytes": 6466,
       "addedAfterSplit": true,
       "addedIn": "3e81113854c9e00fc2d6345ead610e8c8ed35783",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
+      "path": "tests/test_rt_build_prewarm.py",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "d2c8563e8ec640c43dc24fc690ca488259c609423aab15e9f35f9e89f240b1ee",
+      "canonicalSha256": "d2c8563e8ec640c43dc24fc690ca488259c609423aab15e9f35f9e89f240b1ee",
+      "bytes": 8593,
+      "addedAfterSplit": true,
+      "addedIn": "d86f67061592b093416326fbd16da7382cd38fff",
       "spdx": "GPL-3.0-or-later"
     },
     {

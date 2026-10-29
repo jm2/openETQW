@@ -806,6 +806,8 @@ def main(argv):
         obs.send("set g_logFramePoses 4")
         if os.environ.get("OPENETQW_FRAME_SYNC_LOG"):
             obs.send("set r_vkLogFrameSync 1")
+        if os.environ.get("OPENETQW_SLOW_CALL_LOG"):
+            obs.send("set r_vkLogSlowCalls %d" % int(os.environ["OPENETQW_SLOW_CALL_LOG"]))
         if not obs.wait_for(lambda s: s.startswith("FRAME_POSE:"), 10.0, mark):
             raise Failed("no FRAME_POSE lines after 'set g_logFramePoses 4' (a cheat: are cheats allowed?)")
 
