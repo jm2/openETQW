@@ -528,6 +528,10 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 		SubmitFrameVulkan();
 		return;
 	}
+	if ( vulkanBackend.IsInitialized() ) {
+		// the Vulkan frame failed to begin (#337): there is no GL context to fall back to
+		return;
+	}
 	BuildTextQuads();
 
 	glPushAttrib( GL_COLOR_BUFFER_BIT | GL_CURRENT_BIT | GL_DEPTH_BUFFER_BIT |

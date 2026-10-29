@@ -1243,3 +1243,24 @@ if build_engine
     is_parallel: false,
   )
 endif
+
+# 12c. A Vulkan frame that fails after its swapchain image was acquired (#337): the cheat
+#      r_vkTestFailFrame injects failures in BeginFrame and EndFrame, more than the
+#      swapchain holds images; frames must go on, with no validation error
+if build_engine
+  test(
+    'abandon-acquired-image',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_abandon_acquired_image.py',
+      '--client-binary', campaign_client,
+      '--port', '29931',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'abandon-acquired-image',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 300,
+    is_parallel: false,
+  )
+endif
