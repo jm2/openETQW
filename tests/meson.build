@@ -1286,3 +1286,25 @@ if build_engine
     is_parallel: false,
   )
 endif
+
+# 12e. A Vulkan frame that fails in EndFrame, after it was recorded (#343): its uploads are
+#      submitted alone, and the first layout transitions and BLAS builds it recorded are rolled
+#      back; injected on a frame that creates images and on frames that recreate the swapchain,
+#      the validation layer must report no layout error
+if build_engine
+  test(
+    'failed-frame-uploads',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_failed_frame_uploads.py',
+      '--client-binary', campaign_client,
+      '--port', '29936',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'failed-frame-uploads',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 300,
+    is_parallel: false,
+  )
+endif

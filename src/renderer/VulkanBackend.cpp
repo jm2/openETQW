@@ -205,6 +205,7 @@ struct sdVulkanFrame {
 	void*				imageUploadMapped;
 	VkDeviceSize		imageUploadOffset;
 	bool				imageUploadRecorded;
+	int					imagesCreated;	// images whose initial upload this frame recorded
 	bool				imageUploadOverflowWarned;
 	VkBuffer			bufferUploadBuffer;
 	VkDeviceMemory	bufferUploadMemory;
@@ -565,6 +566,10 @@ struct sdVulkanBackendState {
 	int					swapInterval;
 	sdVulkanImageResource	currentRenderResource;
 	bool					currentRenderInitialized;
+	// #343: the "initialized" flags above that the frame being recorded turned on (it
+	// records the image's first layout transition); a frame that is never submitted turns
+	// them off again (AbandonRecordedFrame)
+	idList< bool* >			frameInitializedFlags;
 
 	sdVulkanFrame			frames[ NUM_VULKAN_FRAMES ];
 	unsigned int				frameIndex;
@@ -2682,6 +2687,7 @@ bool CreateFrames( sdVulkanBackendState& state ) {
 		frame.guiIndexOverflowWarned = false;
 		frame.imageUploadOffset = 0;
 		frame.imageUploadRecorded = false;
+		frame.imagesCreated = 0;
 		frame.imageUploadOverflowWarned = false;
 		frame.bufferUploadOffset = 0;
 		frame.bufferUploadOverflowWarned = false;
@@ -2762,6 +2768,61 @@ void KeepAcquiredImage( sdVulkanBackendState& state, sdVulkanFrame& frame ) {
 	state.aheadSemaphore = acquired;
 	state.aheadImageIndex = state.imageIndex;
 	state.aheadImageHeld = true;
+}
+
+// #343: an image's first layout transition is being recorded in this frame
+void MarkInitializedInFrame( sdVulkanBackendState& state, bool& initialized ) {
+	if ( !initialized ) {
+		initialized = true;
+		state.frameInitializedFlags.Append( &initialized );
+	}
+}
+
+/*
+#343: a frame that fails in EndFrame, after it was recorded, is never submitted, but its
+recording already changed state that later frames rely on. The images it created and the
+buffers it filled are registered as ready, though only their copies were recorded. The
+images whose first layout transition it recorded are marked initialized, and the BLASes
+it built are marked built.
+
+The frame's upload command buffer holds only those copies and their barriers, with no wait
+on the swapchain image, so it is submitted on its own. Call this before KeepAcquiredImage:
+that function's device wait then finishes the copies before the next frame. What the frame's
+own command buffer recorded is rolled back instead: the first-layout flags are cleared, and
+R_RayTracingAbandonFrame marks the frame's BLAS builds as not built, so the next frame
+records them again. uploadsEnded says the upload command buffer was ended and can be
+submitted.
+*/
+void AbandonRecordedFrame( sdVulkanBackendState& state, sdVulkanFrame& frame, bool uploadsEnded ) {
+	bool uploadsSubmitted = false;
+	if ( frame.imageUploadRecorded && uploadsEnded ) {
+		VkCommandBufferSubmitInfo commandInfo;
+		memset( &commandInfo, 0, sizeof( commandInfo ) );
+		commandInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+		commandInfo.commandBuffer = frame.imageUploadCommandBuffer;
+		VkSubmitInfo2 submitInfo;
+		memset( &submitInfo, 0, sizeof( submitInfo ) );
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+		submitInfo.commandBufferInfoCount = 1;
+		submitInfo.pCommandBufferInfos = &commandInfo;
+		uploadsSubmitted = CheckVulkanResult( state.QueueSubmit2( state.graphicsQueue, 1, &submitInfo,
+			VK_NULL_HANDLE ), "vkQueueSubmit2(uploads of a frame not submitted)" );
+	}
+	if ( frame.imageUploadRecorded && !uploadsSubmitted ) {
+		common->Warning( "Vulkan: a frame that was not submitted could not submit its uploads either; "
+			"the %d images it created and the buffers it filled keep undefined contents", frame.imagesCreated );
+	}
+	const int layouts = state.frameInitializedFlags.Num();
+	for ( int i = 0; i < layouts; ++i ) {
+		*state.frameInitializedFlags[ i ] = false;
+	}
+	state.frameInitializedFlags.Clear();
+	const int builds = R_RayTracingAbandonFrame();
+	common->Printf( "Vulkan: frame not submitted: %s (%d images created), rolled back %d first layout "
+		"transitions and %d BLAS builds\n",
+		!frame.imageUploadRecorded ? "it recorded no uploads" :
+			uploadsSubmitted ? "submitted its uploads alone" : "its uploads were lost",
+		frame.imagesCreated, layouts, builds );
 }
 
 bool FindMemoryType( const sdVulkanBackendState& state, unsigned int typeBits,
@@ -7035,7 +7096,7 @@ bool CopyCurrentRender( sdVulkanBackendState& state ) {
 	state.CmdPipelineBarrier2( frame.commandBuffer, &dependencyInfo );
 
 	BeginSwapchainRendering( state, frame.commandBuffer );
-	state.currentRenderInitialized = true;
+	MarkInitializedInFrame( state, state.currentRenderInitialized );
 	return true;
 }
 
@@ -7188,7 +7249,7 @@ void DrawGlowBufferPass( sdVulkanBackendState& state, VkCommandBuffer commandBuf
 	barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	state.CmdPipelineBarrier2( commandBuffer, &dependencyInfo );
-	state.glowBufferInitialized[ target ] = true;
+	MarkInitializedInFrame( state, state.glowBufferInitialized[ target ] );
 }
 
 } // namespace
@@ -7411,6 +7472,8 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 	frame.guiIndexOverflowWarned = false;
 	frame.imageUploadOffset = 0;
 	frame.imageUploadRecorded = false;
+	frame.imagesCreated = 0;
+	state->frameInitializedFlags.Clear();
 	frame.imageUploadOverflowWarned = false;
 	frame.bufferUploadOffset = 0;
 	frame.bufferUploadOverflowWarned = false;
@@ -7773,6 +7836,8 @@ void sdVulkanBackend::EndFrame( bool ) {
 	state->CmdPipelineBarrier2( frame.commandBuffer, &dependencyInfo );
 		if ( !CheckVulkanResult( state->EndCommandBuffer( frame.commandBuffer ),
 			"vkEndCommandBuffer" ) ) {
+			AbandonRecordedFrame( *state, frame, CheckVulkanResult( state->EndCommandBuffer(
+				frame.imageUploadCommandBuffer ), "vkEndCommandBuffer(image uploads)" ) );
 			KeepAcquiredImage( *state, frame );
 			DiscardVulkanScreenshot( *state );
 			state->frameActive = false;
@@ -7781,6 +7846,7 @@ void sdVulkanBackend::EndFrame( bool ) {
 		if ( !CheckVulkanResult( state->EndCommandBuffer(
 			frame.imageUploadCommandBuffer ),
 			"vkEndCommandBuffer(image uploads)" ) ) {
+			AbandonRecordedFrame( *state, frame, false );
 			KeepAcquiredImage( *state, frame );
 			DiscardVulkanScreenshot( *state );
 			state->frameActive = false;
@@ -7791,6 +7857,7 @@ void sdVulkanBackend::EndFrame( bool ) {
 	if ( r_vkTestFailFrame.GetInteger() == 2 ) {
 		r_vkTestFailFrame.SetInteger( 0 );
 		common->Printf( "Vulkan: r_vkTestFailFrame 2: failing this frame before its submit\n" );
+		AbandonRecordedFrame( *state, frame, true );
 		KeepAcquiredImage( *state, frame );
 		DiscardVulkanScreenshot( *state );
 		state->frameActive = false;
@@ -7835,6 +7902,7 @@ void sdVulkanBackend::EndFrame( bool ) {
 		const uint64_t submitStart = SyncNowUsec();
 		if ( !CheckVulkanResult( state->QueueSubmit2( state->graphicsQueue, 1,
 			&submitInfo, frame.fence ), "vkQueueSubmit2" ) ) {
+			AbandonRecordedFrame( *state, frame, true );
 			KeepAcquiredImage( *state, frame );
 			DiscardVulkanScreenshot( *state );
 			state->frameActive = false;
@@ -9208,6 +9276,7 @@ bool sdVulkanBackend::UploadImage2D( const void* owner,
 			frame.imageUploadCommandBuffer, stagingBuffer, stagingOffset,
 			resource, width, height, mipLevels );
 		frame.imageUploadRecorded = true;
+		++frame.imagesCreated;
 		const int imageIndex = state->imageResources.Append( resource );
 		state->imageResourceLookup.Set( resource.owner, imageIndex );
 		return true;
@@ -9617,6 +9686,7 @@ bool sdVulkanBackend::UploadBlockImage2D( const void* owner, vulkanBlockFormat_t
 		RecordBlockImageUploadCommands( *state, frame.imageUploadCommandBuffer,
 			stagingBuffer, stagingOffset, resource, info.blockBytes );
 		frame.imageUploadRecorded = true;
+		++frame.imagesCreated;
 		const int imageIndex = state->imageResources.Append( resource );
 		state->imageResourceLookup.Set( resource.owner, imageIndex );
 		return true;
@@ -9879,6 +9949,7 @@ bool sdVulkanBackend::UploadImageCube( const void* owner,
 		barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 		state->CmdPipelineBarrier2( frame.imageUploadCommandBuffer, &dependencyInfo );
 		frame.imageUploadRecorded = true;
+		++frame.imagesCreated;
 		const int imageIndex = state->imageResources.Append( resource );
 		state->imageResourceLookup.Set( resource.owner, imageIndex );
 		return true;
