@@ -33,7 +33,7 @@ The game ticks at 30 Hz, one tick every 33 ms (game `src/framework/UsercmdGen.h:
 On foot, frames between ticks are "unlocked". The camera is interpolated between tick poses, and the view angles come from a late input sample.
 
 In any vehicle seat it is different:
-- `idPlayer::IsFPSUnlock` returns false, because the player has a proxy entity (game `src/game/Player.cpp:8794-8796`). Retail 1.5 does the same ([`specs/retail-1.5-reference.md`](specs/retail-1.5-reference.md) §3). The result is latched when each tick starts (game `src/game/Game_local.cpp:5252-5261`).
+- `idPlayer::IsFPSUnlock` returns false, because the player has a proxy entity (game `src/game/Player.cpp:8794-8796`). Retail 1.5 does the same (the retail 1.5 reference notes §3). The result is latched when each tick starts (game `src/game/Game_local.cpp:5252-5261`).
 - `idGameLocal::ClientUpdateView` then returns before doing any per-frame work (game `src/game/Game_local.cpp:5983-5987`).
 - The seat camera is computed once per tick, in `sdTransport::PostThink` → `UpdatePlayerViews` (game `src/game/vehicles/Transport.cpp:4434`).
 - Every frame until the next tick draws that camera unchanged. *[inspected]*
@@ -319,7 +319,7 @@ Engine step 10 (tick frames drawn at their real fraction) is needed for full cov
 *Status (2026-10-05): built (ledger row 063): the producer and both consumers run while a seat's presentation is allowed, the local seat's vehicle and riders are left to `sdPresentation`, and riders of interpolated vehicles use the carrier rule. Meson `seat-poses-join`/`-listen` measure a remote player; remote vehicles are not measured yet.*
 
 **What changes.** Steps 8 and 9 restore the producer as render copies: origin only and one tick behind (D5), with nothing written back (D6). This stage makes two further changes:
-- It changes their gate from `canUnlockFrames` to `canUnlockFrames || seatActive`, and keeps retail's `AOR_INHIBIT_IK` exclusion (retail `idEntity::Present` 0x10839f).
+- It changes their gate from `canUnlockFrames` to `canUnlockFrames || seatActive`, and keeps retail's `AOR_INHIBIT_IK` exclusion (retail `idEntity::Present`).
 - Riders of remote vehicles use the carrier rule. Otherwise a rider would slide against the seat, because origins are lerped independently while axes snap. *[inferred]*
 
 **What stays authoritative:** everything. Remote targets are drawn 33 ms behind, and vehicles have no antilag (game `src/game/AntiLag.cpp:763-766, 1061-1064`). So a drawn remote vehicle trails the pose the server tests by one tick of its own motion. This is retail's shape.

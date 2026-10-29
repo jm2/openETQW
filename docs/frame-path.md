@@ -528,7 +528,7 @@ These paths let a render frame change what the next tick, a snapshot or AoR code
 | `com_unlock_maxFPS` | 240, the same as `com_maxFPS` (60 before step 18, retail's default), NOCHEAT | none directly: an alias of `com_maxFPS`, the last write wins (`idFrameCapAlias`, M5 step 11); mirrored once a frame before | none | Retail help text: "only works in timing methods 1 & 2". `pak000: visuals.cfg:27` sets 120; `pak000: gizm.cfg:81` sets 0 |
 
 - **Provenance.** All five `com_unlock*` CVars and their help texts are in jmarshall's `src/framework/Common.cpp` (`~/etqw`).
-- **Retail semantics** are known from these help strings, from the community and developer cfgs at the root of pak000, and (since 2026-09-25) from the retail 1.5 engine's defaults (`docs/specs/retail-1.5-reference.md` §4); how its timing methods scheduled frames was not traced. Whether the retail GUIs reference any of these CVars is unverified: the GUIs ship compiled as `.guib` files (under `generated/declb/guis/`), and a string search of them finds no CVar names at all, not even common ones such as `r_mode`. Among text files, only root-level `.cfg` files mention `com_unlock`.
+- **Retail semantics** are known from these help strings, from the community and developer cfgs at the root of pak000, and (since 2026-09-25) from the retail 1.5 engine's defaults (the retail 1.5 reference notes §4); how its timing methods scheduled frames was not traced. Whether the retail GUIs reference any of these CVars is unverified: the GUIs ship compiled as `.guib` files (under `generated/declb/guis/`), and a string search of them finds no CVar names at all, not even common ones such as `r_mode`. Among text files, only root-level `.cfg` files mention `com_unlock`.
 - **The alias** (since M5 step 11, 2026-09-30). `idFrameCapAlias` callbacks on both CVars, registered right after the static CVars and before any config or `+set`, make a write to either set the other, so the last write wins: the configs in order, then the command line, then the console (meson `frame-cap-cvars`).
 - **Before step 11, the mirroring.** Each frame one value won: a modified `com_maxFPS`; otherwise a modified `com_unlock_maxFPS`; otherwise `com_unlock_maxFPS` was forced to equal `com_maxFPS`. So a cfg that set `com_unlock_maxFPS` in the same frame as the archived `com_maxFPS` lost, and on the first frame `com_maxFPS` won over a `com_unlock_maxFPS` set by a startup cfg.
 
@@ -607,7 +607,7 @@ Since M5 step 11 (2026-09-30), `com_unlockFPS 0` draws once per tick: an in-game
 - The network client and server block in `GetPacketBlocking` until a tick is due (`Doom 3: neo/framework/async/AsyncClient.cpp:1794-1807`; `Doom 3: neo/framework/async/AsyncServer.cpp:2401-2416`). Every mode therefore renders once per tick.
 - There is no `ClientUpdateView` and there are no unlock CVars. The multiplayer branch of `Frame` calls `session->GuiFrameEvents()` (`Doom 3: neo/framework/Common.cpp:2461`).
 
-**Retail ETQW** (from the SDK headers and game code, and since 2026-09-25 the retail 1.5 game module: `docs/specs/retail-1.5-reference.md` §3)
+**Retail ETQW** (from the SDK headers and game code, and since 2026-09-25 the retail 1.5 game module: the retail 1.5 reference notes §3)
 - Ticks at 30 Hz (`SDK: framework/UsercmdGen.h:15-16`).
 - `ClientUpdateView` with `timeLeft` (`SDK: game/Game.h:173-174`).
 - Unlock logic on the authoritative side as well as on clients (`SDK: game/Game_local.cpp:4222-4231`; `SDK: game/Game_network.cpp:3628-3638`).
@@ -686,7 +686,7 @@ Remaining stepped paths must be listed rather than claimed as interpolated, and 
 
 ## 10. Open questions
 
-- **Answered on 2026-09-25** (`docs/m5-plan.md`, `docs/specs/retail-1.5-reference.md`):
+- **Answered on 2026-09-25** (`docs/m5-plan.md`, the retail 1.5 reference notes):
   - What counts as a pose: the entity origin, as retail 1.5 does, and the viewmodel's origin and axis; no skeletal joints (D2).
   - Tick frames: draw them at their real sub-tick fraction, not with a tick-aligned scheduler (D7).
   - `com_unlockFPS 0` draws once per tick (D8).

@@ -6,7 +6,7 @@
 
 ## Context
 
-Retail 1.5 draws every vehicle seat at the tick rate: `idPlayer::IsFPSUnlock` returns false whenever the viewed player has a proxy entity, for every seat of every vehicle, the jetpack included (D2; `docs/specs/retail-1.5-reference.md` §3). D10 (2026-09-25) asks for vehicles that feel as modern and responsive as possible without breaking game physics, **on by default**: allowed seats get a presentation-only view (step 14), and the allow-list grows to every seat as each is made safe. `docs/vehicle-responsiveness.md` §3.3 sets when a seat qualifies.
+Retail 1.5 draws every vehicle seat at the tick rate: `idPlayer::IsFPSUnlock` returns false whenever the viewed player has a proxy entity, for every seat of every vehicle, the jetpack included (D2; the retail 1.5 reference notes §3). D10 (2026-09-25) asks for vehicles that feel as modern and responsive as possible without breaking game physics, **on by default**: allowed seats get a presentation-only view (step 14), and the allow-list grows to every seat as each is made safe. `docs/vehicle-responsiveness.md` §3.3 sets when a seat qualifies.
 
 Step 13 builds the switch and its evidence, and nothing that uses it: no consumer reads the latch until step 14.
 
