@@ -202,6 +202,15 @@ test(
   timeout: 30,
 )
 
+# No private host, user, address or home path in tracked files (owner, 2026-10-29)
+test(
+  'no-pii',
+  py,
+  args: [meson.project_source_root() / 'tools' / 'ci' / 'check_no_pii.py'],
+  suite: 'unit',
+  timeout: 60,
+)
+
 # Release tooling: version bumps, changelog, asset set, source provenance, installer
 test(
   'release-tools',

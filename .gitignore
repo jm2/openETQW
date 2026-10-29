@@ -58,3 +58,8 @@ logs/
 *.bik
 /base/
 /etqw_data/
+
+# Local agent and cloud tool state (never committed)
+/.aws/
+/.claude/
+/.codex/
