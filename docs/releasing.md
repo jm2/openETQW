@@ -97,7 +97,7 @@ Run **Manual Releases** (`manual-release.yml`) from `main`:
 - `bump_mode`: `auto` (from the size of the change since the last `v*` tag), `major`,
   `minor` or `patch`; or `version_override`.
 - `companion_ref`: empty builds the pinned companion.
-- `draft` (default **true**): the release gate in `readme.md` is not cleared, so
+- `draft` (default **true**): the release gate in `STATUS.md` is not cleared, so
   releases stay unpublished drafts until the owner decides otherwise. A draft is not
   announced; publishing it later announces it.
 
