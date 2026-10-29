@@ -106,7 +106,7 @@ const int VULKAN_FRONTEND_TEXTURES = 6;
 
 // Off by default: where the layer is installed it costs most of the frame rate
 // (56 against ~370 fps uncapped on an RX 6400), and players do not need it.
-// campaign-client-maps turns it on; every other test leaves it off.
+// campaign-client-maps and client-network-* turn it on.
 idCVar r_vkValidation(
 	"r_vkValidation",
 	"0",
