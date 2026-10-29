@@ -31,23 +31,22 @@ issue.
 
 | # | Item | Kind | Owner | Done-test |
 |---|---|---|---|---|
-| 1 | [#325](https://github.com/jm2/openETQW/issues/325) Uncapping the Windows x64 Vulkan client makes it 7x slower: 31 ms/frame with a 17-24 ms fence at `com_maxFPS 0` vs 4.17 ms at 240 | bug (renderer) | — | The issue's done-test: a second Windows x64 host at `com_maxFPS 240` and `0`; uncapped `dt_p50` must not exceed capped; then the swapchain/fence path explained or fixed |
-| 2 | Retail capture procedure (owner, 2026-10-27: its own queue item, after the current merge gates) | evidence / tooling | — | A documented, host-checked route to a retail 1.5 reference frame; #315, #323 and #329 merged without one, so it now serves later comparisons rather than gating them; no retail data in either repository |
+| 1 | [#338](https://github.com/jm2/openETQW/issues/338) A one-off 0.7 s frame stall in the first cap-60 turn of `frame-poses-devmap`, the first test on a freshly built Windows x64 executable (cold driver shader cache suspected; no `VkPipelineCache` on disk) | bug (renderer, first-play hitch) | — | Reproduce it as the first test on fresh builds at `main`; if it recurs, log pipeline-creation times around the turn and fix the cause (for example a pipeline cache), with a test that fails without it |
+| 2 | [#337](https://github.com/jm2/openETQW/issues/337) An early return in Vulkan BeginFrame/EndFrame after the acquire loses the image and leaves `imageAvailable` signalled (predates #336) | bug (renderer, error path) | — | The issue's test: force one of those calls to fail under `r_vkValidation 1`; no validation error, and frames continue |
 
 New bugs go into this table above the features, ranked by severity (crash, wrong
 gameplay, wrong picture, test harness), once they are filed as issues (§9, 2026-10-26).
 
-**Gate and evidence work, after the table is empty or blocked:** the combined run (a
-fresh retail suite per platform at current `main`, plus the five screenshot sets; owner,
-2026-10-23: at the tail end) and the M7 rows in `docs/platform-matrix.md`. Linux arm64 is
-done at `527c1ef`; the macOS leg is allowlisted (owner, 2026-10-27). Run a leg only on a
-host that has no code item it can take.
+**Gate and evidence work, after the table is empty or blocked:** the 2026-10-28 combined
+run at `7031119` is done: four platforms recorded, the Linux arm64 row pending (its session went offline after reporting) (`docs/platform-matrix.md` § M7 combined run
+(2026-10-28); its one failure, #335, is fixed by #336). What remains is the M7 rows in
+`docs/platform-matrix.md`. Run a leg only on a host that has no code item it can take.
 
 **Merge procedure:** `docs/coordination.md` §8. Before touching rendering, read
 `docs/render-path.md`; before comparing with retail, `docs/retail-comparison.md`.
 Per-platform traps are in `docs/coordination.md` §5.
 
-Updated: 2026-10-28 by the coordinator (close refresh: #246, #290, #302, #315 and #321 closed on the owner's decision, so the queue is #325 as the one open bug and the retail capture item; #327 merged as `c8f05ef`).
+Updated: 2026-10-29 by the coordinator (the 2026-10-28 combined run at `7031119` recorded; #336 merged as `ce94b9e`, closing #335; #337 and #338 filed from its review and its Windows x64 gate).
 
 ## 1. Open PRs
 
@@ -58,7 +57,6 @@ longer mirrors it. The coordinator merges in code-queue order (§0): bug fixes f
 
 | # | What | Owner | Next step |
 |---|---|---|---|
-| [#325](https://github.com/jm2/openETQW/issues/325) | Uncapping the Windows x64 Vulkan client makes it 7x slower (31 ms/frame, 17-24 ms fence) while the default 240 cap holds 4.17 ms | — | Filed from #302. Needs a second Windows x64 host; no session can settle the mechanism on the one we have. Code queue §0 item 1. |
 | [#197](https://github.com/jm2/openETQW/issues/197) | Fresh profile goes straight to the menu as "Player" (owner, 2026-10-23: fine if the name can be changed in-game) | owner | `ui_name` persists across restarts (checked on macOS). Left: the owner's 30-second real-keyboard check: Options > Game Settings > Name, type a name, Apply, restart, look at the field. |
 | [#296](https://github.com/jm2/openETQW/issues/296) | Linux had no retail-data folder picker | — | Done in #297 (§3 item 4). Left: the interactive checklist on a desktop — start with no retail data, Cancel stores nothing, a refused folder re-asks, five refusals fail, an accepted one is written. Unrun: no agent here can open a dialog. Close when the owner has tried it. |
 | [#317](https://github.com/jm2/openETQW/issues/317) | Render portals, stage 2: the network/visibility decision | owner | Owner-gated (§4). Stage 1 is parked as the draft PR #318 on `feat/render-portal-culling`; nothing merges from it until the owner decides the network model. |
@@ -273,8 +271,13 @@ No session can finish these alone. Prepare the evidence, then ask the owner
 
 ## 5. Recently done
 
-2026-10-28 (review of the DeepSeek merges since 2026-10-25):
+2026-10-28/29 (the combined run at `7031119` and its follow-ups):
+- #339 Records: the 2026-10-28 combined run in `docs/platform-matrix.md` (rows from Linux x64, Windows x64, Windows arm64 and macOS; Linux arm64 pending, its session offline), the coverage table, queue §0 (#338, #337) and the coordination §5 `r_vkValidation` timing-arm trap
+- The combined run at `7031119` / `7fbdf80` (owner, 2026-10-28: run it while kisakcod keeps working), five platforms run (four recorded in the matrix; Linux arm64 reported by message, its row pending), no load-caused failure anywhere: Linux x64 79 OK / 0 FAIL / 1 SKIP; Linux arm64 79 / 0 / 1; Windows x64 78 / 0 / 2; Windows arm64 78 / 0 / 2, its first suite on Vulkan; macOS arm64 78 / 1 / 1, the failure `mixed-caps` A10 (#335, fixed by #336). Screenshot sets on every platform, reviewed by each session, no regression (the Linux arm64 set by message only). Rows: `docs/platform-matrix.md` § M7 combined run (2026-10-28)
 - #336 (#335, openETQW-mac): with r_vkPrepareAhead, Vulkan acquires the next swapchain image at the end of the previous frame, so a blocking acquire (MoltenVK, 12-18 ms when a client cannot reach its cap) no longer falls between the frame's fraction and its draw; new test acquire-ahead. Five-platform screenshot pairs vs 7031119 match; acquire-ahead clean under the validation layer on Linux. Follow-ups: #337 (an early return after the acquire, which predates this PR), #338 (a one-off 0.7 s first-run stall on Windows x64)
+- #325 closed as not reproducible (Windows x64 measured 4.2-4.3 ms per frame uncapped, the same as capped, on `main` and on the issue's build)
+
+2026-10-28 (review of the DeepSeek merges since 2026-10-25):
 - #334 Tools: `tools/validation/retail_capture.py`, a scripted retail 1.5 reference capture in a private headless compositor (XTest input, XGetImage grabs, `screenshot_set.py`'s views, §4 box means in `capture.json`, refuses output inside any git work tree); `docs/retail-comparison.md` gains the route and its traps. Closes code queue §0 item 2
 - #331 Test harness: save, log and temp dirs made without `tempfile.mkdtemp`'s owner-only Windows DACL (Python 3.13+), so a sandboxed restricted token can write the SPIR-V cache and Vulkan initializes; the Windows arm64 runs so far are recorded as OpenGL via D3D12, not Vulkan, and a real Windows arm64 Vulkan leg is now runnable
 - #333 Docs: review guardrails — an owner decision a PR relies on must be on `main` or quoted from the owner directly; switching off a diagnostic an existing test reads counts as weakening; draw/cull reviews check both distance boundaries, the cvar overrides and a capture pair (`AGENTS.md` rules 1 and 4, `docs/coordination.md` §7)
