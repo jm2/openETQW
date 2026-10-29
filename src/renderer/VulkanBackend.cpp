@@ -205,7 +205,7 @@ struct sdVulkanFrame {
 	void*				imageUploadMapped;
 	VkDeviceSize		imageUploadOffset;
 	bool				imageUploadRecorded;
-	int					imagesCreated;	// images whose initial upload this frame recorded
+	int					imagesCreated;	// images this frame created (their initial uploads); updates and buffer uploads are not counted
 	bool				imageUploadOverflowWarned;
 	VkBuffer			bufferUploadBuffer;
 	VkDeviceMemory	bufferUploadMemory;
@@ -2717,6 +2717,10 @@ valid, and the swapchain is marked dirty, so its recreate returns the image (wit
 each failure keeps one more image until the acquire blocks for good). This recovers on the
 Windows drivers the tool window runs on; the main window keeps the image instead
 (KeepAcquiredImage), which MoltenVK needs.
+
+#343: unlike a main-window frame (AbandonRecordedFrame), a tool frame records no uploads (they
+are immediate submits outside the main frame) and none of the first-layout flags that
+AbandonRecordedFrame rolls back. Its render targets' "initialized" flag is the exception, #347.
 */
 void AbandonAcquiredImage( sdVulkanBackendState& state, sdVulkanFrame& frame, bool& swapchainDirty ) {
 	RestoreSignaledFence( state, frame );
@@ -2816,7 +2820,7 @@ void AbandonRecordedFrame( sdVulkanBackendState& state, sdVulkanFrame& frame, bo
 	for ( int i = 0; i < layouts; ++i ) {
 		*state.frameInitializedFlags[ i ] = false;
 	}
-	state.frameInitializedFlags.Clear();
+	state.frameInitializedFlags.SetNum( 0, false );
 	const int builds = R_RayTracingAbandonFrame();
 	common->Printf( "Vulkan: frame not submitted: %s (%d images created), rolled back %d first layout "
 		"transitions and %d BLAS builds\n",
@@ -7473,7 +7477,7 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 	frame.imageUploadOffset = 0;
 	frame.imageUploadRecorded = false;
 	frame.imagesCreated = 0;
-	state->frameInitializedFlags.Clear();
+	state->frameInitializedFlags.SetNum( 0, false );
 	frame.imageUploadOverflowWarned = false;
 	frame.bufferUploadOffset = 0;
 	frame.bufferUploadOverflowWarned = false;
