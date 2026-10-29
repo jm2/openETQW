@@ -69,6 +69,7 @@ uint64_t				pendingSubmitUsec = 0;
 uint64_t				pendingPoolUsec = 0;		// vkResetCommandPool, in BeginFrame or ahead (r_vkPrepareAhead)
 uint64_t				pendingAheadFenceUsec = 0;	// r_vkPrepareAhead: the fence wait EndFrame did for this frame
 uint64_t				pendingAheadPoolUsec = 0;	// r_vkPrepareAhead: the pool reset EndFrame did for this frame
+uint64_t				pendingAheadAcquireUsec = 0;	// r_vkPrepareAhead: the image acquire EndFrame did for this frame
 long long				pendingFenceBeginUsec = 0;	// r_vkLogFrameSync: BeginFrame's fence wait began (the FRAME_POSE clock)
 std::atomic< int >		syncFrames( 0 );
 std::atomic< uint64_t >	syncFenceUsec( 0 );
@@ -139,9 +140,10 @@ idCVar r_vkPrepareAhead(
 	"r_vkPrepareAhead",
 	"1",
 	CVAR_RENDERER | CVAR_BOOL | CVAR_NOCHEAT,
-	"at the end of a frame, wait for the next frame's fence and reset its command pool, so the GPU wait and "
-	"the driver's pool reset (up to 13 ms on Honeykrisp) fall before the next frame samples input and computes "
-	"its fraction, not between ClientUpdateView and the draw (0 = do both in BeginFrame, as before)"
+	"at the end of a frame, wait for the next frame's fence, reset its command pool and acquire its swapchain "
+	"image, so the GPU wait, the driver's pool reset (up to 13 ms on Honeykrisp) and a blocking acquire (12-18 ms "
+	"on MoltenVK when the client cannot reach its cap) fall before the next frame samples input and computes its "
+	"fraction, not between ClientUpdateView and the draw (0 = do all three in BeginFrame, as before)"
 );
 
 idCVar r_vkLogFrameSync(
@@ -549,6 +551,11 @@ struct sdVulkanBackendState {
 	unsigned int				frameIndex;
 	unsigned int				imageIndex;
 	bool					frameActive;
+	// r_vkPrepareAhead: EndFrame acquires the next frame's swapchain image into aheadSemaphore;
+	// BeginFrame swaps that semaphore with the frame's imageAvailable (#335)
+	VkSemaphore				aheadSemaphore;
+	bool					aheadImageHeld;
+	unsigned int				aheadImageIndex;
 
 	struct sdToolWindow {
 		void*				window;
@@ -890,6 +897,9 @@ struct sdVulkanBackendState {
 		extent.width = 0;
 		extent.height = 0;
 		swapchainDirty = false;
+		aheadSemaphore = VK_NULL_HANDLE;
+		aheadImageHeld = false;
+		aheadImageIndex = 0;
 		swapchainTransferSource = false;
 		screenshotBuffer = VK_NULL_HANDLE;
 		screenshotMemory = VK_NULL_HANDLE;
@@ -2425,10 +2435,44 @@ bool CreateBufferAllocation( sdVulkanBackendState& state, VkDeviceSize bytes,
 	VkBufferUsageFlags usage, VkMemoryPropertyFlags memoryFlags,
 	VkBuffer& buffer, VkDeviceMemory& memory );
 
+/*
+r_vkPrepareAhead (#335): give up an image EndFrame acquired ahead before its swapchain is
+recreated or destroyed. Its acquire signals aheadSemaphore, and a binary semaphore with a
+pending signal cannot be reused or safely destroyed, so an empty submit waits on it and
+the device drains. The image itself goes with the old swapchain.
+*/
+void ReleaseAheadImage( sdVulkanBackendState& state ) {
+	if ( !state.aheadImageHeld ) {
+		return;
+	}
+	state.aheadImageHeld = false;
+	if ( state.device == VK_NULL_HANDLE || state.QueueSubmit2 == NULL ) {
+		return;
+	}
+	VkSemaphoreSubmitInfo waitInfo;
+	memset( &waitInfo, 0, sizeof( waitInfo ) );
+	waitInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+	waitInfo.semaphore = state.aheadSemaphore;
+	waitInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+	VkSubmitInfo2 submitInfo;
+	memset( &submitInfo, 0, sizeof( submitInfo ) );
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+	submitInfo.waitSemaphoreInfoCount = 1;
+	submitInfo.pWaitSemaphoreInfos = &waitInfo;
+	CheckVulkanResult( state.QueueSubmit2( state.graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE ),
+		"vkQueueSubmit2(release ahead image)" );
+	state.DeviceWaitIdle( state.device );
+}
+
 void DestroyFrames( sdVulkanBackendState& state ) {
 	if ( state.device == VK_NULL_HANDLE ) {
 		return;
 	}
+	ReleaseAheadImage( state );
+	if ( state.aheadSemaphore != VK_NULL_HANDLE && state.DestroySemaphore != NULL ) {
+		state.DestroySemaphore( state.device, state.aheadSemaphore, NULL );
+	}
+	state.aheadSemaphore = VK_NULL_HANDLE;
 	for ( int i = 0; i < NUM_VULKAN_FRAMES; ++i ) {
 		sdVulkanFrame& frame = state.frames[ i ];
 		if ( frame.fence != VK_NULL_HANDLE && state.DestroyFence != NULL ) {
@@ -2505,6 +2549,11 @@ bool CreateFrames( sdVulkanBackendState& state ) {
 	memset( &fenceCreateInfo, 0, sizeof( fenceCreateInfo ) );
 	fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 	fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+	state.aheadImageHeld = false;
+	if ( !CheckVulkanResult( state.CreateSemaphore( state.device,
+		&semaphoreCreateInfo, NULL, &state.aheadSemaphore ), "vkCreateSemaphore(ahead)" ) ) {
+		return false;
+	}
 
 	for ( int i = 0; i < NUM_VULKAN_FRAMES; ++i ) {
 		sdVulkanFrame& frame = state.frames[ i ];
@@ -7239,6 +7288,7 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 	}
 	if ( state->swapchainDirty ) {
 		RENDER_METRIC_SCOPE( "Vulkan recreate swapchain" );
+		ReleaseAheadImage( *state );
 		state->DeviceWaitIdle( state->device );
 		if ( !CreateSwapchain( *state, width, height ) ) {
 			return false;
@@ -7279,13 +7329,25 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 	frame.jointOffset = 0;
 	frame.jointOverflowWarned = false;
 	VkResult acquireResult;
-	{
+	if ( state->aheadImageHeld ) {
+		// r_vkPrepareAhead: EndFrame acquired this image before the frame computed its
+		// fraction; the frame waits on the semaphore that acquire signals
+		const VkSemaphore acquired = state->aheadSemaphore;
+		state->aheadSemaphore = frame.imageAvailable;
+		frame.imageAvailable = acquired;
+		state->imageIndex = state->aheadImageIndex;
+		state->aheadImageHeld = false;
+		acquireResult = VK_SUCCESS;
+		pendingAcquireUsec = pendingAheadAcquireUsec;
+		pendingAheadAcquireUsec = 0;
+	} else {
 		RENDER_METRIC_SCOPE( "Vulkan acquire swapchain image" );
 		const uint64_t acquireStart = SyncNowUsec();
 		acquireResult = state->AcquireNextImageKHR( state->device,
 			state->swapchain, UINT64_MAX, frame.imageAvailable, VK_NULL_HANDLE,
 			&state->imageIndex );
-		pendingAcquireUsec = SyncNowUsec() - acquireStart;
+		pendingAcquireUsec = SyncNowUsec() - acquireStart + pendingAheadAcquireUsec;
+		pendingAheadAcquireUsec = 0;
 		if ( acquireResult == VK_ERROR_OUT_OF_DATE_KHR ) {
 			state->DeviceWaitIdle( state->device );
 			if ( !CreateSwapchain( *state, width, height ) ) {
@@ -7722,10 +7784,12 @@ void sdVulkanBackend::EndFrame( bool ) {
 	state->frameIndex = ( state->frameIndex + 1 ) % NUM_VULKAN_FRAMES;
 	state->frameSerial++;
 
-	// r_vkPrepareAhead: the next frame's fence wait and command-pool reset happen now, before
+	// r_vkPrepareAhead: the next frame's fence wait, command-pool reset and image acquire happen now, before
 	// the next frame samples input and ClientUpdateView computes its fraction, not in BeginFrame
 	// between that fraction and the draw. The fence is left signaled (BeginFrame resets it), so a
-	// frame that never begins leaves nothing to restore.
+	// frame that never begins leaves no fence to restore; the image it would have drawn to stays
+	// held until BeginFrame uses it, or ReleaseAheadImage gives it up on a swapchain recreate or
+	// at teardown.
 	if ( r_vkPrepareAhead.GetBool() ) {
 		sdVulkanFrame& next = state->frames[ state->frameIndex ];
 		RENDER_METRIC_SCOPE( "Vulkan prepare next frame" );
@@ -7737,6 +7801,22 @@ void sdVulkanBackend::EndFrame( bool ) {
 			next.commandPoolReset = CheckVulkanResult( state->ResetCommandPool( state->device,
 				next.commandPool, 0 ), "vkResetCommandPool(ahead)" );
 			pendingAheadPoolUsec = SyncNowUsec() - poolStart;
+			// and the image: on a client that cannot reach its cap the acquire blocks until
+			// the compositor frees a drawable (MoltenVK: 12-18 ms on render-only frames,
+			// #335), which in BeginFrame fell between the fraction and the draw
+			if ( !state->swapchainDirty && state->swapchain != VK_NULL_HANDLE ) {
+				const uint64_t acquireStart = SyncNowUsec();
+				const VkResult acquireResult = state->AcquireNextImageKHR( state->device,
+					state->swapchain, UINT64_MAX, state->aheadSemaphore, VK_NULL_HANDLE,
+					&state->aheadImageIndex );
+				pendingAheadAcquireUsec = SyncNowUsec() - acquireStart;
+				if ( acquireResult == VK_SUCCESS || acquireResult == VK_SUBOPTIMAL_KHR ) {
+					state->aheadImageHeld = true;
+				}
+				if ( acquireResult == VK_SUBOPTIMAL_KHR || acquireResult == VK_ERROR_OUT_OF_DATE_KHR ) {
+					state->swapchainDirty = true;
+				}
+			}
 		}
 	}
 }

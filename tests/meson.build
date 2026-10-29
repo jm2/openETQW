@@ -1221,3 +1221,25 @@ if build_engine and build_dedicated
     is_parallel: false,
   )
 endif
+
+# 12b. The swapchain-image acquire before the fraction (#335): a single-player Vulkan client
+#      with FIFO presentation; with r_vkPrepareAhead the time from BeginFrame to the draw
+#      holds no acquire wait, and with it off (the negative control) it does where the
+#      acquire blocks
+if build_engine
+  test(
+    'acquire-ahead',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_acquire_ahead.py',
+      '--client-binary', campaign_client,
+      '--port', '29930',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'acquire-ahead',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 300,
+    is_parallel: false,
+  )
+endif
