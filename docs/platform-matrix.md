@@ -7,7 +7,7 @@ this file is the release-gate evidence register. A row is added only by a sessio
 the raw log or the PR it points at. Historical rows stay in their own table and are not
 evidence for `main` today.
 
-Last updated: 2026-10-28 (UTC): the Windows arm64 rows say OpenGL via D3D12, not Vulkan. `main` at the time of writing: engine `ce40c41` (#307 and #287 merged).
+Last updated: 2026-10-29 (UTC): the 2026-10-28 combined run at `7031119` (four rows; the Linux arm64 row is pending, see that section). `main` at the time of writing: engine `ce94b9e` (#336 merged).
 
 ## Evidence levels
 
@@ -49,6 +49,10 @@ low priority under host claims or by message, and no failure on any leg was load
 `main` has since taken #336 (`ce94b9e`), which fixes the macOS leg's one failure. From this
 run on, rows name no host (owner, 2026-10-23): a raw-log path is relative to that session's
 checkout and stays on its host. Each session adds its own row (§ Adding a row).
+
+Linux arm64 reported 79 OK, 0 FAIL, 1 SKIP (`cross-os`) and a clean 22-shot `--rt 0` set by
+message, but its session went offline before it could add its row, so that leg is not
+recorded here as evidence yet.
 
 | Verified thing | Platform (OS/arch) | Host | Evidence | Engine / game | Data set | Where the raw log or PR lives |
 |---|---|---|---|---|---|---|
@@ -114,11 +118,15 @@ These runs are recorded so they are not mistaken for gate evidence.
 
 | Platform | Latest full retail suite on record | Date | Commits | Result |
 |---|---|---|---|---|
-| Linux arm64 | 77 tests | 2026-10-26 | `527c1ef` / `7fbdf80` | 76 OK, 0 FAIL, 1 SKIP (`cross-os`, no remote server) on the post-merge leg at `-O2`; the M7 row at `0a44150` remains 73 / 3 / 1, not clean |
-| Linux x86_64 | 77 tests | 2026-10-26 | `4b4ad98` / `7fbdf80` | 70 OK, 6 FAIL, 1 SKIP; not clean (M7 rows above) |
-| Windows 11 x64 | 77 tests | 2026-10-26 | `0a44150` / `7fbdf80` | 70 OK, 5 FAIL, 2 SKIP in the loaded window; the four pacing failures pass on a quiet rerun (M7 rows above) |
-| Windows 11 arm64 | 77 tests | 2026-10-26 | `0a44150` / `7fbdf80` | 43 OK, 32 FAIL (12 sandbox, 19 display/frame-pacing, 1 #294), 2 SKIP; the 12 sandbox tests re-run with `mkdtemp` replaced by `os.makedirs` (sandbox-workaround evidence, tests unmodified): 11 OK, and `all-stock-maps` fails on #294 |
-| macOS arm64 | 77 tests | 2026-10-26 | `0a44150` / `7fbdf80` | 59 OK, 17 FAIL, 1 SKIP; software raster only, not GPU evidence (Not a pass) |
+| Linux arm64 | 80 tests | 2026-10-28 | `7031119` / `7fbdf80` | 79 OK, 0 FAIL, 1 SKIP (`cross-os`), as its session reported it; its row is not yet in the 2026-10-28 section (the session went offline before adding it), so the evidence on record is still 76 / 0 / 1 at `527c1ef` |
+| Linux x86_64 | 80 tests | 2026-10-28 | `7031119` / `7fbdf80` | 79 OK, 0 FAIL, 1 SKIP (`cross-os`); clean |
+| Windows 11 x64 | 80 tests | 2026-10-28 | `7031119` / `7fbdf80` | 78 OK, 0 FAIL, 2 SKIP (`cross-os`, `client-server-timeout`); clean |
+| Windows 11 arm64 | 80 tests | 2026-10-28 | `7031119` / `7fbdf80` | 78 OK, 0 FAIL, 2 SKIP; clean, and the first suite on Vulkan (no OpenGL/D3D12 fallback) |
+| macOS arm64 | 80 tests | 2026-10-28 | `7031119` / `7fbdf80` | 78 OK, 1 FAIL, 1 SKIP; the first GPU suite (MoltenVK). The failure, `mixed-caps` A10 (#335), is fixed by #336 at `ce94b9e`; not yet re-run as a full suite |
+
+**2026-10-28:** the combined run at `7031119` (section above) is clean on Linux x64, Windows x64
+and Windows arm64; macOS has one failure, fixed by #336 since; the Linux arm64 row is pending.
+The paragraph below describes the 2026-10-25/26 run and is kept for its history.
 
 The M7 gate stays open. A combined five-platform run now exists at `0a44150` / `7fbdf80`
 (2026-10-25/26, section above), covering the merged work from #220 to #276, but no leg is
