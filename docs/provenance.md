@@ -226,4 +226,4 @@ The SDK EULA (`legal/EULA SDK ETQW.rtf` in the game repo) is shipped on purpose 
 
 **Why.** Retail assets must not be in either repository's history (CHARTER §11, release gate item 5). Before publishing, check that no ref on the host, including GitHub's pull-request refs, reaches retail content.
 
-**Older commit IDs.** Engine SHAs quoted in older engine documents (for example `CHECKPOINT_STOCK_MAPS_PHASE.md`) may not resolve in the current history, and neither do some of the game's historical `tools/ci/engine.ref` pins. The engine's historical `tools/ci/companion.ref` pins all resolve.
+**Older commit IDs.** Engine SHAs quoted in older engine documents may not resolve in the current history, and neither do some of the game's historical `tools/ci/engine.ref` pins. The engine's historical `tools/ci/companion.ref` pins all resolve.

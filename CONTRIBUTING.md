@@ -1,18 +1,16 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 # Contributing
 
-Agents: read `AGENTS.md` first. `docs/coordination.md` has the merge procedure and the
-per-platform commands, and `docs/queue.md` the work queue.
+Agents: read `AGENTS.md` first. Work items are GitHub issues.
 
-`main` changes only through pull requests. Branch protection is not available on
-these private repositories, so the merge gates below are a convention, not
-enforced by GitHub. Keep to them anyway.
+`main` changes only through pull requests, merged by the maintainer once the gates below
+are met.
 
 ## Hosted CI is not running
 Since 2026-09-24 the GitHub Actions minutes for these private repositories are used up.
 Workflows do not start, so a missing check proves nothing either way. Until minutes are
 available again, the local checks below replace CI. Do not make a repository public to
-get CI back: both stay private until the owner decides to publish.
+get CI back: both stay private until the maintainer decides to publish.
 
 ## Merge gates
 1. **Local checks pass.** Run them from the repository root and put the result in the PR:
@@ -48,7 +46,7 @@ get CI back: both stay private until the owner decides to publish.
    **Graphics changes** (anything that changes what is drawn: `src/renderer`, the shaders under
    `base/vkprogs` and the GL programs, materials, the viewmodel or sky code in openETQW-game)
    must carry the standard screenshot set from **every platform**: Windows x64 with ray tracing
-   on and off, Windows arm64, Linux and macOS (owner decision, 2026-10-09). On each host, build
+   on and off, Windows arm64, Linux and macOS (owner decision, 2026-10-09). On each platform, build
    the engine and the game at `main` and capture, then build both at the PR and capture with
    main's positions, then compare (keep the output outside the checkout):
    `python3 tools/validation/screenshot_set.py capture --out ../shots/main --label <main commit>`
@@ -56,11 +54,14 @@ get CI back: both stay private until the owner decides to publish.
    `python3 tools/validation/screenshot_set.py compare ../shots/main ../shots/pr --out ../shots/compare`
    Add `--rt 0` to both captures on a GPU without ray tracing. The client runs from the
    build's own tree, so it uses that build's shaders, with a private save path, so no saved
-   setting differs between the captures. Upload each host's contact sheets (`sheet_rt*.png` and
-   `compare_sheet.png`, JPEG is fine) as assets of a prerelease named `screenshots-prNNN`
-   (`gh release create screenshots-prNNN --prerelease --title "Screenshots for #NNN" --notes "..."`,
-   then `gh release upload screenshots-prNNN <files>`; one release per PR, owner decision
-   2026-10-09), and post the links and `compare.md` on the PR. The author and a reviewing session look at every sheet before the merge and are the
+   setting differs between the captures. The sheets show retail game content, so they never
+   go on the public repositories (§ What never goes in). The project's sessions upload each
+   platform's contact sheets (`sheet_rt*.png` and `compare_sheet.png`, JPEG is fine) to a
+   prerelease `screenshots-prNNN` on the private `jm2/openETQW-ops`
+   (`gh release create -R jm2/openETQW-ops screenshots-prNNN --prerelease --title "Screenshots for #NNN" --notes "..."`,
+   then `gh release upload -R jm2/openETQW-ops screenshots-prNNN <files>`; one release per
+   PR), and post `compare.md` on the PR. Other contributors keep their sheets and describe
+   what they saw. The author and a reviewing session look at every sheet before the merge and are the
    gate: the numbers and the heuristic warnings (a near-black viewmodel, a flat sky) only
    point at things, and their look decides. The owner is asked only when something is
    ambiguous, for example when it is unclear what retail looks like (owner, 2026-10-09). The
@@ -93,8 +94,8 @@ The engine builds against the game at the commit pinned in `tools/ci/companion.r
 3. Merge the engine PR.
 
 ## What never goes in
-- Retail game data, retail executables, PDBs, raw disassembly or decompiler output, and
-  packet captures. This holds for both repositories and their whole history.
+- Retail game data, retail executables, PDBs, raw disassembly or decompiler output,
+  packet captures, and screenshots or captures that show retail game content. This holds for both repositories and their whole history.
 - SDK-licensed files. They belong in `openETQW-game`.
 - Private detail about the people and machines behind the work (owner, 2026-10-29; the
   repositories are to go public). Name a machine by its platform ("the Linux x64 host",
@@ -117,9 +118,7 @@ code, after searching the open issues for a duplicate. One issue per defect, wit
 symptom, the exact steps to reproduce it and the environment (platform, OS, commit, data set),
 the mechanism with `file:line`, the scope (what the fix may touch and what it must not),
 and a done-test a reviewer can run.
-Put the measurements in the issue itself. Defects are not tracked in beads (`bd`,
-`.beads`): beads are gascity-only, and existing beads are left where they are (owner
-decision, `docs/coordination.md` §9, 2026-10-26).
+Put the measurements in the issue itself.
 
 ## Records
 Record deliberate deviations from retail 1.5 in `docs/compat-ledger.md` and file origins

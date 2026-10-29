@@ -252,7 +252,7 @@ function Invoke-MesonBuild([string]$Source, [string]$Build, [string[]]$Options) 
 
 Add-PythonUserScripts
 
-# the vcpkg environment, as the CI prepare action sets it (docs/coordination.md §5); -Validate's builds need it too
+# the vcpkg environment, as the CI prepare action sets it (.github/actions/prepare); -Validate's builds need it too
 $env:PKG_CONFIG = Join-Path $VcpkgInstalled "tools\pkgconf\pkgconf.exe"
 $env:PKG_CONFIG_PATH = "$(Join-Path $VcpkgInstalled 'lib\pkgconfig');$(Join-Path $VcpkgInstalled 'share\pkgconfig')"
 $env:CMAKE_PREFIX_PATH = $VcpkgInstalled

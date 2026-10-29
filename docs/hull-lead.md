@@ -274,7 +274,7 @@ On a network client the render entity is the predicted pose after prediction-err
   - Loopback has little network jitter, so a real network adds more decay. A badger's driver on a network client is the case question 1's bound must cover: S at k = 1 is the best median, and P the best p95.
 - **Measured per class (2026-10-20, Windows x64, loopback).** Meson `lead-measure-join` and `lead-measure-listen`, and `tests/test_lead_measure_client.py --mode devmap` for single player with the same drive.
   - **The setup.**
-    - Host: ANTEC-WIN, Windows 11 x64, RX 6400, MSVC 19.51 debugoptimized, retail 1.5 data.
+    - Host: the Windows x64 host, Windows 11 x64, RX 6400, MSVC 19.51 debugoptimized, retail 1.5 data.
     - Builds: engine 995d4b6 (the logs' `g995d4b6d`) with game a5f49bd (`g_leadMeasureDrive`).
     - The player's game: the Vulkan client at `com_maxFPS 120`, every seat presented (`g_unlock_vehicleSeats *`), `g_logVehiclePred 1`.
   - **The drive.**
@@ -314,7 +314,7 @@ On a network client the render entity is the predicted pose after prediction-err
     - Its median is 0.012 u or less in every mode.
     - Its p95 is 0.09 u or less in single player and on the listen host, and 0.63 u or less on the client.
     - P alone has a p95 of 1.13–1.16 u everywhere except the anansi on the client (0.03–0.05).
-  - **Logs:** on ANTEC-WIN in `C:\Users\jmulesa\openetqw-evidence\lead-client-2026-10-20\final\` (`devmap-N/`, `listen-N/`, `join-N/`, `aggregate.txt`).
+  - **Logs:** on the Windows x64 host in `C:\Users\<name>\openetqw-evidence\lead-client-2026-10-20\final\` (`devmap-N/`, `listen-N/`, `join-N/`, `aggregate.txt`).
 - Whether to keep the decay on your own vehicle at all: kept, by the owner's 2026-10-07 decision (§4).
 - **An option for question 1 (suggested by the Linux session):** choose the predictor by role.
   - On a network client (`gameLocal.isClient`), use P, or H with P on the ground too, for every class, since the decay inflates S there.
