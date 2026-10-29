@@ -1086,10 +1086,10 @@ if build_engine and build_dedicated
   endforeach
 endif
 
-# 8b. The M2 render-world parity test (queue §3 item 8): the same three scripted scenes
+# 8b. The M2 render-world parity test (M2 render-world parity): the same three scripted scenes
 #    on a Vulkan listen host (the real render world) and a dedicated server
 #    (idRenderWorldHeadless); the outcomes are compared and the numbers are the
-#    evidence for the owner's headless-render-world question (queue §4)
+#    evidence for the owner's headless-render-world question (open since 2026-10-21)
 if build_engine and build_dedicated
   test(
     'm2-render-world-parity',

@@ -21,7 +21,7 @@ Both processes then exit 0 on 'quit', and neither log has a failure marker.
 Until 2026-10-08 the client crashed in step 1: a dedicated binary cannot parse
 HUD GUIs, the vehicle overlay's load error shut the map down, and
 sdPlayerProperties::OnActiveViewProxyChanged used the overlay that the nested
-call had freed (STATUS, Known broken).
+call had freed (a known issue at the time).
 
 Exit 77 when ETQW_DATA_PATH is unset/invalid or the binary is missing.
 """

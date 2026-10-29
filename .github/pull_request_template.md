@@ -6,6 +6,6 @@
 - [ ] Independent review of the diff and raw test output
 - [ ] Bot review: CodeRabbit and Codex findings answered (or bot quota noted)
 - [ ] Runtime change: full meson suite with retail data (result:)
-- [ ] Graphics change: `tools/validation/screenshot_set.py` sets from Windows x64 (RT on/off), Windows arm64, Linux and macOS, compared against main and looked at (sheets attached:)
+- [ ] Graphics change: `tools/validation/screenshot_set.py` sets from Windows x64 (RT on/off), Windows arm64, Linux and macOS, compared against main and looked at (compare.md posted; sheets on the private ops repo, never here:)
 - [ ] Ledger / STATUS updated for any deviation or new claim
 - [ ] No private detail: hosts named by platform only, no host names, LAN addresses, user names, home paths or e-mails (`python3 tools/ci/check_no_pii.py --diff origin/main`)

@@ -18,7 +18,7 @@ gameplay scenes on both:
 
 The game prints one M2_PARITY line per scene (game command m2Parity; test-only). This
 test compares the outcomes and reports the raw numbers. It is the evidence for the
-owner's headless-render-world question (docs/queue.md §4), not a decision: the current
+owner's headless-render-world question (open since 2026-10-21), not a decision: the current
 relationship is encoded below, so a change - a fix, a regression, or a new stub - fails
 and the expectation and ledger 013 are updated with it.
 

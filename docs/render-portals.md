@@ -19,7 +19,7 @@ Status: stage 1 built and measured, not landed (see "Stage 1 result"); stage 3 d
   - `R_AddModelSurfaces` collects every static world model (all `_areaN` models and every LOD and reference model) and frustum-tests each surface in parallel (`AnalyzeAmbientSurfaceCandidates`).
   - There is no area test anywhere: a surface, entity or light is drawn when its bounds meet the view frustum.
 
-## 2. Measured baseline (win-arm64)
+## 2. Measured baseline (Windows arm64)
 
 Adreno X1-85, debugoptimized, main f3a468c, game 9d9c7d9. Listen host (`+spawnServer`), standing at the GDF spawn, `com_maxFPS 0`, `com_logFrameTiming 1` for 30 s, validation off, raster path.
 
@@ -107,7 +107,7 @@ Stage 1 was implemented on `feat/render-portal-culling` (9426634):
 
 It is kept on that branch for stage 2's parsing, and **not merged**: on these maps frustum culling already removes what the portals would.
 
-Measured on win-arm64 (Adreno X1-85, debugoptimized, main f3a468c / game 9d9c7d9): each map's GDF spawn, uncapped, 20 one-second `FRAME_TIMING` windows, `r_usePortals 1` against `0`.
+Measured on Windows arm64 (Adreno X1-85, debugoptimized, main f3a468c / game 9d9c7d9): each map's GDF spawn, uncapped, 20 one-second `FRAME_TIMING` windows, `r_usePortals 1` against `0`.
 
 | Map | fps on / off | Change | Areas visible per view | Static models culled per view | Draws per view on / off |
 |---|---|---|---|---|---|
@@ -124,7 +124,7 @@ The outskirts "off" run in this series measured 33 fps, an outlier from somethin
 - **Shadow casters.** The shadow pass takes its casters from the surfaces chosen for drawing (`R_AddLightSurfaces` walks `sortedDrawSurfaces`). An area-culled static model therefore stops casting shadows into visible areas: on valley, the shadow geometry of buildings and fences behind portals disappears from the ground in view (pixel difference 1.0, mostly shadow edges).
   - A correct version must keep area-culled shadow casters for the light pass, which gives back most of valley's 8%.
   - Doom 3 avoids this because its interactions are per light and area, not per view.
-- **Found: the game's `BoundsInAreas` always returns no area.** `idRenderWorldLocal::BoundsInAreas`, which the game's PVS calls, starts its walk at node 0, which is also the "solid" child marker, and stops at once. The branch gives the renderer its own `BackendBoundsInAreas` and leaves the game-facing query alone. STATUS lists it under Known broken. Stage 2 depends on fixing it.
+- **Found: the game's `BoundsInAreas` always returns no area.** `idRenderWorldLocal::BoundsInAreas`, which the game's PVS calls, starts its walk at node 0, which is also the "solid" child marker, and stops at once. The branch gives the renderer its own `BackendBoundsInAreas` and leaves the game-facing query alone. It is a known gap. Stage 2 depends on fixing it.
 
 ### Stage 2: game-visible portals (needs an owner decision)
 
@@ -161,7 +161,7 @@ Two changes:
   - Only the proc's `_area` world models and entities drawing a file-loaded model as it is are cached, and never deformed or streamed geometry. Models built in memory (BSE effects, snapshots, instantiated dynamic models) report `DM_STATIC` too but are rebuilt every frame, often at the same addresses, so they are excluded. The key includes the entity, so props sharing one model keep separate entries.
   - With the cache on and off, the frames are identical (mean pixel difference 0.06).
 
-Measured on win-arm64 (Adreno X1-85, debugoptimized, game 728dd1c), uncapped, 20 one-second `FRAME_TIMING` windows. Canyon at a fixed viewpoint (`setviewpos -1271.86 4348.12 453 -135`, the Strogg spawn):
+Measured on Windows arm64 (Adreno X1-85, debugoptimized, game 728dd1c), uncapped, 20 one-second `FRAME_TIMING` windows. Canyon at a fixed viewpoint (`setviewpos -1271.86 4348.12 453 -135`, the Strogg spawn):
 
 | Build | fps | Work p50 |
 |---|---|---|

@@ -228,7 +228,7 @@ meson setup build --vsenv -Dbuild_engine=true -Dbuild_dedicated=true -Dbuild_tes
 meson compile -C build
 ```
 
-This produces `build\openETQW-client_x64.exe` and `build\openETQW-ded_x64.exe`. Windows arm64 builds the same way, with the vcpkg triplet `arm64-windows` and the ARM64 toolset (`docs/coordination.md` §5 has the exact commands), and produces `_arm64` binaries. The engine build copies `game_x64.dll` (`game_arm64.dll` on arm64), `SDL3.dll` and `z.dll` next to them, and copies the game module again whenever the game build replaces it. Start the client from the repository root: it finds its Vulkan shaders (`base\vkprogs`) through the current directory.
+This produces `build\openETQW-client_x64.exe` and `build\openETQW-ded_x64.exe`. Windows arm64 builds the same way, with the vcpkg triplet `arm64-windows` and the ARM64 toolset (`scripts/build-windows.ps1` and `docs/build-scripts.md`), and produces `_arm64` binaries. The engine build copies `game_x64.dll` (`game_arm64.dll` on arm64), `SDL3.dll` and `z.dll` next to them, and copies the game module again whenever the game build replaces it. Start the client from the repository root: it finds its Vulkan shaders (`base\vkprogs`) through the current directory.
 
 The engine links the idLib in the game repository's `build` directory, so for an optimized build configure both with the same `--buildtype` (for example `debugoptimized`). MSVC 19.51 miscompiles an inlined `strncpy` at `/O2`; the game repository works around it (`src/idlib/text/StrBuilder.h`). The dedicated server stops cleanly on Ctrl+C or Ctrl+Break, as on SIGTERM elsewhere.
 
@@ -299,9 +299,8 @@ The release gate has six items: a redistributable license for jmarshall's code (
 ## Documents
 
 - [`AGENTS.md`](AGENTS.md): rules and the work loop for coding agents; start here.
-- [`docs/queue.md`](docs/queue.md): the work queue, in order.
-- [`docs/coordination.md`](docs/coordination.md): sessions, hosts, per-platform commands, reviews and merging.
 - [`STATUS.md`](STATUS.md): current state of both repositories, with evidence.
+- [`docs/platform-matrix.md`](docs/platform-matrix.md): the latest full test suite on each platform.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md): merge gates and local checks.
 - [`docs/compat-ledger.md`](docs/compat-ledger.md): deliberate deviations from retail 1.5.
 - [`docs/provenance.md`](docs/provenance.md): file origins and licenses.
