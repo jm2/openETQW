@@ -223,7 +223,7 @@ def test_package_release(tmp: Path) -> None:
         (staged / name).write_bytes(b"x")
     (staged / "base" / "vkprogs" / "cache").mkdir(parents=True)
     (staged / "base" / "glprogs").mkdir()
-    for rel in ("licenses/openETQW/LICENSE", "licenses/ETQW-SDK/EULA_SDK_ETQW.txt"):
+    for rel in ("licenses/openETQW/LICENSE", "licenses/ETQW-SDK/EULA_SDK_ETQW.txt", package.SPLASH):
         (staged / rel).parent.mkdir(parents=True, exist_ok=True)
         (staged / rel).write_text("l", encoding="utf-8")
     try:
@@ -237,6 +237,19 @@ def test_package_release(tmp: Path) -> None:
         check(True, "a complete staged tree is accepted")
     except package.PackageError:
         check(False, "a complete staged tree is accepted")
+    for name in ("openETQW-client_arm64", "openETQW-ded_arm64", "game_arm64.dylib"):
+        (staged / name).write_bytes(b"x")
+    try:
+        package.check_staged(staged, "macos", "arm64")
+        check(False, "a macOS staged tree without the app icon is rejected")
+    except package.PackageError as error:
+        check(package.MACOS_ICON in str(error), "a macOS staged tree without the app icon is rejected")
+    (staged / package.SPLASH).unlink()
+    try:
+        package.check_staged(staged, "linux", "x64")
+        check(False, "a staged tree without the launch splash is rejected")
+    except package.PackageError as error:
+        check("etqw_splash.bmp" in str(error), "a staged tree without the launch splash is rejected")
 
     try:
         package.add_licenses(tmp / "out", tmp / "out" / "licenses", "windows", {"glslang": tree / "notes.txt"})
