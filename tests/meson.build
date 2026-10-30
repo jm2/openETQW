@@ -1326,3 +1326,26 @@ if build_engine
     is_parallel: false,
   )
 endif
+
+# 12f. A client idle in a game does not keep growing (#367): with SDL's dummy audio driver
+#      (an audio device on any host), its memory (private bytes on Windows, the resident set on
+#      Linux and macOS) grows by less than 12 MB in 90 s. The Windows sound thread's mix buffers
+#      used to queue in the SDL audio stream without bound. Only Windows has that writer, so only
+#      there can this catch #367; elsewhere it passes either way
+if build_engine
+  test(
+    'idle-client-memory',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_idle_client_memory.py',
+      '--client-binary', campaign_client,
+      '--port', '29991',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'idle-client-memory',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 420,
+    is_parallel: false,
+  )
+endif
