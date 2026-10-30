@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5571,
+  "totalFiles": 5572,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 394
   },
   "postSplitCounts": {
-    "Reconstruction_original": 289,
+    "Reconstruction_original": 290,
     "ThirdParty": 1,
     "Retail_asset": 3,
     "Doom3_GPL": 2,
@@ -17,7 +17,7 @@
   },
   "postSplitAsOf": {
     "openETQW": "the commit that last changed this manifest",
-    "openETQW-game": "4036c6dc5e0a20f86c2bd23d03ff08223fad77a4"
+    "openETQW-game": "89b186090e06963f1fc2e054ad0f7b85bef20ee2"
   },
   "files": [
     {
@@ -47681,7 +47681,7 @@
       "canonicalSha256": "f5842493bc2290e80d48c2d66f8311c2a53cf371a41755b98a5438b5f49e04dd",
       "bytes": 121865,
       "addedAfterSplit": true,
-      "addedIn": null,
+      "addedIn": "e3915d5ff37e6496c2330fdcad40675909856573",
       "spdx": null
     },
     {
@@ -47693,7 +47693,7 @@
       "canonicalSha256": "ee009d912966584867144253b815eef564085ce74b85e8c51c400aeb43579927",
       "bytes": 76348,
       "addedAfterSplit": true,
-      "addedIn": null,
+      "addedIn": "e3915d5ff37e6496c2330fdcad40675909856573",
       "spdx": null
     },
     {
@@ -47705,7 +47705,7 @@
       "canonicalSha256": "4348cfe50992c6951f7fd3c7c0e7a30584166460d195f4865602945017edf1f0",
       "bytes": 594008,
       "addedAfterSplit": true,
-      "addedIn": null,
+      "addedIn": "e3915d5ff37e6496c2330fdcad40675909856573",
       "spdx": null
     },
     {
@@ -48173,7 +48173,7 @@
       "canonicalSha256": "a291851d96ae655625d1b8e626bc8bd0f9d5bb096b8000b287570542de8d246e",
       "bytes": 2116,
       "addedAfterSplit": true,
-      "addedIn": null,
+      "addedIn": "e3915d5ff37e6496c2330fdcad40675909856573",
       "spdx": null
     },
     {
@@ -50695,9 +50695,9 @@
       "tier": "Reconstruction_original",
       "license": "MIT",
       "targetRepo": "openETQW-game",
-      "rawSha256": "c87613bff1f771bb8236e095c78bee6d181f4923e30f9fba65928adc7a6c4142",
-      "canonicalSha256": "c87613bff1f771bb8236e095c78bee6d181f4923e30f9fba65928adc7a6c4142",
-      "bytes": 19963,
+      "rawSha256": "f17d1efc0664eaba636a235e4cf85935f3b6dae991cf23629ca7822a374f5742",
+      "canonicalSha256": "f17d1efc0664eaba636a235e4cf85935f3b6dae991cf23629ca7822a374f5742",
+      "bytes": 20095,
       "addedAfterSplit": true,
       "addedIn": "a63e2bbc8c7a803dda21f5239abd5303c1fcb40f",
       "spdx": "MIT"
@@ -50767,9 +50767,9 @@
       "tier": "Reconstruction_original",
       "license": "MIT",
       "targetRepo": "openETQW-game",
-      "rawSha256": "ec9227cfe55e36d90c61a1feac7d8de01c602488b9a51fb4837bc23f6c485364",
-      "canonicalSha256": "ec9227cfe55e36d90c61a1feac7d8de01c602488b9a51fb4837bc23f6c485364",
-      "bytes": 4942,
+      "rawSha256": "15106862fd00bef1a9755d4912125964511c90aab231e5cbc76e52c434d8e4ab",
+      "canonicalSha256": "15106862fd00bef1a9755d4912125964511c90aab231e5cbc76e52c434d8e4ab",
+      "bytes": 5033,
       "addedAfterSplit": true,
       "addedIn": "bb1c102d562582cc2d1e3063e0295d3aa03a50a2",
       "spdx": "MIT"
@@ -50943,6 +50943,18 @@
       "spdx": "MIT"
     },
     {
+      "path": "tools/ci/check_build_string.py",
+      "tier": "Reconstruction_original",
+      "license": "MIT",
+      "targetRepo": "openETQW-game",
+      "rawSha256": "974f7a14837f91671c5db74e3e8a5d1891d60ee4ea80a93433e038c4d33c5125",
+      "canonicalSha256": "974f7a14837f91671c5db74e3e8a5d1891d60ee4ea80a93433e038c4d33c5125",
+      "bytes": 3224,
+      "addedAfterSplit": true,
+      "addedIn": "bf1ed06bddf6f3cd9f39249a402eb1cb331d866f",
+      "spdx": "MIT"
+    },
+    {
       "path": "tools/ci/check_engine_tests.py",
       "tier": "Reconstruction_original",
       "license": "MIT",
@@ -51055,8 +51067,8 @@
       "tier": "Reconstruction_original",
       "license": "MIT",
       "targetRepo": "openETQW-game",
-      "rawSha256": "b792af49c67e1e48bc2cebf813c5ae34c5844cbf6487db1861c123fa2e0a405e",
-      "canonicalSha256": "b792af49c67e1e48bc2cebf813c5ae34c5844cbf6487db1861c123fa2e0a405e",
+      "rawSha256": "1db9e50fdb4e47c956a47056c58b289224b4ce8f17925d4085d921af22c7d0cf",
+      "canonicalSha256": "1db9e50fdb4e47c956a47056c58b289224b4ce8f17925d4085d921af22c7d0cf",
       "bytes": 569,
       "addedAfterSplit": true,
       "addedIn": "a63e2bbc8c7a803dda21f5239abd5303c1fcb40f",
