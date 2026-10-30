@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-<!-- openETQW placeholder icon: a plain mark, not ET:QW artwork. -->
-<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
-  <rect x="8" y="8" width="240" height="240" rx="40" fill="#1f2a1c"/>
-  <path d="M40 188 L128 52 L216 188 Z" fill="none" stroke="#d98c1f" stroke-width="18" stroke-linejoin="round"/>
-  <path d="M84 188 L128 120 L172 188" fill="none" stroke="#e8dcc0" stroke-width="14" stroke-linejoin="round"/>
-</svg>
