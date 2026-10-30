@@ -92,7 +92,9 @@ public:
 	// thread writes one mix buffer every USERCMD_MSEC, about three times what 44.1 kHz plays,
 	// and a device that has gone away (a disconnected remote session) plays nothing. SDL
 	// keeps all that is put, so the queue grew by 18-28 MB a minute (#367). Only queue
-	// while less than MAX_QUEUED_MIX_BUFFERS are waiting.
+	// while less than MAX_QUEUED_MIX_BUFFERS are waiting. Today the buffer is always
+	// silence (the bootstrap sound system mixes nothing). A real mixer should check this
+	// gate before it mixes, or the buffers dropped here would be lost audio.
 	virtual void Write( bool flushing ) override {
 		(void)flushing;
 		if ( audioStream == NULL || mixBuffer == NULL ) {

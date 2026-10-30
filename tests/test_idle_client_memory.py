@@ -14,11 +14,16 @@ One single-player Vulkan client on valley, with SDL's dummy audio driver. It pla
 real time, so an audio device is open on any host, with or without a desktop:
 
   M1  the client opened its audio stream ("SDL3 Audio initialized"). Without the stream the
-      leak's path does not run, so the test fails rather than pass.
-  M2  after WARMUP seconds in the game, the process's private bytes (Windows; the resident set
-      elsewhere) grow by less than MAX_GROWTH_MB over WINDOW seconds. Before the fix they grew
-      by 27-34 MB in 90 s on Windows x64; with it, a one-time step of about 5 MB some 30-40 s
-      after the map loads, then nothing. WARMUP is meant to put that step before the window.
+      writes are dropped before they reach SDL, so the test fails rather than pass.
+  M2  after WARMUP seconds in the game, the process's memory grows by less than MAX_GROWTH_MB
+      over WINDOW seconds: private bytes on Windows, the resident set on Linux and macOS. Before
+      the fix it grew by 27-34 MB in 90 s on Windows x64; with it, a one-time step of about 5 MB
+      some 30-40 s after the map loads, then nothing. WARMUP is meant to put that step before
+      the window.
+
+Only Windows has a writer (the sound thread), so only there can this test catch #367. On Linux
+and macOS nothing writes to the stream, and the test passes whether or not the fix is in. There
+it only checks that an idle client does not grow for some other reason.
 
 Exit 0 pass, 1 fail, 77 no client binary or no retail data.
 """
@@ -44,7 +49,10 @@ MAX_GROWTH_MB = 12.0
 AUDIO_OPENED = "SDL3 Audio initialized"
 
 
-def private_mb(pid):
+MEMORY_KIND = "private bytes" if sys.platform == "win32" else "resident set"
+
+
+def memory_mb(pid):
     """The process's private bytes in MB on Windows (the commit charge, which a working-set trim
     does not lower), its resident set elsewhere."""
     if sys.platform == "win32":
@@ -118,17 +126,23 @@ def main(argv):
         while True:
             if not cl.alive():
                 raise Failed("M2: the client exited while idle")
-            samples.append((time.monotonic() - start, private_mb(cl.proc.pid)))
+            try:
+                mb = memory_mb(cl.proc.pid)
+            except (OSError, subprocess.CalledProcessError, ValueError) as e:
+                # the client can exit between alive() and the read
+                raise Failed(f"M2: could not read the client's {MEMORY_KIND}"
+                             f" ({'it exited while idle' if not cl.alive() else 'it is still running'}): {e}")
+            samples.append((time.monotonic() - start, mb))
             if samples[-1][0] >= WINDOW:
                 break
             time.sleep(SAMPLE_EVERY)
         growth = samples[-1][1] - samples[0][1]
         ok = growth < MAX_GROWTH_MB
-        print("  samples (s, MB): " + ", ".join(f"{t:.0f} {mb:.1f}" for t, mb in samples))
-        print(f"  M2 {'pass' if ok else 'FAIL'}: grew {growth:+.1f} MB in {samples[-1][0]:.0f} s idle"
+        print(f"  {MEMORY_KIND} samples (s, MB): " + ", ".join(f"{t:.0f} {mb:.1f}" for t, mb in samples))
+        print(f"  M2 {'pass' if ok else 'FAIL'}: {MEMORY_KIND} grew {growth:+.1f} MB in {samples[-1][0]:.0f} s idle"
               f" (need < {MAX_GROWTH_MB:.0f} MB)")
         if not ok:
-            failures.append(f"M2: the idle client grew {growth:+.1f} MB in {samples[-1][0]:.0f} s"
+            failures.append(f"M2: the idle client's {MEMORY_KIND} grew {growth:+.1f} MB in {samples[-1][0]:.0f} s"
                             f" (from {samples[0][1]:.1f} MB to {samples[-1][1]:.1f} MB)")
     except Failed as e:
         failures.append(str(e))
