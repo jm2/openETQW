@@ -504,6 +504,17 @@ if build_dedicated
     timeout: 120,
   )
 
+  # console.log carries the version lines (#362), on synthetic data
+  test(
+    'log-version',
+    py,
+    args: [meson.project_source_root() / 'tests' / 'test_log_version.py', '--ded-binary', retail_install_check_ded,
+           '--game-module', game_module_built],
+    workdir: meson.project_source_root(),
+    suite: 'unit',
+    timeout: 120,
+  )
+
   all_stock_maps_ded = meson.project_build_root() / engine_ded_binary_name
   if host_system == 'windows'
     all_stock_maps_ded += '.exe'
