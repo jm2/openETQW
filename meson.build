@@ -106,6 +106,18 @@ foreach fp_arg : ['-ffp-contract=off']
   endif
 endforeach
 
+# UBSan's vptr check, and only that check, is off on Linux (docs/decisions/0005; the
+# owner, 2026-10-29: "4. A"; as openQ4's meson.build). The engine, the game module and
+# the SDK idLib share polymorphic classes whose key functions, and so their typeinfo,
+# are defined on one side only (the dedicated server and the unit tests link idLib
+# without the engine's idFile, the client's idImageManager), so -fsanitize=vptr
+# cannot link. AddressSanitizer and every other UBSan check stay on.
+# The flag changes nothing unless -fsanitize=undefined is on (b_sanitize).
+# tests/test_sanitizer_scope.py keeps this the only exclusion.
+if host_system == 'linux' and cpp.has_argument('-fno-sanitize=vptr')
+  add_project_arguments('-fno-sanitize=vptr', language: 'cpp')
+endif
+
 common_engine_defs = [
   '-DSD_SDK_BUILD',
   '-DSD_PUBLIC_BUILD',
