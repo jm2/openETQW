@@ -61,6 +61,19 @@ packages=(
   libxss-dev
   libxtst-dev
 )
+if [[ "${target_arch}" == arm64 ]]; then
+  # libpulse-dev:arm64 needs libglib2.0-dev:arm64, and apt on the amd64 runner cannot
+  # resolve that (it asks for libglib2.0-dev-bin:arm64 = 2.80.0-6ubuntu3.10, with the
+  # amd64 sources on the mirror or on archive.ubuntu.com alike; #360). The cross
+  # build's SDL3 goes without its PulseAudio backend; SDL3 loads
+  # its audio backends at run time, and the native ARM64 legs (the PR's Linux ARM64
+  # GCC validation, the release package) still build it with PulseAudio.
+  kept=()
+  for package in "${packages[@]}"; do
+    [[ "${package}" == libpulse-dev ]] || kept+=("${package}")
+  done
+  packages=("${kept[@]}")
+fi
 packages=("${packages[@]/%/${dev_suffix}}")
 if [[ "${CC:-}" == clang* || "${CXX:-}" == clang* ]]; then
   host_packages+=(clang)
