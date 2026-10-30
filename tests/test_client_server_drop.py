@@ -60,9 +60,9 @@ def main(argv):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--ded-binary")
     ap.add_argument("--client-binary", help="the Vulkan client, for --case listen")
-    ap.add_argument("--case", choices=("kick", "timeout", "listen"), required=True)
+    ap.add_argument("--case", choices=("kick", "timeout", "listen"), default="kick")
     ap.add_argument("--map", default="valley")
-    ap.add_argument("--port", type=int, required=True)
+    ap.add_argument("--port", type=int, default=29944)  # meson: client-server-kick
     ap.add_argument("--log-dir")
     args = ap.parse_args(argv)
 

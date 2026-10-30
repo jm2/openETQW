@@ -16,7 +16,7 @@
   },
   "postSplitAsOf": {
     "openETQW": "the commit that last changed this manifest",
-    "openETQW-game": "b3f9d40e60fff4a38bdb23f5a0c689c7f5989018"
+    "openETQW-game": "4036c6dc5e0a20f86c2bd23d03ff08223fad77a4"
   },
   "files": [
     {
@@ -49242,9 +49242,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "a773de3241575717a9b0e910a9a22f61d5c82a5523fe499e85a55cd14065f2c3",
-      "canonicalSha256": "a773de3241575717a9b0e910a9a22f61d5c82a5523fe499e85a55cd14065f2c3",
-      "bytes": 13116,
+      "rawSha256": "64e700c949720fc638da91f564075c1c62d7aeae35f817ca0350be97b3d05217",
+      "canonicalSha256": "64e700c949720fc638da91f564075c1c62d7aeae35f817ca0350be97b3d05217",
+      "bytes": 13146,
       "addedAfterSplit": true,
       "addedIn": "8f340c82a177ceb54fdf1ac96a04e972789974f0",
       "spdx": "GPL-3.0-or-later"
@@ -50370,9 +50370,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "1265d5c63d988e6fec1e08b9145089e4c76e6d913e807d5b2f473586cd557ed9",
-      "canonicalSha256": "1265d5c63d988e6fec1e08b9145089e4c76e6d913e807d5b2f473586cd557ed9",
-      "bytes": 23084,
+      "rawSha256": "5436ba28d2184452a2ae4a9f0592783f096b3da590c2276423534688070a67d1",
+      "canonicalSha256": "5436ba28d2184452a2ae4a9f0592783f096b3da590c2276423534688070a67d1",
+      "bytes": 23291,
       "addedAfterSplit": true,
       "addedIn": "96be8171ffa1e6299cb40d4423a3e10c3a54cd81",
       "spdx": "GPL-3.0-or-later"
@@ -50730,9 +50730,9 @@
       "tier": "Reconstruction_original",
       "license": "MIT",
       "targetRepo": "openETQW-game",
-      "rawSha256": "093f34b72f5e968e9fb0140c1e133ea477371ec4b9c60682dd9aeeaf4c5e041d",
-      "canonicalSha256": "093f34b72f5e968e9fb0140c1e133ea477371ec4b9c60682dd9aeeaf4c5e041d",
-      "bytes": 8697,
+      "rawSha256": "ec9227cfe55e36d90c61a1feac7d8de01c602488b9a51fb4837bc23f6c485364",
+      "canonicalSha256": "ec9227cfe55e36d90c61a1feac7d8de01c602488b9a51fb4837bc23f6c485364",
+      "bytes": 4942,
       "addedAfterSplit": true,
       "addedIn": "bb1c102d562582cc2d1e3063e0295d3aa03a50a2",
       "spdx": "MIT"
