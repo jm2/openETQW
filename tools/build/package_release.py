@@ -66,6 +66,8 @@ ASSET_PREFIX = "openetqw"
 APP_NAME = "openETQW.app"
 BUNDLE_ID = "io.github.jm2.openetqw"
 MACOS_MIN_OS = "11.0"
+SPLASH = "assets/splash/etqw_splash.bmp"  # meson installs it for the POSIX clients
+MACOS_ICON = "etqw.icns"  # assets/icons/etqw.icns, which meson installs on macOS
 TAG_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?$")
 # licences the package must carry for each bundled third-party binary (--license NAME=FILE)
 BUNDLE_LICENSES = {
@@ -216,6 +218,10 @@ def check_staged(install: Path, platform: str, arch: str) -> None:
     module = {"linux": ".so", "windows": ".dll", "macos": ".dylib"}[platform]
     required = [f"openETQW-client_{arch}{exe}", f"openETQW-ded_{arch}{exe}", f"game_{arch}{module}"]
     required += ["base/vkprogs", "base/glprogs", "licenses/openETQW/LICENSE", "licenses/ETQW-SDK/EULA_SDK_ETQW.txt"]
+    if platform != "windows":
+        required.append(SPLASH)  # the POSIX client's launch splash (decision 0004)
+    if platform == "macos":
+        required.append(MACOS_ICON)
     missing = [r for r in required if not (install / r).exists()]
     if missing:
         raise PackageError(f"the staged tree {install} lacks {', '.join(missing)} (run meson install first)")
@@ -441,6 +447,8 @@ def package_macos(args, install: Path, work: Path, licenses: dict[str, Path], so
     copy_file(module, frameworks / module.name, 0o755)
     copy_tree(install / "base", resources / "base")
     copy_tree(install / "licenses", resources / "licenses")
+    copy_file(install / SPLASH, resources / SPLASH, 0o644)
+    copy_file(install / MACOS_ICON, resources / MACOS_ICON, 0o644)
     copy_file(args.glslang_dir / "glslangValidator", macos_dir / "glslangValidator", 0o755)
 
     for exe in executables:
@@ -475,11 +483,15 @@ def package_macos(args, install: Path, work: Path, licenses: dict[str, Path], so
     for extra in bundle_macos_dependencies([frameworks / "libMoltenVK.dylib"], frameworks, lib_dirs):
         log(f"MoltenVK needs {extra}")
     check_bundle(app)
+    for resource in (SPLASH, MACOS_ICON):
+        if not (resources / resource).is_file():
+            raise PackageError(f"the app lacks Contents/Resources/{resource}")
 
     with open(app / "Contents" / "Info.plist", "wb") as plist:
         plistlib.dump({
             "CFBundleDevelopmentRegion": "en",
             "CFBundleExecutable": client,
+            "CFBundleIconFile": MACOS_ICON,
             "CFBundleIdentifier": BUNDLE_ID,
             "CFBundleInfoDictionaryVersion": "6.0",
             "CFBundleName": PRODUCT,

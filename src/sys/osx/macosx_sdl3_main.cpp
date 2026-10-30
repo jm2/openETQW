@@ -10,6 +10,8 @@
 
 static int SDLCALL OpenETQW_Main( int argc, char **argv ) {
 	Posix_EarlyInit();
+	// hidden again by common->Init once the renderer is up (decision 0004)
+	Sys_ShowSplashScreen( true );
 
 	if ( argc > 1 && argv != NULL ) {
 		common->Init( argc - 1, const_cast< const char ** >( &argv[1] ), NULL );
