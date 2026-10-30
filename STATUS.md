@@ -147,12 +147,12 @@ The app's game module is found: since #24 `FindDLL` tries the executable's direc
 
 ## Release gate (CHARTER §11)
 Both repositories are public since 2026-10-29. No release has been made yet; v0.1.0 is being prepared (`docs/releasing.md`). The `screenshots-prNNN` prereleases were review material, not releases, and were deleted on 2026-10-29.
-1. **jmarshall's reconstruction code has no licence: unresolved, blocking.**
+1. **jmarshall's reconstruction code has no licence: unresolved; accepted as a risk for v0.1.0 (owner, 2026-10-29).**
    - Both histories start from jmarshall's three upstream commits (`docs/provenance.md` §1), which carry no licence file.
    - A file-by-file audit (2026-10-29) found 230 files, about 82k lines, that are his own text with no ETQW SDK, Doom 3 GPL or third-party counterpart. 180 of them reached shipped builds. 154 upstream files carry his own "GPL v3 or later" header; most of those are Doom 3-derived, and none is in the shipped core.
    - #349 and game #62 (2026-10-29) removed the files no build compiles. About 185 remain, nearly all shipped: the Vulkan backend and ray tracing, much of the framework and the renderer front end, the decl library and the Windows bootstrap.
    - 59 of the shipped files say in their own text that they were reconstructed from the retail PDB, Hex-Rays output or the retail executable. That is a separate risk from the licence.
-   - The author did not respond; replacement or rewriting is undecided (owner, 2026-10-29). This gate stays blocking until it is resolved.
+   - The author did not respond; replacement or rewriting is undecided (owner, 2026-10-29). The owner accepted the risk for the v0.1.0 release (2026-10-29); the item stays open until the code is licensed, replaced or rewritten.
 2. **SDK-licensed code linked into engine binaries: cleared (owner, 2026-10-29).** The exceptions were approved by the owner on 2026-09-25.
    - The engine links the game repo's SDK idLib (`libidLib.a`, 72 objects) and compiles the staged SDK `DeclType.cpp`, 189 staged SDK headers and `BuildDefines.inc`; three unit tests also compile the SDK `BitMsg.cpp`. `docs/provenance.md` §4 lists them (E1–E4).
    - The owner approved them as tracked exceptions on openQ4's precedent (A6; `docs/decisions/0001-sdk-code-in-the-engine-build.md`). Condition: every engine package carries the SDK EULA as well as the GPL. Met since PR #19: `meson install` puts it under `licenses/ETQW-SDK`, checked by meson `install-licenses`. That clears the item for the engine binaries.
