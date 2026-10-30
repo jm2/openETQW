@@ -3494,6 +3494,8 @@ static bool FS_PromptForRetailData( idStr &root ) {
 	if ( !fs_retailPrompt.GetBool() || Sys_StdinIsPipe() ) {
 		return false;
 	}
+	// the folder prompt must not sit behind the launch splash
+	Sys_ShowSplashScreen( false );
 	const char *problem = NULL;
 	idStr refused;
 	for ( int attempt = 0; attempt < 5; attempt++ ) {

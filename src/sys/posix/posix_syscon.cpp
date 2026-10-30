@@ -123,35 +123,41 @@ struct posixSplash_t {
 
 static posixSplash_t s_splash = { NULL, NULL, false, false };
 
-static void Posix_SplashAppendCandidate( idStrList &candidates, const char *directory, const char *prefix ) {
-	if ( directory == NULL || directory[0] == '\0' ) {
-		return;
+// Opens directory/prefix/POSIX_SPLASH_BMP. It runs before common->Init has set up the
+// engine's allocators, so no idStr: plain stack buffers only.
+static SDL_Surface *Posix_SplashLoadFrom( const char *directory, size_t length, const char *prefix ) {
+	if ( directory == NULL || length == 0 ) {
+		return NULL;
 	}
-	idStr candidate = directory;
-	candidate.StripTrailing( '/' );
-	candidate.AppendPath( prefix );
-	candidate.AppendPath( POSIX_SPLASH_BMP );
-	candidates.Append( candidate );
+	char path[ MAX_OSPATH ];
+	if ( length + 1 + strlen( prefix ) + sizeof( POSIX_SPLASH_BMP ) > sizeof( path ) ) {
+		return NULL;
+	}
+	idStr::snPrintf( path, sizeof( path ), "%.*s/%s%s", static_cast< int >( length ), directory, prefix,
+		POSIX_SPLASH_BMP );
+	return SDL_LoadBMP( path );
 }
 
 // The splash beside the executable (an installed or packaged Linux engine), in the app's
 // Contents/Resources (macOS, which SDL_GetBasePath names for an app bundle), or in the
 // current directory (a development build run from the repository root)
 static SDL_Surface *Posix_SplashLoad( void ) {
-	idStrList candidates;
-	idStr exeDirectory = Sys_EXEPath();
-	exeDirectory.StripFilename();
-	Posix_SplashAppendCandidate( candidates, exeDirectory.c_str(), "" );
-	Posix_SplashAppendCandidate( candidates, exeDirectory.c_str(), "../Resources" );
-	Posix_SplashAppendCandidate( candidates, SDL_GetBasePath(), "" );
-	Posix_SplashAppendCandidate( candidates, Posix_Cwd(), "" );
-	for ( int i = 0; i < candidates.Num(); ++i ) {
-		SDL_Surface *surface = SDL_LoadBMP( candidates[ i ].c_str() );
-		if ( surface != NULL ) {
-			return surface;
-		}
+	const char *exePath = Sys_EXEPath();
+	const char *slash = exePath != NULL ? strrchr( exePath, '/' ) : NULL;
+	const size_t exeDirectoryLength = slash != NULL ? static_cast< size_t >( slash - exePath ) : 0;
+	const char *basePath = SDL_GetBasePath();
+	const char *cwd = Posix_Cwd();
+	SDL_Surface *surface = Posix_SplashLoadFrom( exePath, exeDirectoryLength, "" );
+	if ( surface == NULL ) {
+		surface = Posix_SplashLoadFrom( exePath, exeDirectoryLength, "../Resources/" );
 	}
-	return NULL;
+	if ( surface == NULL && basePath != NULL ) {
+		surface = Posix_SplashLoadFrom( basePath, strlen( basePath ), "" );
+	}
+	if ( surface == NULL && cwd != NULL ) {
+		surface = Posix_SplashLoadFrom( cwd, strlen( cwd ), "" );
+	}
+	return surface;
 }
 
 static void Posix_SplashDestroy( void ) {

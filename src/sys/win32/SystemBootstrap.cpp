@@ -1107,9 +1107,8 @@ void Sys_ShowWindow( bool show ) {
 	}
 }
 
-// The splash bitmap (IDB_ETQW_SPLASH) is purged retail content and cannot
-// ship, so there is no splash to show on Windows either; the POSIX layer
-// stubs this the same way.
+// No splash on Windows yet: the bitmap resource (IDB_ETQW_SPLASH) is not built
+// in. The POSIX clients show assets/splash/etqw_splash.bmp (decision 0004).
 void Sys_ShowSplashScreen( bool show ) {
 }
 
