@@ -229,6 +229,15 @@ test(
   timeout: 60,
 )
 
+# Sanitizer exclusions stay as narrow as decision 0005 allows
+test(
+  'sanitizer-scope',
+  py,
+  args: [meson.project_source_root() / 'tests' / 'test_sanitizer_scope.py'],
+  suite: 'unit',
+  timeout: 30,
+)
+
 # The build helpers (scripts/build-*): option conflicts, step order, one build type
 test(
   'build-scripts',
