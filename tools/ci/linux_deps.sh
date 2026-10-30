@@ -61,6 +61,19 @@ packages=(
   libxss-dev
   libxtst-dev
 )
+if [[ "${target_arch}" == arm64 ]]; then
+  # libpulse-dev:arm64 needs libglib2.0-dev:arm64, and apt on the amd64 runner cannot
+  # resolve that (it asks for libglib2.0-dev-bin:arm64 = 2.80.0-6ubuntu3.10, with the
+  # amd64 sources on the mirror or on archive.ubuntu.com alike; #360). The cross
+  # build's SDL3 goes without its PulseAudio backend; SDL3 loads
+  # its audio backends at run time, and the native ARM64 legs (the PR's Linux ARM64
+  # GCC validation, the release package) still build it with PulseAudio.
+  kept=()
+  for package in "${packages[@]}"; do
+    [[ "${package}" == libpulse-dev ]] || kept+=("${package}")
+  done
+  packages=("${kept[@]}")
+fi
 packages=("${packages[@]/%/${dev_suffix}}")
 if [[ "${CC:-}" == clang* || "${CXX:-}" == clang* ]]; then
   host_packages+=(clang)
@@ -72,10 +85,6 @@ if [[ "${target_arch}" == arm64 ]]; then
   sudo dpkg --add-architecture arm64
   ubuntu_sources=/etc/apt/sources.list.d/ubuntu.sources
   sudo sed -i '/^Architectures:/d; /^Signed-By:/a Architectures: amd64' "${ubuntu_sources}"
-  # Take amd64 from Ubuntu's own archive too, not the runner's mirror list: a
-  # Multi-Arch: foreign -bin package (libglib2.0-dev-bin) must match its arm64 -dev
-  # package's version exactly, and the mirror can lag ports.ubuntu.com (#360).
-  sudo sed -i 's|^URIs: mirror+file:/etc/apt/apt-mirrors.txt|URIs: http://archive.ubuntu.com/ubuntu/|' "${ubuntu_sources}"
   sudo tee /etc/apt/sources.list.d/ubuntu-arm64.sources >/dev/null <<'SOURCES'
 Types: deb
 URIs: http://ports.ubuntu.com/ubuntu-ports
