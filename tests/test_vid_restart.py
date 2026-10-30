@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -30,6 +31,7 @@ from test_campaign_client_maps import find_client  # noqa: E402
 from test_client_network import VulkanClient  # noqa: E402
 
 READY = "------------- ETQW initialized -------------"
+ATTEMPTS = 3  # vid_restart requests per state, for desktops that switch asynchronously
 
 
 class MenuClient(VulkanClient):
@@ -77,10 +79,17 @@ def main() -> int:
         print("1. r_fullscreen 1, vid_restart")
         mark = gfx.mark()
         gfx.send("set r_fullscreen 1")
-        gfx.send("vid_restart")
-        gfx.sync()
-        gfx.wait_for(lambda s: s.startswith("vid_restart: "), 15.0, mark)
-        state = [ln.text for ln in gfx.snapshot(mark) if ln.text.startswith("vid_restart: ")]
+        state = []
+        # SDL_SyncWindow can return before a desktop's fullscreen animation (macOS
+        # Spaces) finishes; vid_restart is idempotent, so ask again a few times
+        for _ in range(ATTEMPTS):
+            gfx.send("vid_restart")
+            gfx.sync()
+            gfx.wait_for(lambda s: s.startswith("vid_restart: "), 15.0, mark)
+            state = [ln.text for ln in gfx.snapshot(mark) if ln.text.startswith("vid_restart: ")]
+            if state[-1:] == ["vid_restart: fullscreen"]:
+                break
+            time.sleep(1.0)
         expect(state[-1:] == ["vid_restart: fullscreen"], f"the window is fullscreen (reported {state})")
 
         print("2. vid_restart windowed")

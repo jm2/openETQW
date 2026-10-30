@@ -40,6 +40,9 @@ void VidRestart_f( const idCmdArgs& args ) {
 	}
 	SDL_SyncWindow( window );
 	const bool isFullscreen = ( SDL_GetWindowFlags( window ) & SDL_WINDOW_FULLSCREEN ) != 0;
+	glimpParms_t parms = sys3D->GetGameWindowParms();
+	parms.fullScreen = isFullscreen;
+	sys3D->SetGameWindowParms( parms );
 	common->Printf( "vid_restart: %s\n", isFullscreen ? "fullscreen" : "windowed" );
 }
 
