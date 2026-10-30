@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5571,
+  "totalFiles": 5572,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -11,7 +11,7 @@
   "postSplitCounts": {
     "Reconstruction_original": 289,
     "ThirdParty": 1,
-    "Retail_asset": 3,
+    "Retail_asset": 4,
     "Doom3_GPL": 2,
     "SDK": 2
   },
@@ -47673,6 +47673,18 @@
       "spdx": "GPL-3.0-or-later"
     },
     {
+      "path": "assets/icons/etqw.icns",
+      "tier": "Retail_asset",
+      "license": "LicenseRef-ETQW-Retail",
+      "targetRepo": "openETQW",
+      "rawSha256": "ab0008c2e75a1fe277815bbc4b3464cecf55decb8b53dc52d2d4fb3a1e863dca",
+      "canonicalSha256": "ab0008c2e75a1fe277815bbc4b3464cecf55decb8b53dc52d2d4fb3a1e863dca",
+      "bytes": 212964,
+      "addedAfterSplit": true,
+      "addedIn": null,
+      "spdx": null
+    },
+    {
       "path": "assets/icons/etqw.ico",
       "tier": "Retail_asset",
       "license": "LicenseRef-ETQW-Retail",
@@ -47681,7 +47693,7 @@
       "canonicalSha256": "f5842493bc2290e80d48c2d66f8311c2a53cf371a41755b98a5438b5f49e04dd",
       "bytes": 121865,
       "addedAfterSplit": true,
-      "addedIn": null,
+      "addedIn": "e3915d5ff37e6496c2330fdcad40675909856573",
       "spdx": null
     },
     {
@@ -47693,7 +47705,7 @@
       "canonicalSha256": "ee009d912966584867144253b815eef564085ce74b85e8c51c400aeb43579927",
       "bytes": 76348,
       "addedAfterSplit": true,
-      "addedIn": null,
+      "addedIn": "e3915d5ff37e6496c2330fdcad40675909856573",
       "spdx": null
     },
     {
@@ -47705,7 +47717,7 @@
       "canonicalSha256": "4348cfe50992c6951f7fd3c7c0e7a30584166460d195f4865602945017edf1f0",
       "bytes": 594008,
       "addedAfterSplit": true,
-      "addedIn": null,
+      "addedIn": "e3915d5ff37e6496c2330fdcad40675909856573",
       "spdx": null
     },
     {
@@ -48173,7 +48185,7 @@
       "canonicalSha256": "a291851d96ae655625d1b8e626bc8bd0f9d5bb096b8000b287570542de8d246e",
       "bytes": 2116,
       "addedAfterSplit": true,
-      "addedIn": null,
+      "addedIn": "e3915d5ff37e6496c2330fdcad40675909856573",
       "spdx": null
     },
     {
@@ -48349,9 +48361,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "d3101bffd562467f9e1ceda73cb6b16c4bd3449dae342c6b9208c2b02de7ccd7",
-      "canonicalSha256": "d3101bffd562467f9e1ceda73cb6b16c4bd3449dae342c6b9208c2b02de7ccd7",
-      "bytes": 21778,
+      "rawSha256": "50f629dec2e4438bbe21efc3087d6be171d81e5d9b255630419681a33b80d826",
+      "canonicalSha256": "50f629dec2e4438bbe21efc3087d6be171d81e5d9b255630419681a33b80d826",
+      "bytes": 22217,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": "GPL-3.0-or-later"
@@ -48739,9 +48751,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "42d62baec1662ccca9a6db9a42f61d0be708e74ea50b54d19aebd7f44496a565",
-      "canonicalSha256": "42d62baec1662ccca9a6db9a42f61d0be708e74ea50b54d19aebd7f44496a565",
-      "bytes": 868,
+      "rawSha256": "68f6bca8f2c5fe35a8d34d574545e39d34ca77be368c46f5ba5467c154b94313",
+      "canonicalSha256": "68f6bca8f2c5fe35a8d34d574545e39d34ca77be368c46f5ba5467c154b94313",
+      "bytes": 972,
       "addedAfterSplit": true,
       "addedIn": "ed2de0dd8a85639e9071f68ecc80c12e2d3e2d55",
       "spdx": "GPL-3.0-or-later"
@@ -48769,9 +48781,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "437bc6dca2e79b5705c5583a391fe579bdeff48fa3658b7ad13e01c8e1468f60",
-      "canonicalSha256": "437bc6dca2e79b5705c5583a391fe579bdeff48fa3658b7ad13e01c8e1468f60",
-      "bytes": 25562,
+      "rawSha256": "f0e2bc50745a2504300b738985b6f754ba724bb45ebc25b0f078006641db3b05",
+      "canonicalSha256": "f0e2bc50745a2504300b738985b6f754ba724bb45ebc25b0f078006641db3b05",
+      "bytes": 25518,
       "addedAfterSplit": true,
       "addedIn": "1223dc574ca47eded3cd996d519762352219c59f",
       "spdx": "GPL-3.0-or-later"
@@ -48817,9 +48829,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "c5a880c840be68f31bc4825e53c9547d2c4458a39e825f89489bd4b5791338cc",
-      "canonicalSha256": "c5a880c840be68f31bc4825e53c9547d2c4458a39e825f89489bd4b5791338cc",
-      "bytes": 2383,
+      "rawSha256": "da59a5bc30650891eee70ab7724e09d8c8bdf5f6e1e97539cef87806f4e927bc",
+      "canonicalSha256": "da59a5bc30650891eee70ab7724e09d8c8bdf5f6e1e97539cef87806f4e927bc",
+      "bytes": 6858,
       "addedAfterSplit": true,
       "addedIn": "1223dc574ca47eded3cd996d519762352219c59f",
       "spdx": "GPL-3.0-or-later"
@@ -49723,9 +49735,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "28f5a26ecc17b52713ddd1bb34214bde3e5861ee971332c2e24e6109436de855",
-      "canonicalSha256": "28f5a26ecc17b52713ddd1bb34214bde3e5861ee971332c2e24e6109436de855",
-      "bytes": 15494,
+      "rawSha256": "5c9e1de0f2cc24177487585db3886738d444caa32b52bddc9d1ffdde631892b1",
+      "canonicalSha256": "5c9e1de0f2cc24177487585db3886738d444caa32b52bddc9d1ffdde631892b1",
+      "bytes": 16245,
       "addedAfterSplit": true,
       "addedIn": "ad1431f2c6d66c4321a022c5d8b2f57722be125d",
       "spdx": "GPL-3.0-or-later"
@@ -50263,9 +50275,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "21c2b4d52ac5bb4903994a4e865beafe4b0e900c6640723d1dd903a7cf0c6a54",
-      "canonicalSha256": "21c2b4d52ac5bb4903994a4e865beafe4b0e900c6640723d1dd903a7cf0c6a54",
-      "bytes": 30069,
+      "rawSha256": "d9b9d26b4cc6c76fd413d42593a47bacc34b7126e67c1e168f49dbc20f916372",
+      "canonicalSha256": "d9b9d26b4cc6c76fd413d42593a47bacc34b7126e67c1e168f49dbc20f916372",
+      "bytes": 30753,
       "addedAfterSplit": true,
       "addedIn": "ad1431f2c6d66c4321a022c5d8b2f57722be125d",
       "spdx": "GPL-3.0-or-later"

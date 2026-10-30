@@ -9,6 +9,10 @@
 #include "idlib/precompiled.h"
 #include "posix_public.h"
 
+#if defined( USE_SDL3 ) && !defined( ID_DEDICATED )
+#include <SDL3/SDL.h>
+#endif
+
 namespace {
 
 static const int POSIX_CONSOLE_BUFFER_SIZE = 32768;
@@ -90,3 +94,145 @@ void Posix_ConsoleFatalErrorWait( void ) {
 
 void Posix_ShutdownConsole( void ) {
 }
+
+/*
+==============================================================================
+
+Launch splash (decision 0004)
+
+The retail splash, assets/splash/etqw_splash.bmp, in a borderless window centred on
+the screen from the start of common->Init until the renderer is up (Common.cpp calls
+Sys_ShowSplashScreen( false ) after renderSystem->Init), as the retail Windows client
+and openQ4 show theirs. The client only; the dedicated server shows none.
+
+==============================================================================
+*/
+
+#if defined( USE_SDL3 ) && !defined( ID_DEDICATED )
+
+namespace {
+
+static const char POSIX_SPLASH_BMP[] = "assets/splash/etqw_splash.bmp";
+
+struct posixSplash_t {
+	SDL_Window *	window;
+	SDL_Renderer *	renderer;
+	bool			videoInitialized;
+	bool			shown;
+};
+
+static posixSplash_t s_splash = { NULL, NULL, false, false };
+
+static void Posix_SplashAppendCandidate( idStrList &candidates, const char *directory, const char *prefix ) {
+	if ( directory == NULL || directory[0] == '\0' ) {
+		return;
+	}
+	idStr candidate = directory;
+	candidate.StripTrailing( '/' );
+	candidate.AppendPath( prefix );
+	candidate.AppendPath( POSIX_SPLASH_BMP );
+	candidates.Append( candidate );
+}
+
+// The splash beside the executable (an installed or packaged Linux engine), in the app's
+// Contents/Resources (macOS, which SDL_GetBasePath names for an app bundle), or in the
+// current directory (a development build run from the repository root)
+static SDL_Surface *Posix_SplashLoad( void ) {
+	idStrList candidates;
+	idStr exeDirectory = Sys_EXEPath();
+	exeDirectory.StripFilename();
+	Posix_SplashAppendCandidate( candidates, exeDirectory.c_str(), "" );
+	Posix_SplashAppendCandidate( candidates, exeDirectory.c_str(), "../Resources" );
+	Posix_SplashAppendCandidate( candidates, SDL_GetBasePath(), "" );
+	Posix_SplashAppendCandidate( candidates, Posix_Cwd(), "" );
+	for ( int i = 0; i < candidates.Num(); ++i ) {
+		SDL_Surface *surface = SDL_LoadBMP( candidates[ i ].c_str() );
+		if ( surface != NULL ) {
+			return surface;
+		}
+	}
+	return NULL;
+}
+
+static void Posix_SplashDestroy( void ) {
+	if ( s_splash.window != NULL ) {
+		// drop the splash window's own events; the first other one goes back for the game
+		SDL_PumpEvents();
+		SDL_Event event;
+		while ( SDL_PollEvent( &event ) ) {
+			if ( SDL_GetWindowFromEvent( &event ) != s_splash.window ) {
+				SDL_PushEvent( &event );
+				break;
+			}
+		}
+	}
+	if ( s_splash.renderer != NULL ) {
+		SDL_DestroyRenderer( s_splash.renderer );
+		s_splash.renderer = NULL;
+	}
+	if ( s_splash.window != NULL ) {
+		SDL_DestroyWindow( s_splash.window );
+		s_splash.window = NULL;
+	}
+	if ( s_splash.videoInitialized ) {
+		// pairs with the splash's own SDL_InitSubSystem; the game window holds its own reference
+		SDL_QuitSubSystem( SDL_INIT_VIDEO );
+		s_splash.videoInitialized = false;
+	}
+}
+
+static void Posix_SplashShow( void ) {
+	if ( s_splash.shown ) {
+		return;
+	}
+	s_splash.shown = true;
+	SDL_Surface *image = Posix_SplashLoad();
+	if ( image == NULL ) {
+		Sys_Printf( "splash: %s not found\n", POSIX_SPLASH_BMP );
+		return;
+	}
+	if ( !SDL_InitSubSystem( SDL_INIT_VIDEO ) ) {
+		Sys_Printf( "splash: no video: %s\n", SDL_GetError() );
+		SDL_DestroySurface( image );
+		return;
+	}
+	s_splash.videoInitialized = true;
+	s_splash.window = SDL_CreateWindow( GAME_NAME, image->w, image->h,
+		SDL_WINDOW_HIDDEN | SDL_WINDOW_BORDERLESS | SDL_WINDOW_HIGH_PIXEL_DENSITY );
+	if ( s_splash.window != NULL ) {
+		s_splash.renderer = SDL_CreateRenderer( s_splash.window, NULL );
+	}
+	SDL_Texture *texture = s_splash.renderer != NULL ? SDL_CreateTextureFromSurface( s_splash.renderer, image ) : NULL;
+	SDL_DestroySurface( image );
+	if ( texture == NULL ) {
+		Sys_Printf( "splash: not shown: %s\n", SDL_GetError() );
+		Posix_SplashDestroy();
+		return;
+	}
+	SDL_SetWindowPosition( s_splash.window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED );
+	SDL_ShowWindow( s_splash.window );
+	// NULL fills the whole drawable, so a HiDPI display scales the image rather than
+	// drawing it in one corner
+	SDL_RenderClear( s_splash.renderer );
+	SDL_RenderTexture( s_splash.renderer, texture, NULL, NULL );
+	SDL_RenderPresent( s_splash.renderer );
+	SDL_DestroyTexture( texture );
+	SDL_PumpEvents();
+}
+
+} // namespace
+
+void Sys_ShowSplashScreen( bool show ) {
+	if ( show ) {
+		Posix_SplashShow();
+	} else {
+		Posix_SplashDestroy();
+	}
+}
+
+#else
+
+void Sys_ShowSplashScreen( bool ) {
+}
+
+#endif

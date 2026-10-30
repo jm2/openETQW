@@ -498,6 +498,15 @@ if build_engine or build_dedicated
   install_data(game_module_built, install_dir: install_root)
 endif
 
+if build_engine and host_system != 'windows'
+  # the launch splash the POSIX client shows while it starts (decision 0004)
+  install_data('assets' / 'splash' / 'etqw_splash.bmp', install_dir: install_root / 'assets' / 'splash')
+endif
+if build_engine and host_system == 'darwin'
+  # the app icon; tools/build/package_release.py puts it in Contents/Resources
+  install_data('assets' / 'icons' / 'etqw.icns', install_dir: install_root)
+endif
+
 if host_system == 'windows'
   win_runtime_dll_deps = [zlib_dep]
   win_runtime_dlls = ['z.dll']
