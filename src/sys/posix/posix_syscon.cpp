@@ -110,6 +110,10 @@ and openQ4 show theirs. The client only; the dedicated server shows none.
 
 #if defined( USE_SDL3 ) && !defined( ID_DEDICATED )
 
+// sdl_glimp.cpp: the hints the game window's video subsystem needs, set before the
+// splash starts that subsystem
+void Sys_SDL_SetVideoHints( void );
+
 namespace {
 
 static const char POSIX_SPLASH_BMP[] = "assets/splash/etqw_splash.bmp";
@@ -117,11 +121,10 @@ static const char POSIX_SPLASH_BMP[] = "assets/splash/etqw_splash.bmp";
 struct posixSplash_t {
 	SDL_Window *	window;
 	SDL_Renderer *	renderer;
-	bool			videoInitialized;
 	bool			shown;
 };
 
-static posixSplash_t s_splash = { NULL, NULL, false, false };
+static posixSplash_t s_splash = { NULL, NULL, false };
 
 // Opens directory/prefix/POSIX_SPLASH_BMP. It runs before common->Init has set up the
 // engine's allocators, so no idStr: plain stack buffers only.
@@ -138,15 +141,14 @@ static SDL_Surface *Posix_SplashLoadFrom( const char *directory, size_t length, 
 	return SDL_LoadBMP( path );
 }
 
-// The splash beside the executable (an installed or packaged Linux engine), in the app's
-// Contents/Resources (macOS, which SDL_GetBasePath names for an app bundle), or in the
-// current directory (a development build run from the repository root)
+// The splash beside the executable (an installed tree, the Linux tarball or AppImage) or
+// in the app's Contents/Resources (macOS, which SDL_GetBasePath names for an app bundle).
+// Not the current directory, which may hold anything.
 static SDL_Surface *Posix_SplashLoad( void ) {
 	const char *exePath = Sys_EXEPath();
 	const char *slash = exePath != NULL ? strrchr( exePath, '/' ) : NULL;
 	const size_t exeDirectoryLength = slash != NULL ? static_cast< size_t >( slash - exePath ) : 0;
 	const char *basePath = SDL_GetBasePath();
-	const char *cwd = Posix_Cwd();
 	SDL_Surface *surface = Posix_SplashLoadFrom( exePath, exeDirectoryLength, "" );
 	if ( surface == NULL ) {
 		surface = Posix_SplashLoadFrom( exePath, exeDirectoryLength, "../Resources/" );
@@ -154,37 +156,40 @@ static SDL_Surface *Posix_SplashLoad( void ) {
 	if ( surface == NULL && basePath != NULL ) {
 		surface = Posix_SplashLoadFrom( basePath, strlen( basePath ), "" );
 	}
-	if ( surface == NULL && cwd != NULL ) {
-		surface = Posix_SplashLoadFrom( cwd, strlen( cwd ), "" );
-	}
 	return surface;
 }
 
-static void Posix_SplashDestroy( void ) {
-	if ( s_splash.window != NULL ) {
-		// drop the splash window's own events; the first other one goes back for the game
-		SDL_PumpEvents();
-		SDL_Event event;
-		while ( SDL_PollEvent( &event ) ) {
-			if ( SDL_GetWindowFromEvent( &event ) != s_splash.window ) {
-				SDL_PushEvent( &event );
-				break;
-			}
-		}
+// SDL_FilterEvents: drop the splash window's events, keep every other one in its place.
+// The game's event loop (sdl_events.cpp) does not look at window ids, so a close request,
+// focus change or resize of the splash would otherwise reach the game.
+static bool SDLCALL Posix_SplashKeepEvent( void *userdata, SDL_Event *event ) {
+	const SDL_WindowID splash = *static_cast< const SDL_WindowID * >( userdata );
+	if ( event->type >= SDL_EVENT_WINDOW_FIRST && event->type <= SDL_EVENT_WINDOW_LAST ) {
+		return event->window.windowID != splash;
 	}
+	SDL_Window *window = SDL_GetWindowFromEvent( event );
+	return window == NULL || SDL_GetWindowID( window ) != splash;
+}
+
+static void Posix_SplashDestroy( void ) {
+	if ( s_splash.window == NULL ) {
+		return;
+	}
+	SDL_WindowID splash = SDL_GetWindowID( s_splash.window );
+	SDL_PumpEvents();
+	SDL_FilterEvents( Posix_SplashKeepEvent, &splash );
 	if ( s_splash.renderer != NULL ) {
 		SDL_DestroyRenderer( s_splash.renderer );
 		s_splash.renderer = NULL;
 	}
-	if ( s_splash.window != NULL ) {
-		SDL_DestroyWindow( s_splash.window );
-		s_splash.window = NULL;
-	}
-	if ( s_splash.videoInitialized ) {
-		// pairs with the splash's own SDL_InitSubSystem; the game window holds its own reference
-		SDL_QuitSubSystem( SDL_INIT_VIDEO );
-		s_splash.videoInitialized = false;
-	}
+	SDL_DestroyWindow( s_splash.window );
+	s_splash.window = NULL;
+	// the events the destroy itself raised
+	SDL_PumpEvents();
+	SDL_FilterEvents( Posix_SplashKeepEvent, &splash );
+	// The video subsystem stays up: the game window shares it (sdl_glimp.cpp starts it
+	// only when nothing has), and quitting it here would destroy that window and unload
+	// the Vulkan loader under the renderer. SDL_Quit at exit ends it.
 }
 
 static void Posix_SplashShow( void ) {
@@ -197,12 +202,12 @@ static void Posix_SplashShow( void ) {
 		Sys_Printf( "splash: %s not found\n", POSIX_SPLASH_BMP );
 		return;
 	}
+	Sys_SDL_SetVideoHints();
 	if ( !SDL_InitSubSystem( SDL_INIT_VIDEO ) ) {
 		Sys_Printf( "splash: no video: %s\n", SDL_GetError() );
 		SDL_DestroySurface( image );
 		return;
 	}
-	s_splash.videoInitialized = true;
 	s_splash.window = SDL_CreateWindow( GAME_NAME, image->w, image->h,
 		SDL_WINDOW_HIDDEN | SDL_WINDOW_BORDERLESS | SDL_WINDOW_HIGH_PIXEL_DENSITY );
 	if ( s_splash.window != NULL ) {

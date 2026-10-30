@@ -8,6 +8,8 @@
 #include "sys_render.h"
 #include "../renderer/VulkanBackend.h"
 
+void Sys_SDL_SetVideoHints( void );
+
 namespace {
 
 class idRenderContextSDL3 : public idRenderContext {
@@ -359,13 +361,10 @@ public:
 private:
 	// Starts the video subsystem once; nothing quits it before SDL_Quit. The macOS hints are
 	// set on every call, as InitContext always did, so they are set even when video is
-	// already running (Sys_PromptForRetailData starts it without them).
+	// already running (Sys_PromptForRetailData starts it without them; the launch splash
+	// sets them first). The splash never quits its own reference.
 	static void InitVideo() {
-#if defined( __APPLE__ )
-		SDL_SetHint( SDL_HINT_VIDEO_DRIVER, "cocoa" );
-		SDL_SetHint( SDL_HINT_RENDER_DRIVER, "metal,gpu,software" );
-		SDL_SetHint( SDL_HINT_VIDEO_METAL_AUTO_RESIZE_DRAWABLE, "1" );
-#endif
+		Sys_SDL_SetVideoHints();
 
 		if ( SDL_WasInit( SDL_INIT_VIDEO ) == 0 && !SDL_InitSubSystem( SDL_INIT_VIDEO ) ) {
 			common->FatalError( "SDL3: failed to initialize video subsystem: %s", SDL_GetError() );
@@ -384,6 +383,16 @@ id3DContextSDL3 sys3DLocal;
 } // namespace
 
 id3DContext* sys3D = &sys3DLocal;
+
+// The hints video needs before SDL starts it; also called by the launch splash
+// (posix_syscon.cpp), which may start it first
+void Sys_SDL_SetVideoHints( void ) {
+#if defined( __APPLE__ )
+	SDL_SetHint( SDL_HINT_VIDEO_DRIVER, "cocoa" );
+	SDL_SetHint( SDL_HINT_RENDER_DRIVER, "metal,gpu,software" );
+	SDL_SetHint( SDL_HINT_VIDEO_METAL_AUTO_RESIZE_DRAWABLE, "1" );
+#endif
+}
 
 SDL_Window* Sys_GetGameSDLWindow( void ) {
 	return sys3DLocal.GetSDLWindow();
