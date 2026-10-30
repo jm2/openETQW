@@ -6,11 +6,10 @@ one deliberate difference: **one macOS build**. openQ4 ships an OpenGL and a Met
 macOS build; openETQW's renderer defaults to Vulkan on every platform (MoltenVK over
 Metal on macOS) and falls back to OpenGL at run time, so there is one macOS app.
 
-Hosted GitHub Actions minutes for the private repositories are used up (since
-2026-09-24), and the companion repository is private, so none of the workflows below
-has built the engine on a hosted runner yet. Each one is checked with `actionlint`,
-and every step that can run on a developer machine is a script under `tools/` that
-runs the same way locally.
+Both repositories are public since 2026-10-29, so the workflows below run on hosted
+runners and fetch the companion anonymously. Before that, hosted CI had not run since
+2026-09-24. Each workflow is checked with `actionlint`, and every step that can run on a
+developer machine is a script under `tools/` that runs the same way locally.
 
 ## Validation profiles
 
@@ -54,9 +53,8 @@ Options: `--sanitize address,undefined`, `--cross-file tools/cross/linux-arm64.i
 | `manual-release.yml` | manual | version, packages for every platform, checks, changelog, GitHub release (a draft by default) |
 
 Every build job first runs `.github/actions/prepare`: it fetches `openETQW-game` at
-the commit pinned in `tools/ci/companion.ref`, and while the repositories are private
-and no `OPENETQW_CROSS_REPO_TOKEN` secret is set, the job skips its build steps and
-stays green. The repository variable `OPENETQW_COMPANION_REQUIRED=true` makes an
+the commit pinned in `tools/ci/companion.ref`; if it cannot (the companion was private
+until 2026-10-29), the job skips its build steps and stays green. The repository variable `OPENETQW_COMPANION_REQUIRED=true` makes an
 inaccessible companion an error. Legs marked `experimental: true` report failures
 without failing the run; flip one once it has passed on `main`.
 
@@ -114,5 +112,5 @@ Secrets and variables, all optional:
 
 | Name | Effect when set |
 |---|---|
-| `OPENETQW_CROSS_REPO_TOKEN` | read access to the private companion (required for any build while it is private) |
+| `OPENETQW_CROSS_REPO_TOKEN` | read access to the companion; not needed since it is public |
 | `MACOS_DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64`, `MACOS_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD`, `MACOS_DEVELOPER_ID_APPLICATION_IDENTITY`, `MACOS_NOTARY_APPLE_ID`, `MACOS_NOTARY_TEAM_ID`, `MACOS_NOTARY_APP_PASSWORD` | a Developer ID signed, notarized and stapled DMG instead of the unsigned tarball (all six are needed) |

@@ -6,10 +6,10 @@ game module). Each claim carries its evidence level (`CONTRIBUTING.md` § Record
 project's long session record is kept outside this repository; this file is the public
 summary. `docs/platform-matrix.md` has the latest full suite on each platform.
 
-Last updated: 2026-10-29 (engine `main` after #349, game `main` after game #62).
+Last updated: 2026-10-29 (engine `main` after #353, game `main` after game #64; both repositories public).
 
 ## Capability matrix
-Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>`. Linux x86_64 engine evidence is from the Linux x64 host (Fedora 44, GCC 16.2.1, RX 6400 / RADV, debug, since 2026-09-26); Windows 11 x64 from the Windows host (Windows 11 26H2, VS 2026 MSVC 19.51, RX 6400 / Adrenalin 26.8.1, debug and debugoptimized, since 2026-09-28); Windows 11 arm64 from the Windows arm64 host (Windows 11 25H2 build 26200, VS 2026 MSVC 19.51.36256 for ARM64, Qualcomm Snapdragon X with Adreno X1-85 (driver 31.0.128.0), debugoptimized, since 2026-10-03); Linux arm64 from the Linux arm64 host (Fedora 44 Asahi, kernel 7.1.6 with 16k pages, GCC 16.2.1, Apple M1 / Honeykrisp (Mesa 26.2.3), 8 GB, debug, since 2026-10-04); the rest from the macOS host, macOS 27 arm64, Apple Clang 21, debug. "No engine build" means the engine has never been configured on that OS: there is no host, Actions minutes ran out 2026-09-24, and the engine CI legs skip while `openETQW-game` is private.
+Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>`. Linux x86_64 engine evidence is from the Linux x64 host (Fedora 44, GCC 16.2.1, RX 6400 / RADV, debug, since 2026-09-26); Windows 11 x64 from the Windows host (Windows 11 26H2, VS 2026 MSVC 19.51, RX 6400 / Adrenalin 26.8.1, debug and debugoptimized, since 2026-09-28); Windows 11 arm64 from the Windows arm64 host (Windows 11 25H2 build 26200, VS 2026 MSVC 19.51.36256 for ARM64, Qualcomm Snapdragon X with Adreno X1-85 (driver 31.0.128.0), debugoptimized, since 2026-10-03); Linux arm64 from the Linux arm64 host (Fedora 44 Asahi, kernel 7.1.6 with 16k pages, GCC 16.2.1, Apple M1 / Honeykrisp (Mesa 26.2.3), 8 GB, debug, since 2026-10-04); the rest from the macOS host, macOS 27 arm64, Apple Clang 21, debug. "No engine build" means the engine has never been configured on that OS. Hosted CI did not run from 2026-09-24 (Actions minutes) until both repositories went public on 2026-10-29; the "hosted CI" entries in this table predate that gap.
 
 | Capability | Linux x86_64 | Windows 11 x64 | Windows 11 arm64 | macOS arm64 | macOS x86_64 (dropped 2026-09-30; earlier evidence kept) | Linux arm64 | Notes |
 |---|---|---|---|---|---|---|---|
@@ -146,30 +146,31 @@ Charter milestone numbers. Older notes use the stock-maps phase's own M2–M5, w
 The app's game module is found: since #24 `FindDLL` tries the executable's directory, then the package's module root (`Contents/Frameworks` in the app; `FileSystem.cpp:4792-4799`), and the 2026-09-30 app runs loaded it from there.
 
 ## Release gate (CHARTER §11)
-Both repositories are private, and no release has been made. The `screenshots-prNNN` prereleases were review material, not releases.
+Both repositories are public since 2026-10-29. No release has been made yet; v0.1.0 is being prepared (`docs/releasing.md`). The `screenshots-prNNN` prereleases were review material, not releases, and were deleted on 2026-10-29.
 1. **jmarshall's reconstruction code has no licence: unresolved, blocking.**
    - Both histories start from jmarshall's three upstream commits (`docs/provenance.md` §1), which carry no licence file.
    - A file-by-file audit (2026-10-29) found 230 files, about 82k lines, that are his own text with no ETQW SDK, Doom 3 GPL or third-party counterpart. 180 of them reached shipped builds. 154 upstream files carry his own "GPL v3 or later" header; most of those are Doom 3-derived, and none is in the shipped core.
    - #349 and game #62 (2026-10-29) removed the files no build compiles. About 185 remain, nearly all shipped: the Vulkan backend and ray tracing, much of the framework and the renderer front end, the decl library and the Windows bootstrap.
    - 59 of the shipped files say in their own text that they were reconstructed from the retail PDB, Hex-Rays output or the retail executable. That is a separate risk from the licence.
    - The author did not respond; replacement or rewriting is undecided (owner, 2026-10-29). This gate stays blocking until it is resolved.
-2. **SDK-licensed code linked into engine binaries: not cleared; exceptions approved by the owner (2026-09-25).**
+2. **SDK-licensed code linked into engine binaries: cleared (owner, 2026-10-29).** The exceptions were approved by the owner on 2026-09-25.
    - The engine links the game repo's SDK idLib (`libidLib.a`, 72 objects) and compiles the staged SDK `DeclType.cpp`, 189 staged SDK headers and `BuildDefines.inc`; three unit tests also compile the SDK `BitMsg.cpp`. `docs/provenance.md` §4 lists them (E1–E4).
    - The owner approved them as tracked exceptions on openQ4's precedent (A6; `docs/decisions/0001-sdk-code-in-the-engine-build.md`). Condition: every engine package carries the SDK EULA as well as the GPL. Met since PR #19: `meson install` puts it under `licenses/ETQW-SDK`, checked by meson `install-licenses`. That clears the item for the engine binaries.
-   - Engine history holds SDK files through jmarshall's root commits (the owner left them in place). SDK EULA §5 (the EULA must accompany each copy) is met for them by `EULA_SDK_ETQW.txt` at the repository root since 2026-10-29 (`docs/provenance.md` §6). No other condition of this item is recorded as open; declaring it cleared is the owner's call.
+   - Engine history holds SDK files through jmarshall's root commits (the owner left them in place). SDK EULA §5 (the EULA must accompany each copy) is met for them by `EULA_SDK_ETQW.txt` at the repository root since 2026-10-29 (`docs/provenance.md` §6). No other condition was open, and the owner declared the item cleared on 2026-10-29.
 3. **`docs/provenance.md` coverage: not cleared.**
    - `docs/provenance-manifest.json` classifies 5,274 imported files.
    - Files added after the split: in it since 2026-10-07 (213 entries then, 230 at b318c87: 193 engine, 37 game; `addedAfterSplit`; `tools/build/provenance_post_split.py` reports and adds later ones).
    - At 84a224b / 24f58bf, the manifest and the game's `tools/ci/spdx_allowlist.txt` label the 204 files in `src/compiledscript/scripts/` (202 `.script`, 2 `.include`) and 13 compiledscript runtime files (217 in all) Reconstruction_original/MIT. They are SDK files (`LicenseRef-ETQW-SDK`).
    - The 2026-09-24 docs pass corrected this. The manifest relabels 217 compiledscript files as SDK, fixes the two minizip entries. The allowlist is updated to match (merged in PR #2).
    - jmarshall files are labeled GPL-3.0-or-later although their license is the open question.
+   - Since 2026-10-29 the manifest also classes the retail icon and splash under `assets/icons/` and `assets/splash/` as `Retail_asset` (decision 0004).
    - Other defects are listed under M0.
-4. **LICENSE and README explain the split and the retail-data requirement: not cleared.**
+4. **LICENSE and README explain the split and the retail-data requirement: met.**
    - At the audit, the engine `readme.md` was jmarshall's two lines, the game repo had no README, and the engine `LICENSE` did not mention the split. The game `LICENSE` explains the SDK EULA/MIT split and the retail requirement.
-   - The 2026-09-24 docs pass drafted an engine `readme.md` and a game `README.md` covering these points. They are merged in PR #2 and await owner review.
+   - Both readmes were rewritten on 2026-10-29 from a draft the owner approved (engine #353, game #64). Each says what needs retail data, how the code is licensed (GPL, SDK EULA, MIT, third-party) and that jmarshall's code keeps his authorship. The engine root carries `EULA_SDK_ETQW.txt` since #352.
 5. **No retail binaries, PDBs, raw RE output, captures or assets in either repo's history: not cleared.**
    - Both histories were scanned against the retail 1.5 data: the only matches are the SDK script text in `src/compiledscript/scripts/` (`docs/provenance.md` §7).
-   - Before publishing, check that no ref on the host, including GitHub's pull-request refs, reaches retail content. The owner expects to recreate the repositories.
+   - The repositories went public on 2026-10-29 without being recreated. A scan that day of every blob reachable from either repository, GitHub's `refs/pull/*` included, found one retail image the earlier scan missed: the launch splash in jmarshall's initial commit `6de0697`, reachable only through `refs/pull/1/head`. The owner kept it and made it, with the retail icon, the one exception to the rule (decision 0004, `docs/provenance.md` §7).
    - No `.exe`, `.pdb`, `.pk4` or capture files and no raw decompiler output were found.
    - Third-party code binaries: the owner approved the deletion on 2026-10-26 (all eight, including `src/sys/win32/eaxguid.lib`); deleted in #301. `src/openal/lib/openal32.lib`, `src/openal/lib/eaxguid.lib`, `src/sys/win32/eaxguid.lib`, zlib's four `contrib/masmx{64,86}/*.obj` and the PowerPC `src/openal/osx/OpenAL.framework` binary were deleted because no build target references them — OpenAL is compiled out everywhere (`ID_OPENAL` is defined nowhere) and zlib is the system dependency. What remains binary is documentation, vendored UI/media assets and SDL2's Gradle wrapper jar — no prebuilt code in any engine build target; see `docs/provenance.md` §6.
 6. **SDK EULA with the game repo and every package; retail-install check enforced; nothing sold: not cleared (both safeguards are in place; no package exists yet to carry them).**

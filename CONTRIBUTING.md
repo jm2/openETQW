@@ -6,12 +6,6 @@ Agents: read `AGENTS.md` first. Work items are GitHub issues.
 `main` changes only through pull requests, merged by the maintainer once the gates below
 are met.
 
-## Hosted CI is not running
-Since 2026-09-24 the GitHub Actions minutes for these private repositories are used up.
-Workflows do not start, so a missing check proves nothing either way. Until minutes are
-available again, the local checks below replace CI. Do not make a repository public to
-get CI back: both stay private until the maintainer decides to publish.
-
 ## Merge gates
 1. **Local checks pass.** Run them from the repository root and put the result in the PR:
    - `actionlint` (workflow lint; CI used 1.7.12)
@@ -77,10 +71,9 @@ get CI back: both stay private until the maintainer decides to publish.
    explained in the PR.
 6. **Merge commit.** Branches are merged with a merge commit, which keeps the per-fix history.
 
-When Actions minutes are available again, **Commit Validation**
-(`.github/workflows/commit-validation.yml`) and **Linux ARM64 Cross Build** must also be
-green on the PR. Their build jobs skip while `openETQW-game` is private, and experimental
-legs report without blocking. Every build job runs `tools/validation/openetqw_validate.py`
+**Commit Validation** (`.github/workflows/commit-validation.yml`) and **Linux ARM64 Cross
+Build** must also be green on the PR. Experimental legs report without blocking. (Hosted CI
+did not run from 2026-09-24 until both repositories went public on 2026-10-29.) Every build job runs `tools/validation/openetqw_validate.py`
 (`validate_pr.sh` / `validate_pr.ps1`), so the same check runs locally:
 `python3 tools/validation/openetqw_validate.py pr` builds the game and the engine, runs the
 unit suite and the integration skip check, stages the install tree with `meson install`,
