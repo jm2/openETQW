@@ -106,6 +106,18 @@ foreach fp_arg : ['-ffp-contract=off']
   endif
 endforeach
 
+# UBSan's vptr check, and only that check, is off on Linux (docs/decisions/0005; the
+# owner, 2026-10-29: "4. A"; as openQ4's meson.build). The engine, the game module and
+# the SDK idLib share polymorphic classes whose key functions, and so their typeinfo,
+# are defined on one side only (the dedicated server and the unit tests link idLib
+# without the engine's idFile, the client's idImageManager), so -fsanitize=vptr
+# cannot link. AddressSanitizer and every other UBSan check stay on.
+# The flag changes nothing unless -fsanitize=undefined is on (b_sanitize).
+# tests/test_sanitizer_scope.py keeps this the only exclusion.
+if host_system == 'linux' and cpp.has_argument('-fno-sanitize=vptr')
+  add_project_arguments('-fno-sanitize=vptr', language: 'cpp')
+endif
+
 common_engine_defs = [
   '-DSD_SDK_BUILD',
   '-DSD_PUBLIC_BUILD',
@@ -339,6 +351,35 @@ endif
 # against the current directory.
 engine_install_rpath = host_system == 'linux' ? '$ORIGIN' : ''
 
+# Windows: both executables carry the application icon and the version
+# information, and the client the launch splash
+# (docs/decisions/0004-retail-icon-and-splash.md), from src/sys/win32/rc/, after
+# openQ4's openQ4Version.rc. There is no fallback without a resource compiler: an
+# executable without its icon would go unnoticed.
+engine_client_win_resources = []
+engine_ded_win_resources = []
+if host_system == 'windows'
+  windows_mod = import('windows')
+  engine_win_resource_files = files(
+    'assets/icons/etqw.ico',
+    'assets/splash/etqw_splash.bmp',
+    'src/sys/win32/rc/openETQW.rc',
+    'src/sys/win32/rc/openETQW_resource.h',
+  )
+  engine_client_win_resources = windows_mod.compile_resources(
+    'src/sys/win32/rc/openETQW.rc',
+    depends: generated_version_header,
+    depend_files: engine_win_resource_files,
+    include_directories: root_inc,
+  )
+  engine_ded_win_resources = windows_mod.compile_resources(
+    'src/sys/win32/rc/openETQW-ded.rc',
+    depends: generated_version_header,
+    depend_files: engine_win_resource_files,
+    include_directories: root_inc,
+  )
+endif
+
 if build_engine
   engine_source_discovery = run_command(
     py,
@@ -379,6 +420,7 @@ if build_engine
   executable(
     engine_client_binary_name,
     openetqw_client_sources,
+    engine_client_win_resources,
     generated_version_header,
     include_directories: engine_include_dirs,
     c_args: engine_c_args,
@@ -428,6 +470,7 @@ if build_dedicated
   executable(
     engine_ded_binary_name,
     openetqw_ded_sources,
+    engine_ded_win_resources,
     generated_version_header,
     include_directories: engine_include_dirs,
     c_args: engine_c_args,
