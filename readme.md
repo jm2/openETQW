@@ -278,6 +278,8 @@ OpenETQW is built from several sources, each under its own terms:
 - **Code written for OpenETQW** is under the GNU General Public License, version 3 or later
   ([`LICENSE`](LICENSE)). Code that comes from id Software's Doom 3 GPL release
   keeps id's notices and additional terms.
+- **The ET:QW icon and launch splash** (`assets/icons/`, `assets/splash/`) are id
+  Software's artwork from the retail game, not covered by the GPL.
 - **Third-party libraries** keep their own licences; their notices are in their source
   folders.
 - **The game module** (in `openETQW-game`) is id Software's ET:QW 1.5 SDK code, under the
