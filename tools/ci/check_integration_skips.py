@@ -65,6 +65,9 @@ NOT_INTEGRATION = {
     "tests/test_zero_sdk.py",
     "tests/test_meson_sources_stress.py",
     "tests/test_win32_platform_stress.py",
+    # the build helpers' option handling (meson suite 'unit'); ETQW_DATA_PATH is only an
+    # environment value it hands the helpers, which it runs with no engine or data
+    "tests/test_build_scripts.py",
     # run the dedicated server on synthetic data only
     "tests/test_retail_install_check.py",
     "tests/test_retired_cvars.py",
