@@ -39,7 +39,8 @@ them.
 3. **Never commit retail data.** That means paks, retail executables, PDBs, disassembly or
    decompiler output, packet captures, or screenshots and captures that show retail game
    content, our own engine's included. The rule covers both repositories, their whole history
-   and their releases.
+   and their releases. The one exception is the ET:QW icon and launch splash under
+   `assets/icons/` and `assets/splash/` (`docs/decisions/0004-retail-icon-and-splash.md`).
 4. **Never weaken a test to make it pass.** That includes raising a tolerance, deleting a
    check or marking it known-broken. Switching off what an existing check depends on
    counts too: turning off a diagnostic the test reads (`r_vkValidation`, a log or marker
