@@ -31,12 +31,21 @@ by class): "4. A".
 - AddressSanitizer and every other UBSan check stay on, and failures stay fatal
   (`halt_on_error=1`).
 - `tests/test_sanitizer_scope.py` (engine, meson `sanitizer-scope`) and
-  `tools/ci/check_sanitizer_scope.py` (game, Static checks) fail if any other sanitizer
-  check is turned off, made recoverable or excluded, or if the vptr exclusion stops
-  being Linux-only.
+  `tools/ci/check_sanitizer_scope.py` (game, Static checks) fail if a build file, the
+  meson options, a source file or (in the game) a workflow turns off another sanitizer
+  check, makes one recoverable or excludes code from it; if the vptr exclusion stops
+  being Linux-only; if the sanitizer legs stop building with `address,undefined`; if
+  their `halt_on_error=1` goes; or (engine) if `tools/ci/ubsan.supp` gains an entry or
+  the validator stops passing `--sanitize` through unchanged.
 
 ## Consequences
 
-- The macOS sanitizer legs keep the vptr check.
-- A bad downcast between engine and game classes is not caught by UBSan on Linux; the
-  macOS legs still check it.
+- The game repository's instrumented module build (`commit-validation.yml`, its
+  sanitizer legs on macOS and Linux) has built without the vptr check since
+  2026-09-22, for the same reason: a dynamically loaded module cannot link the
+  engine-side typeinfo. That exclusion predates this decision; the game's guard allows
+  it as it stands and nothing broader.
+- The engine's macOS sanitizer workflow (`macos-sanitizer.yml`, run by hand) keeps the
+  vptr check; no leg that runs on every pull request does.
+- A bad downcast between engine and game classes is therefore not caught by UBSan in
+  per-PR CI.
