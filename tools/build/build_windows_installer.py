@@ -6,7 +6,8 @@ Adapted from openQ4's tools/build/build_windows_installer.py at jm2/openQ4
 b37b1456 (GPL-3.0; docs/provenance.md): the same payload, symlink and output
 checks, Inno Setup template rendering and ISCC discovery, for the openETQW
 package layout. The template is openETQWInstaller.iss.in next to this script;
-the setup icon is optional (--setup-icon), and the output file name is given
+the setup icon is the ET:QW icon, assets/icons/etqw.ico (decision 0004), unless
+--setup-icon names another, and the output file name is given
 (--output-basename) instead of being derived from a version tag.
 
 --render-only writes the .iss and stops, so the rendering can be tested
@@ -27,6 +28,7 @@ from pathlib import Path
 PRODUCT_NAME = "openETQW"
 PRODUCT_PUBLISHER = "openETQW contributors"
 TEMPLATE_PATH = Path(__file__).resolve().parent / "openETQWInstaller.iss.in"
+SETUP_ICON_PATH = Path(__file__).resolve().parents[2] / "assets" / "icons" / "etqw.ico"
 LICENSE_RELATIVE = Path("licenses") / "openETQW" / "LICENSE"
 SUPPORTED_ARCHES = ("x64", "arm64")
 VERSION_RE = re.compile(r"^[0-9]+(?:\.[0-9]+){2,3}$")
@@ -58,7 +60,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Installer file name without .exe, for example openetqw-0.1.0-windows-x64-setup.",
     )
     parser.add_argument("--iscc", default=None, help="Optional explicit path to ISCC.exe.")
-    parser.add_argument("--setup-icon", default=None, help="Optional .ico for the installer executable.")
+    parser.add_argument(
+        "--setup-icon",
+        default=None,
+        help="The .ico for the installer executable (default: assets/icons/etqw.ico).",
+    )
     parser.add_argument(
         "--render-only",
         action="store_true",
@@ -214,11 +220,9 @@ def main(argv: list[str]) -> int:
         output_dir = require_directory_arg(Path(args.output_dir), "installer output directory", must_exist=False)
         validate_package_dir(package_dir, args.arch)
         require_regular_file(TEMPLATE_PATH, "installer template")
-        setup_icon_file = None
-        if args.setup_icon:
-            setup_icon_file = Path(args.setup_icon)
-            require_regular_file(setup_icon_file, "installer icon")
-            setup_icon_file = setup_icon_file.resolve()
+        setup_icon_file = Path(args.setup_icon) if args.setup_icon else SETUP_ICON_PATH
+        require_regular_file(setup_icon_file, "installer icon")
+        setup_icon_file = setup_icon_file.resolve()
 
         script_path = output_dir / f"{output_basename}.iss"
         installer_path = output_dir / f"{output_basename}.exe"

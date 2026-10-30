@@ -621,6 +621,9 @@ def test_installer(work: Path) -> None:
         "ArchitecturesAllowed=x64compatible",
         "ArchitecturesInstallIn64BitMode=x64compatible",
         "VersionInfoVersion=0.1.0",
+        # the ET:QW icon by default (decision 0004); the uninstall entry shows the client's
+        f'SetupIconFile="{(ROOT / "assets" / "icons" / "etqw.ico").resolve()}"',
+        "UninstallDisplayIcon={app}\\{#MyAppExeName}",
         'ValueName: "InstallArch"; ValueData: "x64"',
         "{localappdata}\\Programs\\openETQW",
         'Name: "{group}\\openETQW Dedicated Server"; Filename: "{app}\\{#MyAppServerExeName}"',
@@ -634,7 +637,7 @@ def test_installer(work: Path) -> None:
     check(len(install_values) == 5 and all("uninsdeletevalue" in line for line in install_values),
           "installer: the uninstaller deletes each Software\\openETQW value", "\n".join(install_values))
     directives = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith(";")).lower()
-    for forbidden in ("openq4", "SetupIconFile", "protocol", "docs\\index.html", "8FD95F4F", "AppMutex"):
+    for forbidden in ("openq4", "protocol", "docs\\index.html", "8FD95F4F", "AppMutex"):
         check(forbidden.lower() not in directives, f"installer: x64 script has no {forbidden!r}", text)
 
     icon = write(work / "icons" / "openetqw.ico", "ico\n")

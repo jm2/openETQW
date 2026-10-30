@@ -3,9 +3,11 @@
 ; tools/build/build_windows_installer.py, which fills the placeholder tokens.
 ; Adapted from openQ4's tools/build/openQ4Installer.iss.in at jm2/openQ4
 ; b37b1456 (GPL-3.0; docs/provenance.md), without the browser link handler
-; and the documentation portal, with its own AppId and an optional setup icon,
-; and with uninsdeletevalue on the install-key values, which openQ4 lacks (its
-; uninstaller leaves the key behind).
+; and the documentation portal, with its own AppId, and with uninsdeletevalue on
+; the install-key values, which openQ4 lacks (its uninstaller leaves the key
+; behind). The setup icon is the ET:QW icon (assets/icons/etqw.ico, decision 0004)
+; unless the builder is given another; the uninstall entry shows the client's
+; icon, which its executable carries (src/sys/win32/rc/openETQW.rc).
 
 #define MyAppName "openETQW"
 #define MyAppVersion "@@APP_VERSION@@"

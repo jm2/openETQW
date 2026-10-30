@@ -57,6 +57,8 @@ OPENQ4_TOOLING = {
     ".github/workflows/manual-release.yml": ".github/workflows/manual-release.yml",
     # engine code adapted from one function of a donor file
     "src/sys/sdl/MouseDelta.h": "src/sys/sdl3/sdl3_backend.cpp",
+    # the Windows resource script, written after the donor's
+    "src/sys/win32/rc/openETQW.rc": "src/sys/win32/rc/openQ4Version.rc",
 }
 
 # Untagged files: (repository, path prefix or exact path) -> (tier, license).
