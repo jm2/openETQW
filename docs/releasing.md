@@ -6,11 +6,10 @@ one deliberate difference: **one macOS build**. openQ4 ships an OpenGL and a Met
 macOS build; openETQW's renderer defaults to Vulkan on every platform (MoltenVK over
 Metal on macOS) and falls back to OpenGL at run time, so there is one macOS app.
 
-Hosted GitHub Actions minutes for the private repositories are used up (since
-2026-09-24), and the companion repository is private, so none of the workflows below
-has built the engine on a hosted runner yet. Each one is checked with `actionlint`,
-and every step that can run on a developer machine is a script under `tools/` that
-runs the same way locally.
+Both repositories are public since 2026-10-29, so the workflows below run on hosted
+runners and fetch the companion anonymously. Before that, hosted CI had not run since
+2026-09-24. Each workflow is checked with `actionlint`, and every step that can run on a
+developer machine is a script under `tools/` that runs the same way locally.
 
 ## Validation profiles
 
@@ -54,9 +53,8 @@ Options: `--sanitize address,undefined`, `--cross-file tools/cross/linux-arm64.i
 | `manual-release.yml` | manual | version, packages for every platform, checks, changelog, GitHub release (a draft by default) |
 
 Every build job first runs `.github/actions/prepare`: it fetches `openETQW-game` at
-the commit pinned in `tools/ci/companion.ref`, and while the repositories are private
-and no `OPENETQW_CROSS_REPO_TOKEN` secret is set, the job skips its build steps and
-stays green. The repository variable `OPENETQW_COMPANION_REQUIRED=true` makes an
+the commit pinned in `tools/ci/companion.ref`; if it cannot (the companion was private
+until 2026-10-29), the job skips its build steps and stays green. The repository variable `OPENETQW_COMPANION_REQUIRED=true` makes an
 inaccessible companion an error. Legs marked `experimental: true` report failures
 without failing the run; flip one once it has passed on `main`.
 
@@ -82,11 +80,13 @@ the Vulkan loader through `Contents/Resources/vulkan/icd.d`. Without the Apple
 signing secrets it is signed ad hoc; macOS then asks the user to allow it on first
 launch.
 
-Every package needs the retail data: users extract the Linux or Windows package into
-their ET:QW directory, or pass `+set fs_basepath <ET:QW directory>` (the AppImage finds
-the data by itself when it is started from, or stored in, the ET:QW directory). The
-macOS app always needs `+set fs_basepath`: it takes its content root from
-`Contents/Resources`, so a `base/` next to the app is not searched. Saves, configs and the shader
+Every package needs the retail data. Without `+set fs_basepath`, the engine searches
+the usual install folders, Steam libraries and Wine/CrossOver prefixes, and on a client's
+first run asks for the folder and stores the answer (`docs/compat-ledger.md` row 068;
+the dialogs themselves have not been exercised by a test). Users can also extract the
+Linux or Windows package into their ET:QW directory, or pass
+`+set fs_basepath <ET:QW directory>`. Each package's `README.txt` says this, and the
+unsigned macOS tarball's README says how to clear the quarantine flag. Saves, configs and the shader
 cache go to the per-user directory (`~/.local/share/openetqw`,
 `$env:LOCALAPPDATA\openETQW`, `~/Library/Application Support/openETQW`).
 
@@ -106,13 +106,15 @@ the commit being released, builds and validates every platform with the release
 version stamped in (`version_track=stable`), packages, checks the exact asset set
 (names, archive members, sizes and SHA-256), writes the changelog, and creates or
 updates the GitHub release as a draft (a re-run turns it back into one,
-retargets it to the commit and removes assets this run did not make). Only when
-GitHub is shown to hold exactly those bytes does it set the pre-release flag and,
-unless `draft` is set, publish.
+retargets it to the commit and removes assets this run did not make). The assets
+include the Windows PDB zips and `openetqw-<v>-SHA256SUMS.txt`, the checksum of every
+other asset. Only when GitHub is shown to hold exactly those bytes does it set the
+pre-release flag and, unless `draft` is set, publish. A release that is not a draft
+also needs a successful Push Verification run for the exact commit.
 
 Secrets and variables, all optional:
 
 | Name | Effect when set |
 |---|---|
-| `OPENETQW_CROSS_REPO_TOKEN` | read access to the private companion (required for any build while it is private) |
+| `OPENETQW_CROSS_REPO_TOKEN` | read access to the companion; not needed since it is public |
 | `MACOS_DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64`, `MACOS_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD`, `MACOS_DEVELOPER_ID_APPLICATION_IDENTITY`, `MACOS_NOTARY_APPLE_ID`, `MACOS_NOTARY_TEAM_ID`, `MACOS_NOTARY_APP_PASSWORD` | a Developer ID signed, notarized and stapled DMG instead of the unsigned tarball (all six are needed) |

@@ -82,6 +82,9 @@ jobs:
     name: Release metadata
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
     outputs:
       source_sha: ${{ steps.source.outputs.source_sha }}
       source_date_epoch: ${{ steps.source.outputs.source_date_epoch }}
@@ -121,6 +124,21 @@ jobs:
             echo "source_sha=${source_sha}"
             echo "source_date_epoch=$(git show -s --format=%ct "${source_sha}")"
           } >> "${GITHUB_OUTPUT}"
+
+      - name: Check CI passed for the commit
+        # as kisakcod's release.yml: a published release needs a green Push
+        # Verification run (every push to main) for exactly this commit
+        if: ${{ !inputs.draft }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          green="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/push-verification.yml/runs?head_sha=${SOURCE_SHA}&status=success&per_page=1" --jq '.total_count')"
+          if [ "${green}" = "0" ]; then
+            echo "::error::no successful Push Verification run for ${SOURCE_SHA}; wait for it, or re-run it, before publishing"
+            exit 1
+          fi
 
       - name: Setup Python
         uses: actions/setup-python@v7
@@ -395,7 +413,8 @@ jobs:
             windows)
               args+=(--windows-crt-dir "${CRT_DIR}")
               game_pdb="${OPENETQW_GAME_REPO}/build/game_${ARCH}.pdb"
-              if [ -f "${game_pdb}" ]; then args+=(--extra-pdb "${game_pdb}"); fi ;;
+              if [ ! -f "${game_pdb}" ]; then echo "::error::no game module PDB at ${game_pdb}"; exit 1; fi
+              args+=(--extra-pdb "${game_pdb}") ;;
             macos)
               args+=(--macos-moltenvk "${RUNNER_TEMP}/macos-deps/lib/libMoltenVK.dylib"
                      --macos-lib-dir "${RUNNER_TEMP}/macos-deps/lib")
@@ -472,18 +491,8 @@ jobs:
             ${{ runner.temp }}/dist/openetqw-*.tar.gz
             ${{ runner.temp }}/dist/openetqw-*.AppImage
             ${{ runner.temp }}/dist/openetqw-*.dmg
-            !${{ runner.temp }}/dist/openetqw-*-pdb.zip
           if-no-files-found: error
           retention-days: 30
-
-      - name: Upload the Windows PDBs
-        if: matrix.platform == 'windows'
-        uses: actions/upload-artifact@v7
-        with:
-          name: release-pdb-${{ matrix.id }}
-          path: ${{ runner.temp }}/dist/openetqw-*-pdb.zip
-          if-no-files-found: warn
-          retention-days: 90
 
       - name: Upload logs
         if: always()
@@ -538,8 +547,8 @@ jobs:
           set -euo pipefail
           v="${VERSION_TAG}"
           expected=(
-            "openetqw-${v}-windows-x64.zip" "openetqw-${v}-windows-x64-setup.exe"
-            "openetqw-${v}-windows-arm64.zip" "openetqw-${v}-windows-arm64-setup.exe"
+            "openetqw-${v}-windows-x64.zip" "openetqw-${v}-windows-x64-setup.exe" "openetqw-${v}-windows-x64-pdb.zip"
+            "openetqw-${v}-windows-arm64.zip" "openetqw-${v}-windows-arm64-setup.exe" "openetqw-${v}-windows-arm64-pdb.zip"
             "openetqw-${v}-linux-x64.tar.xz" "openetqw-${v}-linux-x64-debug.tar.xz" "openetqw-${v}-x86_64.AppImage"
             "openetqw-${v}-linux-arm64.tar.xz" "openetqw-${v}-linux-arm64-debug.tar.xz" "openetqw-${v}-aarch64.AppImage"
           )
@@ -553,6 +562,10 @@ jobs:
           for name in "${expected[@]}"; do expected_args+=(--expected "${name}"); done
           python tools/build/verify_release_asset_set.py --artifact-dir "${RUNNER_TEMP}/dist" \
             --manifest "${RUNNER_TEMP}/release-assets.json" "${expected_args[@]}"
+          # the checksum list users verify downloads with (as kisakcod, tributary and balun)
+          sums="openetqw-${v}-SHA256SUMS.txt"
+          (cd "${RUNNER_TEMP}/dist" && sha256sum -- "${expected[@]}" > "${sums}" && sha256sum --check --strict "${sums}")
+          echo "${sums}" >> "${RUNNER_TEMP}/expected-assets.txt"
 
       - name: Generate the changelog
         env:
