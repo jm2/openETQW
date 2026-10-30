@@ -1,0 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Windows resources of openETQW-ded: openETQW.rc without the splash bitmap.
+
+#define OPENETQW_RC_DEDICATED
+#include "openETQW.rc"
