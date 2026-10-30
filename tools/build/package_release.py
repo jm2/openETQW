@@ -170,13 +170,19 @@ def add_licenses(package: Path, licenses_root: Path, platform: str, licenses: di
         copy_file(source, licenses_root / name / source.name, 0o644)
 
 
-def write_readme(target: Path, platform: str, arch: str, tag: str, sources: dict[str, str]) -> None:
+def write_readme(target: Path, platform: str, arch: str, tag: str, sources: dict[str, str],
+                 signed: bool = False) -> None:
     saves = {
         "linux": "$XDG_DATA_HOME/openetqw (normally ~/.local/share/openetqw)",
         "windows": "$env:LOCALAPPDATA\\openETQW",
         "macos": "~/Library/Application Support/openETQW",
     }[platform]
     start = {
+        "linux": f"./openETQW-client_{arch}",
+        "windows": f".\\openETQW-client_{arch}.exe",
+        "macos": "open openETQW.app",
+    }[platform]
+    explicit = {
         "linux": f"./openETQW-client_{arch} +set fs_basepath /path/to/ETQW",
         "windows": f".\\openETQW-client_{arch}.exe +set fs_basepath \"C:\\path\\to\\ETQW\"",
         "macos": "open openETQW.app --args +set fs_basepath \"/path/to/ETQW\"",
@@ -191,10 +197,22 @@ def write_readme(target: Path, platform: str, arch: str, tag: str, sources: dict
         "",
         "Starting",
         f"  {start}",
+        "",
+        "The engine looks for the game data in the usual install folders (the retail",
+        "installers' folders, Steam libraries and, on Linux and macOS, Wine and CrossOver",
+        "prefixes). If it finds none, it asks for the ET:QW folder on the first run and",
+        "remembers the answer. To name the folder yourself:",
+        f"  {explicit}",
     ] + ([] if platform == "macos" else [
         # the app takes its content from Contents/Resources first, so this does not apply to it
-        "  or extract this package into the ET:QW install directory, next to its base/,",
-        "  and start the client from there.",
+        "or extract this package into the ET:QW install directory, next to its base/,",
+        "and start the client from there.",
+    ]) + ([] if platform != "macos" or signed else [
+        "",
+        "This build is not notarized by Apple, so macOS blocks it the first time. After",
+        "moving openETQW.app where you keep it (for example /Applications), run once:",
+        "  xattr -dr com.apple.quarantine /Applications/openETQW.app",
+        "or open it, then allow it under System Settings > Privacy & Security > Open Anyway.",
     ]) + [
         "",
         f"Configs, logs and the shader cache go to {saves}.",
@@ -495,7 +513,7 @@ def package_macos(args, install: Path, work: Path, licenses: dict[str, Path], so
     (app / "Contents" / "PkgInfo").write_text("APPL????", encoding="ascii")
 
     add_licenses(package, resources / "licenses", "macos", licenses)
-    write_readme(package / "README.txt", "macos", arch, args.version_tag, sources)
+    write_readme(package / "README.txt", "macos", arch, args.version_tag, sources, signed=args.macos_dmg)
 
     # sign inside out: libraries, helper executables, then the bundle (whose main executable it signs)
     identity = args.macos_sign_identity

@@ -80,11 +80,13 @@ the Vulkan loader through `Contents/Resources/vulkan/icd.d`. Without the Apple
 signing secrets it is signed ad hoc; macOS then asks the user to allow it on first
 launch.
 
-Every package needs the retail data: users extract the Linux or Windows package into
-their ET:QW directory, or pass `+set fs_basepath <ET:QW directory>` (the AppImage finds
-the data by itself when it is started from, or stored in, the ET:QW directory). The
-macOS app always needs `+set fs_basepath`: it takes its content root from
-`Contents/Resources`, so a `base/` next to the app is not searched. Saves, configs and the shader
+Every package needs the retail data. Without `+set fs_basepath`, the engine searches
+the usual install folders, Steam libraries and Wine/CrossOver prefixes, and on a client's
+first run asks for the folder and stores the answer (`docs/compat-ledger.md` row 068;
+the dialogs themselves have not been exercised by a test). Users can also extract the
+Linux or Windows package into their ET:QW directory, or pass
+`+set fs_basepath <ET:QW directory>`. Each package's `README.txt` says this, and the
+unsigned macOS tarball's README says how to clear the quarantine flag. Saves, configs and the shader
 cache go to the per-user directory (`~/.local/share/openetqw`,
 `$env:LOCALAPPDATA\openETQW`, `~/Library/Application Support/openETQW`).
 
@@ -104,9 +106,11 @@ the commit being released, builds and validates every platform with the release
 version stamped in (`version_track=stable`), packages, checks the exact asset set
 (names, archive members, sizes and SHA-256), writes the changelog, and creates or
 updates the GitHub release as a draft (a re-run turns it back into one,
-retargets it to the commit and removes assets this run did not make). Only when
-GitHub is shown to hold exactly those bytes does it set the pre-release flag and,
-unless `draft` is set, publish.
+retargets it to the commit and removes assets this run did not make). The assets
+include the Windows PDB zips and `openetqw-<v>-SHA256SUMS.txt`, the checksum of every
+other asset. Only when GitHub is shown to hold exactly those bytes does it set the
+pre-release flag and, unless `draft` is set, publish. A release that is not a draft
+also needs a successful Push Verification run for the exact commit.
 
 Secrets and variables, all optional:
 
