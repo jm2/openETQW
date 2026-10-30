@@ -89,15 +89,18 @@ def main() -> int:
         code, out = run_server(ded, root, "+listBinds")
         expect(ready_keys(out) == ["F3"], f"F3 is bound to _ready (keys: {ready_keys(out)}, exit {code})", out)
         expect(re.search(r'^w\s+"_forward"', out, re.MULTILINE) is not None, "w is bound to _forward", out)
+        expect(code == 0, f"the server exits 0 (exit {code})", out)
 
         print("2. sys_lang french, no French defaults: the English defaults")
         code, out = run_server(ded, root, "+set", "sys_lang", "french", "+listBinds")
         expect(ready_keys(out) == ["F3"], f"F3 is bound to _ready (keys: {ready_keys(out)}, exit {code})", out)
+        expect(code == 0, f"the server exits 0 (exit {code})", out)
 
         print("3. sys_lang french with French defaults: the French ones")
         write_defaults(base, "french")
         code, out = run_server(ded, root, "+set", "sys_lang", "french", "+listBinds")
         expect(ready_keys(out) == ["F4"], f"only F4 is bound to _ready (keys: {ready_keys(out)}, exit {code})", out)
+        expect(code == 0, f"the server exits 0 (exit {code})", out)
 
         print(f"4. a saved binding file ({SAVED_FILE}) replaces the defaults")
         saved = root / "save" / "base"
