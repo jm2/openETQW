@@ -88,11 +88,21 @@ public:
 		return true;
 	}
 
+	// The caller writes on its own schedule, not when the device needs data: Windows' sound
+	// thread writes one mix buffer every USERCMD_MSEC, about three times what 44.1 kHz plays,
+	// and a device that has gone away (a disconnected remote session) plays nothing. SDL
+	// keeps all that is put, so the queue grew by 18-28 MB a minute (#367). Only queue
+	// while less than MAX_QUEUED_MIX_BUFFERS are waiting.
 	virtual void Write( bool flushing ) override {
 		(void)flushing;
-		if ( audioStream != NULL && mixBuffer != NULL ) {
-			SDL_PutAudioStreamData( audioStream, mixBuffer, mixBufferSize );
+		if ( audioStream == NULL || mixBuffer == NULL ) {
+			return;
 		}
+		const int queued = SDL_GetAudioStreamQueued( audioStream );
+		if ( queued < 0 || queued >= MAX_QUEUED_MIX_BUFFERS * mixBufferSize ) {
+			return;
+		}
+		SDL_PutAudioStreamData( audioStream, mixBuffer, mixBufferSize );
 	}
 
 	virtual int GetNumberOfSpeakers( void ) override {
@@ -108,6 +118,8 @@ public:
 	}
 
 private:
+	static const int	MAX_QUEUED_MIX_BUFFERS = 2;
+
 	SDL_AudioStream*	audioStream;
 	int					numSpeakers;
 	int					sampleRate;
