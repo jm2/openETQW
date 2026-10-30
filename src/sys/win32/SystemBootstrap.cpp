@@ -868,6 +868,7 @@ void Sys_Error( const char *error, ... ) {
 	DWORD consoleMode = 0;
 	const bool redirected = errorType == FILE_TYPE_PIPE || errorType == FILE_TYPE_DISK ||
 		( errorType == FILE_TYPE_CHAR && !GetConsoleMode( errorHandle, &consoleMode ) );
+	Sys_ShowSplashScreen( false );
 	if ( !redirected ) {
 		MessageBoxA( NULL, text, GAME_NAME, MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND );
 	}
@@ -1112,8 +1113,8 @@ void Sys_ShowWindow( bool show ) {
 // closes; Sys_KeepSplashAboveGameWindow then makes the game window its owner, which
 // keeps the splash above it without putting it above other applications (topmost
 // would, and would stay there through a hang or a breakpoint). The first-run
-// folder prompt closes it first (Sys_PromptForRetailData); Sys_Error's message box
-// is topmost. The dedicated server shows none.
+// folder prompt and Sys_Error close it before their dialogs. The dedicated server
+// shows none.
 static const char* const SPLASH_WINDOW_CLASS = "openETQWSplash";
 static HWND splashWindow = NULL;
 static HBITMAP splashBitmap = NULL;
@@ -1154,6 +1155,13 @@ static LRESULT CALLBACK Sys_SplashWndProc( HWND hWnd, UINT message, WPARAM wPara
 		}
 		case WM_CLOSE:
 			return 0;	// only Sys_ShowSplashScreen( false ) closes it
+		case WM_NCDESTROY:
+			// also when its owner goes first: the Vulkan-to-OpenGL fallback
+			// (RecreateContext) destroys the game window, and Windows the splash with it
+			if ( hWnd == splashWindow ) {
+				splashWindow = NULL;
+			}
+			break;
 	}
 	return DefWindowProcA( hWnd, message, wParam, lParam );
 }
@@ -1162,6 +1170,11 @@ static LRESULT CALLBACK Sys_SplashWndProc( HWND hWnd, UINT message, WPARAM wPara
 void Sys_ShowSplashScreen( bool show ) {
 #ifndef ID_DEDICATED
 	if ( !show ) {
+		if ( splashWindow != NULL && GetWindowThreadProcessId( splashWindow, NULL ) != GetCurrentThreadId() ) {
+			// Sys_Error on another thread cannot destroy it; hide it, and leave the rest
+			ShowWindowAsync( splashWindow, SW_HIDE );
+			return;
+		}
 		if ( splashWindow != NULL ) {
 			DestroyWindow( splashWindow );
 			splashWindow = NULL;
@@ -1199,7 +1212,8 @@ void Sys_ShowSplashScreen( bool show ) {
 	const int screenHeight = GetSystemMetrics( SM_CYSCREEN );
 	const int x = screenWidth > info.bmWidth ? ( screenWidth - info.bmWidth ) / 2 : 0;
 	const int y = screenHeight > info.bmHeight ? ( screenHeight - info.bmHeight ) / 2 : 0;
-	splashWindow = CreateWindowExA( WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, SPLASH_WINDOW_CLASS, GAME_NAME, WS_POPUP,
+	// its own title, so nothing that finds the game window by title finds the splash
+	splashWindow = CreateWindowExA( WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, SPLASH_WINDOW_CLASS, "openETQW splash", WS_POPUP,
 		x, y, info.bmWidth, info.bmHeight, NULL, NULL, win32.hInstance, NULL );
 	if ( splashWindow == NULL ) {
 		Sys_ShowSplashScreen( false );
