@@ -72,6 +72,10 @@ if [[ "${target_arch}" == arm64 ]]; then
   sudo dpkg --add-architecture arm64
   ubuntu_sources=/etc/apt/sources.list.d/ubuntu.sources
   sudo sed -i '/^Architectures:/d; /^Signed-By:/a Architectures: amd64' "${ubuntu_sources}"
+  # Take amd64 from Ubuntu's own archive too, not the runner's mirror list: a
+  # Multi-Arch: foreign -bin package (libglib2.0-dev-bin) must match its arm64 -dev
+  # package's version exactly, and the mirror can lag ports.ubuntu.com (#360).
+  sudo sed -i 's|^URIs: mirror+file:/etc/apt/apt-mirrors.txt|URIs: http://archive.ubuntu.com/ubuntu/|' "${ubuntu_sources}"
   sudo tee /etc/apt/sources.list.d/ubuntu-arm64.sources >/dev/null <<'SOURCES'
 Types: deb
 URIs: http://ports.ubuntu.com/ubuntu-ports
