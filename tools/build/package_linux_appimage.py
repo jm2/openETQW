@@ -15,7 +15,7 @@ AppDir:
                                and the directory it was started from, or the one
                                holding the AppImage, has the retail data
                                (base/pak000.pk4), it passes +set fs_basepath there
-  openetqw.desktop, openetqw.svg, .DirIcon
+  openetqw.desktop, openetqw.png, .DirIcon
   usr/share/openetqw/          the package tree, unchanged
 
 Checks, before and after packing (the image is extracted again): the AppDir
@@ -43,6 +43,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 ASSETS = ROOT / "tools" / "build" / "linux"
+# the ET:QW icon of id's Linux 1.5 client (docs/decisions/0004-retail-icon-and-splash.md)
+ICON = ROOT / "assets" / "icons" / "etqw_icon.png"
 APPIMAGETOOL_VERSION = "1.9.1"
 APPIMAGETOOL_SHA256 = {
     "x86_64": "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0",
@@ -120,7 +122,7 @@ def check_resolution(package_root: Path, arch: str) -> None:
 
 
 def check_appdir(appdir: Path, arch: str) -> None:
-    for required in ("AppRun", "openetqw.desktop", "openetqw.svg", ".DirIcon",
+    for required in ("AppRun", "openetqw.desktop", "openetqw.png", ".DirIcon",
                      f"usr/share/openetqw/openETQW-client_{arch}", "usr/share/openetqw/base/vkprogs", "usr/share/openetqw/base/glprogs",
                      "usr/share/openetqw/glslangValidator", "usr/share/openetqw/libSDL3.so.0",
                      "usr/share/openetqw/licenses/openETQW/LICENSE"):
@@ -176,8 +178,8 @@ def build(args: argparse.Namespace) -> Path:
         (appdir / "AppRun").write_text(render_apprun(arch), encoding="utf-8")
         os.chmod(appdir / "AppRun", 0o755)
         shutil.copy2(ASSETS / "openetqw.desktop", appdir / "openetqw.desktop")
-        shutil.copy2(ASSETS / "openetqw.svg", appdir / "openetqw.svg")
-        (appdir / ".DirIcon").symlink_to("openetqw.svg")
+        shutil.copy2(ICON, appdir / "openetqw.png")
+        (appdir / ".DirIcon").symlink_to("openetqw.png")
         if shutil.which("desktop-file-validate"):
             run(["desktop-file-validate", str(appdir / "openetqw.desktop")], cwd=work)
         check_appdir(appdir, arch)
