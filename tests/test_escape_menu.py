@@ -12,7 +12,10 @@ test drives the Vulkan client under X11 with XTest (through ctypes; libX11 and
 libXtst). It skips (77) without retail data, the client binary, an X display or
 those libraries. The client's window must have the keyboard focus, which a new
 window gets on a private display (a headless mutter's Xwayland, as on the Linux x64
-host); do not run it on a desktop in use.
+host), but not always in time, so the test gives the client's window
+("Enemy Territory: QUAKE Wars") the focus once it has spawned. Before every key press
+it checks that the focused window is the client's and skips otherwise, so it never
+types into anything else.
 
 The client is a listen server on valley (objective rules) with the retail default
 bindings; one GDF soldier is spawned and has landed. Then, by its PLAYER_POS:
@@ -44,6 +47,7 @@ from test_reconnect_restart import Failed, player_pos, spawn  # noqa: E402
 MOVED = 100.0   # units a 1 s run must cover (a soldier runs ~250/s)
 STILL = 16.0    # units the player may drift while the menu has the keys
 HOLD = 1.0      # seconds W is held
+WINDOW_TITLE = "Enemy Territory: QUAKE Wars"
 
 
 class XKeys:
@@ -65,11 +69,92 @@ class XKeys:
         self.x11.XFlush.argtypes = [ctypes.c_void_p]
         self.x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
         self.xtst.XTestFakeKeyEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_int, ctypes.c_ulong]
+        self.x11.XGetInputFocus.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.c_int)]
+        self.x11.XFetchName.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_char_p)]
+        self.x11.XQueryTree.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong),
+                                        ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.c_void_p),
+                                        ctypes.POINTER(ctypes.c_uint)]
+        self.x11.XFree.argtypes = [ctypes.c_void_p]
         self.dpy = self.x11.XOpenDisplay(None)
         if not self.dpy:
             raise h.SkipTest(f"cannot open X display {os.environ.get('DISPLAY')!r}")
 
+    def focused_title(self) -> str | None:
+        """The title of the focused window or the nearest titled ancestor, else None."""
+        win = ctypes.c_ulong(0)
+        revert = ctypes.c_int(0)
+        self.x11.XGetInputFocus(self.dpy, ctypes.byref(win), ctypes.byref(revert))
+        w = win.value
+        for _ in range(16):
+            if w in (0, 1):  # None, PointerRoot
+                return None
+            name = ctypes.c_char_p()
+            if self.x11.XFetchName(self.dpy, w, ctypes.byref(name)) and name.value is not None:
+                title = name.value.decode(errors="replace")
+                self.x11.XFree(name)
+                if title:
+                    return title
+            root, parent = ctypes.c_ulong(0), ctypes.c_ulong(0)
+            children, count = ctypes.c_void_p(), ctypes.c_uint(0)
+            if not self.x11.XQueryTree(self.dpy, w, ctypes.byref(root), ctypes.byref(parent),
+                                       ctypes.byref(children), ctypes.byref(count)):
+                return None
+            if children.value:
+                self.x11.XFree(children)
+            if parent.value in (0, root.value):
+                return None
+            w = parent.value
+        return None
+
+    def find_window(self, title: str, window: int | None = None, depth: int = 0) -> int | None:
+        """The first window (depth first from the root) whose name is title."""
+        if window is None:
+            self.x11.XDefaultRootWindow.restype = ctypes.c_ulong
+            self.x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+            window = self.x11.XDefaultRootWindow(self.dpy)
+        name = ctypes.c_char_p()
+        if self.x11.XFetchName(self.dpy, window, ctypes.byref(name)) and name.value is not None:
+            found = name.value.decode(errors="replace") == title
+            self.x11.XFree(name)
+            if found:
+                return window
+        if depth > 8:
+            return None
+        root, parent = ctypes.c_ulong(0), ctypes.c_ulong(0)
+        children, count = ctypes.POINTER(ctypes.c_ulong)(), ctypes.c_uint(0)
+        if not self.x11.XQueryTree(self.dpy, window, ctypes.byref(root), ctypes.byref(parent),
+                                   ctypes.cast(ctypes.byref(children), ctypes.POINTER(ctypes.c_void_p)),
+                                   ctypes.byref(count)):
+            return None
+        kids = [children[i] for i in range(count.value)]
+        if count.value:
+            self.x11.XFree(children)
+        for child in kids:
+            hit = self.find_window(title, child, depth + 1)
+            if hit is not None:
+                return hit
+        return None
+
+    def focus(self, title: str) -> bool:
+        """Give the window named title the keyboard focus (on the private display the
+        test runs on, a new window does not always get it); True if it then has it."""
+        window = self.find_window(title)
+        if window is None:
+            return False
+        self.x11.XRaiseWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+        self.x11.XSetInputFocus.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+        self.x11.XRaiseWindow(self.dpy, window)
+        self.x11.XSetInputFocus(self.dpy, window, 2, 0)  # RevertToParent, CurrentTime
+        self.x11.XFlush(self.dpy)
+        time.sleep(0.5)
+        return self.focused_title() == title
+
     def hold(self, keysym: str, seconds: float) -> None:
+        # never type into anything but the game: a desktop in use has other windows
+        title = self.focused_title()
+        if title != WINDOW_TITLE:
+            raise h.SkipTest(f"the client's window does not have the keyboard focus ({title!r} has it);"
+                             " run this on a private display")
         code = self.x11.XKeysymToKeycode(self.dpy, self.x11.XStringToKeysym(keysym.encode()))
         self.xtst.XTestFakeKeyEvent(self.dpy, code, 1, 0)
         self.x11.XFlush(self.dpy)
@@ -109,6 +194,7 @@ def main() -> int:
         log = Path(args.log_dir) / "escape-menu.log"
 
     failures: list[str] = []
+    skipped = None
 
     def expect(ok: bool, what: str) -> None:
         print(f"  {'ok  ' if ok else 'FAIL'} {what}")
@@ -127,6 +213,7 @@ def main() -> int:
         gfx.sync()
         start = spawn(gfx, gfx, "gdf")
         time.sleep(1.0)
+        print(f"  the client's window has the keyboard focus: {keys.focus(WINDOW_TITLE)}")
 
         print("1. W moves the player")
         keys.hold("w", HOLD)
@@ -154,9 +241,14 @@ def main() -> int:
     except Failed as e:
         failures.append(str(e))
         print(f"FAIL: {e}")
+    except h.SkipTest as e:
+        skipped = str(e)
     finally:
         keys.close()
         code = gfx.quit()
+    if skipped:
+        print(f"[SKIP] {skipped}")
+        return h.EXIT_SKIP
     expect(code == 0, f"the client exits 0 (exit {code})")
 
     if failures:
