@@ -742,9 +742,6 @@ wchar_t *Sys_GetClipboardData( void ) {
 	return NULL;
 }
 
-void Sys_ShowSplashScreen( bool show ) {
-}
-
 long Sys_FileTimeStamp( FILE *f ) {
 	if ( f == NULL ) {
 		return -1;

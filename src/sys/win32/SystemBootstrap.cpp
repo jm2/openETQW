@@ -13,6 +13,7 @@
 #include <SDL3/SDL_main.h>
 #include "win_local.h"
 #include "win_soundthread.h"
+#include "rc/openETQW_resource.h"
 #ifdef ETQW_WITH_RADIANT
 #include "../../tools/radiant/RadiantImGui.h"
 #endif
@@ -202,18 +203,7 @@ void idSysLocal::Init() {
 	timeBeginPeriod( 1 );
 #ifndef ID_DEDICATED
 	SDL_SetMainReady();
-	// SDL2's SDL_HINT_WINDOWS_DPI_AWARENESS ("permonitorv2") is gone in SDL3.
-	// SetProcessDpiAwarenessContext exists from Windows 10 1703 on, so it is
-	// resolved at run time; without it the process DPI mode stays as created.
-	{
-		typedef BOOL (WINAPI *SetProcessDpiAwarenessContext_t)( DPI_AWARENESS_CONTEXT );
-		SetProcessDpiAwarenessContext_t setDpiContext =
-			reinterpret_cast< SetProcessDpiAwarenessContext_t >( GetProcAddress(
-				GetModuleHandleA( "user32.dll" ), "SetProcessDpiAwarenessContext" ) );
-		if ( setDpiContext != NULL ) {
-			setDpiContext( DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 );
-		}
-	}
+	// The process DPI mode is set in WinMain (Sys_SetDpiAwareness), before the splash.
 	SDL_SetHint( SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1" );
 	if ( !SDL_Init( SDL_INIT_VIDEO | SDL_INIT_EVENTS ) ) {
 		Sys_Error( "SDL3 initialization failed: %s", SDL_GetError() );
@@ -696,9 +686,14 @@ void Sys_InitInput( void ) {
 void Sys_ShutdownInput( void ) {
 }
 
+#ifndef ID_DEDICATED
+static void Sys_KeepSplashAboveGameWindow();
+#endif
+
 void idSysLocal::ProcessOSEvents() {
 	Win_ConsoleInput();
 #ifndef ID_DEDICATED
+	Sys_KeepSplashAboveGameWindow();
 	Sys_ProcessSDLEvents();
 #endif
 }
@@ -873,6 +868,7 @@ void Sys_Error( const char *error, ... ) {
 	DWORD consoleMode = 0;
 	const bool redirected = errorType == FILE_TYPE_PIPE || errorType == FILE_TYPE_DISK ||
 		( errorType == FILE_TYPE_CHAR && !GetConsoleMode( errorHandle, &consoleMode ) );
+	Sys_ShowSplashScreen( false );
 	if ( !redirected ) {
 		MessageBoxA( NULL, text, GAME_NAME, MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND );
 	}
@@ -1107,10 +1103,127 @@ void Sys_ShowWindow( bool show ) {
 	}
 }
 
-// The splash bitmap (IDB_ETQW_SPLASH) is purged retail content and cannot
-// ship, so there is no splash to show on Windows either; the POSIX layer
-// stubs this the same way.
+#ifndef ID_DEDICATED
+// The launch splash (decision 0004): the IDB_ETQW_SPLASH bitmap in a borderless
+// window centred on the primary display, from WinMain until the renderer is up
+// (idCommonLocal::InitGame closes it). After openQ4's Sys_ShowSplash (its
+// win_syscon.cpp, jm2/openQ4 b37b1456). It never takes activation, so the game
+// window gets the foreground as it would without a splash, and it has no taskbar
+// button. SDL shows the game window during renderer start-up, before the splash
+// closes; Sys_KeepSplashAboveGameWindow then makes the game window its owner, which
+// keeps the splash above it without putting it above other applications (topmost
+// would, and would stay there through a hang or a breakpoint). The first-run
+// folder prompt and Sys_Error close it before their dialogs. The dedicated server
+// shows none.
+static const char* const SPLASH_WINDOW_CLASS = "openETQWSplash";
+static HWND splashWindow = NULL;
+static HBITMAP splashBitmap = NULL;
+
+static void Sys_KeepSplashAboveGameWindow() {
+	if ( splashWindow == NULL || sys3D == NULL ) {
+		return;
+	}
+	const HWND gameWindow = reinterpret_cast< HWND >( sys3D->GetGameWindowHandle() );
+	if ( gameWindow != NULL && GetWindow( splashWindow, GW_OWNER ) != gameWindow ) {
+		SetWindowLongPtrA( splashWindow, GWLP_HWNDPARENT, reinterpret_cast< LONG_PTR >( gameWindow ) );
+		SetWindowPos( splashWindow, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE );
+	}
+}
+
+static void Sys_DrawSplash( HDC dc ) {
+	BITMAP info;
+	HDC bitmapDC = CreateCompatibleDC( dc );
+	if ( bitmapDC != NULL && splashBitmap != NULL && GetObject( splashBitmap, sizeof( info ), &info ) == sizeof( info ) ) {
+		HGDIOBJ oldBitmap = SelectObject( bitmapDC, splashBitmap );
+		BitBlt( dc, 0, 0, info.bmWidth, info.bmHeight, bitmapDC, 0, 0, SRCCOPY );
+		SelectObject( bitmapDC, oldBitmap );
+	}
+	if ( bitmapDC != NULL ) {
+		DeleteDC( bitmapDC );
+	}
+}
+
+static LRESULT CALLBACK Sys_SplashWndProc( HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam ) {
+	switch ( message ) {
+		case WM_ERASEBKGND:
+			return 1;	// the bitmap covers the whole window
+		case WM_PAINT: {
+			PAINTSTRUCT paint;
+			Sys_DrawSplash( BeginPaint( hWnd, &paint ) );
+			EndPaint( hWnd, &paint );
+			return 0;
+		}
+		case WM_CLOSE:
+			return 0;	// only Sys_ShowSplashScreen( false ) closes it
+		case WM_NCDESTROY:
+			// also when its owner goes first: the Vulkan-to-OpenGL fallback
+			// (RecreateContext) destroys the game window, and Windows the splash with it
+			if ( hWnd == splashWindow ) {
+				splashWindow = NULL;
+			}
+			break;
+	}
+	return DefWindowProcA( hWnd, message, wParam, lParam );
+}
+#endif
+
 void Sys_ShowSplashScreen( bool show ) {
+#ifndef ID_DEDICATED
+	if ( !show ) {
+		if ( splashWindow != NULL && GetWindowThreadProcessId( splashWindow, NULL ) != GetCurrentThreadId() ) {
+			// Sys_Error on another thread cannot destroy it; hide it, and leave the rest
+			ShowWindowAsync( splashWindow, SW_HIDE );
+			return;
+		}
+		if ( splashWindow != NULL ) {
+			DestroyWindow( splashWindow );
+			splashWindow = NULL;
+		}
+		if ( splashBitmap != NULL ) {
+			DeleteObject( splashBitmap );
+			splashBitmap = NULL;
+		}
+		return;
+	}
+	if ( splashWindow != NULL || win32.hInstance == NULL ) {
+		return;
+	}
+	splashBitmap = static_cast< HBITMAP >( LoadImageA( win32.hInstance, MAKEINTRESOURCEA( IDB_ETQW_SPLASH ),
+		IMAGE_BITMAP, 0, 0, LR_DEFAULTCOLOR ) );
+	BITMAP info;
+	if ( splashBitmap == NULL || GetObject( splashBitmap, sizeof( info ), &info ) != sizeof( info ) ) {
+		Sys_ShowSplashScreen( false );
+		return;
+	}
+
+	WNDCLASSA windowClass;
+	memset( &windowClass, 0, sizeof( windowClass ) );
+	windowClass.lpfnWndProc = Sys_SplashWndProc;
+	windowClass.hInstance = win32.hInstance;
+	windowClass.hIcon = LoadIconA( win32.hInstance, MAKEINTRESOURCEA( IDI_OPENETQW ) );
+	windowClass.hCursor = LoadCursorA( NULL, MAKEINTRESOURCEA( IDC_ARROW ) );
+	windowClass.lpszClassName = SPLASH_WINDOW_CLASS;
+	if ( RegisterClassA( &windowClass ) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS ) {
+		Sys_ShowSplashScreen( false );
+		return;
+	}
+
+	const int screenWidth = GetSystemMetrics( SM_CXSCREEN );
+	const int screenHeight = GetSystemMetrics( SM_CYSCREEN );
+	const int x = screenWidth > info.bmWidth ? ( screenWidth - info.bmWidth ) / 2 : 0;
+	const int y = screenHeight > info.bmHeight ? ( screenHeight - info.bmHeight ) / 2 : 0;
+	// its own title, so nothing that finds the game window by title finds the splash
+	splashWindow = CreateWindowExA( WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, SPLASH_WINDOW_CLASS, "openETQW splash", WS_POPUP,
+		x, y, info.bmWidth, info.bmHeight, NULL, NULL, win32.hInstance, NULL );
+	if ( splashWindow == NULL ) {
+		Sys_ShowSplashScreen( false );
+		return;
+	}
+	ShowWindow( splashWindow, SW_SHOWNOACTIVATE );
+	UpdateWindow( splashWindow );
+#else
+	( void )show;
+#endif
 }
 
 bool Sys_IsWindowVisible() {
@@ -1331,6 +1444,8 @@ problem set when it holds no base/pak000.pk4. A folder the ANSI code page cannot
 ==============
 */
 bool Sys_PromptForRetailData( idStr &root, const char *problem ) {
+	// the folder picker and its refusals replace the splash
+	Sys_ShowSplashScreen( false );
 	const HRESULT init = CoInitializeEx( NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE );
 	// RPC_E_CHANGED_MODE: COM is already up on this thread in another mode, which the
 	// dialog can still use; only a successful init is balanced by CoUninitialize
@@ -2253,8 +2368,23 @@ const char* Sys_GetThreadName( int *index ) {
 }
 
 #ifndef ID_DEDICATED
+// SDL2's SDL_HINT_WINDOWS_DPI_AWARENESS ("permonitorv2") is gone in SDL3.
+// SetProcessDpiAwarenessContext exists from Windows 10 1703 on, so it is
+// resolved at run time; without it the process DPI mode stays as created.
+// It has to come before the first window, the splash.
+static void Sys_SetDpiAwareness() {
+	typedef BOOL (WINAPI *SetProcessDpiAwarenessContext_t)( DPI_AWARENESS_CONTEXT );
+	SetProcessDpiAwarenessContext_t setDpiContext =
+		reinterpret_cast< SetProcessDpiAwarenessContext_t >( GetProcAddress(
+			GetModuleHandleA( "user32.dll" ), "SetProcessDpiAwarenessContext" ) );
+	if ( setDpiContext != NULL ) {
+		setDpiContext( DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 );
+	}
+}
+
 int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE, LPSTR commandLine, int ) {
 	win32.hInstance = hInstance;
+	Sys_SetDpiAwareness();
 	Sys_ShowSplashScreen( true );
 	const char* argv[] = { GAME_NAME };
 	common->Init( 1, argv, commandLine != NULL ? commandLine : "" );

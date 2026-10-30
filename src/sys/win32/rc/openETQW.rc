@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Windows resources of openETQW-client: the application icon, the launch splash and
+// the version information. openETQW-ded.rc includes this file for the dedicated
+// server, without the splash, which it never shows. Written after openQ4's
+// src/sys/win32/rc/openQ4Version.rc (jm2/openQ4 b37b1456). The icon and the splash
+// are id Software's ET:QW artwork (docs/decisions/0004-retail-icon-and-splash.md).
+// meson.build compiles this with windows.compile_resources.
+
+#include <winres.h>
+
+#include "openETQW_resource.h"
+#include "openetqw_version_generated.h"
+
+IDI_OPENETQW ICON "../../../../assets/icons/etqw.ico"
+#ifndef OPENETQW_RC_DEDICATED
+IDB_ETQW_SPLASH BITMAP "../../../../assets/splash/etqw_splash.bmp"
+#define OPENETQW_RC_DESCRIPTION "openETQW client"
+#else
+#define OPENETQW_RC_DESCRIPTION "openETQW dedicated server"
+#endif
+
+#define OPENETQW_RC_FILEVERSION OPENETQW_VERSION_MAJOR,OPENETQW_VERSION_MINOR,OPENETQW_VERSION_PATCH,OPENETQW_VERSION_RESOURCE_BUILD
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION OPENETQW_RC_FILEVERSION
+ PRODUCTVERSION OPENETQW_RC_FILEVERSION
+ FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+ FILEFLAGS 0x0L
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+ FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+	BLOCK "StringFileInfo"
+	BEGIN
+		BLOCK "040904b0"
+		BEGIN
+			VALUE "CompanyName", "openETQW contributors"
+			VALUE "FileDescription", OPENETQW_RC_DESCRIPTION
+			VALUE "FileVersion", OPENETQW_VERSION
+			VALUE "ProductName", "openETQW"
+			VALUE "ProductVersion", OPENETQW_VERSION
+		END
+	END
+	BLOCK "VarFileInfo"
+	BEGIN
+		VALUE "Translation", 0x0409, 1200
+	END
+END
