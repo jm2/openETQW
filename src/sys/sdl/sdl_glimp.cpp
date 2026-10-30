@@ -9,8 +9,39 @@
 #include "../renderer/VulkanBackend.h"
 
 void Sys_SDL_SetVideoHints( void );
+SDL_Window* Sys_GetGameSDLWindow( void );
 
 namespace {
+
+bool vidRestartRegistered = false;
+
+/*
+====================
+VidRestart_f
+
+Applies r_fullscreen to the game window ("vid_restart windowed" clears it first,
+as retail's does). Alt+Enter flips r_fullscreen and runs this. The window is
+switched in place: the Vulkan swapchain follows the resize, so nothing is torn
+down. Retail 1.5 also restarts the renderer here for r_mode changes; this does not.
+====================
+*/
+void VidRestart_f( const idCmdArgs& args ) {
+	SDL_Window* window = Sys_GetGameSDLWindow();
+	if ( window == NULL ) {
+		common->Printf( "vid_restart: no game window\n" );
+		return;
+	}
+	if ( args.Argc() > 1 && idStr::Icmp( args.Argv( 1 ), "windowed" ) == 0 ) {
+		cvarSystem->SetCVarBool( "r_fullscreen", false );
+	}
+	const bool fullscreen = cvarSystem->GetCVarBool( "r_fullscreen" );
+	if ( !SDL_SetWindowFullscreen( window, fullscreen ) ) {
+		common->Warning( "vid_restart: could not switch to %s: %s", fullscreen ? "fullscreen" : "a window", SDL_GetError() );
+	}
+	SDL_SyncWindow( window );
+	const bool isFullscreen = ( SDL_GetWindowFlags( window ) & SDL_WINDOW_FULLSCREEN ) != 0;
+	common->Printf( "vid_restart: %s\n", isFullscreen ? "fullscreen" : "windowed" );
+}
 
 class idRenderContextSDL3 : public idRenderContext {
 public:
@@ -153,6 +184,10 @@ public:
 		renderContext.Create( rcParms );
 
 		EnumerateMonitors();
+		if ( cmdSystem != NULL && !vidRestartRegistered ) {
+			cmdSystem->AddCommand( "vid_restart", VidRestart_f, CMD_FL_RENDERER, "applies r_fullscreen to the game window (\"windowed\" leaves fullscreen)" );
+			vidRestartRegistered = true;
+		}
 		common->Printf( "SDL3 %s window created: %dx%d (fullscreen: %d)\n",
 			R_UseVulkanBackend() ? "Vulkan" : "OpenGL",
 			parms.width, parms.height, parms.fullScreen ? 1 : 0 );
