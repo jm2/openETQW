@@ -1480,6 +1480,16 @@ void idCommonLocal::InitGame( bool resetConfigs ) {
 	renderBindingManager->Init();
 
 	cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec default.cfg\n" );
+	// The retail default key bindings ship in the language paks
+	// (zpak_<lang>*.pk4). Both they and the saved binding file start with
+	// unbindall, so a saved profile overrides them and a fresh one gets them.
+	StartupVariable( "sys_lang" );
+	const char* language = cvarSystem->GetCVarString( "sys_lang" );
+	idStr defaultBinds = va( "localization/%s/defaultbinds.cfg", language != NULL && language[ 0 ] != '\0' ? language : "english" );
+	if ( fileSystem->ReadFile( defaultBinds, NULL, NULL ) <= 0 ) {
+		defaultBinds = "localization/english/defaultbinds.cfg";
+	}
+	cmdSystem->BufferCommandText( CMD_EXEC_APPEND, va( "exec %s\n", defaultBinds.c_str() ) );
 	if ( !SafeMode() ) {
 		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec " BINDING_FILE "\n" );
 		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec " CONFIG_FILE "\n" );

@@ -504,6 +504,18 @@ if build_dedicated
     timeout: 120,
   )
 
+  # retail's default key bindings (localization/<sys_lang>/defaultbinds.cfg) on a
+  # fresh profile, on synthetic data
+  test(
+    'default-binds',
+    py,
+    args: [meson.project_source_root() / 'tests' / 'test_default_binds.py', '--ded-binary', retail_install_check_ded,
+           '--game-module', game_module_built],
+    workdir: meson.project_source_root(),
+    suite: 'unit',
+    timeout: 120,
+  )
+
   all_stock_maps_ded = meson.project_build_root() / engine_ded_binary_name
   if host_system == 'windows'
     all_stock_maps_ded += '.exe'
