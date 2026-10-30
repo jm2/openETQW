@@ -73,8 +73,8 @@ def main() -> int:
         if logs and engine and product:
             text = logs[0].read_text(encoding="utf-8", errors="replace")
             lines = text.splitlines()
-            expect(engine.group(0) in lines, f"console.log has {engine.group(0)!r}", text)
-            expect(product.group(0) in lines, f"console.log has {product.group(0)!r}", text)
+            expect(lines[:2] == [engine.group(0), product.group(0)],
+                   f"console.log starts with {engine.group(0)!r} and {product.group(0)!r} (first lines {lines[:2]})", text)
 
     if failures:
         print(f"FAIL: {len(failures)} check(s) failed")
