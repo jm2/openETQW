@@ -14,6 +14,10 @@ opens, and takes a screenshot (r_vkScreenshot). In the 640x480 GUI space:
   L1 the campaign map's area (inside 283,66 - 573,270) is the bright, varied
      map image: mean luminance >= 50 and standard deviation >= 20 (main: the
      empty panel, about 30 and 7)
+  L1c the map reaches its right-hand corners (500,66 - 573,130 and 500,200 -
+     573,268): mean luminance >= 50 in each (main: about 29). A polygon cut
+     wrongly to its clip rectangle came back as a triangle, which the whole
+     area's numbers alone might not show
   L2 the objective icons' column (232,403 - 250,462) is not blank: standard
      deviation >= 15 (main: 0)
 The screenshot shows retail content and is deleted with the test's temporary
@@ -39,6 +43,7 @@ from test_client_network import VulkanClient  # noqa: E402
 from test_reconnect_restart import Failed  # noqa: E402
 
 MAP_AREA = (283, 66, 573, 270)
+MAP_CORNERS = ((500, 66, 573, 130), (500, 200, 573, 268))
 ICON_COLUMN = (232, 403, 250, 462)
 
 
@@ -50,6 +55,8 @@ def read_tga(path: Path):
     bpp, descriptor = data[16], data[17]
     if image_type != 2 or colour_map != 0 or bpp not in (24, 32):
         raise Failed(f"{path.name}: not an uncompressed true-colour TGA (type {image_type}, {bpp} bpp)")
+    if len(data) < 18 + id_length + width * height * (bpp // 8):
+        raise Failed(f"{path.name}: truncated ({len(data)} bytes for {width}x{height})")
     step = bpp // 8
     offset = 18 + id_length
     top_down = bool(descriptor & 0x20)
@@ -118,16 +125,25 @@ def main() -> int:
             time.sleep(4.0)
             gfx.send(f'set r_vkScreenshot "{shot}"')
             gfx.sync()
+            # wait until the file exists and its size has stopped changing
             deadline = time.monotonic() + 20.0
-            while not shot.exists() and time.monotonic() < deadline:
+            last_size = -1
+            while time.monotonic() < deadline:
+                size = shot.stat().st_size if shot.exists() else -1
+                if size > 18 and size == last_size:
+                    break
+                last_size = size
                 time.sleep(0.5)
-            time.sleep(1.0)
-            if not shot.exists():
-                raise Failed("r_vkScreenshot wrote no screenshot")
+            else:
+                raise Failed("r_vkScreenshot wrote no complete screenshot")
             mean, spread = luminance_stats(shot, MAP_AREA)
             expect(mean >= 50.0 and spread >= 20.0,
                    f"L1 the campaign map is drawn (luminance mean {mean:.1f}, deviation {spread:.1f}; "
                    f"need >= 50 and >= 20)")
+            corners = [luminance_stats(shot, corner)[0] for corner in MAP_CORNERS]
+            expect(all(c >= 50.0 for c in corners),
+                   f"L1c the map reaches its right-hand corners (mean luminance {corners[0]:.1f} and "
+                   f"{corners[1]:.1f}; need >= 50 each)")
             _, icons = luminance_stats(shot, ICON_COLUMN)
             expect(icons >= 15.0, f"L2 the objective icons are drawn (luminance deviation {icons:.1f}; need >= 15)")
         except Failed as e:
