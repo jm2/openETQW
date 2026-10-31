@@ -135,6 +135,15 @@ key_char_test = executable(
 )
 test('key-char', key_char_test, suite: 'unit', timeout: 30)
 
+# 5a3. the fullscreen chord: Alt+Return on Windows and Linux, Command+Return on macOS
+fullscreen_chord_test = executable(
+  'openetqw-fullscreen-chord-test',
+  files('FullscreenChordTest.cpp'),
+  include_directories: include_directories('../src/sys/sdl'),
+  install: false,
+)
+test('fullscreen-chord', fullscreen_chord_test, suite: 'unit', timeout: 30)
+
 # 5b. idMsgChannel fragmentation: a message whose encoded length is an exact multiple
 #     of FRAGMENT_SIZE ends with an empty fragment, which idBitMsg::WriteData is fatal
 #     on (the server died on it mid-session); the real channel, compressor and
