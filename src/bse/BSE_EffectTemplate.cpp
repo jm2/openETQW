@@ -125,6 +125,7 @@ thread while decls load. The renderer looks a template up by decl.
 ================
 */
 static std::unordered_map< const rvDeclEffect *, bseEffectTemplate * > bseEffectTemplates;
+static int bseEffectTemplateEpoch;
 
 bool BSE_ParseEffectTemplate( const rvDeclEffect *decl, const char *name, idParser &src, float &minDuration, float &maxDuration,
 		float &cutOffDistance, float &size ) {
@@ -148,7 +149,12 @@ void BSE_FreeEffectTemplate( const rvDeclEffect *decl ) {
 	if ( it != bseEffectTemplates.end() ) {
 		delete it->second;
 		bseEffectTemplates.erase( it );
+		bseEffectTemplateEpoch++;
 	}
+}
+
+int BSE_EffectTemplateEpoch() {
+	return bseEffectTemplateEpoch;
 }
 
 const bseEffectTemplate *BSE_EffectTemplateForDecl( const rvDeclEffect *decl ) {

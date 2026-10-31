@@ -83,6 +83,9 @@ class bseEffectTemplate;
 const bseEffectTemplate *BSE_EffectTemplateForDecl( const rvDeclEffect *decl );
 const rvDeclEffect *BSE_EffectDeclOf( const idDecl *decl );
 void BSE_FreeEffectTemplate( const rvDeclEffect *decl );
+// changes whenever a template is freed (a decl reparsed or purged); a simulation
+// initialised under another epoch may hold freed templates and must be re-initialised
+int BSE_EffectTemplateEpoch();
 
 // One parsed effect: the segments of an effect decl. The decl type itself is the
 // SDK's rvDeclEffect (shared with the game module); its Parse fills one of these,
@@ -217,9 +220,14 @@ private:
 	void			AddFrameToTotals();
 
 	rvBSEStats		stats;
-	rvBSEStats		totals;			// since Init, for bseStats
-	int				drawnEffects = 0;
-	int				drawnSurfaces = 0;
+	// since Init, for bseStats; 64-bit, as a long session overflows int
+	long long		totalEffectsServiced = 0;
+	long long		totalSegmentsServiced = 0;
+	long long		totalParticlesEvaluated = 0;
+	long long		totalParticlesRendered = 0;
+	long long		totalParticlesCapped = 0;
+	long long		drawnEffects = 0;
+	long long		drawnSurfaces = 0;
 };
 
 rvBSEManagerClient &BSE_ClientManager();

@@ -19,23 +19,24 @@ static void BSE_Stats_f( const idCmdArgs & ) {
 }
 
 void rvBSEManagerClient::PrintStats() const {
-	common->Printf( "BSE: %d effects serviced, %d segments, %d particles evaluated, %d rendered, %d capped; "
-		"%d effect models drawn with %d surfaces\n",
-		totals.effectsServiced + stats.effectsServiced, totals.segmentsServiced + stats.segmentsServiced,
-		totals.particlesEvaluated + stats.particlesEvaluated, totals.particlesRendered + stats.particlesRendered,
-		totals.particlesCapped + stats.particlesCapped, drawnEffects, drawnSurfaces );
+	common->Printf( "BSE: %lld effects serviced, %lld segments, %lld particles evaluated, %lld rendered, %lld capped; "
+		"%lld effect models drawn with %lld surfaces\n",
+		totalEffectsServiced + stats.effectsServiced, totalSegmentsServiced + stats.segmentsServiced,
+		totalParticlesEvaluated + stats.particlesEvaluated, totalParticlesRendered + stats.particlesRendered,
+		totalParticlesCapped + stats.particlesCapped, drawnEffects, drawnSurfaces );
 }
 
 void rvBSEManagerClient::AddFrameToTotals() {
-	totals.effectsServiced += stats.effectsServiced;
-	totals.segmentsServiced += stats.segmentsServiced;
-	totals.particlesEvaluated += stats.particlesEvaluated;
-	totals.particlesRendered += stats.particlesRendered;
-	totals.particlesCapped += stats.particlesCapped;
+	totalEffectsServiced += stats.effectsServiced;
+	totalSegmentsServiced += stats.segmentsServiced;
+	totalParticlesEvaluated += stats.particlesEvaluated;
+	totalParticlesRendered += stats.particlesRendered;
+	totalParticlesCapped += stats.particlesCapped;
 }
 
 bool rvBSEManagerClient::Init() {
-	memset( &totals, 0, sizeof( totals ) );
+	totalEffectsServiced = totalSegmentsServiced = totalParticlesEvaluated = 0;
+	totalParticlesRendered = totalParticlesCapped = 0;
 	drawnEffects = 0;
 	drawnSurfaces = 0;
 	cmdSystem->AddCommand( "bseStats", BSE_Stats_f, CMD_FL_RENDERER, "prints the BSE particle counts since start" );

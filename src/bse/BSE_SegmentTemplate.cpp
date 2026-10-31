@@ -68,6 +68,11 @@ void BSE_SkipUnknown( idParser &src, const idToken &token ) {
 			src.SkipBracedSection( false );
 			return;
 		}
+		if ( value == "}" ) {
+			// the enclosing section ends on this line; leave its brace to the caller
+			src.UnreadToken( value );
+			return;
+		}
 	}
 }
 

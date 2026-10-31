@@ -14,6 +14,10 @@ their own. `bseStats` then reports, since start:
   B1 effects serviced > 0       (effect defs reach the simulation)
   B2 particles rendered > 0     (the simulation spawns particles; 0 with the stubs)
   B3 effect models drawn > 0    (BSE_BuildRenderModel gave the renderer geometry)
+Then `reloadDecls all` reparses every decl while the effects run, which frees and
+rebuilds their templates; the running effects must be re-initialised, not left on
+the freed ones:
+  B4 after RELOAD_SECONDS more, particles rendered and effect models drawn grew
 On a build without the BSE the command does not exist ("Unknown command 'bseStats'").
 
 Usage: test_bse_effects.py [--client-binary PATH] [--port N] [--log-dir DIR]
@@ -35,8 +39,16 @@ from test_client_network import VulkanClient  # noqa: E402
 from test_reconnect_restart import Failed, spawn  # noqa: E402
 
 SECONDS = 10.0
+RELOAD_SECONDS = 8.0
 STATS_RE = re.compile(r"^BSE: (\d+) effects serviced, (\d+) segments, (\d+) particles evaluated, (\d+) rendered, "
                       r"(\d+) capped; (\d+) effect models drawn with (\d+) surfaces")
+
+
+def bse_stats(gfx) -> list[str]:
+    mark = gfx.mark()
+    gfx.send("bseStats")
+    gfx.sync()
+    return [ln.text for ln in gfx.snapshot(mark)]
 
 
 def main() -> int:
@@ -65,7 +77,7 @@ def main() -> int:
             failures.append(what)
 
     gfx = VulkanClient(client, data, args.port, map_name="valley", log_path=log,
-                       cvars={"si_rules": "sdGameRulesObjective", "r_vkValidation": "0"})
+                       cvars={"si_rules": "sdGameRulesObjective", "r_vkValidation": "0", "net_allowCheats": "1"})
     gfx.name = "VulkanClient"
     gfx.slot = 0
     try:
@@ -75,10 +87,7 @@ def main() -> int:
         gfx.sync()
         spawn(gfx, gfx, "gdf")
         time.sleep(SECONDS)
-        mark = gfx.mark()
-        gfx.send("bseStats")
-        gfx.sync()
-        lines = [ln.text for ln in gfx.snapshot(mark)]
+        lines = bse_stats(gfx)
         stats = next((m for m in (STATS_RE.match(t) for t in lines) if m), None)
         unknown = any("Unknown command 'bseStats'" in t for t in lines)
         expect(stats is not None, "bseStats reports the BSE counts"
@@ -89,6 +98,17 @@ def main() -> int:
             expect(serviced > 0, f"B1 effects were serviced ({serviced})")
             expect(rendered > 0, f"B2 particles were rendered ({rendered})")
             expect(models > 0 and surfaces > 0, f"B3 effect models were drawn ({models}, {surfaces} surfaces)")
+
+            gfx.send("reloadDecls all")
+            gfx.sync()
+            time.sleep(RELOAD_SECONDS)
+            after = next((m for m in (STATS_RE.match(t) for t in bse_stats(gfx)) if m), None)
+            if after:
+                print(f"  {after.group(0)}")
+            rendered2, models2 = (int(after.group(4)), int(after.group(6))) if after else (rendered, models)
+            expect(rendered2 > rendered and models2 > models,
+                   f"B4 effects kept rendering after reloadDecls all (particles {rendered} -> {rendered2}, "
+                   f"models {models} -> {models2})")
     except Failed as e:
         failures.append(str(e))
         print(f"FAIL: {e}")
