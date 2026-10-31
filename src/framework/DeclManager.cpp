@@ -1410,6 +1410,13 @@ const idDecl* idDeclManagerLocal::DeclByIndex( qhandle_t typeHandle, int declInd
 		return NULL;
 	}
 
+	// -1 is "none": getDeclIndex returns it for an empty or unknown name, and scripts
+	// pass that on (sys.setCMIconMaterial( handle, GetMaterial( getKey( "mtr_..." ) ) )
+	// with the key unset); retail 1.5 returns NULL for it without a warning
+	if ( declIndex == -1 ) {
+		return NULL;
+	}
+
 	declTypeData_t& data = declTypes[ typeHandle ]->data;
 	if ( declIndex < 0 || declIndex >= data.linearList.Num() ) {
 		common->Warning( "idDeclManager::DeclByIndex: index %i out of range for '%s'", declIndex, GetDeclTypeName( typeHandle ) );
