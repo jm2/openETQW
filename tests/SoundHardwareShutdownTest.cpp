@@ -77,12 +77,16 @@ int main() {
 	Expect( WaitFor( sound.writing, 5000 ), "the writer holds the lock, inside the write" );
 
 	// the main thread: net_serverDedicated 1 shuts the hardware down
+	std::atomic< bool > started{ false };
 	std::atomic< bool > returned{ false };
 	std::thread shutdown( [&]() {
+		started.store( true );
 		Snd_ShutdownHardwareLocked( sound );
 		returned.store( true );
 	} );
 
+	// give the shutdown thread, once it runs, time to get past the lock if nothing stops it
+	Expect( WaitFor( started, 5000 ), "the shutdown thread is running" );
 	std::this_thread::sleep_for( std::chrono::milliseconds( 300 ) );
 	Expect( !sound.freed.load(), "the hardware is not freed while the writer is inside the write (300 ms)" );
 	Expect( !returned.load(), "the shutdown waits for the lock" );
