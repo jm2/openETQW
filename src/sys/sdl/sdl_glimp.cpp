@@ -413,8 +413,8 @@ private:
 			sizes.Append( mode->w );
 			sizes.Append( mode->h );
 			if ( mode->pixel_density > 1.0f ) {
-				sizes.Append( idMath::Ftoi( mode->w * mode->pixel_density ) );
-				sizes.Append( idMath::Ftoi( mode->h * mode->pixel_density ) );
+				sizes.Append( idMath::Ftoi( mode->w * mode->pixel_density + 0.5f ) );
+				sizes.Append( idMath::Ftoi( mode->h * mode->pixel_density + 0.5f ) );
 			}
 		}
 		SDL_free( displayModes );

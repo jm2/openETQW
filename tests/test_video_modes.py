@@ -9,10 +9,11 @@ display lists (src/sys/sdl/VideoModeAvailability.h).
 
 The Vulkan client hosts valley on a real display; `listModes` then prints the table,
 with " - Not available for fullscreen" after each mode not marked:
-  V1 at least one mode is available
+  V1 at least one mode the menu lists (mode 3 on) is available
   V2 the client logged how many ("SDL3: N of 26 video modes are available fullscreen")
 It skips (77) without retail data, the client binary or an X display, and on SDL's
-headless drivers, which report no real display.
+headless drivers, which report no real display; so it runs on Linux X11 only. V1 needs
+the display to list one of the table's sizes, which a desktop monitor does.
 
 Usage: test_video_modes.py [--client-binary PATH] [--port N] [--log-dir DIR]
 Exit status: 0 pass, 1 fail, 77 skip.
@@ -32,7 +33,8 @@ from test_campaign_client_maps import find_client  # noqa: E402
 from test_client_network import VulkanClient  # noqa: E402
 from test_reconnect_restart import Failed  # noqa: E402
 
-MODE_RE = re.compile(r"^Mode +\d+: \d+x\d+")
+MODE_RE = re.compile(r"^Mode +(\d+): \d+x\d+")
+MENU_FIRST_MODE = 3  # the menu lists modes from 3 on (idGameLocal::CreateVideoModeList)
 COUNT_RE = re.compile(r"SDL3: (\d+) of (\d+) video modes are available fullscreen")
 
 
@@ -80,9 +82,10 @@ def main() -> int:
         gfx.sync()
         modes = [ln.text for ln in gfx.snapshot(mark) if MODE_RE.match(ln.text)]
         available = [m for m in modes if "Not available" not in m]
+        listed = [m for m in available if int(MODE_RE.match(m).group(1)) >= MENU_FIRST_MODE]
         print(f"  listModes: {len(available)} of {len(modes)} available ({', '.join(m.split(': ')[1] for m in available)})")
         expect(len(modes) > 0, "listModes printed the mode table")
-        expect(len(available) > 0, "V1 at least one mode is available fullscreen")
+        expect(len(listed) > 0, f"V1 at least one mode the menu lists (from mode {MENU_FIRST_MODE}) is available fullscreen")
         counts = [m for m in (COUNT_RE.search(ln.text) for ln in gfx.snapshot(0)) if m]
         expect(bool(counts) and int(counts[-1].group(1)) == len(available),
                f"V2 the client logged the count ({counts[-1].group(0) if counts else 'no line'})")
