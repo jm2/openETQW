@@ -9,6 +9,7 @@
 #include "../../renderer/ModelManager.h"
 #include "../../renderer/DeviceContext.h"
 #include "../../renderer/FrameSyncTiming.h"
+#include "../../renderer/GpuPciIds.h"
 #include "../../sound/SoundSystem.h"
 #include "../../sound/SoundWorld.h"
 #include "sys_render.h"
@@ -627,4 +628,11 @@ id3DContext*			sys3D = NULL;
 // FrameSyncTiming.h: no Vulkan backend, so no frame waits
 void R_TakeFrameSyncTiming( frameSyncTiming_t& timing ) {
 	memset( &timing, 0, sizeof( timing ) );
+}
+
+// GpuPciIds.h: no GPU
+bool R_GetGpuPciIds( unsigned int& vendorID, unsigned int& deviceID ) {
+	vendorID = 0;
+	deviceID = 0;
+	return false;
 }
