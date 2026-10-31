@@ -71,6 +71,7 @@ NOT_INTEGRATION = {
     # run the dedicated server on synthetic data only
     "tests/test_retail_install_check.py",
     "tests/test_retired_cvars.py",
+    "tests/test_preset_levels.py",
     "tests/test_frame_cap_cvars.py",
     "tests/test_default_binds.py",
     "tests/test_log_version.py",
