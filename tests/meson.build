@@ -1136,6 +1136,23 @@ if build_engine and build_dedicated
     timeout: 400,
     is_parallel: false,
   )
+
+  # The deploy menu draws its campaign map and objective icons (GUI clip rectangles)
+  test(
+    'limbo-command-map',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_limbo_command_map.py',
+      '--client-binary', campaign_client,
+      '--port', '29916',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'limbo-command-map',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 400,
+    is_parallel: false,
+  )
 endif
 
 # 9. What the Vulkan client draws, frame by frame (M5): FRAME_POSE lines from the game

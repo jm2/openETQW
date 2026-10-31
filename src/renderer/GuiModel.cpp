@@ -221,6 +221,14 @@ void sdGuiModel::PopClipRect() {
 	writePosition += sizeof( int );
 }
 
+// idWinding2D::ClipByBounds returns true when nothing of the winding is left, and
+// false when some of it is (unchanged when the bounds contain it); a draw goes on
+// while it still has a polygon
+static bool ClipWindingToBounds( idWinding2D& winding, const sdBounds2D& bounds ) {
+	winding.ClipByBounds( bounds );
+	return winding.GetNumPoints() >= 3;
+}
+
 bool sdGuiModel::ClipToMask( idWinding2D& winding, float x, float y, float w, float h,
 	float ms1, float mt1, float ms2, float mt2 ) {
 	// the mask coordinates run from (ms1, mt1) at (x, y) to (ms2, mt2) at
@@ -251,7 +259,7 @@ bool sdGuiModel::ClipToMask( idWinding2D& winding, float x, float y, float w, fl
 	if ( ms1 == ms2 && mt1 == mt2 ) {
 		return winding.GetNumPoints() >= 3;
 	}
-	return winding.ClipByBounds( sdBounds2D( x0, y0, x1 - x0, y1 - y0 ) ) && winding.GetNumPoints() >= 3;
+	return ClipWindingToBounds( winding, sdBounds2D( x0, y0, x1 - x0, y1 - y0 ) );
 }
 
 bool sdGuiModel::ClipWinding( idWinding2D& winding ) const {
@@ -259,11 +267,11 @@ bool sdGuiModel::ClipWinding( idWinding2D& winding ) const {
 		return winding.GetNumPoints() >= 3;
 	}
 	for ( int i = 0; i < clipRects.Num(); i++ ) {
-		if ( !winding.ClipByBounds( clipRects[ i ] ) ) {
+		if ( !ClipWindingToBounds( winding, clipRects[ i ] ) ) {
 			return false;
 		}
 	}
-	return winding.GetNumPoints() >= 3;
+	return true;
 }
 
 void sdGuiModel::QueueRect(
