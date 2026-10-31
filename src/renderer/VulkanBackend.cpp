@@ -8,6 +8,7 @@
 #include "RendererJobs.h"
 #include "RendererMetrics.h"
 #include "FrameSyncTiming.h"
+#include "GpuPciIds.h"
 #include "VulkanSlowCall.h"
 #include "tr_render.h"
 #include "draw_local.h"
@@ -533,6 +534,7 @@ struct sdVulkanBackendState {
 	unsigned int				queueFamilyIndex;
 	char					deviceName[ VK_MAX_PHYSICAL_DEVICE_NAME_SIZE ];
 	unsigned int			vendorID;
+	unsigned int			deviceID;
 	char					vendorString[ 64 ];
 	char					versionString[ 32 + VK_MAX_DRIVER_NAME_SIZE + VK_MAX_DRIVER_INFO_SIZE ];
 	bool					fillModeNonSolid;
@@ -908,6 +910,7 @@ struct sdVulkanBackendState {
 		queueFamilyIndex = UINT_MAX;
 		deviceName[ 0 ] = '\0';
 		vendorID = 0;
+		deviceID = 0;
 		vendorString[ 0 ] = '\0';
 		versionString[ 0 ] = '\0';
 		fillModeNonSolid = false;
@@ -1771,6 +1774,7 @@ bool SelectPhysicalDevice( sdVulkanBackendState& state ) {
 			idStr::Copynz( state.deviceName, properties.deviceName,
 				sizeof( state.deviceName ) );
 			state.vendorID = properties.vendorID;
+			state.deviceID = properties.deviceID;
 			state.fillModeNonSolid = features2.features.fillModeNonSolid == VK_TRUE;
 			state.textureCompressionBC = features2.features.textureCompressionBC == VK_TRUE;
 			state.maxPushConstantsSize = properties.limits.maxPushConstantsSize;
@@ -13216,6 +13220,10 @@ unsigned int sdVulkanBackend::GetVendorID() const {
 	return state != NULL ? state->vendorID : 0;
 }
 
+unsigned int sdVulkanBackend::GetDeviceID() const {
+	return state != NULL ? state->deviceID : 0;
+}
+
 namespace {
 bool vulkanUnavailable = false;
 }
@@ -13235,6 +13243,17 @@ void R_TakeFrameSyncTiming( frameSyncTiming_t& timing ) {
 	timing.acquireUsec	= syncAcquireUsec.exchange( 0 );
 	timing.submitUsec	= syncSubmitUsec.exchange( 0 );
 	timing.presentUsec	= syncPresentUsec.exchange( 0 );
+}
+
+/*
+==================
+R_GetGpuPciIds
+==================
+*/
+bool R_GetGpuPciIds( unsigned int& vendorID, unsigned int& deviceID ) {
+	vendorID = vulkanBackend.GetVendorID();
+	deviceID = vulkanBackend.GetDeviceID();
+	return vulkanBackend.IsInitialized() && vendorID != 0;
 }
 
 bool R_UseVulkanBackend() {
