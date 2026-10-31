@@ -124,6 +124,17 @@ mouse_delta_test = executable(
 )
 test('mouse-delta', mouse_delta_test, suite: 'unit', timeout: 30)
 
+# 5a2. the character a key types on the SDL keyboard (#366): printable ASCII only, so
+#      F3 and the other special keys are named by their localized strings, not by a
+#      negative char the HUD drew as an empty box
+key_char_test = executable(
+  'openetqw-key-char-test',
+  files('KeyCharTest.cpp'),
+  include_directories: [include_directories('../src/sys/sdl'), staged_sys_inc],
+  install: false,
+)
+test('key-char', key_char_test, suite: 'unit', timeout: 30)
+
 # 5b. idMsgChannel fragmentation: a message whose encoded length is an exact multiple
 #     of FRAGMENT_SIZE ends with an empty fragment, which idBitMsg::WriteData is fatal
 #     on (the server died on it mid-session); the real channel, compressor and
@@ -498,6 +509,29 @@ if build_dedicated
     'retired-cvars',
     py,
     args: [meson.project_source_root() / 'tests' / 'test_retired_cvars.py', '--ded-binary', retail_install_check_ded,
+           '--game-module', game_module_built],
+    workdir: meson.project_source_root(),
+    suite: 'unit',
+    timeout: 120,
+  )
+
+  # retail's default key bindings (localization/<sys_lang>/defaultbinds.cfg) on a
+  # fresh profile, on synthetic data
+  test(
+    'default-binds',
+    py,
+    args: [meson.project_source_root() / 'tests' / 'test_default_binds.py', '--ded-binary', retail_install_check_ded,
+           '--game-module', game_module_built],
+    workdir: meson.project_source_root(),
+    suite: 'unit',
+    timeout: 120,
+  )
+
+  # console.log carries the version lines (#362), on synthetic data
+  test(
+    'log-version',
+    py,
+    args: [meson.project_source_root() / 'tests' / 'test_log_version.py', '--ded-binary', retail_install_check_ded,
            '--game-module', game_module_built],
     workdir: meson.project_source_root(),
     suite: 'unit',
@@ -1068,6 +1102,23 @@ if build_engine and build_dedicated
     )
   endforeach
 
+  # vid_restart switches the game window to and from fullscreen (#365; Alt+Enter)
+  test(
+    'vid-restart',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_vid_restart.py',
+      '--client-binary', campaign_client,
+      '--port', '29902',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'vid-restart',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 300,
+    is_parallel: false,
+  )
+
   # Escape in game opens the main menu and closes it again (real keys through XTest;
   # skips without an X display)
   test(
@@ -1341,6 +1392,29 @@ if build_engine
     suite: ['client', 'integration'],
     protocol: 'exitcode',
     timeout: 300,
+    is_parallel: false,
+  )
+endif
+
+# 12f. A client idle in a game does not keep growing (#367): with SDL's dummy audio driver
+#      (an audio device on any host), its memory (private bytes on Windows, the resident set on
+#      Linux and macOS) grows by less than 12 MB in 90 s. The Windows sound thread's mix buffers
+#      used to queue in the SDL audio stream without bound. Only Windows has that writer, so only
+#      there can this catch #367; elsewhere it passes either way
+if build_engine
+  test(
+    'idle-client-memory',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_idle_client_memory.py',
+      '--client-binary', campaign_client,
+      '--port', '29991',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'idle-client-memory',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 420,
     is_parallel: false,
   )
 endif
