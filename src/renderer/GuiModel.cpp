@@ -10,6 +10,7 @@
 
 #include "GuiModel.h"
 #include "GuiFont.h"
+#include "GuiClip.h"
 #include "DeviceContext.h"
 #include "Material.h"
 #include "Image.h"
@@ -251,7 +252,7 @@ bool sdGuiModel::ClipToMask( idWinding2D& winding, float x, float y, float w, fl
 	if ( ms1 == ms2 && mt1 == mt2 ) {
 		return winding.GetNumPoints() >= 3;
 	}
-	return winding.ClipByBounds( sdBounds2D( x0, y0, x1 - x0, y1 - y0 ) ) && winding.GetNumPoints() >= 3;
+	return GuiClipWindingToBounds( winding, sdBounds2D( x0, y0, x1 - x0, y1 - y0 ) );
 }
 
 bool sdGuiModel::ClipWinding( idWinding2D& winding ) const {
@@ -259,11 +260,11 @@ bool sdGuiModel::ClipWinding( idWinding2D& winding ) const {
 		return winding.GetNumPoints() >= 3;
 	}
 	for ( int i = 0; i < clipRects.Num(); i++ ) {
-		if ( !winding.ClipByBounds( clipRects[ i ] ) ) {
+		if ( !GuiClipWindingToBounds( winding, clipRects[ i ] ) ) {
 			return false;
 		}
 	}
-	return winding.GetNumPoints() >= 3;
+	return true;
 }
 
 void sdGuiModel::QueueRect(
