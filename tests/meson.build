@@ -1090,6 +1090,23 @@ if build_engine and build_dedicated
       is_parallel: false,
     )
   endforeach
+
+  # vid_restart switches the game window to and from fullscreen (#365; Alt+Enter)
+  test(
+    'vid-restart',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_vid_restart.py',
+      '--client-binary', campaign_client,
+      '--port', '29902',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'vid-restart',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 300,
+    is_parallel: false,
+  )
 endif
 
 # 9. What the Vulkan client draws, frame by frame (M5): FRAME_POSE lines from the game
