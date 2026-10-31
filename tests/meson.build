@@ -195,6 +195,19 @@ gui_text_layout_test = executable(
 )
 test('gui-text-layout', gui_text_layout_test, suite: 'unit', timeout: 30)
 
+# GUI clipping (src/renderer/GuiClip.h): a draw inside its clip rectangle stays
+# whole, one outside is dropped, and an overhang on any sides is cut to the overlap
+gui_clip_test = executable(
+  'openetqw-gui-clip-test',
+  files('GuiClipTest.cpp'),
+  include_directories: engine_include_dirs + [include_directories('../src/renderer')],
+  cpp_args: common_engine_defs + ['-DID_DEDICATED'] + engine_pch_args,
+  dependencies: test_deps + [zlib_dep, threads_dep],
+  link_args: test_link_args,
+  install: false,
+)
+test('gui-clip', gui_clip_test, suite: 'unit', timeout: 30)
+
 # Every package carries the licence texts (GPL, SDK EULA, third-party notices)
 test(
   'install-licenses',
@@ -1146,6 +1159,23 @@ if build_engine and build_dedicated
       '--client-binary', campaign_client,
       '--port', '29914',
       '--log-dir', meson.project_build_root() / 'meson-logs' / 'bse-effects',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 400,
+    is_parallel: false,
+  )
+
+  # The deploy menu draws its campaign map and objective icons (GUI clip rectangles)
+  test(
+    'limbo-command-map',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_limbo_command_map.py',
+      '--client-binary', campaign_client,
+      '--port', '29916',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'limbo-command-map',
     ],
     workdir: meson.project_source_root(),
     suite: ['client', 'integration'],

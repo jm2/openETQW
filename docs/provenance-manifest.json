@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5587,
+  "totalFiles": 5590,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 394
   },
   "postSplitCounts": {
-    "Reconstruction_original": 304,
+    "Reconstruction_original": 307,
     "ThirdParty": 1,
     "Retail_asset": 4,
     "Doom3_GPL": 2,
@@ -48573,6 +48573,18 @@
       "spdx": "GPL-3.0-or-later"
     },
     {
+      "path": "src/renderer/GuiClip.h",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "46a325f2d94eca9385aa786aabe55bcb27ac6dd6eb4b086bd4698cf43a4ca8be",
+      "canonicalSha256": "46a325f2d94eca9385aa786aabe55bcb27ac6dd6eb4b086bd4698cf43a4ca8be",
+      "bytes": 3665,
+      "addedAfterSplit": true,
+      "addedIn": "b9b41c4def9e23bf387e40ab3243836a547a3a04",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
       "path": "src/renderer/GuiFont.cpp",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -49017,6 +49029,18 @@
       "spdx": "GPL-3.0-or-later"
     },
     {
+      "path": "tests/GuiClipTest.cpp",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "c1fe5a25d0c53bf38eb596a5ca4a23a0f68cf32b6ebd1c53244e516f56512520",
+      "canonicalSha256": "c1fe5a25d0c53bf38eb596a5ca4a23a0f68cf32b6ebd1c53244e516f56512520",
+      "bytes": 5930,
+      "addedAfterSplit": true,
+      "addedIn": "b9b41c4def9e23bf387e40ab3243836a547a3a04",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
       "path": "tests/GuiTextLayoutTest.cpp",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -49177,9 +49201,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "5063bd72018bfe3025222259c957c7d6bb70d9fb0e15e5f245ff22f17ce7118e",
-      "canonicalSha256": "5063bd72018bfe3025222259c957c7d6bb70d9fb0e15e5f245ff22f17ce7118e",
-      "bytes": 49436,
+      "rawSha256": "070c20f732b9239700ce52db665e66a24689192b29289cf033a9b6fc14dd3077",
+      "canonicalSha256": "070c20f732b9239700ce52db665e66a24689192b29289cf033a9b6fc14dd3077",
+      "bytes": 50529,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": "GPL-3.0-or-later"
@@ -49638,6 +49662,18 @@
       "bytes": 11588,
       "addedAfterSplit": true,
       "addedIn": "cafd94d314ce6c5af37a163c6295466d6fbc45d3",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
+      "path": "tests/test_limbo_command_map.py",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "bf4cac8bfe75702281f1830989f3763ef5699a655cf5f42605fd63f087f5aea3",
+      "canonicalSha256": "bf4cac8bfe75702281f1830989f3763ef5699a655cf5f42605fd63f087f5aea3",
+      "bytes": 7607,
+      "addedAfterSplit": true,
+      "addedIn": "39b49fe81b44695f8c05c775392783cd4ac7c9eb",
       "spdx": "GPL-3.0-or-later"
     },
     {
