@@ -230,6 +230,27 @@ video_mode_availability_test = executable(
 )
 test('video-mode-availability', video_mode_availability_test, suite: 'unit', timeout: 30)
 
+# The audio hardware is freed only under the sound system's lock, which Windows' sound
+# thread holds while it writes to it (#374): the helper waits for a writer holding the
+# lock, and no caller outside src/sound frees the hardware without it
+sound_hw_shutdown_test = executable(
+  'openetqw-sound-hw-shutdown-test',
+  files('SoundHardwareShutdownTest.cpp'),
+  include_directories: engine_include_dirs,
+  cpp_args: common_engine_defs + ['-DID_DEDICATED'] + engine_pch_args,
+  dependencies: test_deps + [zlib_dep, threads_dep],
+  link_args: test_link_args,
+  install: false,
+)
+test('sound-hw-shutdown', sound_hw_shutdown_test, suite: 'unit', timeout: 30)
+test(
+  'sound-hw-lock',
+  py,
+  args: [meson.project_source_root() / 'tests' / 'test_sound_hw_lock.py'],
+  suite: 'unit',
+  timeout: 30,
+)
+
 # Every package carries the licence texts (GPL, SDK EULA, third-party notices)
 test(
   'install-licenses',

@@ -30,6 +30,7 @@ If you have questions concerning this license or the applicable additional terms
 #pragma hdrstop
 
 #include "AsyncNetwork.h"
+#include "../../sound/SoundHardwareShutdown.h"
 
 idAsyncServer		idAsyncNetwork::server;
 idAsyncClient		idAsyncNetwork::client;
@@ -252,7 +253,7 @@ void idAsyncNetwork::SpawnServer_f( const idCmdArgs &args ) {
 				renderSystem->ShutdownOpenGL();
 			}
 			soundSystem->SetMute( true );
-			soundSystem->ShutdownHW();
+			Snd_ShutdownHardwareLocked( *soundSystem );
 			break;
 	}
 	if ( server.IsActive() ) {
