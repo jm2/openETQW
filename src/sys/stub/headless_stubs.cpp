@@ -608,6 +608,19 @@ idSoundSystem*			soundSystem = &headlessSoundSystem;
 sdDeviceContext*		deviceContext = &headlessDeviceContext;
 sdRenderBindingManager*	renderBindingManager = &headlessRenderBindingManager;
 rvBSEManager*			bse = &headlessBSEManager;
+
+// The dedicated server runs no BSE simulation (src/bse is client-only): an effect
+// decl's body is skipped and its durations stay 0, as before #368.
+bool BSE_ParseEffectTemplate( const rvDeclEffect*, const char*, idParser& src, float&, float&, float&, float& ) {
+	idToken token;
+	if ( !src.SkipUntilString( "{", &token ) ) {
+		return false;
+	}
+	return src.SkipBracedSection( false ) != 0;
+}
+
+void BSE_FreeEffectTemplate( const rvDeclEffect* ) {
+}
 idImageManager*			globalImages = NULL;
 id3DContext*			sys3D = NULL;
 

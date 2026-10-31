@@ -35,7 +35,7 @@ struct bseEffectState_t {
 		entity.axis.Identity();
 	}
 
-	rvBSE simulation;
+	bseSimulation simulation;
 	const rvDeclEffect* decl;
 	idRenderModel* model;
 	renderEntity_t entity;
@@ -307,7 +307,8 @@ bool idRenderWorldLocal::UpdateEffectDef( qhandle_t handle, const renderEffect_t
 	}
 	if ( effect->declEffect == NULL || effect->loop ) return false;
 	const float effectTime = time * 0.001f + effect->shaderParms[SHADERPARM_TIMEOFFSET];
-	const float duration = effect->declEffect->GetMaxDuration();
+	const bseEffectTemplate* effectTemplate = BSE_EffectTemplateForDecl( effect->declEffect );
+	const float duration = effectTemplate != NULL ? effectTemplate->GetMaxDuration() : 0.0f;
 	if ( duration <= 0.0f ) return false;
 	if ( state->stopped ) {
 		return state->stopTime > 0.0f && effectTime > state->stopTime + duration;
@@ -365,7 +366,9 @@ void idRenderWorldLocal::BackendPrepareEffects( const renderView_t* renderView )
 		if ( effect->suppressSurfaceInViewID != 0 && effect->suppressSurfaceInViewID == renderView->viewID ) continue;
 		if ( effect->allowSurfaceInViewID != 0 && effect->allowSurfaceInViewID != renderView->viewID ) continue;
 
-		const float cutOffDistance = effect->maxVisDist > 0.0f ? effect->maxVisDist : effect->declEffect->GetCutOffDistance();
+		const bseEffectTemplate* effectTemplate = BSE_EffectTemplateForDecl( effect->declEffect );
+		const float cutOffDistance = effect->maxVisDist > 0.0f ? effect->maxVisDist :
+			( effectTemplate != NULL ? effectTemplate->GetCutOffDistance() : 0.0f );
 		if ( cutOffDistance > 0.0f && ( renderView->vieworg - effect->origin ).LengthSqr() > cutOffDistance * cutOffDistance ) continue;
 
 		if ( state->decl != effect->declEffect ) {
@@ -425,6 +428,7 @@ void idRenderWorldLocal::BackendPrepareEffects( const renderView_t* renderView )
 				owner.viewOrigin, viewRight, viewUp );
 		}
 		if ( state->model->NumSurfaces() <= 0 ) continue;
+		BSE_ClientManager().CountDrawnEffect( state->model->NumSurfaces() );
 
 		renderEntity_t& entity = state->entity;
 		memset( &entity, 0, sizeof( entity ) );

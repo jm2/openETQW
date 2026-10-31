@@ -23,7 +23,7 @@ GNU General Public License for more details.
 #include "../idlib/precompiled.h"
 #pragma hdrstop
 
-#include "BSE.h"
+#include "BSESim.h"
 
 namespace {
 
@@ -37,7 +37,7 @@ static int ComponentsForParm( int particleType, int parm ) {
 		case BSE_PARM_WINDSTRENGTH:
 			return 1;
 		case BSE_PARM_SIZE: {
-			// rvParticleTemplate::SetParameterCounts in ETQW assigns one width
+			// bseParticleTemplate::SetParameterCounts in ETQW assigns one width
 			// component to line/electricity/linked particles, two to sprites and
 			// oriented quads, and three to world-space volume/model types.
 			switch ( particleType ) {
@@ -156,11 +156,11 @@ int rvBSEAction::Allocated() const {
 	return total;
 }
 
-rvParticleTemplate::rvParticleTemplate() {
+bseParticleTemplate::bseParticleTemplate() {
 	Init();
 }
 
-void rvParticleTemplate::Init() {
+void bseParticleTemplate::Init() {
 	type = PTYPE_NONE;
 	materialName.Clear();
 	modelName.Clear();
@@ -200,16 +200,16 @@ void rvParticleTemplate::Init() {
 	for ( int i = 0; i < BSE_PARM_COUNT; i++ ) parms[i].Clear();
 }
 
-int rvParticleTemplate::Allocated() const {
+int bseParticleTemplate::Allocated() const {
 	int total = materialName.Allocated() + modelName.Allocated() + entityDefName.Allocated() +
 		trailMaterialName.Allocated() + jitterTableName.Allocated() + impact.Allocated() + timeout.Allocated();
 	for ( int i = 0; i < BSE_PARM_COUNT; i++ ) total += parms[i].Allocated();
 	return total;
 }
 
-bool rvParticle::Evaluate( const rvParticleSpawnInfo &spawn, rvBSEParticle &result ) {
-	const rvParticleTemplate &particleTemplate = *spawn.particleTemplate;
-	const rvSegmentTemplate &segmentTemplate = *spawn.segmentTemplate;
+bool bseParticle::Evaluate( const rvParticleSpawnInfo &spawn, rvBSEParticle &result ) {
+	const bseParticleTemplate &particleTemplate = *spawn.particleTemplate;
+	const bseSegmentTemplate &segmentTemplate = *spawn.segmentTemplate;
 	const rvBSEOwner &owner = *spawn.owner;
 	const float age = owner.time - spawn.birthTime;
 	if ( age < 0.0f || ( !particleTemplate.persist && age > spawn.life ) ) {

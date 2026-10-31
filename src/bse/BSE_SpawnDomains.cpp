@@ -23,7 +23,7 @@ GNU General Public License for more details.
 #include "../idlib/precompiled.h"
 #pragma hdrstop
 
-#include "BSE.h"
+#include "BSESim.h"
 
 namespace {
 

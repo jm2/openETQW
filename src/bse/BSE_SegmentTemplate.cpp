@@ -23,9 +23,9 @@ GNU General Public License for more details.
 #include "../idlib/precompiled.h"
 #pragma hdrstop
 
-#include "BSE.h"
+#include "BSESim.h"
 
-idVec2 BSE_ParseRange( idLexer &src, float defaultValue ) {
+idVec2 BSE_ParseRange( idParser &src, float defaultValue ) {
 	bool error = false;
 	const float first = src.ParseFloat( &error );
 	if ( error ) {
@@ -37,7 +37,7 @@ idVec2 BSE_ParseRange( idLexer &src, float defaultValue ) {
 	return idVec2( first, first );
 }
 
-idVec3 BSE_ParseVector( idLexer &src, int count ) {
+idVec3 BSE_ParseVector( idParser &src, int count ) {
 	idVec3 result( 0.0f, 0.0f, 0.0f );
 	for ( int i = 0; i < count && i < 3; i++ ) {
 		result[i] = src.ParseFloat();
@@ -48,7 +48,7 @@ idVec3 BSE_ParseVector( idLexer &src, int count ) {
 	return result;
 }
 
-idStr BSE_ParseString( idLexer &src ) {
+idStr BSE_ParseString( idParser &src ) {
 	idToken token;
 	if ( !src.ReadToken( &token ) ) {
 		return "";
@@ -57,7 +57,7 @@ idStr BSE_ParseString( idLexer &src ) {
 	return token.c_str();
 }
 
-void BSE_SkipUnknown( idLexer &src, const idToken &token ) {
+void BSE_SkipUnknown( idParser &src, const idToken &token ) {
 	if ( token == "{" ) {
 		src.SkipBracedSection( false );
 		return;
@@ -128,11 +128,11 @@ bseDomainType_t BSE_DomainTypeForToken( const idToken &token ) {
 	return BSE_DOMAIN_NONE;
 }
 
-rvSegmentTemplate::rvSegmentTemplate() {
+bseSegmentTemplate::bseSegmentTemplate() {
 	Init();
 }
 
-void rvSegmentTemplate::Init() {
+void bseSegmentTemplate::Init() {
 	name.Clear();
 	type = SEG_NONE;
 	startTime.Zero();
@@ -162,7 +162,7 @@ void rvSegmentTemplate::Init() {
 	particle.Init();
 }
 
-int rvSegmentTemplate::Allocated() const {
+int bseSegmentTemplate::Allocated() const {
 	int total = name.Allocated() + soundShader.Allocated() + soundChannel.Allocated() +
 		spawnEffects.Allocated() + particle.Allocated();
 	for ( int i = 0; i < spawnEffects.Num(); i++ ) {
@@ -171,12 +171,12 @@ int rvSegmentTemplate::Allocated() const {
 	return total;
 }
 
-bool rvSegmentTemplate::HasVisualParticle() const {
+bool bseSegmentTemplate::HasVisualParticle() const {
 	return particle.type > PTYPE_NONE && particle.type < PTYPE_COUNT;
 }
 
-bool rvDeclEffect::ParseSegment( idLexer &src, int segmentType ) {
-	rvSegmentTemplate segment;
+bool bseEffectTemplate::ParseSegment( idParser &src, int segmentType ) {
+	bseSegmentTemplate segment;
 	segment.type = segmentType;
 
 	idToken token;

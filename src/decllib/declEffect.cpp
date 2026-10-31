@@ -10,6 +10,19 @@
 #include "../framework/declManager.h"
 #include "../framework/DeclParseHelper.h"
 
+// The client parses the effect body into the BSE simulation's template
+// (src/bse/BSE_EffectTemplate.cpp, kept beside this decl, #368); the dedicated
+// server has no BSE and keeps an empty effect (src/sys/stub/headless_stubs.cpp).
+bool BSE_ParseEffectTemplate( const rvDeclEffect *decl, const char *name, idParser &src, float &minDuration, float &maxDuration,
+	float &cutOffDistance, float &size );
+void BSE_FreeEffectTemplate( const rvDeclEffect *decl );
+
+// the effect decl of a decl found by name; BSE code sees rvDeclEffect only as a
+// forward declaration, so the conversion lives here, with the class
+const rvDeclEffect *BSE_EffectDeclOf( const idDecl *decl ) {
+	return static_cast< const rvDeclEffect * >( decl );
+}
+
 void rvDeclEffect::Init( void ) {
 	FreeData();
 }
@@ -24,6 +37,7 @@ const char *rvDeclEffect::DefaultDefinition( void ) const {
 }
 
 void rvDeclEffect::FreeData( void ) {
+	BSE_FreeEffectTemplate( this );
 	mFlags = 0;
 	mMinDuration = 0.0f;
 	mMaxDuration = 0.0f;
@@ -46,11 +60,7 @@ bool rvDeclEffect::Parse( const char *text, const int textLength ) {
 	idParser src;
 	src.SetFlags( DECL_LEXER_FLAGS );
 	sdDeclParseHelper declHelper( this, text, textLength, src );
-	idToken token;
-	if ( !src.SkipUntilString( "{", &token ) ) {
-		return false;
-	}
-	return src.SkipBracedSection( false ) != 0;
+	return BSE_ParseEffectTemplate( this, GetName(), src, mMinDuration, mMaxDuration, mCutOffDistance, mSize );
 }
 
 void rvDeclEffect::CacheFromDict( const idDict& dict ) {

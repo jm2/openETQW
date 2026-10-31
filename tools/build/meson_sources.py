@@ -268,6 +268,7 @@ def main(argv: list[str]) -> int:
         sources.append("src/decllib/DeclRenderProgram_opengl.cpp")
         sources.extend(CLIENT_SOUND_SOURCES)
         sources.extend(CLIENT_RENDERER_SOURCES)
+        sources.extend(BSE_PARTICLE_SOURCES)
         sources.extend(IMGUI_SOURCES)
         if args.platform_backend == "sdl3":
             sources.extend(SDL3_PLATFORM_SOURCES)
