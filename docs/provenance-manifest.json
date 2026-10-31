@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5608,
+  "totalFiles": 5611,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 394
   },
   "postSplitCounts": {
-    "Reconstruction_original": 325,
+    "Reconstruction_original": 328,
     "ThirdParty": 1,
     "Retail_asset": 4,
     "Doom3_GPL": 2,
@@ -47997,6 +47997,30 @@
       "spdx": null
     },
     {
+      "path": "base/vkprogs/gui/guimask.frag",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "5182d3a04900751d353645d529102758f4656ca59266a015016d1bee70eb75cb",
+      "canonicalSha256": "5182d3a04900751d353645d529102758f4656ca59266a015016d1bee70eb75cb",
+      "bytes": 787,
+      "addedAfterSplit": true,
+      "addedIn": "8140264f52e7fb27e2e85beb36c520d0735ef5d1",
+      "spdx": null
+    },
+    {
+      "path": "base/vkprogs/gui/guimask.vert",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "b36bfc2f541b5d5c18055912657b1296319c72c0a44f793ccc4eb531bbfcde9a",
+      "canonicalSha256": "b36bfc2f541b5d5c18055912657b1296319c72c0a44f793ccc4eb531bbfcde9a",
+      "bytes": 691,
+      "addedAfterSplit": true,
+      "addedIn": "8140264f52e7fb27e2e85beb36c520d0735ef5d1",
+      "spdx": null
+    },
+    {
       "path": "base/vkprogs/world/ambient_cube.frag",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -49345,9 +49369,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "9559000fec1e85c42d94999c0c40901cad26cdfc4dd45181d6bee1c178f8aa05",
-      "canonicalSha256": "9559000fec1e85c42d94999c0c40901cad26cdfc4dd45181d6bee1c178f8aa05",
-      "bytes": 54929,
+      "rawSha256": "8db5c78fc9c170f844a2a8dded61e2a6e7a1c20df72012ad560c49ecbab31fd0",
+      "canonicalSha256": "8db5c78fc9c170f844a2a8dded61e2a6e7a1c20df72012ad560c49ecbab31fd0",
+      "bytes": 55457,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": "GPL-3.0-or-later"
@@ -49794,6 +49818,18 @@
       "bytes": 48836,
       "addedAfterSplit": true,
       "addedIn": "94c318782a8bec73ee17f8df6f5b6d8a40c0a111",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
+      "path": "tests/test_hud_minimap_mask.py",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "590270e297c7f90eb6d6aca18d4b87ca2381d9be585de4e1d75c0d4b0700fe7c",
+      "canonicalSha256": "590270e297c7f90eb6d6aca18d4b87ca2381d9be585de4e1d75c0d4b0700fe7c",
+      "bytes": 6734,
+      "addedAfterSplit": true,
+      "addedIn": "8140264f52e7fb27e2e85beb36c520d0735ef5d1",
       "spdx": "GPL-3.0-or-later"
     },
     {

@@ -24,6 +24,16 @@ struct sdVulkanGuiVertex {
 	float t;
 };
 
+// a GUI vertex with its mask coordinates (retail's trivialMaskImage, #379)
+struct sdVulkanGuiMaskVertex {
+	float x;
+	float y;
+	float s;
+	float t;
+	float maskS;
+	float maskT;
+};
+
 struct sdVulkanToolVertex {
 	float x;
 	float y;
@@ -75,6 +85,10 @@ public:
 	bool DrawPostProcessGlow();
 	bool DrawGuiFan( const void* imageOwner, const sdVulkanGuiVertex* vertices,
 		int vertexCount, const float* color, int drawStateBits, bool makeAlpha = false );
+	// the image times maskOwner's image at the vertices' mask coordinates (#379)
+	bool DrawGuiMaskedFan( const void* imageOwner, const void* maskOwner,
+		const sdVulkanGuiMaskVertex* vertices, int vertexCount, const float* color,
+		int drawStateBits );
 	bool DrawGuiTriangles( const void* imageOwner,
 		const sdVulkanToolVertex* vertices, int vertexCount );
 	bool DrawOverlayTriangles( const void* imageOwner,
