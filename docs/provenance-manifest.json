@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5606,
+  "totalFiles": 5607,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 394
   },
   "postSplitCounts": {
-    "Reconstruction_original": 323,
+    "Reconstruction_original": 324,
     "ThirdParty": 1,
     "Retail_asset": 4,
     "Doom3_GPL": 2,
@@ -49345,9 +49345,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "e7f918944b1fca56e72350ceeaf76b009d0860ab7d17941b759549707db91494",
-      "canonicalSha256": "e7f918944b1fca56e72350ceeaf76b009d0860ab7d17941b759549707db91494",
-      "bytes": 54224,
+      "rawSha256": "173a5ba5c79a917647f8972095ab39a3a8cf7a76223536151378ea88a023da47",
+      "canonicalSha256": "173a5ba5c79a917647f8972095ab39a3a8cf7a76223536151378ea88a023da47",
+      "bytes": 54536,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": "GPL-3.0-or-later"
@@ -49374,6 +49374,18 @@
       "bytes": 9810,
       "addedAfterSplit": true,
       "addedIn": "a61fb91e25fafb3904cb1f684a0c79977e30e3bc",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
+      "path": "tests/test_aas_stuck_classification.py",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "8c176d5ba84676b0d48c09132a58cf799d9a0d83ed2964a7145b828ddc31c80f",
+      "canonicalSha256": "8c176d5ba84676b0d48c09132a58cf799d9a0d83ed2964a7145b828ddc31c80f",
+      "bytes": 7600,
+      "addedAfterSplit": true,
+      "addedIn": "ebd202828de97ea709ef382e1c0d510ad8104175",
       "spdx": "GPL-3.0-or-later"
     },
     {
@@ -49429,9 +49441,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "e94bc6c6a597325468cb0222228b808b0de5483a90b91c2820d711aa446b5183",
-      "canonicalSha256": "e94bc6c6a597325468cb0222228b808b0de5483a90b91c2820d711aa446b5183",
-      "bytes": 45259,
+      "rawSha256": "ab08f82d728cd6ada7269522a71e2647e5bcaafbc1f0119b2474cacbfdeac549",
+      "canonicalSha256": "ab08f82d728cd6ada7269522a71e2647e5bcaafbc1f0119b2474cacbfdeac549",
+      "bytes": 50577,
       "addedAfterSplit": true,
       "addedIn": "96be8171ffa1e6299cb40d4423a3e10c3a54cd81",
       "spdx": "GPL-3.0-or-later"

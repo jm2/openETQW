@@ -324,6 +324,16 @@ test(
   timeout: 120,
 )
 
+# all-stock-maps' aas_area_validity: an area-0 sample is a miss only when the bot is stuck
+# off the AAS (owner decision 2026-10-31, option c; #390)
+test(
+  'aas-stuck-classification',
+  py,
+  args: [meson.project_source_root() / 'tests' / 'test_aas_stuck_classification.py'],
+  suite: 'unit',
+  timeout: 30,
+)
+
 # Failure-marker classification: a bot-thread pacing warning fails only a failed run (#294)
 test(
   'harness-failure-markers',
