@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5600,
+  "totalFiles": 5604,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 394
   },
   "postSplitCounts": {
-    "Reconstruction_original": 317,
+    "Reconstruction_original": 321,
     "ThirdParty": 1,
     "Retail_asset": 4,
     "Doom3_GPL": 2,
@@ -48729,6 +48729,18 @@
       "spdx": "GPL-3.0-or-later"
     },
     {
+      "path": "src/sound/SoundHardwareShutdown.h",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "f7499d48d9090731305a0413e728fd21809dd96ffae83bf2189898d3d1bd997d",
+      "canonicalSha256": "f7499d48d9090731305a0413e728fd21809dd96ffae83bf2189898d3d1bd997d",
+      "bytes": 886,
+      "addedAfterSplit": true,
+      "addedIn": "161a609cdc75e4ad3fbbd6253aa0309990ec3c31",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
       "path": "src/sys/URLPolicy.h",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -49185,6 +49197,18 @@
       "spdx": "GPL-3.0-or-later"
     },
     {
+      "path": "tests/SoundHardwareShutdownTest.cpp",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "0a18cc3476b30278055810ae6aba5074b868b89a45913578fb2e0e6d95ed2a77",
+      "canonicalSha256": "0a18cc3476b30278055810ae6aba5074b868b89a45913578fb2e0e6d95ed2a77",
+      "bytes": 3560,
+      "addedAfterSplit": true,
+      "addedIn": "161a609cdc75e4ad3fbbd6253aa0309990ec3c31",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
       "path": "tests/StrBuilderTest.cpp",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -49297,9 +49321,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "c8d421c80a7ed1be6f34d1b4ef7580ae700c7225fc0525dacf4dea1782b1409f",
-      "canonicalSha256": "c8d421c80a7ed1be6f34d1b4ef7580ae700c7225fc0525dacf4dea1782b1409f",
-      "bytes": 52481,
+      "rawSha256": "791d850af1c1e790da377f536b01549aa3cc25b9f79ffe35601121b2226e0497",
+      "canonicalSha256": "791d850af1c1e790da377f536b01549aa3cc25b9f79ffe35601121b2226e0497",
+      "bytes": 53785,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": "GPL-3.0-or-later"
@@ -49566,6 +49590,18 @@
       "bytes": 10367,
       "addedAfterSplit": true,
       "addedIn": "1711a2e67309deef37fc20b03cc3052684dc025b",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
+      "path": "tests/test_decl_index_none.py",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "c0c800871d52741633367f9c004b120255e88411f6fbc2850d70cb9efd8f33da",
+      "canonicalSha256": "c0c800871d52741633367f9c004b120255e88411f6fbc2850d70cb9efd8f33da",
+      "bytes": 3262,
+      "addedAfterSplit": true,
+      "addedIn": "49f6a6af2a662e83cbac73d4ca39258fbeee5ef9",
       "spdx": "GPL-3.0-or-later"
     },
     {
@@ -50238,6 +50274,18 @@
       "bytes": 16246,
       "addedAfterSplit": true,
       "addedIn": "96be8171ffa1e6299cb40d4423a3e10c3a54cd81",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
+      "path": "tests/test_sound_hw_lock.py",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "84920cc7d07a0e00315964b2ae231560ed9ad462870e6c8759268e1ac74e8aab",
+      "canonicalSha256": "84920cc7d07a0e00315964b2ae231560ed9ad462870e6c8759268e1ac74e8aab",
+      "bytes": 3495,
+      "addedAfterSplit": true,
+      "addedIn": "161a609cdc75e4ad3fbbd6253aa0309990ec3c31",
       "spdx": "GPL-3.0-or-later"
     },
     {
