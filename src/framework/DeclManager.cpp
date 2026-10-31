@@ -1412,7 +1412,7 @@ const idDecl* idDeclManagerLocal::DeclByIndex( qhandle_t typeHandle, int declInd
 
 	// -1 is "none": getDeclIndex returns it for an empty or unknown name, and scripts
 	// pass that on (sys.setCMIconMaterial( handle, GetMaterial( getKey( "mtr_..." ) ) )
-	// with the key unset); retail 1.5 returns NULL for it without a warning
+	// with the key unset); retail 1.5 logs no warning for it
 	if ( declIndex == -1 ) {
 		return NULL;
 	}
