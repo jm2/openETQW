@@ -1271,6 +1271,23 @@ if build_engine and build_dedicated
     is_parallel: false,
   )
 
+  # In a window the menu cursor follows the system pointer, and the menu keeps the mouse (#382)
+  test(
+    'menu-cursor',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_menu_cursor.py',
+      '--client-binary', campaign_client,
+      '--port', '29913',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'menu-cursor',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 400,
+    is_parallel: false,
+  )
+
   # The deploy menu draws its campaign map and objective icons (GUI clip rectangles)
   test(
     'limbo-command-map',
