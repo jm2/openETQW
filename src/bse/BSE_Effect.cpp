@@ -23,14 +23,14 @@ GNU General Public License for more details.
 #include "../idlib/precompiled.h"
 #pragma hdrstop
 
-#include "BSE.h"
+#include "BSESim.h"
 
-rvBSE::rvBSE() {
+bseSimulation::bseSimulation() {
 	effect = NULL;
 	seedBase = 0;
 }
 
-void rvBSE::Init( const rvDeclEffect *newEffect ) {
+void bseSimulation::Init( const bseEffectTemplate *newEffect ) {
 	effect = newEffect;
 	seedBase = effect != NULL ? idStr::IHash( effect->GetName() ) : 0;
 	segments.Clear();
@@ -42,16 +42,11 @@ void rvBSE::Init( const rvDeclEffect *newEffect ) {
 	}
 }
 
-void rvBSE::Service( const rvBSEOwner &owner, idList<rvBSEParticle> &particles ) {
-	if ( bse != NULL ) {
-		bse->ServiceEffect( *this, owner, particles );
-	} else {
-		particles.Clear();
-		ServiceInternal( owner, particles, 0, NULL );
-	}
+void bseSimulation::Service( const rvBSEOwner &owner, idList<rvBSEParticle> &particles ) {
+	BSE_ClientManager().ServiceEffect( *this, owner, particles );
 }
 
-void rvBSE::ServiceInternal( const rvBSEOwner &owner, idList<rvBSEParticle> &particles,
+void bseSimulation::ServiceInternal( const rvBSEOwner &owner, idList<rvBSEParticle> &particles,
 		int depth, rvBSEStats *stats ) {
 	if ( effect == NULL || owner.time < 0.0f ) return;
 	if ( stats != NULL ) stats->effectsServiced++;
@@ -59,7 +54,7 @@ void rvBSE::ServiceInternal( const rvBSEOwner &owner, idList<rvBSEParticle> &par
 	const int diversitySeed = idMath::Ftoi( owner.diversity * idRandom::MAX_RAND );
 
 	for ( int i = 0; i < effect->GetNumSegmentTemplates(); i++ ) {
-		const rvSegmentTemplate &segmentTemplate = *effect->GetSegmentTemplate( i );
+		const bseSegmentTemplate &segmentTemplate = *effect->GetSegmentTemplate( i );
 		if ( segmentTemplate.type != SEG_EFFECT ) {
 			segments[i].Service( owner, particles, maxEffectParticles, stats );
 			continue;
@@ -75,15 +70,15 @@ void rvBSE::ServiceInternal( const rvBSEOwner &owner, idList<rvBSEParticle> &par
 		idStr declName = spawnName;
 		declName.StripFileExtension();
 		const qhandle_t effectType = declManager->GetDeclTypeHandle( declEffectsIdentifier );
-		const rvDeclEffect *nestedDecl = static_cast<const rvDeclEffect *>(
-			declManager->FindType( effectType, declName, false ) );
+		const bseEffectTemplate *nestedDecl = BSE_EffectTemplateForDecl( BSE_EffectDeclOf(
+			declManager->FindType( effectType, declName, false ) ) );
 		if ( nestedDecl == NULL || nestedDecl == effect ) continue;
 
 		rvBSEOwner nestedOwner = owner;
 		nestedOwner.time -= segmentStart;
 		if ( nestedOwner.stopTime > 0.0f ) nestedOwner.stopTime -= segmentStart;
 		nestedOwner.diversity += i * ( 1.0f / 1024.0f );
-		rvBSE nested;
+		bseSimulation nested;
 		nested.Init( nestedDecl );
 		nested.ServiceInternal( nestedOwner, particles, depth + 1, stats );
 		if ( particles.Num() >= maxEffectParticles ) return;

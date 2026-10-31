@@ -27,7 +27,7 @@ GNU General Public License for more details.
 #include "../renderer/ModelManager.h"
 #include "../renderer/Material.h"
 #include "../decllib/declTypeHolder.h"
-#include "BSE.h"
+#include "BSESim.h"
 
 namespace {
 
@@ -270,7 +270,7 @@ void BSE_SortParticles( const rvBSEOwner &owner, idList<rvBSEParticle> &particle
 	// locality so sorting one translucent stage cannot reorder unrelated stages.
 	for ( int first = 0; first < particles.Num(); ) {
 		const int segment = particles[first].segmentIndex;
-		const rvParticleTemplate *particleTemplate = particles[first].particleTemplate;
+		const bseParticleTemplate *particleTemplate = particles[first].particleTemplate;
 		int last = first + 1;
 		while ( last < particles.Num() && particles[last].segmentIndex == segment &&
 			particles[last].particleTemplate == particleTemplate ) last++;

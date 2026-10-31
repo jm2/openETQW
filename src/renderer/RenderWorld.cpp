@@ -30,21 +30,28 @@
 #endif
 
 struct bseEffectState_t {
-	bseEffectState_t() : decl( NULL ), model( NULL ), startTime( 0 ), stopTime( 0.0f ), stopped( false ) {
+	bseEffectState_t() : decl( NULL ), model( NULL ), startTime( 0 ), stopTime( 0.0f ), stopped( false ), templateEpoch( 0 ) {
 		memset( &entity, 0, sizeof( entity ) );
 		entity.axis.Identity();
 	}
 
-	rvBSE simulation;
+	bseSimulation simulation;
 	const rvDeclEffect* decl;
 	idRenderModel* model;
 	renderEntity_t entity;
 	int startTime;
 	float stopTime;
 	bool stopped;
+	int templateEpoch;	// BSE_EffectTemplateEpoch when the simulation was initialised
 };
 
 namespace {
+
+void InitEffectSimulation( bseEffectState_t& state, const rvDeclEffect* decl ) {
+	state.decl = decl;
+	state.simulation.Init( decl );
+	state.templateEpoch = BSE_EffectTemplateEpoch();
+}
 
 void FreeEffectState( bseEffectState_t*& state ) {
 	if ( state == NULL ) return;
@@ -284,8 +291,7 @@ qhandle_t idRenderWorldLocal::AddEffectDef( const renderEffect_t *effect, int ti
 		FreeEffectState( effectStates[handle] );
 		effectStates[handle] = new bseEffectState_t;
 		effectStates[handle]->startTime = time;
-		effectStates[handle]->decl = effect->declEffect;
-		effectStates[handle]->simulation.Init( effect->declEffect );
+		InitEffectSimulation( *effectStates[handle], effect->declEffect );
 		while ( stoppedEffects.Num() <= handle ) {
 			stoppedEffects.Append( false );
 		}
@@ -302,12 +308,12 @@ bool idRenderWorldLocal::UpdateEffectDef( qhandle_t handle, const renderEffect_t
 	if ( handle >= effectStates.Num() || effectStates[handle] == NULL ) return false;
 	bseEffectState_t* state = effectStates[handle];
 	if ( state->decl != effect->declEffect ) {
-		state->decl = effect->declEffect;
-		state->simulation.Init( effect->declEffect );
+		InitEffectSimulation( *state, effect->declEffect );
 	}
 	if ( effect->declEffect == NULL || effect->loop ) return false;
 	const float effectTime = time * 0.001f + effect->shaderParms[SHADERPARM_TIMEOFFSET];
-	const float duration = effect->declEffect->GetMaxDuration();
+	const bseEffectTemplate* effectTemplate = BSE_EffectTemplateForDecl( effect->declEffect );
+	const float duration = effectTemplate != NULL ? effectTemplate->GetMaxDuration() : 0.0f;
 	if ( duration <= 0.0f ) return false;
 	if ( state->stopped ) {
 		return state->stopTime > 0.0f && effectTime > state->stopTime + duration;
@@ -365,12 +371,17 @@ void idRenderWorldLocal::BackendPrepareEffects( const renderView_t* renderView )
 		if ( effect->suppressSurfaceInViewID != 0 && effect->suppressSurfaceInViewID == renderView->viewID ) continue;
 		if ( effect->allowSurfaceInViewID != 0 && effect->allowSurfaceInViewID != renderView->viewID ) continue;
 
-		const float cutOffDistance = effect->maxVisDist > 0.0f ? effect->maxVisDist : effect->declEffect->GetCutOffDistance();
+		const bseEffectTemplate* effectTemplate = BSE_EffectTemplateForDecl( effect->declEffect );
+		const float cutOffDistance = effect->maxVisDist > 0.0f ? effect->maxVisDist :
+			( effectTemplate != NULL ? effectTemplate->GetCutOffDistance() : 0.0f );
 		if ( cutOffDistance > 0.0f && ( renderView->vieworg - effect->origin ).LengthSqr() > cutOffDistance * cutOffDistance ) continue;
 
-		if ( state->decl != effect->declEffect ) {
-			state->decl = effect->declEffect;
-			state->simulation.Init( effect->declEffect );
+		// re-initialise on a new decl, after any template was freed (a reparse or purge
+		// would leave the simulation holding freed templates), or once a template that
+		// was missing at creation has been parsed
+		if ( state->decl != effect->declEffect || state->templateEpoch != BSE_EffectTemplateEpoch()
+				|| ( state->simulation.GetEffect() == NULL && effectTemplate != NULL ) ) {
+			InitEffectSimulation( *state, effect->declEffect );
 		}
 		if ( state->model == NULL ) {
 			if ( renderModelManager == NULL ) continue;
@@ -425,6 +436,7 @@ void idRenderWorldLocal::BackendPrepareEffects( const renderView_t* renderView )
 				owner.viewOrigin, viewRight, viewUp );
 		}
 		if ( state->model->NumSurfaces() <= 0 ) continue;
+		BSE_ClientManager().CountDrawnEffect( state->model->NumSurfaces() );
 
 		renderEntity_t& entity = state->entity;
 		memset( &entity, 0, sizeof( entity ) );

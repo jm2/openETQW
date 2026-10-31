@@ -23,7 +23,7 @@ GNU General Public License for more details.
 #include "../idlib/precompiled.h"
 #pragma hdrstop
 
-#include "BSE.h"
+#include "BSESim.h"
 
 namespace {
 
@@ -41,14 +41,14 @@ static float ParmMagnitude( const rvBSEParm &parm, int components ) {
 
 } // namespace
 
-void rvDeclEffect::CalculateBounds() {
+void bseEffectTemplate::CalculateBounds() {
 	bounds.Clear();
 	bounds.AddPoint( vec3_origin );
 	float calculatedRadius = Max( 8.0f, size );
 	for ( int i = 0; i < segments.Num(); i++ ) {
-		const rvSegmentTemplate &segment = segments[i];
+		const bseSegmentTemplate &segment = segments[i];
 		if ( !segment.HasVisualParticle() ) continue;
-		const rvParticleTemplate &particle = segment.particle;
+		const bseParticleTemplate &particle = segment.particle;
 		idBounds positionBounds = particle.parms[BSE_PARM_POSITION].start.GetBounds( 3 );
 		positionBounds.AddBounds( particle.parms[BSE_PARM_POSITION].end.GetBounds( 3 ) );
 		positionBounds.AddBounds( particle.parms[BSE_PARM_OFFSET].start.GetBounds( 3 ) );

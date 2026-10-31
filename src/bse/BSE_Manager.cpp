@@ -5,17 +5,47 @@
 #include "../idlib/precompiled.h"
 #pragma hdrstop
 
-#include "BSE.h"
+#include "BSESim.h"
 
-static rvBSEManagerLocal bseManagerLocal;
+static rvBSEManagerClient bseManagerLocal;
 rvBSEManager *bse = &bseManagerLocal;
 
-bool rvBSEManagerLocal::Init() {
+rvBSEManagerClient &BSE_ClientManager() {
+	return bseManagerLocal;
+}
+
+static void BSE_Stats_f( const idCmdArgs & ) {
+	BSE_ClientManager().PrintStats();
+}
+
+void rvBSEManagerClient::PrintStats() const {
+	common->Printf( "BSE: %lld effects serviced, %lld segments, %lld particles evaluated, %lld rendered, %lld capped; "
+		"%lld effect models drawn with %lld surfaces\n",
+		totalEffectsServiced + stats.effectsServiced, totalSegmentsServiced + stats.segmentsServiced,
+		totalParticlesEvaluated + stats.particlesEvaluated, totalParticlesRendered + stats.particlesRendered,
+		totalParticlesCapped + stats.particlesCapped, drawnEffects, drawnSurfaces );
+}
+
+void rvBSEManagerClient::AddFrameToTotals() {
+	totalEffectsServiced += stats.effectsServiced;
+	totalSegmentsServiced += stats.segmentsServiced;
+	totalParticlesEvaluated += stats.particlesEvaluated;
+	totalParticlesRendered += stats.particlesRendered;
+	totalParticlesCapped += stats.particlesCapped;
+}
+
+bool rvBSEManagerClient::Init() {
+	totalEffectsServiced = totalSegmentsServiced = totalParticlesEvaluated = 0;
+	totalParticlesRendered = totalParticlesCapped = 0;
+	drawnEffects = 0;
+	drawnSurfaces = 0;
+	cmdSystem->AddCommand( "bseStats", BSE_Stats_f, CMD_FL_RENDERER, "prints the BSE particle counts since start" );
 	BeginFrame();
 	return true;
 }
 
-bool rvBSEManagerLocal::Shutdown() {
+bool rvBSEManagerClient::Shutdown() {
+	cmdSystem->RemoveCommand( "bseStats" );
 	BeginFrame();
 	return true;
 }
@@ -23,45 +53,50 @@ bool rvBSEManagerLocal::Shutdown() {
 // These entries retain the retail game-DLL ABI.  Render-world effect defs are
 // serviced by the renderer-neutral overload below, so no rvRenderEffectLocal
 // object crosses the reconstructed renderer boundary.
-bool rvBSEManagerLocal::PlayEffect( rvRenderEffectLocal *, float ) { return false; }
-bool rvBSEManagerLocal::ServiceEffect( rvRenderEffectLocal *, float, bool &forcePush ) {
+bool rvBSEManagerClient::PlayEffect( rvRenderEffectLocal *, float ) { return false; }
+bool rvBSEManagerClient::ServiceEffect( rvRenderEffectLocal *, float, bool &forcePush ) {
 	forcePush = false;
 	return false;
 }
-void rvBSEManagerLocal::StopEffect( rvRenderEffectLocal * ) {}
-void rvBSEManagerLocal::RestartEffect( rvRenderEffectLocal * ) {}
-void rvBSEManagerLocal::FreeEffect( rvRenderEffectLocal * ) {}
-float rvBSEManagerLocal::EffectDuration( const rvRenderEffectLocal * ) { return 0.0f; }
-void rvBSEManagerLocal::BeginLevelLoad() {}
-void rvBSEManagerLocal::EndLevelLoad() {}
-void rvBSEManagerLocal::StartFrame() { BeginFrame(); }
-void rvBSEManagerLocal::EndFrame() {}
-bool rvBSEManagerLocal::Filtered( const char *, effectCategory_t ) { return false; }
-void rvBSEManagerLocal::UpdateRateTimes() {}
-bool rvBSEManagerLocal::CanPlayRateLimited( effectCategory_t ) { return true; }
-int rvBSEManagerLocal::AddTraceModel( idTraceModel * ) { return -1; }
-idTraceModel *rvBSEManagerLocal::GetTraceModel( int ) { return NULL; }
-void rvBSEManagerLocal::FreeTraceModel( int ) {}
-const idVec3 &rvBSEManagerLocal::GetCubeNormals( int ) { return vec3_origin; }
-void rvBSEManagerLocal::SetShakeParms( float, float ) {}
-void rvBSEManagerLocal::SetTunnelParms( float, float ) {}
-const idMat3 &rvBSEManagerLocal::GetModelToBSE() { return mat3_identity; }
-bool rvBSEManagerLocal::IsTimeLocked() const { return false; }
-float rvBSEManagerLocal::GetLockedTime() const { return 0.0f; }
-void rvBSEManagerLocal::MakeEditable( rvParticleTemplate * ) {}
-void rvBSEManagerLocal::CopySegment( rvSegmentTemplate *, rvSegmentTemplate * ) {}
+void rvBSEManagerClient::StopEffect( rvRenderEffectLocal * ) {}
+void rvBSEManagerClient::RestartEffect( rvRenderEffectLocal * ) {}
+void rvBSEManagerClient::FreeEffect( rvRenderEffectLocal * ) {}
+float rvBSEManagerClient::EffectDuration( const rvRenderEffectLocal * ) { return 0.0f; }
+void rvBSEManagerClient::BeginLevelLoad() {}
+void rvBSEManagerClient::EndLevelLoad() {}
+void rvBSEManagerClient::StartFrame() { BeginFrame(); }
+void rvBSEManagerClient::EndFrame() {}
+bool rvBSEManagerClient::Filtered( const char *, effectCategory_t ) { return false; }
+void rvBSEManagerClient::UpdateRateTimes() {}
+bool rvBSEManagerClient::CanPlayRateLimited( effectCategory_t ) { return true; }
+int rvBSEManagerClient::AddTraceModel( idTraceModel * ) { return -1; }
+idTraceModel *rvBSEManagerClient::GetTraceModel( int ) { return NULL; }
+void rvBSEManagerClient::FreeTraceModel( int ) {}
+const idVec3 &rvBSEManagerClient::GetCubeNormals( int ) { return vec3_origin; }
+void rvBSEManagerClient::SetShakeParms( float, float ) {}
+void rvBSEManagerClient::SetTunnelParms( float, float ) {}
+const idMat3 &rvBSEManagerClient::GetModelToBSE() { return mat3_identity; }
+bool rvBSEManagerClient::IsTimeLocked() const { return false; }
+float rvBSEManagerClient::GetLockedTime() const { return 0.0f; }
+void rvBSEManagerClient::MakeEditable( ::rvParticleTemplate * ) {}
+void rvBSEManagerClient::CopySegment( ::rvSegmentTemplate *, ::rvSegmentTemplate * ) {}
+// the game-facing entry; the engine's own effects go through the bseSimulation overload
+void rvBSEManagerClient::ServiceEffect( ::rvBSE &, const rvBSEOwner &, idList<rvBSEParticle> &particles ) {
+	particles.Clear();
+}
 
-void rvBSEManagerLocal::BeginFrame() {
+void rvBSEManagerClient::BeginFrame() {
+	AddFrameToTotals();
 	memset( &stats, 0, sizeof( stats ) );
 }
 
-void rvBSEManagerLocal::ServiceEffect( rvBSE &effect, const rvBSEOwner &owner,
+void rvBSEManagerClient::ServiceEffect( bseSimulation &effect, const rvBSEOwner &owner,
 		idList<rvBSEParticle> &particles ) {
 	particles.Clear();
 	effect.ServiceInternal( owner, particles, 0, &stats );
 }
 
-void rvBSEManagerLocal::PrepareRender( const rvBSEOwner &owner,
+void rvBSEManagerClient::PrepareRender( const rvBSEOwner &owner,
 		const idList<rvBSEParticle> &particles, idList<rvBSEParticle> &renderParticles ) {
 	renderParticles.Clear();
 	for ( int i = 0; i < particles.Num(); i++ ) {

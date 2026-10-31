@@ -23,7 +23,7 @@ GNU General Public License for more details.
 #include "../idlib/precompiled.h"
 #pragma hdrstop
 
-#include "BSE.h"
+#include "BSESim.h"
 #include "../decllib/declTable.h"
 
 namespace {
@@ -52,7 +52,7 @@ static void FillModifier( const idList<float> &values, idVec4 &result, float fal
 	}
 }
 
-static void ParseNumberList( idLexer &src, idList<float> &values ) {
+static void ParseNumberList( idParser &src, idList<float> &values ) {
 	idToken token;
 	bool negative = false;
 	while ( src.ReadToken( &token ) ) {
@@ -69,12 +69,12 @@ static void ParseNumberList( idLexer &src, idList<float> &values ) {
 			negative = false;
 			continue;
 		}
-		src.UnreadToken( &token );
+		src.UnreadToken( token );
 		break;
 	}
 }
 
-static void ParseDomain( idLexer &src, rvBSEParm &parm, rvBSEDomain &domain, bool motion ) {
+static void ParseDomain( idParser &src, rvBSEParm &parm, rvBSEDomain &domain, bool motion ) {
 	domain.Clear();
 	idToken token;
 	if ( !src.ExpectTokenString( "{" ) || !src.ReadToken( &token ) ) {
@@ -93,7 +93,7 @@ static void ParseDomain( idLexer &src, rvBSEParm &parm, rvBSEDomain &domain, boo
 		domain.type = BSE_DomainTypeForToken( token );
 		if ( domain.type == BSE_DOMAIN_NONE ) {
 			domain.type = BSE_DOMAIN_POINT;
-			src.UnreadToken( &token );
+			src.UnreadToken( token );
 		}
 	}
 
@@ -134,7 +134,7 @@ static void ParseDomain( idLexer &src, rvBSEParm &parm, rvBSEDomain &domain, boo
 				parm.envelope.hasOffset = true;
 			}
 		} else if ( token == "-" || token == "+" || token.IsNumeric() ) {
-			src.UnreadToken( &token );
+			src.UnreadToken( token );
 			ParseNumberList( src, domain.values );
 		} else if ( domain.type == BSE_DOMAIN_MODEL && domain.modelName.IsEmpty() ) {
 			token.StripQuotes();
@@ -147,7 +147,7 @@ static void ParseDomain( idLexer &src, rvBSEParm &parm, rvBSEDomain &domain, boo
 	}
 }
 
-static bseBlendType_t ParseBlend( idLexer &src ) {
+static bseBlendType_t ParseBlend( idParser &src ) {
 	idToken token;
 	if ( !src.ReadToken( &token ) ) {
 		return BSE_BLEND_DEFAULT;
@@ -160,7 +160,7 @@ static bseBlendType_t ParseBlend( idLexer &src ) {
 
 } // namespace
 
-bool rvDeclEffect::ParseDomainGroup( idLexer &src, rvParticleTemplate &particle, int group ) {
+bool bseEffectTemplate::ParseDomainGroup( idParser &src, bseParticleTemplate &particle, int group ) {
 	if ( !src.ExpectTokenString( "{" ) ) {
 		return false;
 	}
@@ -189,7 +189,7 @@ bool rvDeclEffect::ParseDomainGroup( idLexer &src, rvParticleTemplate &particle,
 	return false;
 }
 
-bool rvDeclEffect::ParseAction( idLexer &src, rvBSEAction &action ) {
+bool bseEffectTemplate::ParseAction( idParser &src, rvBSEAction &action ) {
 	if ( !src.ExpectTokenString( "{" ) ) {
 		return false;
 	}
@@ -213,7 +213,7 @@ bool rvDeclEffect::ParseAction( idLexer &src, rvBSEAction &action ) {
 	return false;
 }
 
-bool rvDeclEffect::ParseParticle( idLexer &src, rvParticleTemplate &particle, int particleType ) {
+bool bseEffectTemplate::ParseParticle( idParser &src, bseParticleTemplate &particle, int particleType ) {
 	particle.Init();
 	particle.type = particleType;
 	if ( !src.ExpectTokenString( "{" ) ) {

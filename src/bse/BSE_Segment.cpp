@@ -23,7 +23,7 @@ GNU General Public License for more details.
 #include "../idlib/precompiled.h"
 #pragma hdrstop
 
-#include "BSE.h"
+#include "BSESim.h"
 
 namespace {
 
@@ -37,7 +37,7 @@ static bool SegmentCanSpawn( float requestedCount, int index, idRandom &random )
 	return random.RandomFloat() < requestedCount - static_cast<float>( index );
 }
 
-static float SegmentAttenuation( const rvSegmentTemplate &segment, const rvBSEOwner &owner ) {
+static float SegmentAttenuation( const bseSegmentTemplate &segment, const rvBSEOwner &owner ) {
 	if ( !segment.attenuateEmitter ) return owner.attenuation;
 	float nearDistance = segment.attenuation.x;
 	float farDistance = segment.attenuation.y;
@@ -59,22 +59,22 @@ static float SegmentAttenuation( const rvSegmentTemplate &segment, const rvBSEOw
 
 } // namespace
 
-rvSegment::rvSegment() {
+bseSegment::bseSegment() {
 	segmentTemplate = NULL;
 	segmentIndex = 0;
 	seedBase = 0;
 }
 
-void rvSegment::Init( const rvSegmentTemplate *newTemplate, int index, int effectSeed ) {
+void bseSegment::Init( const bseSegmentTemplate *newTemplate, int index, int effectSeed ) {
 	segmentTemplate = newTemplate;
 	segmentIndex = index;
 	seedBase = effectSeed ^ ( index * 7919 );
 }
 
-void rvSegment::Service( const rvBSEOwner &owner, idList<rvBSEParticle> &particles,
+void bseSegment::Service( const rvBSEOwner &owner, idList<rvBSEParticle> &particles,
 		int maxParticles, rvBSEStats *stats ) const {
 	if ( segmentTemplate == NULL || !segmentTemplate->HasVisualParticle() ) return;
-	const rvSegmentTemplate &segment = *segmentTemplate;
+	const bseSegmentTemplate &segment = *segmentTemplate;
 	if ( stats != NULL ) stats->segmentsServiced++;
 
 	const int diversitySeed = idMath::Ftoi( owner.diversity * idRandom::MAX_RAND );
@@ -135,7 +135,7 @@ void rvSegment::Service( const rvBSEOwner &owner, idList<rvBSEParticle> &particl
 			spawn.life = life;
 			spawn.linearFraction = candidateCount > 1 ? static_cast<float>( particleIndex ) / ( candidateCount - 1 ) : 0.0f;
 			rvBSEParticle evaluated;
-			if ( rvParticle::Evaluate( spawn, evaluated ) ) {
+			if ( bseParticle::Evaluate( spawn, evaluated ) ) {
 				particles.Append( evaluated );
 				if ( stats != NULL ) stats->particlesEvaluated++;
 			}
