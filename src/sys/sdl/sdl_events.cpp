@@ -147,9 +147,17 @@ private:
 	bool active;
 };
 
+/*
+Capture follows three requests (#382). The console releases the mouse while it is open
+(GrabCursor), and the game reports each frame whether a menu cursor shows
+(SetMenuCursor). The mouse is captured, in relative mode with the system pointer
+hidden, only while a grab is requested and no menu cursor shows. In a menu the system
+pointer moves freely and the menu cursor is placed under it (GetPointerPosition), with
+the system pointer hidden over the window so that only the menu cursor shows there.
+*/
 class idMouseSDL : public idMouse {
 public:
-	idMouseSDL() : active( true ) {}
+	idMouseSDL() : active( true ), grabRequested( false ), menuCursor( false ) {}
 	virtual ~idMouseSDL() {}
 
 	virtual bool Init() override { return true; }
@@ -159,11 +167,35 @@ public:
 	virtual void Deactivate() override { active = false; }
 
 	virtual void GrabCursor( bool grab ) override {
-		SDL_Window* window = Sys_GetGameSDLWindow();
-		if ( window != NULL ) {
-			SDL_SetWindowRelativeMouseMode( window, grab );
+		grabRequested = grab;
+		ApplyCapture();
+	}
+
+	virtual void SetMenuCursor( bool show ) override {
+		if ( show != menuCursor ) {
+			menuCursor = show;
+			ApplyCapture();
 		}
-		ResetMouseRemainder();
+	}
+
+	virtual bool GetPointerPosition( float& x, float& y ) const override {
+		x = 0.0f;
+		y = 0.0f;
+		SDL_Window* window = Sys_GetGameSDLWindow();
+		if ( window == NULL || SDL_GetWindowRelativeMouseMode( window ) || SDL_GetMouseFocus() != window ) {
+			return false;
+		}
+		int width = 0;
+		int height = 0;
+		if ( !SDL_GetWindowSize( window, &width, &height ) || width <= 0 || height <= 0 ) {
+			return false;
+		}
+		float px = 0.0f;
+		float py = 0.0f;
+		SDL_GetMouseState( &px, &py );	// in window coordinates, as the window size
+		x = idMath::ClampFloat( 0.0f, 1.0f, px / static_cast< float >( width ) );
+		y = idMath::ClampFloat( 0.0f, 1.0f, py / static_cast< float >( height ) );
+		return true;
 	}
 
 	virtual int PollInputEvents( bool ) override { return 0; }
@@ -171,7 +203,23 @@ public:
 	virtual void EndInputEvents() override {}
 
 private:
+	void ApplyCapture() {
+		SDL_Window* window = Sys_GetGameSDLWindow();
+		if ( window != NULL ) {
+			const bool capture = grabRequested && !menuCursor;
+			SDL_SetWindowRelativeMouseMode( window, capture );
+			if ( capture || !menuCursor ) {
+				SDL_ShowCursor();
+			} else {
+				SDL_HideCursor();	// over the window only: the menu cursor stands in for it
+			}
+		}
+		ResetMouseRemainder();
+	}
+
 	bool active;
+	bool grabRequested;
+	bool menuCursor;
 };
 
 class sdIMESDL : public sdIME {

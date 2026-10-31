@@ -192,6 +192,11 @@ public:
 		EnumerateMonitors();
 		// typed text reaches the engine only once text input is on (sdl_events.cpp)
 		Sys_StartSDLTextInput();
+		// the game takes the mouse once its window is up, as on Windows (SystemBootstrap.cpp);
+		// it stays uncaptured while a menu cursor shows (idMouseSDL, #382)
+		if ( sys != NULL ) {
+			sys->Mouse().GrabCursor( true );
+		}
 		if ( cmdSystem != NULL && !vidRestartRegistered ) {
 			cmdSystem->AddCommand( "vid_restart", VidRestart_f, CMD_FL_RENDERER, "applies r_fullscreen to the game window (\"windowed\" leaves fullscreen)" );
 			vidRestartRegistered = true;
