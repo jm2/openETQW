@@ -41,8 +41,20 @@ def walk(n: int, x0: float = 0.0, area: int = 7) -> list[tuple[float, float, int
 
 
 def passes(tr: T.BotTracker) -> bool:
+    """aas_area_validity's verdict for one bot: the left-out cap, then the 90% bound."""
+    if not T.off_aas_left_out_within_cap(tr.area_known, tr.off_left_out):
+        return False
     frac = tr.area_fraction()
     return frac is not None and frac >= T.AREA_VALID_MIN_FRACTION
+
+
+def feed(samples: list[dict], interval: float = 0.5) -> T.BotTracker:
+    tr = T.BotTracker(0, [(-50.0, 50.0, 950.0, 1050.0, 380.0, 420.0)])
+    tr.on_spawn({"name": "bot", "spectating": 0, "team": "gdf", "org": (0.0, 0.0, 400.0), "client": 0})
+    for i, s in enumerate(samples):
+        tr.on_sample(s, 100.0 + i * interval)
+    tr.finish()
+    return tr
 
 
 # a bot walking through gaps at full speed twice (ark, slipgate): left out, so the check
@@ -111,6 +123,37 @@ for x, y, area, fwd in [(1900.0, 0.0, 0, 127)] * 2:
 tr.finish()
 check("death_ends_run", tr.off_runs == 2 and tr.off_stuck_samples == 0,
       f"runs {tr.off_runs}, stuck {tr.off_stuck_samples}")
+
+# patchy AAS along the whole route (review on #402): each run is short, but the
+# left-out cap fails it
+for name, path in (
+        ("patchy_every_other", [(185.0 * i, 0.0, 0 if i % 2 else 7, 127) for i in range(90)]),
+        ("patchy_75pct", [(185.0 * i, 0.0, 7 if i % 4 == 0 else 0, 127) for i in range(90)]),
+        ("patchy_4s_off_1_on", [(185.0 * i, 0.0, 7 if i % 10 == 9 else 0, 127) for i in range(90)])):
+    tr = run(path)
+    check(name, not passes(tr) and tr.off_stuck_samples == 0,
+          f"valid {tr.area_valid}/{tr.area_known}, left out {tr.off_left_out}")
+
+# a wedged bot whose usercmd flickers to 0 now and then is still stuck
+path = walk(20) + [(3700.0 + 2.0 * i, 0.0, 0, 0 if i % 3 == 2 else 127) for i in range(9)] + walk(20, 3885.0)
+tr = run(path)
+check("wedged_flicker_fails", not passes(tr) and tr.off_stuck_samples == 9, f"stuck {tr.off_stuck_samples}")
+
+# vehicle, teleport transit, a recorded gap and a non-finite sample each end a run, so
+# two 1.0 s pushes either side of one are two runs and neither is stuck
+for name, mutate in (("vehicle", lambda s: s.update(vehicle=12)),
+                     ("transit", lambda s: s.update(tele=1)),
+                     ("gap", lambda s: s.update(org=(0.0, 1000.0, 400.0))),
+                     ("nonfinite", lambda s: s.update(org=(float("nan"), 0.0, 400.0)))):
+    samples = [sample(x, y, a, f) for x, y, a, f in walk(20)]
+    samples += [sample(3700.0, 0.0, 0)] * 3
+    mid = sample(3700.0, 0.0, 0)
+    mutate(mid)
+    samples += [mid] + [sample(3700.0, 0.0, 0)] * 3
+    samples += [sample(x, y, a, f) for x, y, a, f in walk(20, 3885.0)]
+    tr = feed(samples)
+    check(f"{name}_ends_run", tr.off_runs == 2 and tr.off_stuck_samples == 0,
+          f"runs {tr.off_runs}, stuck {tr.off_stuck_samples}")
 
 print(f"{failures} failure(s)")
 sys.exit(1 if failures else 0)

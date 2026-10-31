@@ -109,9 +109,16 @@ AREA_VALID_MIN_FRACTION = 0.90
 # gap, standing on a prop and moving on) they are left out and reported. Measured (#390,
 # 38 runs on all 11 maps): walking runs last <= 1.25 s and cover >= 97 u, but for one
 # 4 u in 0.5 s; the longest run, 3.0 s, was a bot idling on a prop.
+# Movement counts as commanded in a window when at least half its samples command it,
+# so a wedged bot whose usercmd flickers to 0 now and then is still stuck; an idle bot
+# (no movement commanded) is not. Left-out samples may be at most
+# OFF_AAS_LEFT_OUT_MAX_FRACTION of the grounded on-foot samples, so an AAS that is
+# patchy along the whole route still fails: the most seen was 8/53 (15%, ark on Linux
+# x64, all walking or idle runs).
 OFF_AAS_STUCK_SECONDS = 1.5
 OFF_AAS_STUCK_DISTANCE = 50.0
 OFF_AAS_LOST_SECONDS = 5.0
+OFF_AAS_LEFT_OUT_MAX_FRACTION = 0.25
 # Gaps in retail 1.5's own player AAS (maps/<map>.aas_playerb), as boxes
 # (xmin, xmax, ymin, ymax, zmin, zmax) that were measured to hold no area.
 # Area-0 samples inside one are left out of aas_area_validity (owner decision
@@ -207,19 +214,28 @@ class MapResult:
 
 def off_aas_run_stuck(run: list[tuple[float, float, float, bool]]) -> bool:
     """True if a bot was stuck in this off-AAS run of (t, x, y, movement commanded)
-    samples: off the AAS for OFF_AAS_LOST_SECONDS, or commanding movement for
-    OFF_AAS_STUCK_SECONDS while staying within OFF_AAS_STUCK_DISTANCE of where it started."""
+    samples: off the AAS for OFF_AAS_LOST_SECONDS, or for OFF_AAS_STUCK_SECONDS within
+    OFF_AAS_STUCK_DISTANCE of where that started while commanding movement in at least
+    half of those samples."""
     if run[-1][0] - run[0][0] >= OFF_AAS_LOST_SECONDS:
         return True
     for i, (t0, x0, y0, moving0) in enumerate(run):
         if not moving0:
             continue
-        for t1, x1, y1, moving1 in run[i + 1:]:
-            if not moving1 or H.dist2d((x1, y1), (x0, y0)) >= OFF_AAS_STUCK_DISTANCE:
+        moving_n = 1
+        for n, (t1, x1, y1, moving1) in enumerate(run[i + 1:], start=2):
+            if H.dist2d((x1, y1), (x0, y0)) >= OFF_AAS_STUCK_DISTANCE:
                 break
-            if t1 - t0 >= OFF_AAS_STUCK_SECONDS:
+            moving_n += moving1
+            if t1 - t0 >= OFF_AAS_STUCK_SECONDS and 2 * moving_n >= n:
                 return True
     return False
+
+
+def off_aas_left_out_within_cap(known: int, left_out: int) -> bool:
+    """True if the off-AAS samples left out are at most OFF_AAS_LEFT_OUT_MAX_FRACTION
+    of the grounded on-foot samples (the counted ones plus those left out)."""
+    return left_out <= OFF_AAS_LEFT_OUT_MAX_FRACTION * (known + left_out)
 
 
 class BotTracker:
@@ -740,7 +756,12 @@ def run_map(map_name: str, map_index: int, cfg: argparse.Namespace, ctx: dict) -
                                   f" (longest off-AAS run {longest:.1f}s)")
             if off_stuck:
                 left_out_note += f"; {off_stuck} counted off-AAS samples are of a bot stuck off the AAS"
-            if known == 0:
+            grounded_on_foot = known + off_left
+            if not off_aas_left_out_within_cap(known, off_left):
+                res.check(f"bots.{team}.aas_area_validity", FAIL,
+                          f"{off_left}/{grounded_on_foot} grounded on-foot samples off the AAS while not stuck"
+                          f" (need <= {OFF_AAS_LEFT_OUT_MAX_FRACTION:.0%}): patchy AAS along the route{left_out_note}")
+            elif known == 0:
                 res.check(f"bots.{team}.aas_area_validity", FAIL,
                           f"no grounded+alive on-foot samples with an area value{left_out_note}")
             else:
