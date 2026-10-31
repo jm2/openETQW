@@ -7,10 +7,26 @@
 #include "keynum.h"
 #include "KeyChar.h"
 #include "MouseDelta.h"
+#include "TextInputChar.h"
 
 SDL_Window* Sys_GetGameSDLWindow( void );
 
+/*
+SDL3 sends SDL_EVENT_TEXT_INPUT only for a window that has called SDL_StartTextInput,
+so without it no typed text reached the console or the GUI edit boxes. Called when the
+game window is created and whenever it gains focus.
+*/
+void Sys_StartSDLTextInput( void ) {
+	SDL_Window* window = Sys_GetGameSDLWindow();
+	if ( window != NULL && !SDL_TextInputActive( window ) ) {
+		SDL_StartTextInput( window );
+	}
+}
+
 namespace {
+
+// set by a console-key press, so the text input it types ('`' or '~') is dropped
+bool swallowConsoleText = false;
 
 // the sub-unit motion not yet sent (MouseDelta.h); dropped when the grab or focus changes
 float mouseRemainderX = 0.0f;
@@ -201,6 +217,7 @@ void Sys_ProcessSDLEvents( void ) {
 				break;
 
 			case SDL_EVENT_WINDOW_FOCUS_GAINED:
+				Sys_StartSDLTextInput();
 				sys->Keyboard().Activate();
 				IN_Frame();
 				if ( session != NULL ) {
@@ -234,15 +251,30 @@ void Sys_ProcessSDLEvents( void ) {
 				if ( key != K_INVALID ) {
 					sys->QueEvent( SE_KEY, key, event.key.down ? 1 : 0, 0, NULL );
 				}
+				if ( event.key.down ) {
+					// the console key toggles the console; the text it types must not land in it
+					swallowConsoleText = key == K_CONSOLE;
+					// Backspace, Tab, Enter and Ctrl+letters reach edit fields as characters (TextInputChar.h)
+					const bool ctrlOnly = ( event.key.mod & SDL_KMOD_CTRL ) != 0 && ( event.key.mod & ( SDL_KMOD_ALT | SDL_KMOD_GUI ) ) == 0;
+					const int ch = Sys_ControlCharForKey( event.key.key, ctrlOnly );
+					if ( ch != 0 ) {
+						sys->QueEvent( SE_CHAR, 0, ch, 0, NULL );
+					}
+				}
 				break;
 			}
 
 			case SDL_EVENT_TEXT_INPUT: {
-				if ( event.text.text != NULL ) {
-					for ( const char* p = event.text.text; *p != '\0'; ++p ) {
-						sys->QueEvent( SE_CHAR, 0, static_cast< unsigned char >( *p ), 0, NULL );
+				if ( event.text.text != NULL && !swallowConsoleText ) {
+					const char* p = event.text.text;
+					const int maxChar = sizeof( wchar_t ) == 2 ? 0xFFFF : 0x10FFFF;
+					for ( int ch = Sys_NextUTF8Char( p, maxChar ); ch != 0; ch = Sys_NextUTF8Char( p, maxChar ) ) {
+						if ( ch > 0 ) {
+							sys->QueEvent( SE_CHAR, 0, ch, 0, NULL );
+						}
 					}
 				}
+				swallowConsoleText = false;
 				break;
 			}
 

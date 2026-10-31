@@ -135,6 +135,16 @@ key_char_test = executable(
 )
 test('key-char', key_char_test, suite: 'unit', timeout: 30)
 
+# 5a2. SDL text input: typed text (UTF-8) and Backspace, Tab, Enter and Ctrl+letters
+#      reach edit fields as SE_CHAR; the SDL clients could not type or erase in a name box
+text_input_char_test = executable(
+  'openetqw-text-input-char-test',
+  files('TextInputCharTest.cpp'),
+  include_directories: [include_directories('../src/sys/sdl')],
+  install: false,
+)
+test('text-input-char', text_input_char_test, suite: 'unit', timeout: 30)
+
 # 5b. idMsgChannel fragmentation: a message whose encoded length is an exact multiple
 #     of FRAGMENT_SIZE ends with an empty fragment, which idBitMsg::WriteData is fatal
 #     on (the server died on it mid-session); the real channel, compressor and
