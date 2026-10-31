@@ -33,7 +33,8 @@ For every stock map a FRESH dedicated server process is started with
               A stuck metric (longest interval with fwd/side != 0 but a 2D
               speed < 10 u/s between consecutive samples) is reported. AAS area
               validity: while grounded, alive and on foot, area > 0 in >= 90 %
-              of samples (needs the PLAYER_POS 'hp= dead= area=' suffix). The
+              of samples (needs the PLAYER_POS 'hp= dead= area=' suffix),
+              polled every 0.25 s (#390). The
               bots run with bot_useVehicles 0 so they walk the whole window; a
               sample from a bot that still rides a vehicle (PLAYER_POS
               'vehicle=' >= 0) reports the vehicle's position and ground state,
@@ -777,7 +778,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     ap.add_argument("--bot-think-delay", type=int, default=None,
                     help="set bot_threadMinFrameDelay; with 0 the think ratio must be >= 0.9 (true 30 Hz AI)")
     ap.add_argument("--bot-seconds", type=float, default=45.0, help="playerPos polling window per map (>= 45)")
-    ap.add_argument("--poll-interval", type=float, default=0.5, help="seconds between playerPos polls")
+    # 0.25 s, not 0.5 s (#390): an area-0 sample is mostly a bot crossing the gap between two
+    # AAS areas mid-step, shorter than a poll, so about 40 samples a team at 0.5 s put 4 misses
+    # (one past the 90% bound) within reach of chance; the bound is unchanged
+    ap.add_argument("--poll-interval", type=float, default=0.25, help="seconds between playerPos polls")
     ap.add_argument("--base-port", type=int, default=int(os.environ.get("OPENETQW_TEST_BASE_PORT", "27900")),
                     help="first UDP port; map i prefers base+i (default 27900 or $OPENETQW_TEST_BASE_PORT)")
     ap.add_argument("--port-span", type=int, default=100, help="size of the UDP port range to allocate from")
