@@ -107,6 +107,21 @@ RETAIL_AAS_GAPS: dict[str, list[tuple[float, float, float, float, float, float]]
     # the stuck point from z 2990.9 to +32; the y edges are the two areas'
     # bounds and z starts at 3297's floor (2983).
     "salvage": [(-817.0, -720.0, 3208.0, 3272.0, 2983.0, 3023.0)],
+    # #390/#399: strips with no area in ground that GDF bots cross at full speed, 1-3
+    # area-0 samples in a row (45/53 on Linux x64). PointAreaNum, first area from z 384
+    # to 432 in 4 u steps, was 0 in every grid cell inside each box: the first box on a
+    # 4 u grid (between areas 6076/6077/6081/6082/6092/6097), the second on an 8 u grid
+    # (6106/6148/6151/6152), the rest on an 8 u grid as one connected strip network.
+    # Each box reaches one grid step past its outermost empty cell, toward the cells of
+    # the neighbouring areas; a sample there with an area still counts as valid.
+    "ark": [
+        (12664.0, 12936.0, 992.0, 1052.0, 384.0, 432.0),
+        (13136.0, 13256.0, 544.0, 704.0, 384.0, 432.0),
+        (13112.0, 13280.0, 704.0, 872.0, 384.0, 432.0),
+        (13280.0, 13496.0, 728.0, 848.0, 384.0, 432.0),
+        (13440.0, 13496.0, 688.0, 1040.0, 384.0, 432.0),
+        (13400.0, 13448.0, 984.0, 1040.0, 384.0, 432.0),
+    ],
 }
 GAME_HZ_RANGE = (27.0, 33.5)
 THINK_RATIO_MIN = 0.9
