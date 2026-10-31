@@ -16,10 +16,24 @@ SDL3 sends SDL_EVENT_TEXT_INPUT only for a window that has called SDL_StartTextI
 so without it no typed text reached the console or the GUI edit boxes. Called when the
 game window is created and whenever it gains focus.
 */
+idCVar in_logTextInput( "in_logTextInput", "0", CVAR_BOOL | CVAR_SYSTEM | CVAR_NOCHEAT, "log SDL text input: starting it, and each text input event" );
+
 void Sys_StartSDLTextInput( void ) {
 	SDL_Window* window = Sys_GetGameSDLWindow();
-	if ( window != NULL && !SDL_TextInputActive( window ) ) {
-		SDL_StartTextInput( window );
+	if ( window == NULL ) {
+		if ( in_logTextInput.GetBool() ) {
+			common->Printf( "TEXT_INPUT: start skipped, no game window\n" );
+		}
+		return;
+	}
+	if ( !SDL_TextInputActive( window ) ) {
+		const bool started = SDL_StartTextInput( window );
+		if ( in_logTextInput.GetBool() ) {
+			common->Printf( "TEXT_INPUT: start %s, active %d (driver %s)%s%s\n", started ? "ok" : "FAILED",
+				SDL_TextInputActive( window ) ? 1 : 0, SDL_GetCurrentVideoDriver(), started ? "" : ": ", started ? "" : SDL_GetError() );
+		}
+	} else if ( in_logTextInput.GetBool() ) {
+		common->Printf( "TEXT_INPUT: already active\n" );
 	}
 }
 
@@ -251,6 +265,11 @@ void Sys_ProcessSDLEvents( void ) {
 				if ( key != K_INVALID ) {
 					sys->QueEvent( SE_KEY, key, event.key.down ? 1 : 0, 0, NULL );
 				}
+				if ( event.key.down && in_logTextInput.GetBool() ) {
+					common->Printf( "TEXT_INPUT: key down scancode %d key 0x%x mod 0x%x, text input active %d\n",
+						static_cast< int >( event.key.scancode ), static_cast< unsigned int >( event.key.key ),
+						static_cast< unsigned int >( event.key.mod ), SDL_TextInputActive( Sys_GetGameSDLWindow() ) ? 1 : 0 );
+				}
 				if ( event.key.down ) {
 					// the console key toggles the console; the text it types must not land in it
 					swallowConsoleText = key == K_CONSOLE;
@@ -265,6 +284,10 @@ void Sys_ProcessSDLEvents( void ) {
 			}
 
 			case SDL_EVENT_TEXT_INPUT: {
+				if ( in_logTextInput.GetBool() ) {
+					common->Printf( "TEXT_INPUT: event \"%s\"%s\n", event.text.text != NULL ? event.text.text : "(null)",
+						swallowConsoleText ? " (dropped: the console key's text)" : "" );
+				}
 				if ( event.text.text != NULL && !swallowConsoleText ) {
 					const char* p = event.text.text;
 					const int maxChar = sizeof( wchar_t ) == 2 ? 0xFFFF : 0x10FFFF;
