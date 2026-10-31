@@ -591,6 +591,18 @@ if build_dedicated
     timeout: 120,
   )
 
+  # the graphics presets' levels (com_last*Level) are saved with the configuration,
+  # on synthetic data
+  test(
+    'preset-levels',
+    py,
+    args: [meson.project_source_root() / 'tests' / 'test_preset_levels.py', '--ded-binary', retail_install_check_ded,
+           '--game-module', game_module_built],
+    workdir: meson.project_source_root(),
+    suite: 'unit',
+    timeout: 120,
+  )
+
   # retail's default key bindings (localization/<sys_lang>/defaultbinds.cfg) on a
   # fresh profile, on synthetic data
   test(

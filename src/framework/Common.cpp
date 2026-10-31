@@ -80,6 +80,16 @@ idCVar com_skipRenderer( "com_skipRenderer", "0", CVAR_BOOL | CVAR_SYSTEM, "skip
 idCVar com_machineSpec( "com_machineSpec", "-1", CVAR_INTEGER | CVAR_ARCHIVE | CVAR_SYSTEM, "hardware quality classification", -1, 3 );
 idCVar com_gpuSpec( "com_gpuSpec", "3", CVAR_INTEGER | CVAR_ARCHIVE | CVAR_SYSTEM,
 	"hardware classification, -1 = not detected, 0 = low quality, 1 = medium quality, 2 = high quality, 3 = ultra quality" );
+// The graphics presets (retail's specs/*.dat) record the level chosen in the settings
+// menu with "seta com_lastGraphicsLevel 2" and the like, and the menu reads it back on
+// the next start. Nothing registered them, and seta does not archive an unregistered
+// CVar (released Doom 3 leaves that off), so every preset read back as the lowest.
+idCVar com_lastGraphicsLevel( "com_lastGraphicsLevel", "0", CVAR_INTEGER | CVAR_ARCHIVE | CVAR_SYSTEM, "graphics preset last applied in the settings menu" );
+idCVar com_lastGraphicsDetailLevel( "com_lastGraphicsDetailLevel", "0", CVAR_INTEGER | CVAR_ARCHIVE | CVAR_SYSTEM, "graphics detail preset last applied in the settings menu" );
+idCVar com_lastCPULevel( "com_lastCPULevel", "0", CVAR_INTEGER | CVAR_ARCHIVE | CVAR_SYSTEM, "CPU preset last applied in the settings menu" );
+idCVar com_lastCPUDetailLevel( "com_lastCPUDetailLevel", "0", CVAR_INTEGER | CVAR_ARCHIVE | CVAR_SYSTEM, "CPU detail preset last applied in the settings menu" );
+idCVar com_lastFoliageLevel( "com_lastFoliageLevel", "0", CVAR_INTEGER | CVAR_ARCHIVE | CVAR_SYSTEM, "foliage preset last applied in the settings menu" );
+idCVar com_lastLightingLevel( "com_lastLightingLevel", "0", CVAR_INTEGER | CVAR_ARCHIVE | CVAR_SYSTEM, "lighting preset last applied in the settings menu" );
 idCVar com_purgeAll( "com_purgeAll", "0", CVAR_BOOL | CVAR_ARCHIVE | CVAR_SYSTEM, "purge all media between level loads" );
 idCVar com_memoryMarker( "com_memoryMarker", "-1", CVAR_INTEGER | CVAR_SYSTEM | CVAR_INIT, "memory statistics marker" );
 idCVar com_preciseTic( "com_preciseTic", "1", CVAR_BOOL | CVAR_SYSTEM, "run exact user command ticks" );

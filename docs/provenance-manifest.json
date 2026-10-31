@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5607,
+  "totalFiles": 5608,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 394
   },
   "postSplitCounts": {
-    "Reconstruction_original": 324,
+    "Reconstruction_original": 325,
     "ThirdParty": 1,
     "Retail_asset": 4,
     "Doom3_GPL": 2,
@@ -49345,9 +49345,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "173a5ba5c79a917647f8972095ab39a3a8cf7a76223536151378ea88a023da47",
-      "canonicalSha256": "173a5ba5c79a917647f8972095ab39a3a8cf7a76223536151378ea88a023da47",
-      "bytes": 54536,
+      "rawSha256": "9559000fec1e85c42d94999c0c40901cad26cdfc4dd45181d6bee1c178f8aa05",
+      "canonicalSha256": "9559000fec1e85c42d94999c0c40901cad26cdfc4dd45181d6bee1c178f8aa05",
+      "bytes": 54929,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": "GPL-3.0-or-later"
@@ -50145,6 +50145,18 @@
       "spdx": "GPL-3.0-or-later"
     },
     {
+      "path": "tests/test_preset_levels.py",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "981cbbdb1d311eb6715a3996f3860b7612e4e6aa316417e2d25a138700f7c380",
+      "canonicalSha256": "981cbbdb1d311eb6715a3996f3860b7612e4e6aa316417e2d25a138700f7c380",
+      "bytes": 4784,
+      "addedAfterSplit": true,
+      "addedIn": "9aaaf7ff9b47ab1611a39702bf560ff972994c41",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
       "path": "tests/test_protocol_clean_break.py",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -50821,9 +50833,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "a3c177b9b4efee602d5204f26cc0a77404cd63b1799666a58971cfd220059a8e",
-      "canonicalSha256": "a3c177b9b4efee602d5204f26cc0a77404cd63b1799666a58971cfd220059a8e",
-      "bytes": 23359,
+      "rawSha256": "44430ab9a33fecb405395e3b566a00857105bfeeaeb491fb0ee8448e554d3690",
+      "canonicalSha256": "44430ab9a33fecb405395e3b566a00857105bfeeaeb491fb0ee8448e554d3690",
+      "bytes": 23394,
       "addedAfterSplit": true,
       "addedIn": "96be8171ffa1e6299cb40d4423a3e10c3a54cd81",
       "spdx": "GPL-3.0-or-later"
