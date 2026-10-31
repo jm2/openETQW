@@ -7,6 +7,7 @@
 #include "sys_local.h"
 #include "sys_render.h"
 #include "../renderer/VulkanBackend.h"
+#include "VideoModeAvailability.h"
 
 void Sys_SDL_SetVideoHints( void );
 SDL_Window* Sys_GetGameSDLWindow( void );
@@ -20,7 +21,8 @@ bool vidRestartRegistered = false;
 VidRestart_f
 
 Applies r_fullscreen to the game window ("vid_restart windowed" clears it first,
-as retail's does). Alt+Enter flips r_fullscreen and runs this. The window is
+as retail's does). Alt+Return (Command+Return on macOS, FullscreenChord.h) flips
+r_fullscreen and runs this. The window is
 switched in place: the Vulkan swapchain follows the resize, so nothing is torn
 down. Retail 1.5 also restarts the renderer here for r_mode changes; this does not.
 ====================
@@ -382,6 +384,7 @@ public:
 		primaryMonitor.monitor.h = h;
 		primaryMonitor.workArea = primaryMonitor.monitor;
 		primaryMonitor.primary = true;
+		MarkAvailableVideoModes( displayID );
 		// SDL's headless drivers (the Linux tests and screenshot sets run on offscreen) report
 		// a made-up 1024x768 display; a window there is not on any screen, so it is not capped.
 		const char *driver = SDL_GetCurrentVideoDriver();
@@ -397,6 +400,45 @@ public:
 	}
 
 private:
+	// Marks the r_mode table's modes the display can show fullscreen as available
+	// (VideoModeAvailability.h); none were, so the menu's fullscreen mode list was empty.
+	static void MarkAvailableVideoModes( SDL_DisplayID displayID ) {
+		if ( common == NULL ) {
+			return;
+		}
+		idList< int > sizes;
+		int count = 0;
+		SDL_DisplayMode **displayModes = SDL_GetFullscreenDisplayModes( displayID, &count );
+		for ( int i = 0; displayModes != NULL && i < count; i++ ) {
+			const SDL_DisplayMode *mode = displayModes[i];
+			// 32 bpp only, as retail's mode check; Windows also lists 16 and 24 bpp modes
+			if ( mode->format != SDL_PIXELFORMAT_UNKNOWN && SDL_BYTESPERPIXEL( mode->format ) != 4 ) {
+				continue;
+			}
+			sizes.Append( mode->w );
+			sizes.Append( mode->h );
+			if ( mode->pixel_density > 1.0f ) {
+				sizes.Append( idMath::Ftoi( mode->w * mode->pixel_density + 0.5f ) );
+				sizes.Append( idMath::Ftoi( mode->h * mode->pixel_density + 0.5f ) );
+			}
+		}
+		SDL_free( displayModes );
+		idList< vidmode_t > modes;
+		for ( int i = 0; i < common->GetNumVideoModes(); i++ ) {
+			modes.Append( common->GetVideoMode( i ) );
+		}
+		const int available = Sys_MarkAvailableVideoModes( modes.Begin(), modes.Num(), sizes.Begin(), sizes.Num() / 2 );
+		for ( int i = 0; i < modes.Num(); i++ ) {
+			common->GetVideoMode( i ).available = modes[i].available;
+		}
+		static int logged = -1;
+		if ( logged != available ) {
+			logged = available;
+			common->Printf( "SDL3: %d of %d video modes are available fullscreen (%d display modes)\n",
+				available, modes.Num(), count );
+		}
+	}
+
 	// Starts the video subsystem once; nothing quits it before SDL_Quit. The macOS hints are
 	// set on every call, as InitContext always did, so they are set even when video is
 	// already running (Sys_PromptForRetailData starts it without them; the launch splash

@@ -6,6 +6,7 @@
 #include "sys_local.h"
 #include "keynum.h"
 #include "KeyChar.h"
+#include "FullscreenChord.h"
 #include "MouseDelta.h"
 
 SDL_Window* Sys_GetGameSDLWindow( void );
@@ -223,7 +224,9 @@ void Sys_ProcessSDLEvents( void ) {
 
 			case SDL_EVENT_KEY_DOWN:
 			case SDL_EVENT_KEY_UP: {
-				if ( event.key.down && event.key.key == SDLK_RETURN && ( event.key.mod & SDL_KMOD_ALT ) != 0 ) {
+				// Alt+Return, or Command+Return on macOS (FullscreenChord.h)
+				if ( event.key.down && Sys_IsFullscreenChord( event.key.key == SDLK_RETURN,
+						( event.key.mod & SDL_KMOD_ALT ) != 0, ( event.key.mod & SDL_KMOD_GUI ) != 0 ) ) {
 					const bool fullscreen = sys3D != NULL && sys3D->IsFullscreen();
 					cvarSystem->SetCVarBool( "r_fullscreen", !fullscreen );
 					cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "vid_restart\n" );

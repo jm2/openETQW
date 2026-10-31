@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5595,
+  "totalFiles": 5603,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 394
   },
   "postSplitCounts": {
-    "Reconstruction_original": 312,
+    "Reconstruction_original": 320,
     "ThirdParty": 1,
     "Retail_asset": 4,
     "Doom3_GPL": 2,
@@ -48133,9 +48133,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "af65b7157ac17f3d1dbc95f830422f89133d6683d8a0b6db568128e3be6cf160",
-      "canonicalSha256": "af65b7157ac17f3d1dbc95f830422f89133d6683d8a0b6db568128e3be6cf160",
-      "bytes": 159717,
+      "rawSha256": "d298ee6f6838df69b920276870dc50ebd1b67d3a250180e22abde0e1ffa60dc9",
+      "canonicalSha256": "d298ee6f6838df69b920276870dc50ebd1b67d3a250180e22abde0e1ffa60dc9",
+      "bytes": 160418,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": null
@@ -48271,6 +48271,30 @@
       "addedAfterSplit": true,
       "addedIn": "23036799e50ea54bb7e9e5d9e7b7a703761a1d5d",
       "spdx": "GPL-3.0-or-later"
+    },
+    {
+      "path": "docs/provenance-manifest.json",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": null,
+      "canonicalSha256": null,
+      "bytes": null,
+      "addedAfterSplit": true,
+      "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
+      "spdx": null
+    },
+    {
+      "path": "docs/provenance-manifest.json",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": null,
+      "canonicalSha256": null,
+      "bytes": null,
+      "addedAfterSplit": true,
+      "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
+      "spdx": null
     },
     {
       "path": "docs/provenance-manifest.json",
@@ -48933,6 +48957,18 @@
       "spdx": "GPL-3.0-or-later"
     },
     {
+      "path": "src/sys/sdl/FullscreenChord.h",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "8c66fdc645082df5db61daa05c8c0cc824efcb4db3d28ed3695aa5697adddf50",
+      "canonicalSha256": "8c66fdc645082df5db61daa05c8c0cc824efcb4db3d28ed3695aa5697adddf50",
+      "bytes": 970,
+      "addedAfterSplit": true,
+      "addedIn": null,
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
       "path": "src/sys/sdl/KeyChar.h",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -48963,13 +48999,25 @@
       }
     },
     {
+      "path": "src/sys/sdl/VideoModeAvailability.h",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "1910b14d7a6b9fca10e3e6a753d8257740c90181df426bc90e359319ef071c79",
+      "canonicalSha256": "1910b14d7a6b9fca10e3e6a753d8257740c90181df426bc90e359319ef071c79",
+      "bytes": 1112,
+      "addedAfterSplit": true,
+      "addedIn": null,
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
       "path": "src/sys/sdl/sdl_events.cpp",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "8e2df77e7671d0a088544d56d4d694cd21877c6c4ab5377ab6a7d463ef045d1a",
-      "canonicalSha256": "8e2df77e7671d0a088544d56d4d694cd21877c6c4ab5377ab6a7d463ef045d1a",
-      "bytes": 9747,
+      "rawSha256": "effee55a0135dd08d7291a57d55932efa2eb8fcc4db074b53fac6399e5cb3d0c",
+      "canonicalSha256": "effee55a0135dd08d7291a57d55932efa2eb8fcc4db074b53fac6399e5cb3d0c",
+      "bytes": 9910,
       "addedAfterSplit": true,
       "addedIn": "ed2de0dd8a85639e9071f68ecc80c12e2d3e2d55",
       "spdx": "GPL-3.0-or-later"
@@ -48979,9 +49027,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "adbc406cd44fb312927d9da6985c3baad317a0efec521af86662d5e5089e7c13",
-      "canonicalSha256": "adbc406cd44fb312927d9da6985c3baad317a0efec521af86662d5e5089e7c13",
-      "bytes": 13873,
+      "rawSha256": "6fcf92b120984ce48f65f021e011f09a911cd958c246b803da03e53cb1dac134",
+      "canonicalSha256": "6fcf92b120984ce48f65f021e011f09a911cd958c246b803da03e53cb1dac134",
+      "bytes": 15565,
       "addedAfterSplit": true,
       "addedIn": "ed2de0dd8a85639e9071f68ecc80c12e2d3e2d55",
       "spdx": "GPL-3.0-or-later"
@@ -49074,6 +49122,18 @@
       "bytes": 7234,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
+      "path": "tests/FullscreenChordTest.cpp",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "1dce19b67db4ac27d6e2ed933cd333170c2b0bbb3a3ba667f08fc65c2af15197",
+      "canonicalSha256": "1dce19b67db4ac27d6e2ed933cd333170c2b0bbb3a3ba667f08fc65c2af15197",
+      "bytes": 2465,
+      "addedAfterSplit": true,
+      "addedIn": null,
       "spdx": "GPL-3.0-or-later"
     },
     {
@@ -49185,6 +49245,18 @@
       "spdx": "GPL-3.0-or-later"
     },
     {
+      "path": "tests/VideoModeAvailabilityTest.cpp",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "1b6cb32f2babbfe4c4d76be1b0d44979c9feb954dd0529db6e5d26459d5d5151",
+      "canonicalSha256": "1b6cb32f2babbfe4c4d76be1b0d44979c9feb954dd0529db6e5d26459d5d5151",
+      "bytes": 3036,
+      "addedAfterSplit": true,
+      "addedIn": null,
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
       "path": "tests/etqw_harness.py",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -49249,9 +49321,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "a68b46372b73e8c7e0383651498aa6b0809604838e857ecb0a02414e60fc63b2",
-      "canonicalSha256": "a68b46372b73e8c7e0383651498aa6b0809604838e857ecb0a02414e60fc63b2",
-      "bytes": 51410,
+      "rawSha256": "6cdd8d5c09efee5dde7721bb43c81b694d2984940f3502f64d898d3f27213ec8",
+      "canonicalSha256": "6cdd8d5c09efee5dde7721bb43c81b694d2984940f3502f64d898d3f27213ec8",
+      "bytes": 52875,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": "GPL-3.0-or-later"
@@ -50169,6 +50241,18 @@
       "spdx": "GPL-3.0-or-later"
     },
     {
+      "path": "tests/test_seta_archive.py",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "22fc58e51d7b4f3ec7bc06e8c0130866828b7a1ee54ef1cf82d32124268c04bf",
+      "canonicalSha256": "22fc58e51d7b4f3ec7bc06e8c0130866828b7a1ee54ef1cf82d32124268c04bf",
+      "bytes": 4382,
+      "addedAfterSplit": true,
+      "addedIn": "4b5a0b3cd08a9b90f56dd0b58547932771d7ee26",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
       "path": "tests/test_shadow_stress_adversarial.py",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -50310,6 +50394,18 @@
       "bytes": 4872,
       "addedAfterSplit": true,
       "addedIn": "9b9db5665e6505d420cc50359f119a5c7fa15839",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
+      "path": "tests/test_video_modes.py",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "addf3766bd073a48fb38ecc7668d0c2319cb52a9f2893194eb457531d8a04fa5",
+      "canonicalSha256": "addf3766bd073a48fb38ecc7668d0c2319cb52a9f2893194eb457531d8a04fa5",
+      "bytes": 4551,
+      "addedAfterSplit": true,
+      "addedIn": null,
       "spdx": "GPL-3.0-or-later"
     },
     {
