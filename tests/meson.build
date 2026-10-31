@@ -1150,6 +1150,23 @@ if build_engine and build_dedicated
     is_parallel: false,
   )
 
+  # the BSE particle system draws valley's ambient effects (#368)
+  test(
+    'bse-effects',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_bse_effects.py',
+      '--client-binary', campaign_client,
+      '--port', '29914',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'bse-effects',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 400,
+    is_parallel: false,
+  )
+
   # The deploy menu draws its campaign map and objective icons (GUI clip rectangles)
   test(
     'limbo-command-map',

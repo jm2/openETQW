@@ -23,10 +23,12 @@ GNU General Public License for more details.
 #include "../idlib/precompiled.h"
 #pragma hdrstop
 
-#include "BSE.h"
+#include "BSESim.h"
 #include "../framework/declManager.h"
 
-rvDeclEffect::rvDeclEffect() {
+#include <unordered_map>
+
+bseEffectTemplate::bseEffectTemplate() {
 	size = 8.0f;
 	cutOffDistance = 0.0f;
 	minDuration = 0.0f;
@@ -35,20 +37,11 @@ rvDeclEffect::rvDeclEffect() {
 	bounds.ExpandSelf( size );
 }
 
-rvDeclEffect::~rvDeclEffect() {
+bseEffectTemplate::~bseEffectTemplate() {
 	FreeData();
 }
 
-void rvDeclEffect::Init() {
-	FreeData();
-}
-
-bool rvDeclEffect::SetDefaultText() {
-	SetText( va( "effect %s // IMPLICITLY GENERATED\n%s", GetName(), DefaultDefinition() ) );
-	return true;
-}
-
-size_t rvDeclEffect::Size() const {
+size_t bseEffectTemplate::Size() const {
 	int allocated = segments.Allocated();
 	for ( int i = 0; i < segments.Num(); i++ ) {
 		allocated += segments[i].Allocated();
@@ -56,24 +49,7 @@ size_t rvDeclEffect::Size() const {
 	return sizeof( *this ) + allocated;
 }
 
-const char *rvDeclEffect::DefaultDefinition() const {
-	return "{ size 8 }";
-}
-
-void rvDeclEffect::CacheFromDict( const idDict &dict ) {
-	const qhandle_t effectType = declManager->GetDeclTypeHandle( declEffectsIdentifier );
-	const idKeyValue *kv = NULL;
-	while ( ( kv = dict.MatchPrefix( "fx", kv ) ) != NULL ) {
-		const char *effectName = kv->GetValue().c_str();
-		if ( effectName[0] == '\0' ) {
-			common->Warning( "rvDeclEffect::CacheFromDict: '%s' has an empty value", kv->GetKey().c_str() );
-			continue;
-		}
-		declManager->FindType( effectType, effectName, true );
-	}
-}
-
-void rvDeclEffect::FreeData() {
+void bseEffectTemplate::FreeData() {
 	segments.Clear();
 	size = 8.0f;
 	cutOffDistance = 0.0f;
@@ -83,35 +59,19 @@ void rvDeclEffect::FreeData() {
 	bounds.ExpandSelf( size );
 }
 
-bool rvDeclEffect::Parse( const char *text, const int textLength ) {
+// The effect decl (src/decllib/declEffect.cpp) opens the text or binary source and
+// hands the lexer over; this parses the braced body into segments.
+bool bseEffectTemplate::Parse( idParser &src ) {
 	FreeData();
-	if ( ( text == NULL || textLength <= 0 ) && !HasBinaryBuffer() ) {
-		return false;
-	}
-	idLexer src;
-	src.SetFlags( DECL_LEXER_FLAGS );
-	if ( HasBinaryBuffer() && GetState() != DS_DEFAULTED ) {
-		const byte *declBuffer = NULL;
-		int declBufferLength = 0;
-		GetBinarySource( declBuffer, declBufferLength );
-		idTokenCache *cache = NULL;
-		const idDeclType *type = declManager->GetDeclType( GetType() );
-		if ( type && !type->UsePrivateTokens() ) {
-			cache = &declManager->GetGlobalTokenCache();
-		}
-		src.LoadMemoryBinary( declBuffer, declBufferLength, va( "%s: %s", GetFileName(), GetName() ), cache );
-	} else {
-		src.LoadMemory( text, textLength, GetFileName(), GetLineNum() );
-	}
-	if ( !src.SkipUntilString( "{" ) ) {
+	idToken token;
+	if ( !src.SkipUntilString( "{", &token ) ) {
 		return false;
 	}
 
-	idToken token;
 	while ( src.ReadToken( &token ) ) {
 		if ( token == "}" ) {
 			Finish();
-			return !src.HadError();
+			return true;
 		}
 		if ( !token.Icmp( "size" ) ) {
 			size = Max( 0.0f, src.ParseFloat() );
@@ -134,11 +94,11 @@ bool rvDeclEffect::Parse( const char *text, const int textLength ) {
 	return false;
 }
 
-void rvDeclEffect::Finish() {
+void bseEffectTemplate::Finish() {
 	minDuration = 0.0f;
 	maxDuration = 0.0f;
 	for ( int i = 0; i < segments.Num(); i++ ) {
-		const rvSegmentTemplate &segment = segments[i];
+		const bseSegmentTemplate &segment = segments[i];
 		float segmentMin = segment.startTime.x + segment.duration.x;
 		float segmentMax = segment.startTime.y + segment.duration.y;
 		if ( segment.HasVisualParticle() ) {
@@ -152,4 +112,55 @@ void rvDeclEffect::Finish() {
 		maxDuration = Max( maxDuration, segmentMax );
 	}
 	CalculateBounds();
+}
+
+/*
+================
+The parsed templates of the SDK effect decls (#368)
+
+The decl type is the SDK's rvDeclEffect, whose layout the game module shares, so
+the simulation's template lives beside it, keyed by the decl. rvDeclEffect::Parse
+fills it and FreeData drops it (src/decllib/declEffect.cpp); both run on the main
+thread while decls load. The renderer looks a template up by decl.
+================
+*/
+static std::unordered_map< const rvDeclEffect *, bseEffectTemplate * > bseEffectTemplates;
+static int bseEffectTemplateEpoch;
+
+bool BSE_ParseEffectTemplate( const rvDeclEffect *decl, const char *name, idParser &src, float &minDuration, float &maxDuration,
+		float &cutOffDistance, float &size ) {
+	BSE_FreeEffectTemplate( decl );
+	bseEffectTemplate *effectTemplate = new bseEffectTemplate;
+	effectTemplate->SetName( name );
+	if ( !effectTemplate->Parse( src ) ) {
+		delete effectTemplate;
+		return false;
+	}
+	minDuration = effectTemplate->GetMinDuration();
+	maxDuration = effectTemplate->GetMaxDuration();
+	cutOffDistance = effectTemplate->GetCutOffDistance();
+	size = effectTemplate->GetSize();
+	bseEffectTemplates[ decl ] = effectTemplate;
+	return true;
+}
+
+void BSE_FreeEffectTemplate( const rvDeclEffect *decl ) {
+	auto it = bseEffectTemplates.find( decl );
+	if ( it != bseEffectTemplates.end() ) {
+		delete it->second;
+		bseEffectTemplates.erase( it );
+		bseEffectTemplateEpoch++;
+	}
+}
+
+int BSE_EffectTemplateEpoch() {
+	return bseEffectTemplateEpoch;
+}
+
+const bseEffectTemplate *BSE_EffectTemplateForDecl( const rvDeclEffect *decl ) {
+	if ( decl == NULL ) {
+		return NULL;
+	}
+	auto it = bseEffectTemplates.find( decl );
+	return it != bseEffectTemplates.end() ? it->second : NULL;
 }

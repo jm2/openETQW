@@ -24,7 +24,7 @@ GNU General Public License for more details.
 #pragma hdrstop
 
 #include "../framework/DeclEntityDef.h"
-#include "BSE.h"
+#include "BSESim.h"
 
 void BSE_ResolveModelSafeParticle( rvBSEParticle &particle ) {
 	if ( particle.type == PTYPE_LIGHT ) {
