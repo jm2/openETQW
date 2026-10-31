@@ -94,12 +94,18 @@ def main() -> int:
 
         print("2. vid_restart windowed")
         mark = gfx.mark()
-        gfx.send("vid_restart windowed")
+        state = []
+        for _ in range(ATTEMPTS):  # leaving fullscreen can be asynchronous too
+            gfx.send("vid_restart windowed")
+            gfx.sync()
+            gfx.wait_for(lambda s: s.startswith("vid_restart: "), 15.0, mark)
+            state = [ln.text for ln in gfx.snapshot(mark) if ln.text.startswith("vid_restart: ")]
+            if state[-1:] == ["vid_restart: windowed"]:
+                break
+            time.sleep(1.0)
         gfx.send("r_fullscreen")
         gfx.sync()
-        gfx.wait_for(lambda s: s.startswith("vid_restart: "), 15.0, mark)
         lines = [ln.text for ln in gfx.snapshot(mark)]
-        state = [t for t in lines if t.startswith("vid_restart: ")]
         expect(state[-1:] == ["vid_restart: windowed"], f"the window is windowed (reported {state})")
         expect(any('"r_fullscreen" is:"0"' in t for t in lines), "r_fullscreen reads 0")
 
