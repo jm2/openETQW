@@ -1206,13 +1206,10 @@ void idCVarSystemLocal::SetA_f( const idCmdArgs &args ) {
 		return;
 	}
 
-	// seta saves the CVar with the configuration, also one nothing registers: the
-	// graphics presets (specs/*.dat) record the chosen level with
-	// "seta com_lastGraphicsLevel 2" and the like, and the settings menu reads it back
-	// on the next start. Doom 3's development builds left this off ("enable this for
-	// ship"), so presets fell back to the lowest after a restart.
-	cvar->flags |= CVAR_ARCHIVE;
-	localCVarSystem.SetModifiedFlags( CVAR_ARCHIVE );
+	// FIXME: enable this for ship, so mods can store extra data
+	// but during development we don't want obsolete cvars to continue
+	// to be saved
+//	cvar->flags |= CVAR_ARCHIVE;
 }
 
 /*

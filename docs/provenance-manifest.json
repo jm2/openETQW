@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5603,
+  "totalFiles": 5600,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 394
   },
   "postSplitCounts": {
-    "Reconstruction_original": 320,
+    "Reconstruction_original": 317,
     "ThirdParty": 1,
     "Retail_asset": 4,
     "Doom3_GPL": 2,
@@ -48285,30 +48285,6 @@
       "spdx": null
     },
     {
-      "path": "docs/provenance-manifest.json",
-      "tier": "Reconstruction_original",
-      "license": "GPL-3.0-or-later",
-      "targetRepo": "openETQW",
-      "rawSha256": null,
-      "canonicalSha256": null,
-      "bytes": null,
-      "addedAfterSplit": true,
-      "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
-      "spdx": null
-    },
-    {
-      "path": "docs/provenance-manifest.json",
-      "tier": "Reconstruction_original",
-      "license": "GPL-3.0-or-later",
-      "targetRepo": "openETQW",
-      "rawSha256": null,
-      "canonicalSha256": null,
-      "bytes": null,
-      "addedAfterSplit": true,
-      "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
-      "spdx": null
-    },
-    {
       "path": "docs/provenance.md",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -48965,7 +48941,7 @@
       "canonicalSha256": "8c66fdc645082df5db61daa05c8c0cc824efcb4db3d28ed3695aa5697adddf50",
       "bytes": 970,
       "addedAfterSplit": true,
-      "addedIn": null,
+      "addedIn": "4e7e1294ba9863991a88dca25e8924e6f0e351f1",
       "spdx": "GPL-3.0-or-later"
     },
     {
@@ -49007,7 +48983,7 @@
       "canonicalSha256": "1910b14d7a6b9fca10e3e6a753d8257740c90181df426bc90e359319ef071c79",
       "bytes": 1112,
       "addedAfterSplit": true,
-      "addedIn": null,
+      "addedIn": "108c2a93059bc064ab4e23d4b1f36b27b32495c9",
       "spdx": "GPL-3.0-or-later"
     },
     {
@@ -49133,7 +49109,7 @@
       "canonicalSha256": "1dce19b67db4ac27d6e2ed933cd333170c2b0bbb3a3ba667f08fc65c2af15197",
       "bytes": 2465,
       "addedAfterSplit": true,
-      "addedIn": null,
+      "addedIn": "4e7e1294ba9863991a88dca25e8924e6f0e351f1",
       "spdx": "GPL-3.0-or-later"
     },
     {
@@ -49253,7 +49229,7 @@
       "canonicalSha256": "1b6cb32f2babbfe4c4d76be1b0d44979c9feb954dd0529db6e5d26459d5d5151",
       "bytes": 3036,
       "addedAfterSplit": true,
-      "addedIn": null,
+      "addedIn": "108c2a93059bc064ab4e23d4b1f36b27b32495c9",
       "spdx": "GPL-3.0-or-later"
     },
     {
@@ -49321,9 +49297,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "6cdd8d5c09efee5dde7721bb43c81b694d2984940f3502f64d898d3f27213ec8",
-      "canonicalSha256": "6cdd8d5c09efee5dde7721bb43c81b694d2984940f3502f64d898d3f27213ec8",
-      "bytes": 52875,
+      "rawSha256": "c8d421c80a7ed1be6f34d1b4ef7580ae700c7225fc0525dacf4dea1782b1409f",
+      "canonicalSha256": "c8d421c80a7ed1be6f34d1b4ef7580ae700c7225fc0525dacf4dea1782b1409f",
+      "bytes": 52481,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": "GPL-3.0-or-later"
@@ -50241,18 +50217,6 @@
       "spdx": "GPL-3.0-or-later"
     },
     {
-      "path": "tests/test_seta_archive.py",
-      "tier": "Reconstruction_original",
-      "license": "GPL-3.0-or-later",
-      "targetRepo": "openETQW",
-      "rawSha256": "22fc58e51d7b4f3ec7bc06e8c0130866828b7a1ee54ef1cf82d32124268c04bf",
-      "canonicalSha256": "22fc58e51d7b4f3ec7bc06e8c0130866828b7a1ee54ef1cf82d32124268c04bf",
-      "bytes": 4382,
-      "addedAfterSplit": true,
-      "addedIn": "4b5a0b3cd08a9b90f56dd0b58547932771d7ee26",
-      "spdx": "GPL-3.0-or-later"
-    },
-    {
       "path": "tests/test_shadow_stress_adversarial.py",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -50405,7 +50369,7 @@
       "canonicalSha256": "addf3766bd073a48fb38ecc7668d0c2319cb52a9f2893194eb457531d8a04fa5",
       "bytes": 4551,
       "addedAfterSplit": true,
-      "addedIn": null,
+      "addedIn": "108c2a93059bc064ab4e23d4b1f36b27b32495c9",
       "spdx": "GPL-3.0-or-later"
     },
     {
