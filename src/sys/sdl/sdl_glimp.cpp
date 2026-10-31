@@ -410,6 +410,10 @@ private:
 		SDL_DisplayMode **displayModes = SDL_GetFullscreenDisplayModes( displayID, &count );
 		for ( int i = 0; displayModes != NULL && i < count; i++ ) {
 			const SDL_DisplayMode *mode = displayModes[i];
+			// 32 bpp only, as retail's mode check; Windows also lists 16 and 24 bpp modes
+			if ( mode->format != SDL_PIXELFORMAT_UNKNOWN && SDL_BYTESPERPIXEL( mode->format ) != 4 ) {
+				continue;
+			}
 			sizes.Append( mode->w );
 			sizes.Append( mode->h );
 			if ( mode->pixel_density > 1.0f ) {
