@@ -41,7 +41,9 @@ in_yawSpeed key turn stands in for the mouse:
   L4 orbit    (the chase view) the camera origin's speed across a tick is at most 1.5 x
               the median speed within one, on all but max(1, 10%) of the tick crossings (a
               wrong pivot would jump at every one)
-  L1c control with g_unlock_vehicleLook 0 the turn shows at least a draw later on average
+  L1c control with g_unlock_vehicleLook 0 the turn shows later on average, by two thirds of
+              the (D - 1) / 2 draws expected at D draws per tick and at most one draw (one at
+              cap 120); under 1.25 draws per tick it fails as too few to measure
   L5 locked   (smooth_locked) outside tophat mode a tap turns no draw
 
 A rate-limited pivot view (the trojan's gunner, yaw at most 135 deg/s), parked, at cap
@@ -173,6 +175,25 @@ def contention(poses):
         return 0.0
     median = statistics.median(b["us"] - a["us"] for a, b in pairs)
     return sum(1 for a, b in pairs if b["us"] - a["us"] >= 2.0 * max(1e6 / b["cap"], median)) / len(pairs)
+
+
+def draws_per_tick(poses):
+    """The window's draws per game tick (draws over distinct game frames; 0.0 for none)."""
+    ticks = len({p["fn"] for p in poses})
+    return len(poses) / ticks if ticks else 0.0
+
+
+# L1c: without the late look a tap shows at the next tick, on average (D + 1) / 2 draws
+# after it with D draws per tick, against 1 draw with it: (D - 1) / 2 more. The check asks
+# for two thirds of that, at most one draw (as at cap 120, D = 4: the one draw it always
+# asked for), so a client the GPU holds below its cap is measured against the draws it drew
+# (owner decision on #381). Under L1C_MIN_DRAWS_PER_TICK draws per tick the difference is too
+# small to measure, and the check fails as such.
+L1C_MIN_DRAWS_PER_TICK = 1.25
+
+
+def l1c_margin(draws_per_tick_off):
+    return min(1.0, (draws_per_tick_off - 1.0) / 3.0)
 
 
 def median_interval_ms(poses):
@@ -715,6 +736,7 @@ def main(argv):
                     "view yaw"))
                 window.append([p for ln in lines if (p := parse_pose(ln)) is not None])
             obs.send("set g_unlock_vehicleLook 1")
+            results_look["dpt"] = draws_per_tick(window[1])
             return results_look, max(contention(w) for w in window), max(median_interval_ms(w) for w in window)
 
         def look_checks(label, want_seat, orbit, results_look, counted=True):
@@ -735,13 +757,19 @@ def main(argv):
             print(f"[seat] late look, {label}, at cap {cap}: draws to the first changed yaw after +left, on {on}"
                   f" (mean {mean(on):.2f}), off {off} (mean {mean(off):.2f}); held, on: {on_turn['detail']}")
             l1 = len(on) >= LOOK_TAPS - 1 and sorted(on)[int(0.9 * (len(on) - 1))] <= 1
-            l1c = len(off) >= LOOK_TAPS - 1 and mean(off) >= mean(on) + 1.0
+            dpt = results_look["dpt"]
+            margin = l1c_margin(dpt)
+            l1c = (len(off) >= LOOK_TAPS - 1 and dpt >= L1C_MIN_DRAWS_PER_TICK
+                   and mean(off) >= mean(on) + margin)
+            l1c_detail = (f"with g_unlock_vehicleLook 0 the turn shows later on average by at least {margin:.2f}"
+                          f" draws at {dpt:.2f} draws per tick (mean {mean(off):.2f} against {mean(on):.2f})")
+            if dpt < L1C_MIN_DRAWS_PER_TICK:
+                l1c_detail += f"; under {L1C_MIN_DRAWS_PER_TICK} draws per tick, too few to measure"
             for check, ok, detail in (("L0", l0, f"seats {sorted(x or '-' for x in look_seats)}, want position:mode {want_seat}"),
                                       ("L3", l3, l3_detail),
                                       ("L1", l1, f"90% of taps show the turn on the next draw (counts {on})"),
                                       ("L2", on_turn["ok"], on_turn["detail"]),
-                                      ("L1c", l1c, f"with g_unlock_vehicleLook 0 the turn shows at least a draw later on average"
-                                                   f" (mean {mean(off):.2f} against {mean(on):.2f})")) + tuple(checks):
+                                      ("L1c", l1c, l1c_detail)) + tuple(checks):
                 print(f"  {cap:3} {label} {check}  {'pass' if ok else 'FAIL'}  {detail}{'' if counted else ' (not counted)'}")
                 if not ok and counted:
                     failures.append(f"late look, {label}, {check}: {detail}")
