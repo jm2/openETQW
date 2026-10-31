@@ -27,9 +27,11 @@
 #include "GameModuleCallbacks.h"
 #include "NotificationSystem.h"
 #include "Session_local.h"
+#include "MachineSpec.h"
 #include "../decllib/declLocStr.h"
 #include "../renderer/DeviceContext.h"
 #include "../renderer/FrameSyncTiming.h"
+#include "../renderer/GpuPciIds.h"
 #include "../renderer/renderbindingmanager.h"
 #include "../bse/BSEInterface.h"
 #include "../navigation/Navigation.h"
@@ -302,6 +304,7 @@ private:
 	void					InitCommands();
 	void					InitGame( bool resetConfigs );
 	void					LoadGameDLL();
+	void					InitMachineSpec();
 	void					UnloadGameDLL();
 	void					InitLanguageDict( bool reload );
 	void					InitSIMD();
@@ -1508,7 +1511,13 @@ void idCommonLocal::InitGame( bool resetConfigs ) {
 	if ( fileSystem->ReadFile( defaultBinds, NULL, NULL ) > 0 ) {
 		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, va( "exec %s\n", defaultBinds.c_str() ) );
 	}
-	if ( !SafeMode() ) {
+	// SafeMode() takes the "safe" line off the command line, so it answers once
+	const bool safeMode = SafeMode();
+	// a profile with no saved configuration is fresh: it gets a graphics preset
+	// once the GPU is known (InitMachineSpec). Safe mode leaves the saved one unread,
+	// so it doesn't count
+	const bool freshProfile = !safeMode && fileSystem->ReadFile( CONFIG_FILE, NULL, NULL ) <= 0;
+	if ( !safeMode ) {
 		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec " BINDING_FILE "\n" );
 		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec " CONFIG_FILE "\n" );
 	}
@@ -1597,7 +1606,58 @@ void idCommonLocal::InitGame( bool resetConfigs ) {
 
 	LoadGameDLL();
 	sys->PostGameInit();
+	if ( freshProfile ) {
+		InitMachineSpec();
+	}
 	nextConfigWriteTime = Sys_Milliseconds() + 2000;
+}
+
+/*
+==================
+idCommonLocal::InitMachineSpec
+
+A fresh profile's graphics preset (#387, docs/compat-ledger.md 082). Retail 1.5
+picks it from device.info by the GPU's PCI IDs (MachineSpec.h); a GPU the table
+doesn't list, which is every GPU since 2007, gets the high preset here, where
+retail gives it the lowest. It runs once the game module is loaded, since the
+presets reset game CVars, and only while com_machineSpec is unset.
+==================
+*/
+void idCommonLocal::InitMachineSpec() {
+	if ( com_machineSpec.GetInteger() >= 0 || com_skipRenderer.GetBool() ||
+		( networkSystem != NULL && networkSystem->IsDedicated() ) ) {
+		return;
+	}
+	unsigned int vendorID = 0;
+	unsigned int deviceID = 0;
+	const bool knownGpu = R_GetGpuPciIds( vendorID, deviceID );
+	idStr commands;
+	bool listed = false;
+	if ( knownGpu ) {
+		void* deviceInfo = NULL;
+		if ( fileSystem->ReadFile( "device.info", &deviceInfo, NULL ) > 0 ) {
+			listed = Sys_FindDeviceSpec( static_cast< const char* >( deviceInfo ), vendorID, deviceID, commands );
+			fileSystem->FreeFile( deviceInfo );
+		}
+	}
+	int level = 2;
+	if ( listed ) {
+		const int listedLevel = Sys_DeviceSpecLevel( commands );
+		if ( listedLevel >= 0 ) {
+			level = listedLevel;
+		}
+		Printf( "machine spec: GPU %04x:%04x is in device.info; running its entry\n", vendorID, deviceID );
+	} else {
+		commands = "exec specs/highspec.dat\n";
+		if ( knownGpu ) {
+			Printf( "machine spec: GPU %04x:%04x is not in device.info; the high preset\n", vendorID, deviceID );
+		} else {
+			Printf( "machine spec: the GPU's PCI IDs are unknown; the high preset\n" );
+		}
+	}
+	com_machineSpec.SetInteger( level );
+	cmdSystem->BufferCommandText( CMD_EXEC_APPEND, commands.c_str() );
+	cmdSystem->ExecuteCommandBuffer();
 }
 
 void idCommonLocal::Init( int argc, const char** argv, const char* cmdline ) {

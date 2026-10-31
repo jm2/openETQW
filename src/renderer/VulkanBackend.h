@@ -135,6 +135,8 @@ public:
 	const char* GetVendorString() const;
 	const char* GetVersionString() const;
 	unsigned int GetVendorID() const;
+	// the PCI device ID (with GetVendorID, what retail's device.info lists)
+	unsigned int GetDeviceID() const;
 
 private:
 	sdVulkanBackendState*	state;
