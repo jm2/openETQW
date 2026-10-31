@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5598,
+  "totalFiles": 5600,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 394
   },
   "postSplitCounts": {
-    "Reconstruction_original": 315,
+    "Reconstruction_original": 317,
     "ThirdParty": 1,
     "Retail_asset": 4,
     "Doom3_GPL": 2,
@@ -48133,9 +48133,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "af65b7157ac17f3d1dbc95f830422f89133d6683d8a0b6db568128e3be6cf160",
-      "canonicalSha256": "af65b7157ac17f3d1dbc95f830422f89133d6683d8a0b6db568128e3be6cf160",
-      "bytes": 159717,
+      "rawSha256": "d298ee6f6838df69b920276870dc50ebd1b67d3a250180e22abde0e1ffa60dc9",
+      "canonicalSha256": "d298ee6f6838df69b920276870dc50ebd1b67d3a250180e22abde0e1ffa60dc9",
+      "bytes": 160418,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": null
@@ -48933,6 +48933,18 @@
       "spdx": "GPL-3.0-or-later"
     },
     {
+      "path": "src/sys/sdl/FullscreenChord.h",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "8c66fdc645082df5db61daa05c8c0cc824efcb4db3d28ed3695aa5697adddf50",
+      "canonicalSha256": "8c66fdc645082df5db61daa05c8c0cc824efcb4db3d28ed3695aa5697adddf50",
+      "bytes": 970,
+      "addedAfterSplit": true,
+      "addedIn": "4e7e1294ba9863991a88dca25e8924e6f0e351f1",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
       "path": "src/sys/sdl/KeyChar.h",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -48979,9 +48991,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "8e2df77e7671d0a088544d56d4d694cd21877c6c4ab5377ab6a7d463ef045d1a",
-      "canonicalSha256": "8e2df77e7671d0a088544d56d4d694cd21877c6c4ab5377ab6a7d463ef045d1a",
-      "bytes": 9747,
+      "rawSha256": "effee55a0135dd08d7291a57d55932efa2eb8fcc4db074b53fac6399e5cb3d0c",
+      "canonicalSha256": "effee55a0135dd08d7291a57d55932efa2eb8fcc4db074b53fac6399e5cb3d0c",
+      "bytes": 9910,
       "addedAfterSplit": true,
       "addedIn": "ed2de0dd8a85639e9071f68ecc80c12e2d3e2d55",
       "spdx": "GPL-3.0-or-later"
@@ -48991,9 +49003,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "ee53af3b836c2e92da547833bdcf5bfa93859a218fff7d034ef514db8c4c2f75",
-      "canonicalSha256": "ee53af3b836c2e92da547833bdcf5bfa93859a218fff7d034ef514db8c4c2f75",
-      "bytes": 15519,
+      "rawSha256": "6fcf92b120984ce48f65f021e011f09a911cd958c246b803da03e53cb1dac134",
+      "canonicalSha256": "6fcf92b120984ce48f65f021e011f09a911cd958c246b803da03e53cb1dac134",
+      "bytes": 15565,
       "addedAfterSplit": true,
       "addedIn": "ed2de0dd8a85639e9071f68ecc80c12e2d3e2d55",
       "spdx": "GPL-3.0-or-later"
@@ -49086,6 +49098,18 @@
       "bytes": 7234,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
+      "path": "tests/FullscreenChordTest.cpp",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "1dce19b67db4ac27d6e2ed933cd333170c2b0bbb3a3ba667f08fc65c2af15197",
+      "canonicalSha256": "1dce19b67db4ac27d6e2ed933cd333170c2b0bbb3a3ba667f08fc65c2af15197",
+      "bytes": 2465,
+      "addedAfterSplit": true,
+      "addedIn": "4e7e1294ba9863991a88dca25e8924e6f0e351f1",
       "spdx": "GPL-3.0-or-later"
     },
     {
@@ -49273,9 +49297,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "d78f783ed9c88fca82aed3d082f175dc90d2e121cc49aab54544b62e589b4be9",
-      "canonicalSha256": "d78f783ed9c88fca82aed3d082f175dc90d2e121cc49aab54544b62e589b4be9",
-      "bytes": 52128,
+      "rawSha256": "c8d421c80a7ed1be6f34d1b4ef7580ae700c7225fc0525dacf4dea1782b1409f",
+      "canonicalSha256": "c8d421c80a7ed1be6f34d1b4ef7580ae700c7225fc0525dacf4dea1782b1409f",
+      "bytes": 52481,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": "GPL-3.0-or-later"
