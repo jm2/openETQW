@@ -1193,6 +1193,23 @@ if build_engine and build_dedicated
     is_parallel: false,
   )
 
+  # a decl index of -1 is "none" and is looked up without a warning (#377)
+  test(
+    'decl-index-none',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_decl_index_none.py',
+      '--client-binary', campaign_client,
+      '--port', '29915',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'decl-index-none',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 400,
+    is_parallel: false,
+  )
+
   # the BSE particle system draws valley's ambient effects (#368)
   test(
     'bse-effects',
