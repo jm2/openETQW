@@ -269,16 +269,18 @@ void Sys_ProcessSDLEvents( void ) {
 					sys->QueEvent( SE_KEY, key, event.key.down ? 1 : 0, 0, NULL );
 				}
 				if ( event.key.down && in_logTextInput.GetBool() ) {
-					common->Printf( "TEXT_INPUT: key down scancode %d key 0x%x mod 0x%x, text input active %d\n",
-						static_cast< int >( event.key.scancode ), static_cast< unsigned int >( event.key.key ),
-						static_cast< unsigned int >( event.key.mod ), SDL_TextInputActive( Sys_GetGameSDLWindow() ) ? 1 : 0 );
+					// the scancode only: no typed character reaches the log (passwords)
+					common->Printf( "TEXT_INPUT: key down scancode %d mod 0x%x, text input active %d\n",
+						static_cast< int >( event.key.scancode ), static_cast< unsigned int >( event.key.mod ),
+						SDL_TextInputActive( Sys_GetGameSDLWindow() ) ? 1 : 0 );
 				}
 				if ( event.key.down ) {
 					// the console key toggles the console; the text it types must not land in it
 					swallowConsoleText = key == K_CONSOLE;
 					// Backspace, Tab, Enter and Ctrl+letters reach edit fields as characters (TextInputChar.h)
 					const bool ctrlOnly = ( event.key.mod & SDL_KMOD_CTRL ) != 0 && ( event.key.mod & ( SDL_KMOD_ALT | SDL_KMOD_GUI ) ) == 0;
-					const int ch = Sys_ControlCharForKey( event.key.key, ctrlOnly );
+					// the layout's key without Shift or Caps Lock, so Ctrl+Shift+V is still Ctrl+V (22), as WM_CHAR
+					const int ch = Sys_ControlCharForKey( SDL_GetKeyFromScancode( event.key.scancode, SDL_KMOD_NONE, true ), ctrlOnly );
 					if ( ch != 0 ) {
 						sys->QueEvent( SE_CHAR, 0, ch, 0, NULL );
 					}
@@ -288,7 +290,8 @@ void Sys_ProcessSDLEvents( void ) {
 
 			case SDL_EVENT_TEXT_INPUT: {
 				if ( in_logTextInput.GetBool() ) {
-					common->Printf( "TEXT_INPUT: event \"%s\"%s\n", event.text.text != NULL ? event.text.text : "(null)",
+					// its length only: no typed text reaches the log (passwords)
+					common->Printf( "TEXT_INPUT: event, %d bytes%s\n", event.text.text != NULL ? static_cast< int >( strlen( event.text.text ) ) : -1,
 						swallowConsoleText ? " (dropped: the console key's text)" : "" );
 				}
 				if ( event.text.text != NULL && !swallowConsoleText ) {
