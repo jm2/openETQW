@@ -455,8 +455,13 @@ void idCommonLocal::VPrintfInternal( const char* fmt, va_list args, bool allowRe
 				if ( logFile == NULL ) {
 					logFileFailed = true;
 					Sys_Printf( "failed to open log file '%s'\n", name );
-				} else if ( com_logFile.GetInteger() > 1 ) {
-					logFile->ForceFlush();
+				} else {
+					if ( com_logFile.GetInteger() > 1 ) {
+						logFile->ForceFlush();
+					}
+					// the version lines print before the file system starts, so the
+					// log would otherwise never say which build wrote it
+					logFile->Printf( "%s\n%s\n", versionString.string, OPENETQW_PRODUCT_VERSION_FULL );
 				}
 			}
 			if ( logFile != NULL ) {
@@ -1480,6 +1485,19 @@ void idCommonLocal::InitGame( bool resetConfigs ) {
 	renderBindingManager->Init();
 
 	cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec default.cfg\n" );
+	// The retail default key bindings ship in the language paks
+	// (zpak_<lang>*.pk4). Both they and the saved binding file start with
+	// unbindall, so a saved profile overrides them and a fresh one gets them.
+	// An install without the language paks has none and starts unbound.
+	StartupVariable( "sys_lang" );
+	const char* language = cvarSystem->GetCVarString( "sys_lang" );
+	idStr defaultBinds = va( "localization/%s/defaultbinds.cfg", language != NULL && language[ 0 ] != '\0' ? language : "english" );
+	if ( fileSystem->ReadFile( defaultBinds, NULL, NULL ) <= 0 ) {
+		defaultBinds = "localization/english/defaultbinds.cfg";
+	}
+	if ( fileSystem->ReadFile( defaultBinds, NULL, NULL ) > 0 ) {
+		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, va( "exec %s\n", defaultBinds.c_str() ) );
+	}
 	if ( !SafeMode() ) {
 		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec " BINDING_FILE "\n" );
 		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec " CONFIG_FILE "\n" );
