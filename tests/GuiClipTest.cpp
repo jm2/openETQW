@@ -104,13 +104,38 @@ int main() {
 	Check( "overhanging the top and bottom", 10, -10, 30, 100, 1000 );
 	Check( "on the left edge, overhanging top and bottom", 0, -10, 20, 100, 1000 );
 	Check( "covering the bounds", -10, -10, 100, 100, 2500 );
-	Check( "a mask range far larger than the quad", 10, 10, 40, 40, 900 );
+	Check( "a vertex on each edge, overhanging all sides", -10, 0, 60, 50, 2500 );
 
 	// a mask range far larger (the 1e6 'unbounded' of ClipToMask) keeps the quad whole
 	{
 		idWinding2D w = Quad( 10, 10, 40, 40 );
 		Expect( GuiClipWindingToBounds( w, sdBounds2D( -1.0e6f, 20.0f, 2.0e6f, 1.0e6f ) ) && Near( Area( w ), 600 ),
 			"an unbounded axis: cut only on the other" );
+	}
+	// a 32-sided circle overhanging one edge keeps every point it has inside
+	{
+		idWinding2D w;
+		for ( int i = 0; i < idWinding2D::MAX_POINTS; i++ ) {
+			const float a = i * idMath::TWO_PI / idWinding2D::MAX_POINTS;
+			w.AddPoint( 25.0f + 30.0f * idMath::Cos( a ), 25.0f + 20.0f * idMath::Sin( a ), 0.0f, 0.0f );
+		}
+		const bool kept = GuiClipWindingToBounds( w, sdBounds2D( 0, 0, 50, 50 ) );
+		bool inside = true;
+		for ( int i = 0; i < w.GetNumPoints(); i++ ) {
+			inside &= w[ i ].x >= -1e-3f && w[ i ].x <= 50.001f;
+		}
+		Expect( kept && inside && w.GetNumPoints() >= 8, "a circle overhanging left and right: cut to the bounds" );
+	}
+	// a concave star with many points outside is dropped, not written past the arrays
+	{
+		idWinding2D w;
+		for ( int i = 0; i < idWinding2D::MAX_POINTS; i++ ) {
+			const float a = i * idMath::TWO_PI / idWinding2D::MAX_POINTS;
+			const float r = ( i & 1 ) ? 10.0f : 80.0f;
+			w.AddPoint( 25.0f + r * idMath::Cos( a ), 25.0f + r * idMath::Sin( a ), 0.0f, 0.0f );
+		}
+		GuiClipWindingToBounds( w, sdBounds2D( 0, 0, 50, 50 ) );
+		Expect( w.GetNumPoints() <= idWinding2D::MAX_POINTS, "a concave star: at most MAX_POINTS points" );
 	}
 	// a winding of fewer than three points is never drawn
 	{

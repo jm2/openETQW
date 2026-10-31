@@ -20,8 +20,9 @@ inline bool GuiClipWindingToBounds( idWinding2D& winding, const sdBounds2D& boun
 	if ( bounds.ContainsBounds( windingBounds ) ) {
 		return true;
 	}
-	// each edge clip adds at most one point
-	const int maxPoints = idWinding2D::MAX_POINTS + 4;
+	// a convex winding gains at most one point per edge; a concave one can gain
+	// more, and is dropped once it would not fit
+	const int maxPoints = idWinding2D::MAX_POINTS * 2;
 	idVec2 xy[ 2 ][ maxPoints ];
 	idVec2 st[ 2 ][ maxPoints ];
 	int count = winding.GetNumPoints();
@@ -40,6 +41,10 @@ inline bool GuiClipWindingToBounds( idWinding2D& winding, const sdBounds2D& boun
 			const int j = ( i + 1 ) % count;
 			const float di = keepAbove ? xy[ from ][ i ][ axis ] - limit : limit - xy[ from ][ i ][ axis ];
 			const float dj = keepAbove ? xy[ from ][ j ][ axis ] - limit : limit - xy[ from ][ j ][ axis ];
+			if ( out + 2 > maxPoints ) {
+				winding.Clear();
+				return false;
+			}
 			if ( di >= 0.0f ) {
 				xy[ to ][ out ] = xy[ from ][ i ];
 				st[ to ][ out ] = st[ from ][ i ];
@@ -60,11 +65,31 @@ inline bool GuiClipWindingToBounds( idWinding2D& winding, const sdBounds2D& boun
 			return false;
 		}
 	}
-	// a polygon that only touches the bounds from outside is left with no area
-	float area = 0.0f;
+	// a point the clip put on top of its neighbour (a vertex on the limit) only
+	// uses up the winding's points
+	int unique = 0;
 	for ( int i = 0; i < count; i++ ) {
-		const idVec2& a = xy[ from ][ i ];
-		const idVec2& b = xy[ from ][ ( i + 1 ) % count ];
+		const idVec2& last = unique > 0 ? xy[ from ][ unique - 1 ] : xy[ from ][ count - 1 ];
+		if ( ( xy[ from ][ i ] - last ).LengthSqr() < 1.0e-8f ) {
+			continue;
+		}
+		xy[ from ][ unique ] = xy[ from ][ i ];
+		st[ from ][ unique ] = st[ from ][ i ];
+		unique++;
+	}
+	count = unique;
+	if ( count < 3 ) {
+		winding.Clear();
+		return false;
+	}
+	// a polygon that only touches the bounds from outside is left with no area
+	// (measured from its first point, so the size of the coordinates does not
+	// swamp it)
+	float area = 0.0f;
+	const idVec2& origin = xy[ from ][ 0 ];
+	for ( int i = 1; i + 1 < count; i++ ) {
+		const idVec2 a = xy[ from ][ i ] - origin;
+		const idVec2 b = xy[ from ][ i + 1 ] - origin;
 		area += a.x * b.y - b.x * a.y;
 	}
 	if ( idMath::Fabs( area ) < 1.0e-4f ) {

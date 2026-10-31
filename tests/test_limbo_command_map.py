@@ -11,6 +11,10 @@ territory outlines elsewhere were cut away whole.
 
 The Vulkan client hosts valley (objective rules), joins GDF so the deploy menu
 opens, and takes a screenshot (r_vkScreenshot). In the 640x480 GUI space:
+  L0 the deploy menu is open: the panel strip right of the map (598,80 -
+     625,250) is the flat dark panel, mean luminance <= 40 and standard
+     deviation <= 5 (the world view there is about 75 and 26). Without the
+     menu the other checks would be reading the world
   L1 the campaign map's area (inside 283,66 - 573,270) is the bright, varied
      map image: mean luminance >= 50 and standard deviation >= 20 (main: the
      empty panel, about 30 and 7)
@@ -44,6 +48,7 @@ from test_reconnect_restart import Failed  # noqa: E402
 
 MAP_AREA = (283, 66, 573, 270)
 MAP_CORNERS = ((500, 66, 573, 130), (500, 200, 573, 268))
+PANEL_STRIP = (598, 80, 625, 250)
 ICON_COLUMN = (232, 403, 250, 462)
 
 
@@ -136,6 +141,12 @@ def main() -> int:
                 time.sleep(0.5)
             else:
                 raise Failed("r_vkScreenshot wrote no complete screenshot")
+            panel_mean, panel_spread = luminance_stats(shot, PANEL_STRIP)
+            menu_open = panel_mean <= 40.0 and panel_spread <= 5.0
+            expect(menu_open, f"L0 the deploy menu is open (panel luminance mean {panel_mean:.1f}, deviation "
+                   f"{panel_spread:.1f}; need <= 40 and <= 5)")
+            if not menu_open:
+                raise Failed("the deploy menu was not open; the map checks would read the world view")
             mean, spread = luminance_stats(shot, MAP_AREA)
             expect(mean >= 50.0 and spread >= 20.0,
                    f"L1 the campaign map is drawn (luminance mean {mean:.1f}, deviation {spread:.1f}; "
