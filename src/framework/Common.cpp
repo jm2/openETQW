@@ -455,8 +455,13 @@ void idCommonLocal::VPrintfInternal( const char* fmt, va_list args, bool allowRe
 				if ( logFile == NULL ) {
 					logFileFailed = true;
 					Sys_Printf( "failed to open log file '%s'\n", name );
-				} else if ( com_logFile.GetInteger() > 1 ) {
-					logFile->ForceFlush();
+				} else {
+					if ( com_logFile.GetInteger() > 1 ) {
+						logFile->ForceFlush();
+					}
+					// the version lines print before the file system starts, so the
+					// log would otherwise never say which build wrote it
+					logFile->Printf( "%s\n%s\n", versionString.string, OPENETQW_PRODUCT_VERSION_FULL );
 				}
 			}
 			if ( logFile != NULL ) {
