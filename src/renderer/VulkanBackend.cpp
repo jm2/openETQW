@@ -96,6 +96,8 @@ uint64_t SyncNowUsec() {
 // files expand legacy fixed-function lines, quads and display lists into
 // several hundred thousand vertices in a frame, which does not fit in 4 MiB.
 const VkDeviceSize VULKAN_GUI_VERTEX_BYTES = 32 * 1024 * 1024;
+// the GUI pipeline's blends (GuiBlendIndex)
+const int VULKAN_GUI_BLENDS = 5;
 const VkDeviceSize VULKAN_GUI_INDEX_BYTES = 16 * 1024 * 1024;
 // A complete 16x16 RGBA MegaTexture level including its mip tail is roughly
 // 22 MiB. One persistent arena per frame avoids allocation, mapping and a
@@ -721,6 +723,9 @@ struct sdVulkanBackendState {
 	VkPipeline				guiAddPipeline;
 	VkPipeline				guiAlphaAddPipeline;
 	VkPipeline				guiMultiplyPipeline;
+	// retail's trivialMaskImage, by GuiBlendIndex (#379)
+	VkPipelineLayout			guiMaskPipelineLayout;
+	VkPipeline				guiMaskPipelines[ VULKAN_GUI_BLENDS ];
 	// guis/postprocess's postprocess/glow (glow.frag, #233): retail's
 	// _postProcessBuffer_0 and _1 at a quarter of the screen, a descriptor set per
 	// pass (downsample, two blurs, the glow), and the atmosphere of the last view
@@ -1002,6 +1007,10 @@ struct sdVulkanBackendState {
 		guiAddPipeline = VK_NULL_HANDLE;
 		guiAlphaAddPipeline = VK_NULL_HANDLE;
 		guiMultiplyPipeline = VK_NULL_HANDLE;
+		guiMaskPipelineLayout = VK_NULL_HANDLE;
+		for ( int i = 0; i < VULKAN_GUI_BLENDS; i++ ) {
+			guiMaskPipelines[ i ] = VK_NULL_HANDLE;
+		}
 		memset( glowBuffers, 0, sizeof( glowBuffers ) );
 		memset( glowBufferInitialized, 0, sizeof( glowBufferInitialized ) );
 		memset( glowDescriptorSets, 0, sizeof( glowDescriptorSets ) );
@@ -3936,6 +3945,16 @@ void DestroyGuiResources( sdVulkanBackendState& state ) {
 		state.DestroyPipeline( state.device, state.worldHeatHazePipeline, NULL );
 		state.worldHeatHazePipeline = VK_NULL_HANDLE;
 	}
+	for ( int i = 0; i < VULKAN_GUI_BLENDS; i++ ) {
+		if ( state.guiMaskPipelines[ i ] != VK_NULL_HANDLE ) {
+			state.DestroyPipeline( state.device, state.guiMaskPipelines[ i ], NULL );
+			state.guiMaskPipelines[ i ] = VK_NULL_HANDLE;
+		}
+	}
+	if ( state.guiMaskPipelineLayout != VK_NULL_HANDLE ) {
+		state.DestroyPipelineLayout( state.device, state.guiMaskPipelineLayout, NULL );
+		state.guiMaskPipelineLayout = VK_NULL_HANDLE;
+	}
 	if ( state.guiMultiplyPipeline != VK_NULL_HANDLE ) {
 		state.DestroyPipeline( state.device, state.guiMultiplyPipeline, NULL );
 		state.guiMultiplyPipeline = VK_NULL_HANDLE;
@@ -5364,6 +5383,109 @@ void CreateGlowPipelines( sdVulkanBackendState& state ) {
 	state.DestroyShaderModule( state.device, fragmentModule, NULL );
 }
 
+// the GUI blends DrawGuiFan draws with, by drawStateBits & 0xFF; anything else
+// draws as 0x65
+int GuiBlendIndex( int drawStateBits ) {
+	switch ( drawStateBits & 0xFF ) {
+		case 0x00: return 1;	// opaque
+		case 0x20: return 2;	// add
+		case 0x25: return 3;	// alpha add
+		case 0x03: return 4;	// multiply
+		default: return 0;		// 0x65, source alpha over
+	}
+}
+
+// retail's trivialMaskImage (guimask.vert/.frag, #379): the GUI pipeline's five
+// blends again, with the mask coordinates as a third vertex attribute and the
+// mask image's own descriptor set as set 1. guiInfo is the GUI pipeline's create
+// info, whose blend state points at blendAttachment. Without these pipelines a
+// masked stage draws unmasked, as before.
+void CreateGuiMaskPipelines( sdVulkanBackendState& state,
+	VkGraphicsPipelineCreateInfo guiInfo, VkPipelineColorBlendAttachmentState& blendAttachment ) {
+	VkDescriptorSetLayout setLayouts[ 2 ] = {
+		state.guiDescriptorSetLayout,
+		state.guiDescriptorSetLayout
+	};
+	VkPushConstantRange pushRange;
+	memset( &pushRange, 0, sizeof( pushRange ) );
+	pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	pushRange.size = sizeof( float ) * state.pushConstantFloats;
+	VkPipelineLayoutCreateInfo layoutInfo;
+	memset( &layoutInfo, 0, sizeof( layoutInfo ) );
+	layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	layoutInfo.setLayoutCount = 2;
+	layoutInfo.pSetLayouts = setLayouts;
+	layoutInfo.pushConstantRangeCount = 1;
+	layoutInfo.pPushConstantRanges = &pushRange;
+	if ( !CheckVulkanResult( state.CreatePipelineLayout( state.device, &layoutInfo, NULL,
+		&state.guiMaskPipelineLayout ), "vkCreatePipelineLayout(gui mask)" ) ) {
+		state.guiMaskPipelineLayout = VK_NULL_HANDLE;
+		return;
+	}
+	VkShaderModule vertexModule = VK_NULL_HANDLE;
+	VkShaderModule fragmentModule = VK_NULL_HANDLE;
+	if ( !CompileVulkanShaderModule( state, "vkprogs/gui/guimask.vert",
+		SPIRV_SHADER_STAGE_VERTEX, vertexModule ) ||
+		!CompileVulkanShaderModule( state, "vkprogs/gui/guimask.frag",
+			SPIRV_SHADER_STAGE_FRAGMENT, fragmentModule ) ) {
+		if ( vertexModule != VK_NULL_HANDLE ) {
+			state.DestroyShaderModule( state.device, vertexModule, NULL );
+		}
+		if ( fragmentModule != VK_NULL_HANDLE ) {
+			state.DestroyShaderModule( state.device, fragmentModule, NULL );
+		}
+		common->Warning( "Vulkan: the GUI mask shaders failed; masked GUI draws are not masked" );
+		return;
+	}
+	VkPipelineShaderStageCreateInfo shaderStages[ 2 ];
+	memcpy( shaderStages, guiInfo.pStages, sizeof( shaderStages ) );
+	shaderStages[ 0 ].module = vertexModule;
+	shaderStages[ 1 ].module = fragmentModule;
+	VkVertexInputBindingDescription vertexBinding;
+	vertexBinding.binding = 0;
+	vertexBinding.stride = sizeof( sdVulkanGuiMaskVertex );
+	vertexBinding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+	VkVertexInputAttributeDescription vertexAttributes[ 3 ];
+	memset( vertexAttributes, 0, sizeof( vertexAttributes ) );
+	for ( int i = 0; i < 3; i++ ) {
+		vertexAttributes[ i ].location = i;
+		vertexAttributes[ i ].binding = 0;
+		vertexAttributes[ i ].format = VK_FORMAT_R32G32_SFLOAT;
+		vertexAttributes[ i ].offset = sizeof( float ) * 2 * i;
+	}
+	VkPipelineVertexInputStateCreateInfo vertexInput = *guiInfo.pVertexInputState;
+	vertexInput.vertexBindingDescriptionCount = 1;
+	vertexInput.pVertexBindingDescriptions = &vertexBinding;
+	vertexInput.vertexAttributeDescriptionCount = 3;
+	vertexInput.pVertexAttributeDescriptions = vertexAttributes;
+	guiInfo.pStages = shaderStages;
+	guiInfo.pVertexInputState = &vertexInput;
+	guiInfo.layout = state.guiMaskPipelineLayout;
+	// in GuiBlendIndex's order
+	const struct {
+		VkBool32 enable;
+		VkBlendFactor source;
+		VkBlendFactor destination;
+	} blends[ VULKAN_GUI_BLENDS ] = {
+		{ VK_TRUE, VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA },
+		{ VK_FALSE, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO },
+		{ VK_TRUE, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ONE },
+		{ VK_TRUE, VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE },
+		{ VK_TRUE, VK_BLEND_FACTOR_DST_COLOR, VK_BLEND_FACTOR_ZERO }
+	};
+	for ( int i = 0; i < VULKAN_GUI_BLENDS; i++ ) {
+		blendAttachment.blendEnable = blends[ i ].enable;
+		blendAttachment.srcColorBlendFactor = blends[ i ].source;
+		blendAttachment.dstColorBlendFactor = blends[ i ].destination;
+		if ( !CheckVulkanResult( state.CreateGraphicsPipelines( state.device, VK_NULL_HANDLE, 1,
+			&guiInfo, NULL, &state.guiMaskPipelines[ i ] ), "vkCreateGraphicsPipelines(gui mask)" ) ) {
+			state.guiMaskPipelines[ i ] = VK_NULL_HANDLE;
+		}
+	}
+	state.DestroyShaderModule( state.device, vertexModule, NULL );
+	state.DestroyShaderModule( state.device, fragmentModule, NULL );
+}
+
 bool CreateGuiResources( sdVulkanBackendState& state ) {
 	VkDescriptorSetLayoutBinding samplerBindings[ VULKAN_MATERIAL_TEXTURES ];
 	memset( samplerBindings, 0, sizeof( samplerBindings ) );
@@ -5644,6 +5766,7 @@ bool CreateGuiResources( sdVulkanBackendState& state ) {
 		DestroyGuiResources( state );
 		return false;
 	}
+	CreateGuiMaskPipelines( state, pipelineInfo, blendAttachment );
 	if ( !CreateWorldPipeline( state ) || !CreateSkinnedWorldPipelines( state ) ||
 		!CreateShadowPipelines( state ) || !CreateInteractionPipeline( state ) ) {
 		DestroyGuiResources( state );
@@ -13035,22 +13158,14 @@ bool sdVulkanBackend::DrawPostProcessGlow() {
 	return true;
 }
 
-bool sdVulkanBackend::DrawGuiFan( const void* imageOwner,
-	const sdVulkanGuiVertex* vertices, int vertexCount, const float* color,
-	int drawStateBits, bool makeAlpha ) {
-	if ( state == NULL || !state->frameActive || state->guiPipeline == VK_NULL_HANDLE ||
-		imageOwner == NULL || vertices == NULL || vertexCount < 3 ||
-		r_vkSkipGui.GetBool() ) {
-		return false;
-	}
-	const sdVulkanImageResource* imageResource =
-		FindVulkanImageResource( *state, imageOwner );
-	if ( imageResource == NULL || imageResource->descriptorSet == VK_NULL_HANDLE ) {
-		return false;
-	}
-	sdVulkanFrame& frame = state->frames[ state->frameIndex ];
-	const VkDeviceSize vertexBytes = static_cast< VkDeviceSize >( vertexCount ) *
-		sizeof( sdVulkanGuiVertex );
+// a GUI triangle fan through pipeline, with descriptorSets bound from set 0;
+// vertexSize is that pipeline's vertex stride
+bool DrawGuiFanVertices( sdVulkanBackendState& state, VkPipeline pipeline,
+	VkPipelineLayout layout, const VkDescriptorSet* descriptorSets, int descriptorSetCount,
+	const void* vertices, size_t vertexSize, int vertexCount, const float* color,
+	bool makeAlpha ) {
+	sdVulkanFrame& frame = state.frames[ state.frameIndex ];
+	const VkDeviceSize vertexBytes = static_cast< VkDeviceSize >( vertexCount ) * vertexSize;
 	const VkDeviceSize vertexOffset = ( frame.guiVertexOffset + 15 ) & ~15ULL;
 	if ( vertexOffset + vertexBytes > VULKAN_GUI_VERTEX_BYTES ) {
 		if ( !frame.guiVertexOverflowWarned ) {
@@ -13066,16 +13181,53 @@ bool sdVulkanBackend::DrawGuiFan( const void* imageOwner,
 
 	VkViewport viewport;
 	viewport.x = 0.0f;
-	viewport.y = static_cast< float >( state->extent.height );
-	viewport.width = static_cast< float >( state->extent.width );
-	viewport.height = -static_cast< float >( state->extent.height );
+	viewport.y = static_cast< float >( state.extent.height );
+	viewport.width = static_cast< float >( state.extent.width );
+	viewport.height = -static_cast< float >( state.extent.height );
 	viewport.minDepth = 0.0f;
 	viewport.maxDepth = 1.0f;
-	state->CmdSetViewport( frame.commandBuffer, 0, 1, &viewport );
+	state.CmdSetViewport( frame.commandBuffer, 0, 1, &viewport );
 	VkRect2D scissor;
 	memset( &scissor, 0, sizeof( scissor ) );
-	scissor.extent = state->extent;
-	state->CmdSetScissor( frame.commandBuffer, 0, 1, &scissor );
+	scissor.extent = state.extent;
+	state.CmdSetScissor( frame.commandBuffer, 0, 1, &scissor );
+	state.CmdBindPipeline( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		pipeline );
+	state.CmdBindDescriptorSets( frame.commandBuffer,
+		VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, descriptorSetCount,
+		descriptorSets, 0, NULL );
+	// the third vec4 selects retail's trivialMakeAlpha* fragment program
+	float pushConstants[ 12 ] = {
+		2.0f / 640.0f, -2.0f / 480.0f, -1.0f, 1.0f,
+		1.0f, 1.0f, 1.0f, 1.0f,
+		makeAlpha ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f
+	};
+	if ( color != NULL ) {
+		memcpy( pushConstants + 4, color, sizeof( float ) * 4 );
+	}
+	state.CmdPushConstants( frame.commandBuffer, layout,
+		VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+		sizeof( pushConstants ), pushConstants );
+	state.CmdBindVertexBuffers( frame.commandBuffer, 0, 1,
+		&frame.guiVertexBuffer, &vertexOffset );
+	state.CmdDraw( frame.commandBuffer, vertexCount, 1, 0, 0 );
+	state.guiDrawCalls++;
+	return true;
+}
+
+bool sdVulkanBackend::DrawGuiFan( const void* imageOwner,
+	const sdVulkanGuiVertex* vertices, int vertexCount, const float* color,
+	int drawStateBits, bool makeAlpha ) {
+	if ( state == NULL || !state->frameActive || state->guiPipeline == VK_NULL_HANDLE ||
+		imageOwner == NULL || vertices == NULL || vertexCount < 3 ||
+		r_vkSkipGui.GetBool() ) {
+		return false;
+	}
+	const sdVulkanImageResource* imageResource =
+		FindVulkanImageResource( *state, imageOwner );
+	if ( imageResource == NULL || imageResource->descriptorSet == VK_NULL_HANDLE ) {
+		return false;
+	}
 	VkPipeline guiPipeline = state->guiPipeline;
 	const int blendBits = drawStateBits & 0xFF;
 	if ( blendBits == 0x00 && state->guiOpaquePipeline != VK_NULL_HANDLE ) {
@@ -13087,28 +13239,37 @@ bool sdVulkanBackend::DrawGuiFan( const void* imageOwner,
 	} else if ( blendBits == 0x03 && state->guiMultiplyPipeline != VK_NULL_HANDLE ) {
 		guiPipeline = state->guiMultiplyPipeline;
 	}
-	state->CmdBindPipeline( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-		guiPipeline );
-	state->CmdBindDescriptorSets( frame.commandBuffer,
-		VK_PIPELINE_BIND_POINT_GRAPHICS, state->guiPipelineLayout, 0, 1,
-		&imageResource->descriptorSet, 0, NULL );
-	// the third vec4 selects retail's trivialMakeAlpha* fragment program
-	float pushConstants[ 12 ] = {
-		2.0f / 640.0f, -2.0f / 480.0f, -1.0f, 1.0f,
-		1.0f, 1.0f, 1.0f, 1.0f,
-		makeAlpha ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f
-	};
-	if ( color != NULL ) {
-		memcpy( pushConstants + 4, color, sizeof( float ) * 4 );
+	return DrawGuiFanVertices( *state, guiPipeline, state->guiPipelineLayout,
+		&imageResource->descriptorSet, 1, vertices, sizeof( sdVulkanGuiVertex ),
+		vertexCount, color, makeAlpha );
+}
+
+bool sdVulkanBackend::DrawGuiMaskedFan( const void* imageOwner, const void* maskOwner,
+	const sdVulkanGuiMaskVertex* vertices, int vertexCount, const float* color,
+	int drawStateBits ) {
+	if ( state == NULL || !state->frameActive || imageOwner == NULL || maskOwner == NULL ||
+		vertices == NULL || vertexCount < 3 || r_vkSkipGui.GetBool() ) {
+		return false;
 	}
-	state->CmdPushConstants( frame.commandBuffer, state->guiPipelineLayout,
-		VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-		sizeof( pushConstants ), pushConstants );
-	state->CmdBindVertexBuffers( frame.commandBuffer, 0, 1,
-		&frame.guiVertexBuffer, &vertexOffset );
-	state->CmdDraw( frame.commandBuffer, vertexCount, 1, 0, 0 );
-	state->guiDrawCalls++;
-	return true;
+	const VkPipeline pipeline = state->guiMaskPipelines[ GuiBlendIndex( drawStateBits ) ];
+	if ( pipeline == VK_NULL_HANDLE ) {
+		return false;
+	}
+	const sdVulkanImageResource* imageResource =
+		FindVulkanImageResource( *state, imageOwner );
+	const sdVulkanImageResource* maskResource =
+		FindVulkanImageResource( *state, maskOwner );
+	if ( imageResource == NULL || imageResource->descriptorSet == VK_NULL_HANDLE ||
+		maskResource == NULL || maskResource->descriptorSet == VK_NULL_HANDLE ) {
+		return false;
+	}
+	const VkDescriptorSet descriptorSets[ 2 ] = {
+		imageResource->descriptorSet,
+		maskResource->descriptorSet
+	};
+	return DrawGuiFanVertices( *state, pipeline, state->guiMaskPipelineLayout,
+		descriptorSets, 2, vertices, sizeof( sdVulkanGuiMaskVertex ), vertexCount,
+		color, false );
 }
 
 bool sdVulkanBackend::DrawOverlayTriangles( const void* imageOwner,

@@ -178,6 +178,24 @@ idImage* ResolveVulkanStageImage( const materialStage_t* stage,
 	return fallback;
 }
 
+// the mask of a stage drawn with retail's trivialMaskImage, which multiplies the
+// stage's map by its "mask" texture at the draw's mask coordinates (#379); NULL
+// for any other stage
+idImage* ResolveVulkanStageMask( const materialStage_t* stage ) {
+	if ( stage->renderProgram == NULL ||
+		idStr::Icmp( stage->renderProgram->GetName(), "trivialMaskImage" ) != 0 ) {
+		return NULL;
+	}
+	for ( int i = 0; i < stage->numTextures; ++i ) {
+		const stageTexture_t& texture = stage->textures[ i ];
+		if ( texture.renderBinding != NULL &&
+			idStr::Icmp( texture.renderBinding->GetName(), "mask" ) == 0 ) {
+			return texture.image;
+		}
+	}
+	return NULL;
+}
+
 void sdGuiModel::EmitFullScreen( int end ) {
 	// The retail command stream uses 'end' as a byte offset into its read
 	// buffer.  This reconstruction stores decoded GUI primitives directly, so
@@ -915,6 +933,30 @@ void sdGuiModel::SubmitFrameVulkan() {
 			// black backgrounds cover what lies under them (#189).
 			const bool makeAlpha = stage->renderProgram != NULL &&
 				idStr::Icmpn( stage->renderProgram->GetName(), "trivialMakeAlpha", 16 ) == 0;
+			// The HUD command map's territory outlines are drawn far past its
+			// circle; ClipToMask cuts them only to the square around it, and their
+			// stage's mask (textures/common/cmmask) does the rest (#379). Without
+			// the mask pipelines the stage draws unmasked, as before.
+			idImage* mask = ResolveVulkanStageMask( stage );
+			if ( mask != NULL && !mask->IsLoaded() ) {
+				mask->BindFragment();
+			}
+			if ( mask != NULL && !mask->defaulted ) {
+				sdVulkanGuiMaskVertex maskedVertices[ idWinding2D::MAX_POINTS ];
+				for ( int vertexIndex = 0; vertexIndex < primitive.numVerts; ++vertexIndex ) {
+					maskedVertices[ vertexIndex ].x = vertices[ vertexIndex ].x;
+					maskedVertices[ vertexIndex ].y = vertices[ vertexIndex ].y;
+					maskedVertices[ vertexIndex ].s = vertices[ vertexIndex ].s;
+					maskedVertices[ vertexIndex ].t = vertices[ vertexIndex ].t;
+					maskedVertices[ vertexIndex ].maskS = primitive.verts[ vertexIndex ].maskST.x;
+					maskedVertices[ vertexIndex ].maskT = primitive.verts[ vertexIndex ].maskST.y;
+				}
+				flushBatch();
+				if ( vulkanBackend.DrawGuiMaskedFan( image, mask, maskedVertices,
+					primitive.numVerts, stageColor.ToFloatPtr(), stage->drawStateBits ) ) {
+					continue;
+				}
+			}
 			if ( ( stage->drawStateBits & 0xFF ) == 0x65 && !makeAlpha ) {
 				selectBatchImage( image );
 				for ( int triangle = 1; triangle + 1 < primitive.numVerts; ++triangle ) {
