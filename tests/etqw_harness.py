@@ -920,6 +920,9 @@ FAILURE_MARKERS = (
     "called from a thread other than the main thread",
     # a retail script event declaration its native handler cannot take (game ReconcileEventsWithScript)
     "does not match its native definition",
+    # a network field written with a value wider than its bits: the bit on the wire is wrong
+    # (game #67/#68: uninitialized bools in vehicle broadcast states)
+    "idBitMsg::WriteBits: value overflow",
 )
 
 # The game's own per-frame pacing warning (game repo src/game/botai/BotThreadData.cpp:
