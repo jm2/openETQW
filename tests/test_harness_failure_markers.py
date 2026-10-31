@@ -55,6 +55,11 @@ def main() -> int:
                    "Couldn't load AAS file", "does not match its native definition"):
         expect(marker in H.FAILURE_MARKERS, f"{marker!r} stays an unconditional marker")
 
+    # A network field written wider than its bits is a failure (game #67/#68).
+    overflow = H.scan_failures(["Spawning entities\n", "WARNING: idBitMsg::WriteBits: value overflow 141 1\n"])
+    expect([f["marker"] for f in overflow] == ["idBitMsg::WriteBits: value overflow"],
+           f"a WriteBits value overflow is reported (got {[f['marker'] for f in overflow]})")
+
     # 1. An unconditionally fatal line is reported on a healthy run.
     fatal = H.scan_failures(["SpawnServer: valley\n", "FATAL ERROR: no game dll\n"])
     expect([f["marker"] for f in fatal] == ["FATAL ERROR"],
