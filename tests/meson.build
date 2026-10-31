@@ -135,6 +135,16 @@ key_char_test = executable(
 )
 test('key-char', key_char_test, suite: 'unit', timeout: 30)
 
+# 5a2. SDL text input: typed text (UTF-8) and Backspace, Tab, Enter and Ctrl+letters
+#      reach edit fields as SE_CHAR; the SDL clients could not type or erase in a name box
+text_input_char_test = executable(
+  'openetqw-text-input-char-test',
+  files('TextInputCharTest.cpp'),
+  include_directories: [include_directories('../src/sys/sdl')],
+  install: false,
+)
+test('text-input-char', text_input_char_test, suite: 'unit', timeout: 30)
+
 # 5a3. the fullscreen chord: Alt+Return on Windows and Linux, Command+Return on macOS
 fullscreen_chord_test = executable(
   'openetqw-fullscreen-chord-test',
@@ -312,6 +322,16 @@ test(
   args: [meson.project_source_root() / 'tests' / 'test_build_scripts.py'],
   suite: 'unit',
   timeout: 120,
+)
+
+# all-stock-maps' aas_area_validity: an area-0 sample is a miss only when the bot is stuck
+# off the AAS (owner decision 2026-10-31, option c; #390)
+test(
+  'aas-stuck-classification',
+  py,
+  args: [meson.project_source_root() / 'tests' / 'test_aas_stuck_classification.py'],
+  suite: 'unit',
+  timeout: 30,
 )
 
 # Failure-marker classification: a bot-thread pacing warning fails only a failed run (#294)
@@ -565,6 +585,18 @@ if build_dedicated
     'retired-cvars',
     py,
     args: [meson.project_source_root() / 'tests' / 'test_retired_cvars.py', '--ded-binary', retail_install_check_ded,
+           '--game-module', game_module_built],
+    workdir: meson.project_source_root(),
+    suite: 'unit',
+    timeout: 120,
+  )
+
+  # the graphics presets' levels (com_last*Level) are saved with the configuration,
+  # on synthetic data
+  test(
+    'preset-levels',
+    py,
+    args: [meson.project_source_root() / 'tests' / 'test_preset_levels.py', '--ded-binary', retail_install_check_ded,
            '--game-module', game_module_built],
     workdir: meson.project_source_root(),
     suite: 'unit',
@@ -1193,6 +1225,23 @@ if build_engine and build_dedicated
     is_parallel: false,
   )
 
+  # a decl index of -1 is "none" and is looked up without a warning (#377)
+  test(
+    'decl-index-none',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_decl_index_none.py',
+      '--client-binary', campaign_client,
+      '--port', '29915',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'decl-index-none',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 400,
+    is_parallel: false,
+  )
+
   # the BSE particle system draws valley's ambient effects (#368)
   test(
     'bse-effects',
@@ -1219,6 +1268,23 @@ if build_engine and build_dedicated
       '--client-binary', campaign_client,
       '--port', '29916',
       '--log-dir', meson.project_build_root() / 'meson-logs' / 'limbo-command-map',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 400,
+    is_parallel: false,
+  )
+
+  # The HUD minimap keeps its territory outlines inside its circle (GUI mask texture, #379)
+  test(
+    'hud-minimap-mask',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_hud_minimap_mask.py',
+      '--client-binary', campaign_client,
+      '--port', '29919',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'hud-minimap-mask',
     ],
     workdir: meson.project_source_root(),
     suite: ['client', 'integration'],
