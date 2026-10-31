@@ -124,6 +124,17 @@ mouse_delta_test = executable(
 )
 test('mouse-delta', mouse_delta_test, suite: 'unit', timeout: 30)
 
+# 5a2. the character a key types on the SDL keyboard (#366): printable ASCII only, so
+#      F3 and the other special keys are named by their localized strings, not by a
+#      negative char the HUD drew as an empty box
+key_char_test = executable(
+  'openetqw-key-char-test',
+  files('KeyCharTest.cpp'),
+  include_directories: [include_directories('../src/sys/sdl'), staged_sys_inc],
+  install: false,
+)
+test('key-char', key_char_test, suite: 'unit', timeout: 30)
+
 # 5b. idMsgChannel fragmentation: a message whose encoded length is an exact multiple
 #     of FRAGMENT_SIZE ends with an empty fragment, which idBitMsg::WriteData is fatal
 #     on (the server died on it mid-session); the real channel, compressor and

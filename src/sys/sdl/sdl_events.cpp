@@ -5,6 +5,7 @@
 #include <SDL3/SDL.h>
 #include "sys_local.h"
 #include "keynum.h"
+#include "KeyChar.h"
 #include "MouseDelta.h"
 
 SDL_Window* Sys_GetGameSDLWindow( void );
@@ -96,16 +97,16 @@ public:
 		return static_cast< keyNum_t >( scanCode );
 	}
 	virtual keyNum_t ConvertCharToKey( char ch ) const override {
-		return static_cast< keyNum_t >( ch );
+		return static_cast< keyNum_t >( Sys_CharToKeyNum( ch ) );
 	}
 	virtual char ConvertScanToChar( unsigned int scanCode ) const override {
-		return static_cast< char >( scanCode );
+		return Sys_KeyNumToChar( static_cast< int >( ConvertScanToKey( scanCode ) ) );
 	}
 	virtual unsigned int ConvertCharToScan( char ch ) const override {
-		return static_cast< unsigned int >( ch );
+		return static_cast< unsigned int >( Sys_CharToKeyNum( ch ) );
 	}
 	virtual char ConvertKeyToChar( const keyNum_t keyNum ) const override {
-		return static_cast< char >( keyNum );
+		return Sys_KeyNumToChar( keyNum );
 	}
 	virtual bool IsConsoleKey( const sdSysEvent& event ) const override {
 		return event.GetKey() == K_CONSOLE;
