@@ -47,7 +47,11 @@ For every stock map a FRESH dedicated server process is started with
               player AAS (RETAIL_AAS_GAPS; owner decision on #159, 2026-10-23:
               match retail) is left out of the AAS tally and counted
               separately: retail's file has no area there, so retail bots that
-              reach the spot have none either.
+              reach the spot have none either. Any other area-0 sample counts as
+              a miss only if the bot is stuck off the AAS (owner decision,
+              2026-10-31, option c; see off_aas_run_stuck): a bot walking
+              through a gap in the AAS, or standing on a prop above it and
+              then moving on, is left out and reported.
   f) think    'botThreadStats' at the start and end of the bot window:
               gameHz = dGameFrame / dWall must be within 27..33.5,
               thinkRatio = dBotFrames / dGameFrame is reported (and must be
@@ -96,6 +100,25 @@ ENTITY_CRITERION = 500          # the old phase threshold, recorded only (owner 
 MIN_DISPLACEMENT = 50.0
 STUCK_SPEED = 10.0
 AREA_VALID_MIN_FRACTION = 0.90
+# Off-AAS runs (owner decision, 2026-10-31, option c: a sample with no AAS area counts
+# as a miss only when the bot is actually stuck). A run is consecutive grounded on-foot
+# samples with area 0; airborne samples inside it do not end it. The run's samples are
+# misses when the bot is stuck in it: movement commanded for >= OFF_AAS_STUCK_SECONDS
+# while it stays within OFF_AAS_STUCK_DISTANCE (2D) of where that started, or when it is
+# off the AAS for >= OFF_AAS_LOST_SECONDS whatever it does. Otherwise (walking through a
+# gap, standing on a prop and moving on) they are left out and reported. Measured (#390,
+# 38 runs on all 11 maps): walking runs last <= 1.25 s and cover >= 97 u, but for one
+# 4 u in 0.5 s; the longest run, 3.0 s, was a bot idling on a prop.
+# Movement counts as commanded in a window when at least half its samples command it,
+# so a wedged bot whose usercmd flickers to 0 now and then is still stuck; an idle bot
+# (no movement commanded) is not. Left-out samples may be at most
+# OFF_AAS_LEFT_OUT_MAX_FRACTION of the grounded on-foot samples, so an AAS that is
+# patchy along the whole route still fails: the most seen was 8/53 (15%, ark on Linux
+# x64, all walking or idle runs).
+OFF_AAS_STUCK_SECONDS = 1.5
+OFF_AAS_STUCK_DISTANCE = 50.0
+OFF_AAS_LOST_SECONDS = 5.0
+OFF_AAS_LEFT_OUT_MAX_FRACTION = 0.25
 # Gaps in retail 1.5's own player AAS (maps/<map>.aas_playerb), as boxes
 # (xmin, xmax, ymin, ymax, zmin, zmax) that were measured to hold no area.
 # Area-0 samples inside one are left out of aas_area_validity (owner decision
@@ -189,6 +212,32 @@ class MapResult:
         return d
 
 
+def off_aas_run_stuck(run: list[tuple[float, float, float, bool]]) -> bool:
+    """True if a bot was stuck in this off-AAS run of (t, x, y, movement commanded)
+    samples: off the AAS for OFF_AAS_LOST_SECONDS, or for OFF_AAS_STUCK_SECONDS within
+    OFF_AAS_STUCK_DISTANCE of where that started while commanding movement in at least
+    half of those samples."""
+    if run[-1][0] - run[0][0] >= OFF_AAS_LOST_SECONDS:
+        return True
+    for i, (t0, x0, y0, moving0) in enumerate(run):
+        if not moving0:
+            continue
+        moving_n = 1
+        for n, (t1, x1, y1, moving1) in enumerate(run[i + 1:], start=2):
+            if H.dist2d((x1, y1), (x0, y0)) >= OFF_AAS_STUCK_DISTANCE:
+                break
+            moving_n += moving1
+            if t1 - t0 >= OFF_AAS_STUCK_SECONDS and 2 * moving_n >= n:
+                return True
+    return False
+
+
+def off_aas_left_out_within_cap(known: int, left_out: int) -> bool:
+    """True if the off-AAS samples left out are at most OFF_AAS_LEFT_OUT_MAX_FRACTION
+    of the grounded on-foot samples (the counted ones plus those left out)."""
+    return left_out <= OFF_AAS_LEFT_OUT_MAX_FRACTION * (known + left_out)
+
+
 class BotTracker:
     """Per-client sample bookkeeping: per-life displacement, stuck time and
     AAS area validity."""
@@ -215,6 +264,12 @@ class BotTracker:
         self.gap_samples = 0
         self.area_known = 0
         self.area_valid = 0
+        self.off_run: list[tuple[float, float, float, bool]] = []
+        self.off_runs = 0
+        self.off_left_out = 0
+        self.off_stuck_runs = 0
+        self.off_stuck_samples = 0
+        self.off_longest = 0.0
         self.nonfinite = 0
         self.moving_cmd_samples = 0
         self.stuck_run_start: float | None = None
@@ -225,7 +280,27 @@ class BotTracker:
         self.suffix_seen = False
         self.deaths = 0
 
+    def _close_off_run(self) -> None:
+        """Classify the open off-AAS run: its samples are misses if the bot was stuck."""
+        run = self.off_run
+        if not run:
+            return
+        self.off_run = []
+        self.off_runs += 1
+        duration = run[-1][0] - run[0][0]
+        self.off_longest = max(self.off_longest, duration)
+        if off_aas_run_stuck(run):
+            self.off_stuck_runs += 1
+            self.off_stuck_samples += len(run)
+            self.area_known += len(run)
+        else:
+            self.off_left_out += len(run)
+
+    def finish(self) -> None:
+        self._close_off_run()
+
     def _new_life(self) -> None:
+        self._close_off_run()
         self.lives += 1
         self.baseline = None
         self.life_max = 0.0
@@ -248,6 +323,7 @@ class BotTracker:
         self.samples += 1
         x, y, z = s["org"]
         if not H.finite(x, y, z, *s["vel"]):
+            self._close_off_run()
             self.nonfinite += 1
             self.prev = None
             self.stuck_run_start = None
@@ -265,6 +341,7 @@ class BotTracker:
         alive = (s["spectating"] == 0 and dead in (None, 0)
                  and (s["hp"] is None or s["hp"] > 0))
         if not alive or self.lives == 0:
+            self._close_off_run()
             self.prev = None
             self.stuck_run_start = None
             return
@@ -273,8 +350,10 @@ class BotTracker:
             self.attack_seen = True
         riding = s.get("vehicle") is not None and s["vehicle"] >= 0
         if riding:
+            self._close_off_run()
             self.vehicle_samples += 1
         elif s.get("tele") == 1:
+            self._close_off_run()
             # at the teleporter's storage spot: keep it out of the AAS tally and the
             # movement numbers (the jumps in and out are not walking); restart the speed pair
             self.transit_samples += 1
@@ -285,8 +364,13 @@ class BotTracker:
             self.grounded_alive += 1
             if s["area"] == 0 and self.in_gap(x, y, z):
                 # in a recorded gap of retail's AAS: retail has no area here either
+                self._close_off_run()
                 self.gap_samples += 1
+            elif s["area"] == 0:
+                # off the AAS: a miss only if the bot turns out to be stuck (_close_off_run)
+                self.off_run.append((t, x, y, s["fwd"] != 0 or s["side"] != 0))
             elif s["area"] is not None:
+                self._close_off_run()
                 self.area_known += 1
                 if s["area"] > 0:
                     self.area_valid += 1
@@ -340,6 +424,9 @@ class BotTracker:
             "retail_aas_gap_samples": self.gap_samples,
             "area_samples": self.area_known, "area_valid_samples": self.area_valid,
             "area_valid_fraction": round(frac, 4) if frac is not None else None,
+            "off_aas_runs": self.off_runs, "off_aas_left_out_samples": self.off_left_out,
+            "off_aas_stuck_runs": self.off_stuck_runs, "off_aas_stuck_samples": self.off_stuck_samples,
+            "off_aas_longest_s": round(self.off_longest, 2),
             "stuck_longest_s": round(self.stuck_longest, 2),
             "stuck_total_s": round(self.stuck_total, 2),
             "moving_cmd_samples": self.moving_cmd_samples,
@@ -624,6 +711,7 @@ def run_map(map_name: str, map_index: int, cfg: argparse.Namespace, ctx: dict) -
     # ---------------- e) bots ----------------
     by_team: dict[str, list[BotTracker]] = {t: [] for t in BOT_TEAMS}
     for tr in trackers.values():
+        tr.finish()
         if tr.team in by_team and (tr.real_spawns or tr.samples):
             by_team[tr.team].append(tr)
     res.metrics["bots"] = {str(c): tr.to_json() for c, tr in sorted(trackers.items())}
@@ -660,7 +748,20 @@ def run_map(map_name: str, map_index: int, cfg: argparse.Namespace, ctx: dict) -
                 left_out_note += f"; {transit} samples in teleport transit left out"
             if gap:
                 left_out_note += f"; {gap} samples in a recorded retail AAS gap left out (#159)"
-            if known == 0:
+            off_left = sum(tr.off_left_out for tr in trs)
+            off_stuck = sum(tr.off_stuck_samples for tr in trs)
+            if off_left:
+                longest = max(tr.off_longest for tr in trs)
+                left_out_note += (f"; {off_left} off-AAS samples of a bot not stuck left out"
+                                  f" (longest off-AAS run {longest:.1f}s)")
+            if off_stuck:
+                left_out_note += f"; {off_stuck} counted off-AAS samples are of a bot stuck off the AAS"
+            grounded_on_foot = known + off_left
+            if not off_aas_left_out_within_cap(known, off_left):
+                res.check(f"bots.{team}.aas_area_validity", FAIL,
+                          f"{off_left}/{grounded_on_foot} grounded on-foot samples off the AAS while not stuck"
+                          f" (need <= {OFF_AAS_LEFT_OUT_MAX_FRACTION:.0%}): patchy AAS along the route{left_out_note}")
+            elif known == 0:
                 res.check(f"bots.{team}.aas_area_validity", FAIL,
                           f"no grounded+alive on-foot samples with an area value{left_out_note}")
             else:

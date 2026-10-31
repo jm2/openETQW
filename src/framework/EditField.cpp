@@ -342,7 +342,13 @@ void idEditField::CharEvent( int ch ) {
 		return;
 	}
 
-	if ( idKeyInput::GetOverstrikeMode() ) {	
+	// the buffer holds 8-bit characters: one it cannot hold would be stored as a wrong
+	// byte (Cyrillic U+0441 as 'A'), so it is not typed
+	if ( ch > 0xFF ) {
+		return;
+	}
+
+	if ( idKeyInput::GetOverstrikeMode() ) {
 		if ( cursor == MAX_EDIT_LINE - 1 ) {
 			return;
 		}
