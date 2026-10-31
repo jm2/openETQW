@@ -778,9 +778,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     ap.add_argument("--bot-think-delay", type=int, default=None,
                     help="set bot_threadMinFrameDelay; with 0 the think ratio must be >= 0.9 (true 30 Hz AI)")
     ap.add_argument("--bot-seconds", type=float, default=45.0, help="playerPos polling window per map (>= 45)")
-    # 0.25 s, not 0.5 s (#390): an area-0 sample is mostly a bot crossing the gap between two
-    # AAS areas mid-step, shorter than a poll, so about 40 samples a team at 0.5 s put 4 misses
-    # (one past the 90% bound) within reach of chance; the bound is unchanged
+    # 0.25 s, not 0.5 s (#390): area-0 samples are mostly a bot crossing a gap between AAS
+    # areas, and about 40 samples a team at 0.5 s put 4 misses (one past the 90% bound) within
+    # reach of chance. Twice the samples keep the expected miss fraction and lower its
+    # variance; the bound is unchanged
     ap.add_argument("--poll-interval", type=float, default=0.25, help="seconds between playerPos polls")
     ap.add_argument("--base-port", type=int, default=int(os.environ.get("OPENETQW_TEST_BASE_PORT", "27900")),
                     help="first UDP port; map i prefers base+i (default 27900 or $OPENETQW_TEST_BASE_PORT)")
