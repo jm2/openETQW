@@ -20,7 +20,7 @@ bool vidRestartRegistered = false;
 VidRestart_f
 
 Applies r_fullscreen to the game window ("vid_restart windowed" clears it first,
-as retail's does). Alt+Enter (Command+Return on macOS, FullscreenChord.h) flips
+as retail's does). Alt+Return (Command+Return on macOS, FullscreenChord.h) flips
 r_fullscreen and runs this. The window is
 switched in place: the Vulkan swapchain follows the resize, so nothing is torn
 down. Retail 1.5 also restarts the renderer here for r_mode changes; this does not.
