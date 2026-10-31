@@ -208,6 +208,19 @@ gui_clip_test = executable(
 )
 test('gui-clip', gui_clip_test, suite: 'unit', timeout: 30)
 
+# The r_mode table's modes the display lists are marked available, so the game's
+# fullscreen mode list is not empty (#383)
+video_mode_availability_test = executable(
+  'openetqw-video-mode-availability-test',
+  files('VideoModeAvailabilityTest.cpp'),
+  include_directories: engine_include_dirs + [include_directories('../src/sys/sdl')],
+  cpp_args: common_engine_defs + ['-DID_DEDICATED'] + engine_pch_args,
+  dependencies: test_deps + [zlib_dep, threads_dep],
+  link_args: test_link_args,
+  install: false,
+)
+test('video-mode-availability', video_mode_availability_test, suite: 'unit', timeout: 30)
+
 # Every package carries the licence texts (GPL, SDK EULA, third-party notices)
 test(
   'install-licenses',
@@ -1176,6 +1189,23 @@ if build_engine and build_dedicated
       '--client-binary', campaign_client,
       '--port', '29916',
       '--log-dir', meson.project_build_root() / 'meson-logs' / 'limbo-command-map',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 400,
+    is_parallel: false,
+  )
+
+  # The display's modes are available fullscreen, so the graphics menu lists them (#383)
+  test(
+    'video-modes',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_video_modes.py',
+      '--client-binary', campaign_client,
+      '--port', '29917',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'video-modes',
     ],
     workdir: meson.project_source_root(),
     suite: ['client', 'integration'],
