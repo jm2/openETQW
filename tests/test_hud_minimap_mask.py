@@ -17,11 +17,14 @@ blue); samples every half unit:
   M1 inside the circle (radius below 0.95 of its own) at least 300 samples are
      outline green: the HUD and its territories are drawn (main: about 1,700)
   M2 between the circle (radius above 1.08 of its own) and the square around it
-     at most 15 samples are outline green (main: about 180)
+     at most 15 samples are outline green (main: about 160)
+  M3 there, at most 15 samples are near black (luminance below 12; none on main
+     or with the fix): outlines the mask turned black rather than away would
+     pass M2
 The screenshot shows retail content and is deleted with the test's temporary
 directory.
 
-Usage: test_hud_minimap_mask.py [--client-binary PATH] [--port N] [--log-dir DIR]
+Usage: test_hud_minimap_mask.py [--client-binary PATH] [--port N] [--log-dir DIR] [--vk-validation]
 Exit status: 0 pass, 1 fail, 77 skip (no client binary or retail data).
 """
 
@@ -46,6 +49,8 @@ INSIDE = 0.95
 OUTSIDE = 1.08
 MIN_INSIDE = 300
 MAX_OUTSIDE = 15
+DARK = 12.0
+MAX_DARK = 15
 
 
 def outline_green(rgb: tuple[int, int, int]) -> bool:
@@ -53,11 +58,12 @@ def outline_green(rgb: tuple[int, int, int]) -> bool:
     return g >= 70 and g >= r + 25 and g >= b + 40
 
 
-def count_outline(path: Path) -> tuple[int, int]:
-    """Outline-green samples inside the minimap's circle and in the square's corners."""
+def count_outline(path: Path) -> tuple[int, int, int]:
+    """Outline-green samples inside the minimap's circle and in the square's
+    corners, and near-black samples in the corners."""
     width, height, pixel = read_tga(path)
     cx, cy = CENTRE
-    inside = outside = 0
+    inside = outside = dark = 0
     steps = int(RADIUS * 4)
     for j in range(-steps, steps + 1):
         for i in range(-steps, steps + 1):
@@ -68,13 +74,18 @@ def count_outline(path: Path) -> tuple[int, int]:
                 continue
             x = min(width - 1, int(gx * width / 640))
             y = min(height - 1, int(gy * height / 480))
-            if y < 0 or not outline_green(pixel(x, y)):
+            if y < 0:
+                continue
+            rgb = pixel(x, y)
+            if d > OUTSIDE and 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2] < DARK:
+                dark += 1
+            if not outline_green(rgb):
                 continue
             if d < INSIDE:
                 inside += 1
             else:
                 outside += 1
-    return inside, outside
+    return inside, outside, dark
 
 
 def main() -> int:
@@ -82,6 +93,8 @@ def main() -> int:
     ap.add_argument("--client-binary")
     ap.add_argument("--port", type=int, default=29919)
     ap.add_argument("--log-dir")
+    ap.add_argument("--vk-validation", action="store_true",
+                    help="run with the Vulkan validation layer (r_vkValidation 1)")
     args = ap.parse_args()
     try:
         client = find_client(args.client_binary)
@@ -105,7 +118,8 @@ def main() -> int:
     with h.PrivateTempDir(prefix="openetqw-minimap-mask-") as tmp:
         shot = Path(tmp) / "hud.tga"
         gfx = VulkanClient(client, data, args.port, map_name="valley", log_path=log,
-                           cvars={"si_rules": "sdGameRulesObjective", "r_vkValidation": "0"})
+                           cvars={"si_rules": "sdGameRulesObjective",
+                                  "r_vkValidation": "1" if args.vk_validation else "0"})
         gfx.name = "VulkanClient"
         gfx.slot = 0
         try:
@@ -128,13 +142,16 @@ def main() -> int:
                 time.sleep(0.5)
             else:
                 raise Failed("r_vkScreenshot wrote no complete screenshot")
-            inside, outside = count_outline(shot)
+            inside, outside, dark = count_outline(shot)
             expect(inside >= MIN_INSIDE,
                    f"M1 the minimap draws its territory outlines ({inside} green samples inside the circle; "
                    f"need >= {MIN_INSIDE})")
             expect(outside <= MAX_OUTSIDE,
                    f"M2 no outline outside the circle ({outside} green samples in the square's corners; "
                    f"need <= {MAX_OUTSIDE})")
+            expect(dark <= MAX_DARK,
+                   f"M3 nothing drawn black outside the circle ({dark} near-black samples in the square's "
+                   f"corners; need <= {MAX_DARK})")
         except Failed as e:
             failures.append(str(e))
             print(f"FAIL: {e}")

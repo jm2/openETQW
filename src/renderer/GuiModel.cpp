@@ -196,6 +196,17 @@ idImage* ResolveVulkanStageMask( const materialStage_t* stage ) {
 	return NULL;
 }
 
+// once per mask image: a masked GUI stage drew unmasked (#379)
+void WarnGuiMaskFallback( const idImage* mask, const char* reason ) {
+	static idList< const idImage* > warned;
+	if ( warned.FindIndex( mask ) >= 0 ) {
+		return;
+	}
+	warned.Append( mask );
+	common->Warning( "Vulkan GUI: %s for mask %s; masked draws with it are not masked",
+		reason, mask->imgName.c_str() );
+}
+
 void sdGuiModel::EmitFullScreen( int end ) {
 	// The retail command stream uses 'end' as a byte offset into its read
 	// buffer.  This reconstruction stores decoded GUI primitives directly, so
@@ -935,13 +946,17 @@ void sdGuiModel::SubmitFrameVulkan() {
 				idStr::Icmpn( stage->renderProgram->GetName(), "trivialMakeAlpha", 16 ) == 0;
 			// The HUD command map's territory outlines are drawn far past its
 			// circle; ClipToMask cuts them only to the square around it, and their
-			// stage's mask (textures/common/cmmask) does the rest (#379). Without
-			// the mask pipelines the stage draws unmasked, as before.
-			idImage* mask = ResolveVulkanStageMask( stage );
+			// stage's mask (textures/common/cmmask) does the rest (#379). Only a
+			// masked draw carries mask coordinates (an unmasked one's are its
+			// screen position). Without the mask pipelines, its descriptor or the
+			// mask image, the stage draws unmasked as before, with a warning.
+			idImage* mask = primitive.masked ? ResolveVulkanStageMask( stage ) : NULL;
 			if ( mask != NULL && !mask->IsLoaded() ) {
 				mask->BindFragment();
 			}
-			if ( mask != NULL && !mask->defaulted ) {
+			if ( mask != NULL && mask->defaulted ) {
+				WarnGuiMaskFallback( mask, "the mask image is missing" );
+			} else if ( mask != NULL ) {
 				sdVulkanGuiMaskVertex maskedVertices[ idWinding2D::MAX_POINTS ];
 				for ( int vertexIndex = 0; vertexIndex < primitive.numVerts; ++vertexIndex ) {
 					maskedVertices[ vertexIndex ].x = vertices[ vertexIndex ].x;
@@ -955,6 +970,9 @@ void sdGuiModel::SubmitFrameVulkan() {
 				if ( vulkanBackend.DrawGuiMaskedFan( image, mask, maskedVertices,
 					primitive.numVerts, stageColor.ToFloatPtr(), stage->drawStateBits ) ) {
 					continue;
+				}
+				if ( !cvarSystem->GetCVarBool( "r_vkSkipGui" ) ) {
+					WarnGuiMaskFallback( mask, "no mask pipeline or descriptor" );
 				}
 			}
 			if ( ( stage->drawStateBits & 0xFF ) == 0x65 && !makeAlpha ) {
