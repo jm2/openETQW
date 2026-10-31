@@ -43,7 +43,7 @@ in_yawSpeed key turn stands in for the mouse:
               wrong pivot would jump at every one)
   L1c control with g_unlock_vehicleLook 0 the turn shows later on average, by two thirds of
               the (D - 1) / 2 draws expected at D draws per tick and at most one draw (one at
-              cap 120); under 1.25 draws per tick it fails as too few to measure
+              cap 120); under 1.5 draws per tick it fails as too few to measure
   L5 locked   (smooth_locked) outside tophat mode a tap turns no draw
 
 A rate-limited pivot view (the trojan's gunner, yaw at most 135 deg/s), parked, at cap
@@ -188,8 +188,9 @@ def draws_per_tick(poses):
 # for two thirds of that, at most one draw (as at cap 120, D = 4: the one draw it always
 # asked for), so a client the GPU holds below its cap is measured against the draws it drew
 # (owner decision on #381). Under L1C_MIN_DRAWS_PER_TICK draws per tick the difference is too
-# small to measure, and the check fails as such.
-L1C_MIN_DRAWS_PER_TICK = 1.25
+# small to measure, and the check fails as such: at 1.5 the bar is 0.17 draws, above the 0.1
+# one stray draw moves the mean of LOOK_TAPS taps (review of #403).
+L1C_MIN_DRAWS_PER_TICK = 1.5
 
 
 def l1c_margin(draws_per_tick_off):
