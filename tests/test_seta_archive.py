@@ -13,9 +13,10 @@ This test runs the dedicated server on synthetic data (fs_validateOfficialPaks 0
 it needs no retail data; the game module is staged into the synthetic base/ as in
 test_retired_cvars.py:
 
-1. A run that sets two unregistered CVars with seta and one with set, then quits,
-   leaves a configuration that has both seta values and not the set one.
-2. The next run, on the same profile, reads the seta values back.
+1. A run that sets two unregistered CVars with seta and one with set, then writes
+   the archived CVars with writeConfig (as the configuration file is written),
+   writes both seta values and not the set one.
+2. The next run executes that file and reads the seta values back.
 
 Usage: test_seta_archive.py [--ded-binary PATH] [--game-module PATH] (meson passes
 the binary and the game module this build directory uses).
@@ -33,6 +34,7 @@ from test_retired_cvars import reads_back, run_server
 
 SETA = {"com_lastGraphicsLevel": "2", "oe_setaArchiveProbe": "7"}
 SET = ("oe_setNotArchived", "5")
+PROBE = "oe_seta_probe"
 
 
 def main() -> int:
@@ -65,19 +67,20 @@ def main() -> int:
             shutil.copy2(module, root / "base" / module.name)
         h.write_synthetic_stub_decls(root / "base")
 
-        print("1. seta and set, then quit: what the configuration keeps")
+        print("1. seta and set, then writeConfig: what a configuration keeps")
         sets = [arg for name, value in SETA.items() for arg in ("+seta", name, value)]
-        code, out = run_server(ded, root, *sets, "+set", *SET)
+        code, out = run_server(ded, root, *sets, "+set", *SET, "+writeConfig", PROBE)
         expect(code == 0, f"the server exits 0 (exit {code})", out)
-        configs = sorted((root / "save").rglob("etqwconfig.cfg"))
-        expect(len(configs) == 1, f"one etqwconfig.cfg is written in the profile ({[str(c.relative_to(root)) for c in configs]})", out)
+        # writeConfig writes every CVar with CVAR_ARCHIVE, as the configuration file does
+        configs = sorted((root / "save").rglob(PROBE + ".cfg"))
+        expect(len(configs) == 1, f"{PROBE}.cfg is written in the profile ({[str(c.relative_to(root)) for c in configs]})", out)
         text = configs[0].read_text(encoding="utf-8", errors="replace").lower() if configs else ""
         for name, value in SETA.items():
-            expect(f'seta {name.lower()} "{value}"' in text, f"the configuration has seta {name} \"{value}\"", text)
-        expect(SET[0].lower() not in text, f"the configuration does not have {SET[0]}, which was set without seta", text)
+            expect(f'seta {name.lower()} "{value}"' in text, f"it has seta {name} \"{value}\"", text)
+        expect(SET[0].lower() not in text, f"it does not have {SET[0]}, which was set without seta", text)
 
-        print("2. the next start reads the seta values back")
-        code, out = run_server(ded, root, *["+" + name for name in SETA])
+        print("2. the next start, executing it, reads the seta values back")
+        code, out = run_server(ded, root, "+exec", PROBE + ".cfg", *["+" + name for name in SETA])
         back = [name for name, value in SETA.items() if reads_back(out, name, value)]
         expect(back == list(SETA), f"each seta CVar reads back its value (read back: {back})", out)
         expect(code == 0, f"the server exits 0 (exit {code})", out)
