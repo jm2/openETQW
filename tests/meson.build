@@ -1118,6 +1118,24 @@ if build_engine and build_dedicated
     timeout: 300,
     is_parallel: false,
   )
+
+  # Escape in game opens the main menu and closes it again (real keys through XTest;
+  # skips without an X display)
+  test(
+    'escape-menu',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_escape_menu.py',
+      '--client-binary', campaign_client,
+      '--port', '29908',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'escape-menu',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 400,
+    is_parallel: false,
+  )
 endif
 
 # 9. What the Vulkan client draws, frame by frame (M5): FRAME_POSE lines from the game

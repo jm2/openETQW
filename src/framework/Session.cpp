@@ -11,6 +11,7 @@
 #include "Session_local.h"
 #include "../renderer/DeviceContext.h"
 #include "../renderer/SurfaceTypeMap.h"
+#include "../sys/sys_local.h"
 
 extern int time_gameFrame;
 extern volatile int com_ticNumber;
@@ -218,6 +219,13 @@ bool idSessionLocal::ProcessEvent( const sdSysEvent* event ) {
 		return true;
 	}
 	if ( game != NULL && game->HandleGuiEvent( event ) ) {
+		return true;
+	}
+	// Escape that no GUI took (the main menu, a HUD module such as limbo, the
+	// player's or the rules' GUIs) opens the main menu, as idTech 4's session does;
+	// the menu then takes the next Escape itself and closes
+	if ( event->IsKeyEvent() && event->IsKeyDown() && event->GetKey() == K_ESCAPE ) {
+		StartMenu();
 		return true;
 	}
 	if ( !mapSpawned ) {
