@@ -1501,11 +1501,13 @@ void idCommonLocal::InitGame( bool resetConfigs ) {
 	if ( fileSystem->ReadFile( defaultBinds, NULL, NULL ) > 0 ) {
 		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, va( "exec %s\n", defaultBinds.c_str() ) );
 	}
+	// SafeMode() takes the "safe" line off the command line, so it answers once
+	const bool safeMode = SafeMode();
 	// a profile with no saved configuration is fresh: it gets a graphics preset
 	// once the GPU is known (InitMachineSpec). Safe mode leaves the saved one unread,
 	// so it doesn't count
-	const bool freshProfile = !SafeMode() && fileSystem->ReadFile( CONFIG_FILE, NULL, NULL ) <= 0;
-	if ( !SafeMode() ) {
+	const bool freshProfile = !safeMode && fileSystem->ReadFile( CONFIG_FILE, NULL, NULL ) <= 0;
+	if ( !safeMode ) {
 		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec " BINDING_FILE "\n" );
 		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec " CONFIG_FILE "\n" );
 	}

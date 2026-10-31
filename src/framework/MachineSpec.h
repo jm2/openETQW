@@ -77,6 +77,14 @@ inline bool Sys_FindDeviceSpec( const char* deviceInfo, unsigned int vendorID,
 			continue;
 		}
 		if ( matched ) {
+			// the entries exec their presets without an extension; exec adds .cfg,
+			// and the presets are specs/*.dat
+			if ( text.Icmpn( "exec ", 5 ) == 0 ) {
+				idStr file = text.c_str() + 5;
+				file.StripLeadingWhiteSpace();
+				file.DefaultFileExtension( ".dat" );
+				text = "exec " + file;
+			}
 			commands += text;
 			commands += "\n";
 		}

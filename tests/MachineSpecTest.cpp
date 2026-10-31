@@ -60,7 +60,7 @@ static const char* const table =
 	"// a card with an extra command\r\n"
 	"Device 4a4b\r\n"
 	"exec specs/recspec_gpu\r\n"
-	"exec specs/recspec_gpudetail\r\n"
+	"exec  specs/recspec_gpudetail.dat\r\n"
 	"lockcvar r_softParticles 0\r\n"
 	"// the last entry, with no blank line after it\r\n"
 	"Device 5d52\r\n"
@@ -71,8 +71,8 @@ int main() {
 	idStr commands;
 
 	Expect( Sys_FindDeviceSpec( table, 0x10DE, 0x00f3, commands ), "a card's second ID is listed" );
-	Expect( commands == "exec specs/minspec_gpu\nexec specs/minspec_gpudetail\n",
-		"its entry's commands, and only those" );
+	Expect( commands == "exec specs/minspec_gpu.dat\nexec specs/minspec_gpudetail.dat\n",
+		"its entry's commands, and only those, exec-ing the .dat presets the pak ships" );
 	Expect( Sys_DeviceSpecLevel( commands ) == 0, "minspec is level 0" );
 
 	Expect( Sys_FindDeviceSpec( table, 0x10DE, 0x0221, commands ), "a card's last ID is listed" );
@@ -84,11 +84,11 @@ int main() {
 	Expect( commands.Find( "minspec" ) < 0, "the second entry's commands are not added" );
 
 	Expect( Sys_FindDeviceSpec( table, 0x1002, 0x4a4b, commands ), "the second vendor's card is listed" );
-	Expect( commands == "exec specs/recspec_gpu\nexec specs/recspec_gpudetail\nlockcvar r_softParticles 0\n",
-		"an entry ends at the comment and Device line after it, extra commands kept" );
+	Expect( commands == "exec specs/recspec_gpu.dat\nexec specs/recspec_gpudetail.dat\nlockcvar r_softParticles 0\n",
+		"an entry ends at the comment and Device line after it, extra commands and an extension kept" );
 
 	Expect( Sys_FindDeviceSpec( table, 0x1002, 0x5d52, commands ), "the last entry, at the end of the text" );
-	Expect( commands == "exec specs/highspec_gpu\n", "leading whitespace is stripped" );
+	Expect( commands == "exec specs/highspec_gpu.dat\n", "leading whitespace is stripped" );
 
 	// a device ID under the other vendor, and GPUs the table doesn't list
 	Expect( !Sys_FindDeviceSpec( table, 0x1002, 0x0141, commands ), "a device ID counts only under its vendor" );

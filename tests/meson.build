@@ -1243,7 +1243,7 @@ if build_engine and build_dedicated
     args: [
       meson.project_source_root() / 'tests' / 'test_fresh_profile_spec.py',
       '--client-binary', campaign_client,
-      '--port', '29921',
+      '--port', '29926',
       '--log-dir', meson.project_build_root() / 'meson-logs' / 'fresh-profile-spec',
     ],
     workdir: meson.project_source_root(),
