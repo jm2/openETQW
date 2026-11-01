@@ -205,7 +205,10 @@ def write_readme(target: Path, platform: str, arch: str, tag: str, sources: dict
         "prefixes). If it finds none, it asks for the ET:QW folder on the first run and",
         "remembers the answer. To name the folder yourself:",
         f"  {explicit}",
-    ] + ([] if platform == "macos" else [
+    ] + ([
+        "or copy the ET:QW folder's base/ (its paks, megatextures and video) into",
+        "~/Library/Application Support/openETQW/base, where the engine looks first.",
+    ] if platform == "macos" else [
         # the app takes its content from Contents/Resources first, so this does not apply to it
         "or extract this package into the ET:QW install directory, next to its base/,",
         "and start the client from there.",
