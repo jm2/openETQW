@@ -12,7 +12,9 @@ driver.
 The client is a listen server on valley (objective rules) with the retail default
 bindings, com_allowConsole 1 (without it the retail console lock leaves the console
 key closed unless Ctrl and Alt are down) and in_logTextInput 1. One GDF soldier is
-spawned. Then:
+spawned. The client inherits no input-method settings (XMODIFIERS, the IM modules,
+the session bus; SDL_IM_MODULE none), so a desktop's ibus or fcitx cannot take the keys.
+Then:
 1. text input started under the x11 driver
 2. the console key opens the console; "echo <token> Shift_Test!@#" and Enter run it:
    the log shows the command line as typed, shifted characters included, and its output
@@ -31,6 +33,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import select
 import shutil
 import subprocess
 import sys
@@ -49,6 +52,9 @@ ICD_DIRS = ("/usr/share/vulkan/icd.d", "/usr/local/share/vulkan/icd.d", "/etc/vu
 CONSOLE_TOKEN = "typed_ok"
 CONSOLE_TEXT = f"echo {CONSOLE_TOKEN} Shift_Test!@#"
 CHAT_TEXT = "chat_ok Hello!"
+LINE_TIMEOUT = 15.0  # seconds for a typed line to show in the log; lavapipe frames are slow
+# input-method settings a desktop session exports; the client must not inherit them
+IM_ENVIRONMENT = ("XMODIFIERS", "GTK_IM_MODULE", "QT_IM_MODULE", "IBUS_ADDRESS", "DBUS_SESSION_BUS_ADDRESS")
 
 
 def lavapipe_icd() -> str | None:
@@ -62,24 +68,46 @@ def lavapipe_icd() -> str | None:
 class Xvfb:
     """A private X server; the display number is the first free one Xvfb finds."""
 
+    START_TIMEOUT = 15.0
+
     def __init__(self, binary: str):
         read_fd, write_fd = os.pipe()
-        self.proc = subprocess.Popen([binary, "-displayfd", str(write_fd), "-screen", "0", "1280x720x24",
-                                      "-nolisten", "tcp"], pass_fds=(write_fd,),
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        os.close(write_fd)
+        try:
+            self.proc = subprocess.Popen([binary, "-displayfd", str(write_fd), "-screen", "0", "1280x720x24",
+                                          "-nolisten", "tcp"], pass_fds=(write_fd,),
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        finally:
+            os.close(write_fd)
+        # killed with the engine processes at exit or on SIGTERM/SIGHUP (meson's timeout)
+        with h._LIVE_PROCS_LOCK:
+            h._LIVE_PROCS.append(self.proc)
+        try:
+            number = self._read_display(read_fd)
+        except BaseException:
+            self.close()
+            raise
+        if not number.isdigit():
+            self.close()
+            raise h.SkipTest(f"Xvfb did not report a display within {self.START_TIMEOUT:.0f} s")
+        self.display = f":{number}"
+
+    def _read_display(self, read_fd: int) -> str:
+        """The display number Xvfb writes to -displayfd, or '' at the deadline or EOF."""
         number = b""
-        deadline = time.monotonic() + 15.0
-        with os.fdopen(read_fd, "rb") as pipe:
-            while not number.endswith(b"\n") and time.monotonic() < deadline:
+        deadline = time.monotonic() + self.START_TIMEOUT
+        with os.fdopen(read_fd, "rb", buffering=0) as pipe:
+            while not number.endswith(b"\n"):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                ready, _, _ = select.select([pipe], [], [], remaining)
+                if not ready:
+                    break
                 chunk = pipe.read(1)
                 if not chunk:
                     break
                 number += chunk
-        if not number.strip().isdigit():
-            self.close()
-            raise h.SkipTest("Xvfb did not start")
-        self.display = f":{number.strip().decode()}"
+        return number.strip().decode(errors="replace")
 
     def close(self) -> None:
         if self.proc.poll() is None:
@@ -88,6 +116,10 @@ class Xvfb:
                 self.proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
+                self.proc.wait(timeout=5)
+        with h._LIVE_PROCS_LOCK:
+            if self.proc in h._LIVE_PROCS:
+                h._LIVE_PROCS.remove(self.proc)
 
 
 class XdoKeys:
@@ -162,14 +194,6 @@ def main() -> int:
     except h.SkipTest as e:
         print(f"[SKIP] {e}")
         return h.EXIT_SKIP
-    print(f"  private X display {xvfb.display}; Vulkan ICD {icd}")
-    # the client inherits these: x11 on the private display, software Vulkan
-    os.environ["DISPLAY"] = xvfb.display
-    os.environ.pop("WAYLAND_DISPLAY", None)
-    os.environ["SDL_VIDEODRIVER"] = "x11"
-    os.environ["VK_DRIVER_FILES"] = icd
-    os.environ["VK_ICD_FILENAMES"] = icd  # the older loader's name for it
-    keys = XdoKeys(xdotool, xvfb.display)
 
     failures: list[str] = []
 
@@ -178,12 +202,27 @@ def main() -> int:
         if not ok:
             failures.append(what)
 
-    gfx = VulkanClient(client, data, args.port, map_name="valley", log_path=log,
-                       cvars={"si_rules": "sdGameRulesObjective", "r_vkValidation": "0",
-                              "com_allowConsole": "1", "in_logTextInput": "1"})
-    gfx.name = "VulkanClient"
-    gfx.slot = 0
+    gfx = None
+    code = None
     try:
+        print(f"  private X display {xvfb.display}; Vulkan ICD {icd}")
+        # the client inherits these: x11 on the private display, software Vulkan
+        os.environ["DISPLAY"] = xvfb.display
+        os.environ.pop("WAYLAND_DISPLAY", None)
+        os.environ["SDL_VIDEODRIVER"] = "x11"
+        os.environ["VK_DRIVER_FILES"] = icd
+        os.environ["VK_ICD_FILENAMES"] = icd  # the older loader's name for it
+        # no input method: the keys must not go through a desktop's ibus or fcitx
+        for name in IM_ENVIRONMENT:
+            os.environ.pop(name, None)
+        os.environ["SDL_IM_MODULE"] = "none"
+        keys = XdoKeys(xdotool, xvfb.display)
+
+        gfx = VulkanClient(client, data, args.port, map_name="valley", log_path=log,
+                           cvars={"si_rules": "sdGameRulesObjective", "r_vkValidation": "0",
+                                  "com_allowConsole": "1", "in_logTextInput": "1"})
+        gfx.name = "VulkanClient"
+        gfx.slot = 0
         gfx.start()
         if not gfx.wait_for_text("Spawning entities", 300.0):
             raise Failed("the listen server never loaded valley")
@@ -203,21 +242,20 @@ def main() -> int:
         keys.key("grave")
         keys.type(CONSOLE_TEXT)
         keys.key("Return")
+        ran = gfx.wait_for(lambda s: s.rstrip() == f"]{CONSOLE_TEXT}", LINE_TIMEOUT, mark)
+        expect(ran is not None, f"the console ran ']{CONSOLE_TEXT}'")
+        echoed = gfx.wait_for(lambda s: s.startswith(f"{CONSOLE_TOKEN} Shift_Test"), LINE_TIMEOUT, mark)
+        expect(echoed is not None, f"echo printed '{CONSOLE_TOKEN} Shift_Test ...'")
         keys.key("grave")
-        gfx.sync()
-        lines = [ln.text.rstrip() for ln in gfx.snapshot(mark)]
-        texts = sum(1 for s in lines if s.startswith("TEXT_INPUT: event"))
+        texts = sum(1 for ln in gfx.snapshot(mark) if ln.text.startswith("TEXT_INPUT: event"))
         print(f"     {texts} text input events")
-        expect(f"]{CONSOLE_TEXT}" in lines, f"the console ran ']{CONSOLE_TEXT}'")
-        expect(any(s.startswith(f"{CONSOLE_TOKEN} Shift_Test") for s in lines),
-               f"echo printed '{CONSOLE_TOKEN} Shift_Test ...'")
 
         print("3. chat takes typed text")
         mark = gfx.mark()
         keys.key("t")
         keys.type(CHAT_TEXT)
         keys.key("Return")
-        chat = gfx.wait_for(lambda s: re.search(rf": {re.escape(CHAT_TEXT)}$", s.rstrip()), 10.0, mark)
+        chat = gfx.wait_for(lambda s: re.search(rf": {re.escape(CHAT_TEXT)}$", s.rstrip()), LINE_TIMEOUT, mark)
         expect(chat is not None, f"the chat line '<name>: {CHAT_TEXT}'")
         if chat:
             print(f"     {chat[1].text.rstrip()}")
@@ -225,7 +263,9 @@ def main() -> int:
         failures.append(str(e))
         print(f"FAIL: {e}")
     finally:
-        code = gfx.quit()
+        if gfx is not None:
+            code = gfx.quit()
+            gfx.cleanup()
         xvfb.close()
     expect(code == 0, f"the client exits 0 (exit {code})")
 
