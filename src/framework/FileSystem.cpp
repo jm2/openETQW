@@ -944,6 +944,11 @@ bool idFileSystemLocal::CopyFile( const char *fromOSPath, const char *toOSPath )
 	int		len;
 	byte	*buf;
 
+	// the base path can be the save path (macOS's Application Support, ledger 068): a file
+	// is never copied onto itself, where a failed write would damage the source
+	if ( !idStr::Cmp( fromOSPath, toOSPath ) ) {
+		return true;
+	}
 	common->Printf( "copy %s to %s\n", fromOSPath, toOSPath );
 	f = OpenOSFile( fromOSPath, "rb" );
 	if ( !f ) {

@@ -894,6 +894,9 @@ static void Mac_AppendDriveC( const idStr &driveC, idStrList &candidates, idStrL
 Sys_AppendRetailDataCandidates
 
 macOS's table for RetailDiscovery (ledger 068), in the order probed:
+  - the save path's folder, ~/Library/Application Support/openETQW: data copied there
+    (base/ beside the configs' base/, which is the same folder) is found with no setting,
+    as many Mac source ports read their game data from Application Support;
   - the folder holding this .app: the app dropped into a retail game folder, beside its
     base/ (Sys_DefaultBasePath finds the app's own Contents/Resources first, which holds
     the shaders, not the retail data);
@@ -912,6 +915,18 @@ Every candidate is checked for base/pak000.pk4 before it is used.
 void Sys_AppendRetailDataCandidates( idStrList &candidates, idStrList &steamRoots ) {
 	const char *home = getenv( "HOME" );
 	const bool haveHome = home != NULL && home[0] == '/';
+
+	idStr appSupport;
+	if ( Sys_GetMacOSHomeDirectory( appSupport ) ) {
+		appSupport.AppendPath( "Library" );
+		appSupport.AppendPath( "Application Support" );
+#if defined( ID_DEMO_BUILD )
+		appSupport.AppendPath( "openETQW Demo" );
+#else
+		appSupport.AppendPath( "openETQW" );
+#endif
+		candidates.Append( appSupport );
+	}
 
 	NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
 	if ( bundlePath != nil && [bundlePath hasSuffix:@".app"] ) {

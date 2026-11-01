@@ -83,7 +83,10 @@ launch.
 Every package needs the retail data. Without `+set fs_basepath`, the engine searches
 the usual install folders, Steam libraries and Wine/CrossOver prefixes, and on a client's
 first run asks for the folder and stores the answer (`docs/compat-ledger.md` row 068;
-the dialogs themselves have not been exercised by a test). Users can also extract the
+the dialogs themselves have not been exercised by a test). On macOS it searches
+`~/Library/Application Support/openETQW` before the other install folders, so the data's
+`base/` contents can be copied into `~/Library/Application Support/openETQW/base` (a
+folder chosen earlier at the first-run prompt, stored in `basepath.txt`, still wins). Users can also extract the
 Linux or Windows package into their ET:QW directory, or pass
 `+set fs_basepath <ET:QW directory>`. Each package's `README.txt` says this, and the
 unsigned macOS tarball's README says how to clear the quarantine flag. Saves, configs and the shader
