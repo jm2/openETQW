@@ -1237,6 +1237,24 @@ if build_engine and build_dedicated
     is_parallel: false,
   )
 
+  # typed text reaches the console and chat under SDL's x11 driver (#388, #392; its own
+  # Xvfb display, XTest through xdotool, lavapipe; skips without them)
+  test(
+    'text-input-x11',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_text_input_x11.py',
+      '--client-binary', campaign_client,
+      '--port', '29906',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'text-input-x11',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 500,
+    is_parallel: false,
+  )
+
   # a decl index of -1 is "none" and is looked up without a warning (#377)
   test(
     'decl-index-none',
