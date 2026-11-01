@@ -207,7 +207,9 @@ def write_readme(target: Path, platform: str, arch: str, tag: str, sources: dict
         f"  {explicit}",
     ] + ([
         "or copy the ET:QW folder's base/ (its paks, megatextures and video) into",
-        "~/Library/Application Support/openETQW/base, where the engine looks first.",
+        "~/Library/Application Support/openETQW/base, which the engine searches before",
+        "the other install folders (a folder chosen earlier at the first-run prompt",
+        "still wins while it holds the data).",
     ] if platform == "macos" else [
         # the app takes its content from Contents/Resources first, so this does not apply to it
         "or extract this package into the ET:QW install directory, next to its base/,",
