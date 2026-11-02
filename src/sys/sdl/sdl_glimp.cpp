@@ -13,6 +13,15 @@ void Sys_SDL_SetVideoHints( void );
 SDL_Window* Sys_GetGameSDLWindow( void );
 void Sys_UpdateSDLTextInput( void );
 
+#ifdef __APPLE__
+// A Retina window is 2x its size in pixels each way, so rendering at the Retina
+// size draws four times the pixels the chosen mode asks for (#417). By default the
+// game draws at the window's size in points and the compositor scales it up, as on
+// a display without scaling; 1 draws at the full Retina size.
+idCVar r_highDPI( "r_highDPI", "0", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_BOOL | CVAR_INIT,
+	"macOS: 1 renders at the display's full (Retina) pixel size, 0 at the window's size in points (takes effect at the next start)" );
+#endif
+
 namespace {
 
 bool vidRestartRegistered = false;
@@ -96,7 +105,14 @@ public:
 		SDL_GL_SetAttribute( SDL_GL_MULTISAMPLEBUFFERS, parms.multiSamples.multi > 1 ? 1 : 0 );
 		SDL_GL_SetAttribute( SDL_GL_MULTISAMPLESAMPLES, parms.multiSamples.multi > 1 ? parms.multiSamples.multi : 0 );
 
-		SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+		SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE;
+#ifdef __APPLE__
+		if ( r_highDPI.GetBool() ) {
+			flags |= SDL_WINDOW_HIGH_PIXEL_DENSITY;
+		}
+#else
+		flags |= SDL_WINDOW_HIGH_PIXEL_DENSITY;
+#endif
 		if ( R_UseVulkanBackend() ) {
 			flags |= SDL_WINDOW_VULKAN;
 		} else {
