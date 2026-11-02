@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Typed text reaches the console and chat under SDL's x11 video driver (#388, #392).
+"""Typed text reaches the console and chat under SDL's x11 video driver (#388, #392),
+and text input is on only while they take it (#394).
 
 #388 moved the console and the GUI edit boxes to SDL text input
 (SDL_EVENT_TEXT_INPUT). On an Xwayland display, keys sent through XTest made no text
@@ -15,11 +16,14 @@ key closed unless Ctrl and Alt are down) and in_logTextInput 1. One GDF soldier 
 spawned. The client inherits no input-method settings (XMODIFIERS, the IM modules,
 the session bus; SDL_IM_MODULE none), so a desktop's ibus or fcitx cannot take the keys.
 Then:
-1. text input started under the x11 driver
-2. the console key opens the console; "echo <token> Shift_Test!@#" and Enter run it:
-   the log shows the command line as typed, shifted characters included, and its output
-3. T (clientMessageMode) opens chat; "<token> Hello!" and Enter send it: the log shows
-   the chat line
+1. in play, text input is off: a key-down logs "text input active 0"
+2. the console key opens the console and starts text input under the x11 driver;
+   "echo <token> Shift_Test!@#" and Enter run it: the log shows the command line as
+   typed, shifted characters included, and its output. Closing the console stops text
+   input, and a key-down in play logs it off again
+3. T (clientMessageMode) opens chat and starts text input for its edit box;
+   "<token> Hello!" and Enter send it: the log shows the chat line. Sending closes chat
+   and stops text input
 
 It skips (77) without retail data, the client binary, Linux, Xvfb, xdotool or
 lavapipe.
@@ -151,15 +155,25 @@ class XdoKeys:
         if not self.focused():
             raise Failed("the client's window lost the keyboard focus on the private display")
 
-    def key(self, keysym: str) -> None:
+    def key(self, keysym: str, settle: float = 0.8) -> None:
         self._check()
         self.run("key", keysym)
-        time.sleep(0.8)
+        time.sleep(settle)
 
     def type(self, text: str) -> None:
         self._check()
         self.run("type", "--delay", TYPE_DELAY_MS, text)
         time.sleep(0.8)
+
+
+def expect_text_input_off(gfx: VulkanClient, keys: XdoKeys, expect) -> None:
+    """A Shift key-down in play (bound to nothing by default) logs text input off."""
+    mark = gfx.mark()
+    keys.key("shift", settle=0.3)
+    down = gfx.wait_for(lambda s: s.startswith("TEXT_INPUT: key down"), LINE_TIMEOUT, mark)
+    expect(down is not None and "text input active 0" in down[1].text,
+           "in play a key-down logs 'text input active 0'"
+           + (f" (got: {down[1].text.rstrip()})" if down is not None else " (no key-down logged)"))
 
 
 def main() -> int:
@@ -233,32 +247,44 @@ def main() -> int:
         if not keys.focus():
             raise Failed("the client's window did not get the keyboard focus on the private display")
 
-        print("1. text input runs under the x11 driver")
-        started = gfx.wait_for(lambda s: "TEXT_INPUT: start ok" in s and "(driver x11)" in s, 1.0)
-        expect(started is not None, "TEXT_INPUT: start ok ... (driver x11)")
+        print("1. text input is off in play")
+        expect_text_input_off(gfx, keys, expect)
 
         print("2. the console takes typed text")
         mark = gfx.mark()
         keys.key("grave")
+        started = gfx.wait_for(lambda s: "TEXT_INPUT: start ok" in s and "(driver x11)" in s
+                               and "console 1" in s, LINE_TIMEOUT, mark)
+        expect(started is not None, "the console starts text input: TEXT_INPUT: start ok ... (driver x11), console 1")
         keys.type(CONSOLE_TEXT)
         keys.key("Return")
         ran = gfx.wait_for(lambda s: s.rstrip() == f"]{CONSOLE_TEXT}", LINE_TIMEOUT, mark)
         expect(ran is not None, f"the console ran ']{CONSOLE_TEXT}'")
         echoed = gfx.wait_for(lambda s: s.startswith(f"{CONSOLE_TOKEN} Shift_Test"), LINE_TIMEOUT, mark)
         expect(echoed is not None, f"echo printed '{CONSOLE_TOKEN} Shift_Test ...'")
-        keys.key("grave")
         texts = sum(1 for ln in gfx.snapshot(mark) if ln.text.startswith("TEXT_INPUT: event"))
         print(f"     {texts} text input events")
+        mark = gfx.mark()
+        keys.key("grave")
+        stopped = gfx.wait_for(lambda s: "TEXT_INPUT: stop ok" in s and "console 0" in s, LINE_TIMEOUT, mark)
+        expect(stopped is not None, "closing the console stops text input: TEXT_INPUT: stop ok ... console 0")
+        expect_text_input_off(gfx, keys, expect)
 
         print("3. chat takes typed text")
         mark = gfx.mark()
         keys.key("t")
+        started = gfx.wait_for(lambda s: "TEXT_INPUT: start ok" in s and "edit box 1" in s, LINE_TIMEOUT, mark)
+        expect(started is not None, "chat starts text input: TEXT_INPUT: start ok ... edit box 1")
         keys.type(CHAT_TEXT)
+        sent = gfx.mark()
         keys.key("Return")
         chat = gfx.wait_for(lambda s: re.search(rf": {re.escape(CHAT_TEXT)}$", s.rstrip()), LINE_TIMEOUT, mark)
         expect(chat is not None, f"the chat line '<name>: {CHAT_TEXT}'")
         if chat:
             print(f"     {chat[1].text.rstrip()}")
+        stopped = gfx.wait_for(lambda s: "TEXT_INPUT: stop ok" in s and "edit box 0" in s, LINE_TIMEOUT, sent)
+        expect(stopped is not None, "sending closes chat and stops text input: TEXT_INPUT: stop ok ... edit box 0")
+        expect_text_input_off(gfx, keys, expect)
     except Failed as e:
         failures.append(str(e))
         print(f"FAIL: {e}")
