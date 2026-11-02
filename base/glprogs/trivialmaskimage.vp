@@ -8,5 +8,6 @@
 OPTION ARB_position_invariant;
 DP4	result.texcoord[0].x, $texCoordAttrib, $diffuseMatrix_s;
 DP4	result.texcoord[0].y, $texCoordAttrib, $diffuseMatrix_t;
-MOV	result.texcoord[1], $normalAttrib;
+MOV	result.texcoord[1].xy, $normalAttrib;
+MOV	result.texcoord[1].zw, { 0, 0, 0, 1 };
 MOV	result.color, $colorAttrib;

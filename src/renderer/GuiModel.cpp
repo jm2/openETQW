@@ -717,9 +717,11 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 				if ( qglVertexAttrib4fvARB != NULL && rbinds != NULL ) {
 					qglVertexAttrib4fvARB( rbinds->texCoordAttrib->GetAttribIndex(), texCoord );
 					// retail's trivialMaskImage reads the draw's mask coordinates from the
-					// normal attribute (#396); packed like the texcoord above
+					// normal attribute (#396); packed like the texcoord above. Only a masked
+					// draw carries them; an unmasked one samples the mask's middle, so it
+					// draws whole, as on Vulkan
 					if ( maskImageStage ) {
-						const idVec2& maskST = primitive.verts[ j ].maskST;
+						const idVec2 maskST = primitive.masked ? primitive.verts[ j ].maskST : idVec2( 0.5f, 0.5f );
 						const float maskCoord[ 4 ] = { maskST.x * normalAttribScale, maskST.y * normalAttribScale, 0.0f, 1.0f };
 						qglVertexAttrib4fvARB( rbinds->normalAttrib->GetAttribIndex(), maskCoord );
 					}
