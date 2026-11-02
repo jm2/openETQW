@@ -107,4 +107,30 @@ inline int Sys_DeviceSpecLevel( const idStr& commands ) {
 	return -1;
 }
 
+// setMachineSpec, the command retail's settings menu runs for its overall preset
+// (Low, Normal, High) and for Autodetect. Retail 1.5 sets com_machineSpec, runs the
+// level's whole preset (specs/minspec.dat, recspec.dat or highspec.dat: all six parts,
+// lighting included) and sets s_maxSoundsPerShader: 3 below High, 0 at High. A level
+// outside 0-2, or none, detects the GPU as a fresh profile does.
+
+// true when setMachineSpec's argument names a preset level rather than detection
+inline bool Sys_IsMachineSpecLevel( int level ) {
+	return level >= 0 && level <= 2;
+}
+
+// the preset file a level runs
+inline const char* Sys_MachineSpecPreset( int level ) {
+	return level <= 0 ? "specs/minspec.dat" : ( level == 1 ? "specs/recspec.dat" : "specs/highspec.dat" );
+}
+
+// the quality name retail's setMachineSpec prints for a level
+inline const char* Sys_MachineSpecQuality( int level ) {
+	return level <= 0 ? "Low" : ( level == 1 ? "Normal" : "High" );
+}
+
+// s_maxSoundsPerShader at a level, as retail's setMachineSpec sets it
+inline int Sys_MachineSpecSoundsPerShader( int level ) {
+	return level >= 2 ? 0 : 3;
+}
+
 #endif /* !__FRAMEWORK_MACHINESPEC_H__ */

@@ -101,6 +101,18 @@ int main() {
 
 	Expect( Sys_DeviceSpecLevel( idStr( "lockcvar r_softParticles 0\n" ) ) == -1, "no preset named: -1" );
 
+	// setMachineSpec, as retail's settings menu runs it: 0 Low, 1 Normal, 2 High; any
+	// other value (the Autodetect button's -1) detects
+	Expect( Sys_IsMachineSpecLevel( 0 ) && Sys_IsMachineSpecLevel( 1 ) && Sys_IsMachineSpecLevel( 2 ),
+		"setMachineSpec: 0-2 are preset levels" );
+	Expect( !Sys_IsMachineSpecLevel( -1 ) && !Sys_IsMachineSpecLevel( 3 ), "setMachineSpec: -1 and 3 detect" );
+	Expect( idStr::Cmp( Sys_MachineSpecPreset( 0 ), "specs/minspec.dat" ) == 0, "level 0 runs minspec" );
+	Expect( idStr::Cmp( Sys_MachineSpecPreset( 1 ), "specs/recspec.dat" ) == 0, "level 1 runs recspec" );
+	Expect( idStr::Cmp( Sys_MachineSpecPreset( 2 ), "specs/highspec.dat" ) == 0, "level 2 runs highspec" );
+	Expect( idStr::Cmp( Sys_MachineSpecQuality( 1 ), "Normal" ) == 0, "level 1 is Normal quality" );
+	Expect( Sys_MachineSpecSoundsPerShader( 0 ) == 3 && Sys_MachineSpecSoundsPerShader( 1 ) == 3 &&
+		Sys_MachineSpecSoundsPerShader( 2 ) == 0, "s_maxSoundsPerShader: 3 below High, 0 at High" );
+
 	if ( failures ) {
 		std::printf( "FAIL: %d check(s) failed\n", failures );
 		return 1;
