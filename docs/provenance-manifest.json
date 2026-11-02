@@ -47997,6 +47997,18 @@
       "spdx": null
     },
     {
+      "path": "base/vkprogs/gui/opaque_alpha.frag",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "a64d935135a80c0d081f1dc99c038b856d44486d60096728afde40d3d0b3eff6",
+      "canonicalSha256": "a64d935135a80c0d081f1dc99c038b856d44486d60096728afde40d3d0b3eff6",
+      "bytes": 438,
+      "addedAfterSplit": true,
+      "addedIn": "f793b15268c4ab5c1b1a4eb607b90d5a2213502a",
+      "spdx": null
+    },
+    {
       "path": "base/vkprogs/gui/guimask.frag",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
