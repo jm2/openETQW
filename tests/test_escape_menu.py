@@ -246,6 +246,7 @@ def main() -> int:
     finally:
         keys.close()
         code = gfx.quit()
+        gfx.cleanup()
     if skipped:
         print(f"[SKIP] {skipped}")
         return h.EXIT_SKIP
