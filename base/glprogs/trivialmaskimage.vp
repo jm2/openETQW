@@ -1,0 +1,12 @@
+# trivialMaskImage: the GUI stage's map through the texture matrix, the mask at the
+# draw's mask coordinates, which the GUI path passes in the normal attribute, and the
+# draw's colour as it is (retail's Cg writes outData.col = indata.color).
+# sdRenderShaderARB::PreCompile has already decompressed the packed texcoord and
+# normal attributes, as the Cg's conditional on r_32ByteVtx did.
+# (Keep dollar signs out of these comments: the decl pre-compiler scans comments
+# as code.)
+OPTION ARB_position_invariant;
+DP4	result.texcoord[0].x, $texCoordAttrib, $diffuseMatrix_s;
+DP4	result.texcoord[0].y, $texCoordAttrib, $diffuseMatrix_t;
+MOV	result.texcoord[1], $normalAttrib;
+MOV	result.color, $colorAttrib;
