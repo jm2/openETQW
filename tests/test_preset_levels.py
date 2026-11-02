@@ -8,13 +8,20 @@ next start. Nothing registered these CVars, and seta does not archive an unregis
 CVar (idCVarSystemLocal::SetA_f, as in released Doom 3), so every preset read back as
 the lowest after a restart. The engine now registers them with CVAR_ARCHIVE.
 
+seta also saves the CVar it sets, registered or not, as retail 1.5 does (retail's
+Linux client on the Linux x64 host wrote an unregistered "seta oe_unregProbe 7" and
+the registered, unarchived r_skipStuff and r_detailTexture to its configuration). The
+presets seta several CVars that aren't registered as archived, whose values were lost
+on the next start. set still saves nothing.
+
 This test runs the dedicated server on synthetic data (fs_validateOfficialPaks 0), so
 it needs no retail data; the game module is staged into the synthetic base/ as in
 test_retired_cvars.py:
 
-1. A run that sets the six levels with seta, an unregistered CVar with seta and one
-   with set, then writes the archived CVars with writeConfig (as the configuration
-   file is written), writes the six levels and neither of the others.
+1. A run that sets the six levels with seta, an unregistered CVar and a registered,
+   unarchived one (com_speeds) with seta, and another with set, then writes the
+   archived CVars with writeConfig (as the configuration file is written), writes the
+   six levels and both seta CVars, and not the set one.
 2. The next run executes that file and reads the six levels back.
 
 Usage: test_preset_levels.py [--ded-binary PATH] [--game-module PATH] (meson passes
@@ -33,8 +40,9 @@ from test_retired_cvars import reads_back, run_server
 
 LEVELS = {"com_lastGraphicsLevel": "2", "com_lastGraphicsDetailLevel": "2", "com_lastCPULevel": "1",
           "com_lastCPUDetailLevel": "2", "com_lastFoliageLevel": "1", "com_lastLightingLevel": "2"}
-# released Doom 3 behaviour, kept: seta on an unregistered CVar and set do not archive it
-NOT_SAVED = (("+seta", "oe_setaUnregisteredProbe", "7"), ("+set", "oe_setNotArchived", "5"))
+# seta saves the CVar, registered or not, as retail 1.5 does; set does not
+SAVED = (("+seta", "oe_setaUnregisteredProbe", "7"), ("+seta", "com_speeds", "1"))
+NOT_SAVED = (("+set", "oe_setNotArchived", "5"),)
 PROBE = "oe_preset_levels"
 
 
@@ -68,9 +76,9 @@ def main() -> int:
             shutil.copy2(module, root / "base" / module.name)
         h.write_synthetic_stub_decls(root / "base")
 
-        print("1. seta the six levels and two other CVars, then writeConfig")
+        print("1. seta the six levels and three other CVars, then writeConfig")
         sets = [arg for name, value in LEVELS.items() for arg in ("+seta", name, value)]
-        others = [arg for triple in NOT_SAVED for arg in triple]
+        others = [arg for triple in SAVED + NOT_SAVED for arg in triple]
         code, out = run_server(ded, root, *sets, *others, "+writeConfig", PROBE)
         expect(code == 0, f"the server exits 0 (exit {code})", out)
         # writeConfig writes every CVar with CVAR_ARCHIVE, as the configuration file does
@@ -79,8 +87,10 @@ def main() -> int:
         text = configs[0].read_text(encoding="utf-8", errors="replace").lower() if configs else ""
         for name, value in LEVELS.items():
             expect(f'seta {name.lower()} "{value}"' in text, f"it has seta {name} \"{value}\"", text)
+        for _, name, value in SAVED:
+            expect(f'seta {name.lower()} "{value}"' in text, f"it has seta {name} \"{value}\" (seta saves it)", text)
         for _, name, _ in NOT_SAVED:
-            expect(name.lower() not in text, f"it does not have {name} (not registered as archived)", text)
+            expect(name.lower() not in text, f"it does not have {name} (set does not save it)", text)
 
         print("2. the next start, executing it, reads the levels back")
         code, out = run_server(ded, root, "+exec", PROBE + ".cfg", *["+" + name for name in LEVELS])
