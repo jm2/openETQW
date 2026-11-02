@@ -78,6 +78,7 @@ NOT_INTEGRATION = {
     # harness unit tests: import etqw_harness, start no engine, read no retail data
     "tests/test_harness_failure_markers.py",
     "tests/test_harness_private_dirs.py",
+    "tests/test_vulkan_fallback_check.py",
 }
 STUB_ARCHES = ("arm64", "x64")
 STUB_NAMES = ("openETQW-ded", "openETQW-client")
