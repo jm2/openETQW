@@ -410,8 +410,16 @@ def version_tuple(value: str) -> tuple[int, ...]:
     return tuple(int(part) for part in value.split("."))
 
 
+# The Vulkan driver and what only it links need Metal 4 (macOS 26). The loader opens
+# the driver at run time; on an older macOS it fails to load and the engine starts
+# on OpenGL, so they may need a newer macOS than the app.
+MACOS_DRIVER_MIN_OS = "26.0"
+MACOS_DRIVER_IMAGES = ("libvulkan_kosmickrisp.dylib", "libSPIRV-Tools.dylib")
+
+
 def check_bundle(app: Path) -> None:
-    """Every Mach-O in the app resolves its libraries inside it and runs on MACOS_MIN_OS."""
+    """Every Mach-O in the app resolves its libraries inside it and runs on MACOS_MIN_OS
+    (the Vulkan driver's images on MACOS_DRIVER_MIN_OS)."""
     frameworks = app / "Contents" / "Frameworks"
     images = sorted(p for d in (app / "Contents" / "MacOS", frameworks) for p in d.iterdir() if p.is_file())
     problems = []
@@ -430,8 +438,9 @@ def check_bundle(app: Path) -> None:
                 problems.append(f"{image.name} needs {reference}, outside the app")
         commands = run(["otool", "-arch", "all", "-l", str(image)], capture=True)
         minos = {line.split()[1] for line in commands.splitlines() if line.strip().startswith("minos ")}
-        if not minos or any(version_tuple(v) > version_tuple(MACOS_MIN_OS) for v in minos):
-            problems.append(f"{image.name} needs macOS {sorted(minos) or 'unknown'}, above {MACOS_MIN_OS}")
+        floor = MACOS_DRIVER_MIN_OS if image.name in MACOS_DRIVER_IMAGES else MACOS_MIN_OS
+        if not minos or any(version_tuple(v) > version_tuple(floor) for v in minos):
+            problems.append(f"{image.name} needs macOS {sorted(minos) or 'unknown'}, above {floor}")
     if problems:
         raise PackageError("the app bundle is not self-contained:\n  " + "\n  ".join(problems))
 
