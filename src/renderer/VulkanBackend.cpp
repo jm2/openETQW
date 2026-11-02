@@ -39,6 +39,10 @@
 
 #include "draw_raytracing.h"
 
+#ifdef __APPLE__
+void Sys_KeepFullscreenComposited( void ); // sys/osx/macosx_sdl3.cpp (#385)
+#endif
+
 #include <atomic>
 #include <chrono>
 #include <deque>
@@ -2354,6 +2358,12 @@ bool CreateSwapchain( sdVulkanBackendState& state, int requestedWidth,
 		NULL, &newSwapchain ), "vkCreateSwapchainKHR" ) ) {
 		return false;
 	}
+#ifdef __APPLE__
+	// MoltenVK makes the layer opaque again with each new swapchain; in
+	// fullscreen that would let macOS scan it straight to the display, which
+	// shows black (#385). Restore it now rather than at the next event pump.
+	Sys_KeepFullscreenComposited();
+#endif
 	unsigned int newImageCount = 0;
 	state.GetSwapchainImagesKHR( state.device, newSwapchain, &newImageCount, NULL );
 	idList< VkImage > newImages;
