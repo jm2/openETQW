@@ -6,7 +6,8 @@ GuiStageColor (src/renderer/GuiStageColor.h), the colour a Vulkan GUI stage is
 drawn with: retail's trivial programs apply the stage's vertexColor mode to its
 colour vector, and trivialMaskImage takes the draw's colour as it is (#398). The
 Vulkan path used the stage colour for every program, so a trivialMaskImage stage
-with a colour vector or without a vertexColor keyword was drawn untinted.
+with a colour vector or without a vertexColor keyword was drawn with the stage's
+colour instead of the draw's.
 ===========================================================================
 */
 
