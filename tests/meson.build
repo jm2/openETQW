@@ -237,6 +237,19 @@ gui_clip_test = executable(
 )
 test('gui-clip', gui_clip_test, suite: 'unit', timeout: 30)
 
+# GUI stage colour (src/renderer/GuiStageColor.h): the trivial programs apply the
+# stage's vertexColor mode, and trivialMaskImage takes the draw's colour as it is (#398)
+gui_stage_color_test = executable(
+  'openetqw-gui-stage-color-test',
+  files('GuiStageColorTest.cpp'),
+  include_directories: engine_include_dirs + [include_directories('../src/renderer')],
+  cpp_args: common_engine_defs + ['-DID_DEDICATED'] + engine_pch_args,
+  dependencies: test_deps + [zlib_dep, threads_dep],
+  link_args: test_link_args,
+  install: false,
+)
+test('gui-stage-color', gui_stage_color_test, suite: 'unit', timeout: 30)
+
 # The r_mode table's modes the display lists are marked available, so the game's
 # fullscreen mode list is not empty (#383)
 video_mode_availability_test = executable(
@@ -1341,6 +1354,24 @@ if build_engine and build_dedicated
       meson.project_source_root() / 'tests' / 'test_hud_minimap_mask.py',
       '--client-binary', campaign_client,
       '--port', '29919',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'hud-minimap-mask',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 400,
+    is_parallel: false,
+  )
+
+  # The same on the OpenGL renderer: the masked stage's ARB port and mask coordinates (#396)
+  test(
+    'hud-minimap-mask-gl',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_hud_minimap_mask.py',
+      '--client-binary', campaign_client,
+      '--port', '29923',
+      '--render-api', 'opengl',
       '--log-dir', meson.project_build_root() / 'meson-logs' / 'hud-minimap-mask',
     ],
     workdir: meson.project_source_root(),

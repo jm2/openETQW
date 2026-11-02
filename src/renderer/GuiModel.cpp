@@ -11,6 +11,7 @@
 #include "GuiModel.h"
 #include "GuiFont.h"
 #include "GuiClip.h"
+#include "GuiStageColor.h"
 #include "DeviceContext.h"
 #include "Material.h"
 #include "Image.h"
@@ -661,10 +662,15 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 			// Without this, the program divides ordinary 0..1 GUI UVs by 4096 (or
 			// 32768), collapsing font atlases and cursor images onto one texel.
 			float texCoordAttribScale = 1.0f;
+			float normalAttribScale = 1.0f;
 			if ( r_32ByteVtx.GetBool() && stage->renderProgram != NULL &&
 				dynamic_cast< sdRenderProgramARB* >( stage->renderProgram->GetProgram() ) != NULL ) {
 				texCoordAttribScale = stage->renderProgram->UsesLowRangeUVs() ? 32768.0f : 4096.0f;
+				// sdRenderShaderARB::PreCompile unpacks the normal as a short
+				normalAttribScale = 32768.0f;
 			}
+			const bool maskImageStage = rbinds != NULL && rbinds->normalAttrib != NULL &&
+				stage->renderProgram != NULL && idStr::Icmp( stage->renderProgram->GetName(), "trivialMaskImage" ) == 0;
 			const float vertexColor[ 4 ] = {
 				rgba[ 0 ] / 255.0f,
 				rgba[ 1 ] / 255.0f,
@@ -711,6 +717,15 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 				glTexCoord2f( matrixS.x * st.x + matrixS.y * st.y + matrixS.w, matrixT.x * st.x + matrixT.y * st.y + matrixT.w );
 				if ( qglVertexAttrib4fvARB != NULL && rbinds != NULL ) {
 					qglVertexAttrib4fvARB( rbinds->texCoordAttrib->GetAttribIndex(), texCoord );
+					// retail's trivialMaskImage reads the draw's mask coordinates from the
+					// normal attribute (#396); packed like the texcoord above. Only a masked
+					// draw carries them; an unmasked one samples the mask's middle, so it
+					// draws whole, as on Vulkan
+					if ( maskImageStage ) {
+						const idVec2 maskST = primitive.masked ? primitive.verts[ j ].maskST : idVec2( 0.5f, 0.5f );
+						const float maskCoord[ 4 ] = { maskST.x * normalAttribScale, maskST.y * normalAttribScale, 0.0f, 1.0f };
+						qglVertexAttrib4fvARB( rbinds->normalAttrib->GetAttribIndex(), maskCoord );
+					}
 				}
 				glVertex2f( primitive.verts[ j ].xy.x, primitive.verts[ j ].xy.y );
 			}
@@ -900,25 +915,8 @@ void sdGuiModel::SubmitFrameVulkan() {
 			const byte* rgba = reinterpret_cast< const byte* >( &primitive.color );
 			const idVec4 vertexColor( rgba[ 0 ] / 255.0f, rgba[ 1 ] / 255.0f,
 				rgba[ 2 ] / 255.0f, rgba[ 3 ] / 255.0f );
-			switch ( stage->vertexColor ) {
-				case SVC_MODULATE:
-					stageColor.x *= vertexColor.x;
-					stageColor.y *= vertexColor.y;
-					stageColor.z *= vertexColor.z;
-					stageColor.w *= vertexColor.w;
-					break;
-				case SVC_MODULATE_ALPHA:
-					stageColor.w *= vertexColor.w;
-					break;
-				case SVC_INVERSE_MODULATE:
-					stageColor.x *= 1.0f - vertexColor.x;
-					stageColor.y *= 1.0f - vertexColor.y;
-					stageColor.z *= 1.0f - vertexColor.z;
-					stageColor.w *= 1.0f - vertexColor.w;
-					break;
-				default:
-					break;
-			}
+			stageColor = GuiStageColor( stageColor, stage->vertexColor, vertexColor,
+				stage->renderProgram != NULL && GuiStageUsesRawVertexColor( stage->renderProgram->GetName() ) );
 
 			sdVulkanGuiVertex vertices[ idWinding2D::MAX_POINTS ];
 			for ( int vertexIndex = 0; vertexIndex < primitive.numVerts; ++vertexIndex ) {
