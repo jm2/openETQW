@@ -43,6 +43,10 @@ from test_remote_client_map_change import READY, RemoteClient  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
+# Printed by both of the client's Vulkan-to-OpenGL fallbacks (src/sys/sdl/sdl_glimp.cpp,
+# src/renderer/RenderSystem_init.cpp)
+VULKAN_FALLBACK_MARKER = "falling back to OpenGL"
+
 
 class VulkanClient(h.DedicatedServer):
     """The Vulkan client: +connect to a server, or +spawnServer a listen server."""
@@ -65,6 +69,30 @@ class VulkanClient(h.DedicatedServer):
         if self.listen_map:
             return args + ["+spawnServer", self.listen_map]
         return args + ["+connect", self.connect_to]
+
+    def opengl_fallback(self):
+        """The line where a client asked for Vulkan fell back to OpenGL, or None.
+        Both fallbacks (no Vulkan window, a failed Vulkan init) print
+        VULKAN_FALLBACK_MARKER; a client asked for OpenGL prints neither (#414)."""
+        if str((self.cvars or {}).get("r_renderAPI", "vulkan")).lower() != "vulkan":
+            return None
+        for ln in self.snapshot():
+            if VULKAN_FALLBACK_MARKER in ln.text:
+                return ln.text.strip()
+        return None
+
+    def quit(self, timeout=45.0):
+        """As the harness's quit(), but a client asked for Vulkan that ran on OpenGL
+        fails: its exit status is nonzero and says why, so a test that checks the
+        exit code no longer passes on the wrong renderer (#414)."""
+        code = super().quit(timeout)
+        fallback = self.opengl_fallback()
+        if fallback is None:
+            return code
+        name = getattr(self, "name", "the Vulkan client")
+        print(f"FAIL: {name} was asked for Vulkan but ran on OpenGL: {fallback}")
+        raw = int(code) if code is not None else 0
+        return h.ExitStatus(raw or 1, f"{h.exit_status_text(raw)}, but it was asked for Vulkan and ran on OpenGL: {fallback}")
 
 
 def check_gui_updates(gfx, what, seconds=3.0, min_per_second=40.0):
