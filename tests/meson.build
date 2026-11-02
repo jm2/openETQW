@@ -1353,6 +1353,24 @@ if build_engine and build_dedicated
     is_parallel: false,
   )
 
+  # The same on the OpenGL renderer: the masked stage's ARB port and mask coordinates (#396)
+  test(
+    'hud-minimap-mask-gl',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_hud_minimap_mask.py',
+      '--client-binary', campaign_client,
+      '--port', '29923',
+      '--render-api', 'opengl',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'hud-minimap-mask',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 400,
+    is_parallel: false,
+  )
+
   # The display's modes are available fullscreen, so the graphics menu lists them (#383)
   test(
     'video-modes',
