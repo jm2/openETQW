@@ -145,6 +145,16 @@ text_input_char_test = executable(
 )
 test('text-input-char', text_input_char_test, suite: 'unit', timeout: 30)
 
+# 5a2b. text input only while the console or a GUI edit box takes text, and the keys
+#       an input method's open composition owns (#394)
+text_input_focus_test = executable(
+  'openetqw-text-input-focus-test',
+  files('TextInputFocusTest.cpp'),
+  include_directories: [include_directories('../src/sys/sdl')],
+  install: false,
+)
+test('text-input-focus', text_input_focus_test, suite: 'unit', timeout: 30)
+
 # 5a3. the fullscreen chord: Alt+Return on Windows and Linux, Command+Return on macOS
 fullscreen_chord_test = executable(
   'openetqw-fullscreen-chord-test',

@@ -9,32 +9,50 @@
 #include "FullscreenChord.h"
 #include "MouseDelta.h"
 #include "TextInputChar.h"
+#include "TextInputFocus.h"
 
 SDL_Window* Sys_GetGameSDLWindow( void );
 
 /*
 SDL3 sends SDL_EVENT_TEXT_INPUT only for a window that has called SDL_StartTextInput,
-so without it no typed text reached the console or the GUI edit boxes. Called when the
-game window is created and whenever it gains focus.
+so without it no typed text reaches the console or the GUI edit boxes. It is on only
+while the console is open or a GUI edit box has the focus (TextInputFocus.h, #394).
+Called each time the events are read, and when the game window is created or gains
+the focus.
 */
-idCVar in_logTextInput( "in_logTextInput", "0", CVAR_BOOL | CVAR_SYSTEM | CVAR_NOCHEAT, "log SDL text input: starting it, and each text input event" );
+idCVar in_logTextInput( "in_logTextInput", "0", CVAR_BOOL | CVAR_SYSTEM | CVAR_NOCHEAT, "log SDL text input: starting and stopping it, and each text input event" );
 
-void Sys_StartSDLTextInput( void ) {
+namespace {
+
+// a GUI edit box has the focus; the game reports it each frame (sdIMESDL::Enable)
+bool guiEditFocused = false;
+
+// an input method's open composition (TextInputFocus.h)
+sdTextInputComposition composition;
+
+} // namespace
+
+void Sys_UpdateSDLTextInput( void ) {
 	SDL_Window* window = Sys_GetGameSDLWindow();
 	if ( window == NULL ) {
-		if ( in_logTextInput.GetBool() ) {
-			common->Printf( "TEXT_INPUT: start skipped, no game window\n" );
-		}
 		return;
 	}
-	if ( !SDL_TextInputActive( window ) ) {
-		const bool started = SDL_StartTextInput( window );
-		if ( in_logTextInput.GetBool() ) {
-			common->Printf( "TEXT_INPUT: start %s, active %d (driver %s)%s%s\n", started ? "ok" : "FAILED",
-				SDL_TextInputActive( window ) ? 1 : 0, SDL_GetCurrentVideoDriver(), started ? "" : ": ", started ? "" : SDL_GetError() );
-		}
-	} else if ( in_logTextInput.GetBool() ) {
-		common->Printf( "TEXT_INPUT: already active\n" );
+	const bool consoleActive = console != NULL && console->Active();
+	const bool want = Sys_WantTextInput( consoleActive, guiEditFocused );
+	if ( want == SDL_TextInputActive( window ) ) {
+		return;
+	}
+	bool ok;
+	if ( want ) {
+		ok = SDL_StartTextInput( window );
+	} else {
+		ok = SDL_StopTextInput( window );
+		composition.OnStop();
+	}
+	if ( in_logTextInput.GetBool() ) {
+		common->Printf( "TEXT_INPUT: %s %s, active %d (driver %s), console %d, edit box %d%s%s\n", want ? "start" : "stop",
+			ok ? "ok" : "FAILED", SDL_TextInputActive( window ) ? 1 : 0, SDL_GetCurrentVideoDriver(),
+			consoleActive ? 1 : 0, guiEditFocused ? 1 : 0, ok ? "" : ": ", ok ? "" : SDL_GetError() );
 	}
 }
 
@@ -50,6 +68,16 @@ float mouseRemainderY = 0.0f;
 void ResetMouseRemainder() {
 	mouseRemainderX = 0.0f;
 	mouseRemainderY = 0.0f;
+}
+
+compositionKey_t CompositionKey( keyNum_t key ) {
+	switch ( key ) {
+		case K_BACKSPACE: return COMPKEY_BACKSPACE;
+		case K_ENTER:     return COMPKEY_ENTER;
+		case K_KP_ENTER:  return COMPKEY_KP_ENTER;
+		case K_ESCAPE:    return COMPKEY_ESCAPE;
+		default:          return COMPKEY_NONE;
+	}
 }
 
 keyNum_t MapSDLScancode( SDL_Scancode scancode ) {
@@ -228,8 +256,9 @@ public:
 	virtual bool Init() override { return true; }
 	virtual void Shutdown() override {}
 	virtual bool LangSupportsIME() const override { return false; }
-	virtual void Enable( bool ) override {}
-	virtual bool IsEnabled() const override { return false; }
+	// the game's GUIs: an edit box has the focus (idGameLocal::UpdateTextInputFocus)
+	virtual void Enable( bool enable ) override { guiEditFocused = enable; }
+	virtual bool IsEnabled() const override { return guiEditFocused; }
 	virtual void FinalizeString( bool ) override {}
 	virtual int GetCursorChars() const override { return 0; }
 	virtual bool IsReadingWindowActive() const override { return false; }
@@ -271,6 +300,8 @@ sdIME& idSysLocal::IME() {
 #endif
 
 void Sys_ProcessSDLEvents( void ) {
+	// before the events are read: SDL makes text events only while text input is on
+	Sys_UpdateSDLTextInput();
 	SDL_Event event;
 	while ( SDL_PollEvent( &event ) ) {
 		switch ( event.type ) {
@@ -280,7 +311,7 @@ void Sys_ProcessSDLEvents( void ) {
 				break;
 
 			case SDL_EVENT_WINDOW_FOCUS_GAINED:
-				Sys_StartSDLTextInput();
+				Sys_UpdateSDLTextInput();
 				sys->Keyboard().Activate();
 				IN_Frame();
 				if ( session != NULL ) {
@@ -313,6 +344,15 @@ void Sys_ProcessSDLEvents( void ) {
 				}
 
 				keyNum_t key = MapSDLScancode( event.key.scancode );
+				const bool textInputActive = SDL_TextInputActive( Sys_GetGameSDLWindow() );
+				// Backspace, Enter and Escape belong to an open composition (TextInputFocus.h)
+				if ( composition.DropKey( CompositionKey( key ), event.key.down ) ) {
+					if ( in_logTextInput.GetBool() ) {
+						common->Printf( "TEXT_INPUT: key %s scancode %d dropped: the composition owns it\n",
+							event.key.down ? "down" : "up", static_cast< int >( event.key.scancode ) );
+					}
+					break;
+				}
 				if ( key != K_INVALID ) {
 					sys->QueEvent( SE_KEY, key, event.key.down ? 1 : 0, 0, NULL );
 				}
@@ -320,11 +360,13 @@ void Sys_ProcessSDLEvents( void ) {
 					// the scancode only: no typed character reaches the log (passwords)
 					common->Printf( "TEXT_INPUT: key down scancode %d mod 0x%x, text input active %d\n",
 						static_cast< int >( event.key.scancode ), static_cast< unsigned int >( event.key.mod ),
-						SDL_TextInputActive( Sys_GetGameSDLWindow() ) ? 1 : 0 );
+						textInputActive ? 1 : 0 );
 				}
 				if ( event.key.down ) {
-					// the console key toggles the console; the text it types must not land in it
-					swallowConsoleText = key == K_CONSOLE;
+					// the console key toggles the console; the text it types must not land in it.
+					// With text input off (in play) it types none, and the flag would eat the
+					// first character typed into the console instead
+					swallowConsoleText = key == K_CONSOLE && textInputActive;
 					// Backspace, Tab, Enter and Ctrl+letters reach edit fields as characters (TextInputChar.h)
 					const bool ctrlOnly = ( event.key.mod & SDL_KMOD_CTRL ) != 0 && ( event.key.mod & ( SDL_KMOD_ALT | SDL_KMOD_GUI ) ) == 0;
 					// the layout's key without Shift or Caps Lock, so Ctrl+Shift+V is still Ctrl+V (22), as WM_CHAR
@@ -352,6 +394,16 @@ void Sys_ProcessSDLEvents( void ) {
 					}
 				}
 				swallowConsoleText = false;
+				composition.OnCommit();
+				break;
+			}
+
+			case SDL_EVENT_TEXT_EDITING: {
+				const bool hasText = event.edit.text != NULL && event.edit.text[ 0 ] != '\0';
+				if ( in_logTextInput.GetBool() && hasText != composition.IsComposing() ) {
+					common->Printf( "TEXT_INPUT: composition %s\n", hasText ? "open" : "closed" );
+				}
+				composition.OnEditing( hasText );
 				break;
 			}
 
