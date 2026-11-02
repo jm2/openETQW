@@ -4,9 +4,10 @@
 
 The presets (retail's specs/*.dat) record the level chosen in the settings menu with
 "seta com_lastGraphicsLevel 2" and the like, and the menu reads those back on the
-next start. Nothing registered these CVars, and seta does not archive an unregistered
-CVar (idCVarSystemLocal::SetA_f, as in released Doom 3), so every preset read back as
-the lowest after a restart. The engine now registers them with CVAR_ARCHIVE.
+next start. Nothing registered these CVars, and seta then did not archive an
+unregistered CVar (idCVarSystemLocal::SetA_f, as in released Doom 3), so every preset
+read back as the lowest after a restart. The engine now registers them with
+CVAR_ARCHIVE.
 
 seta also saves the CVar it sets, registered or not, as retail 1.5 does (retail's
 Linux client on the Linux x64 host wrote an unregistered "seta oe_unregProbe 7" and

@@ -1287,6 +1287,23 @@ if build_engine and build_dedicated
     is_parallel: false,
   )
 
+  # a cheat CVar stays locked in a multiplayer game after seta, sets or setu
+  test(
+    'cheat-cvar-lock',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_cheat_cvar_lock.py',
+      '--client-binary', campaign_client,
+      '--port', '29929',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'cheat-cvar-lock',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 300,
+    is_parallel: false,
+  )
+
   # a decl index of -1 is "none" and is looked up without a warning (#377)
   test(
     'decl-index-none',
