@@ -6,7 +6,7 @@ game module). Each claim carries its evidence level (`CONTRIBUTING.md` § Record
 project's long session record is kept outside this repository; this file is the public
 summary. `docs/platform-matrix.md` has the latest full suite on each platform.
 
-Last updated: 2026-10-29 (engine `main` after #353, game `main` after game #64; both repositories public).
+Last updated: 2026-11-02 (engine `main` after #412, game `main` after game #70; both repositories public).
 
 ## Capability matrix
 Each cell holds an evidence level, `—` if not yet tried, or `blocked: <reason>`. Linux x86_64 engine evidence is from the Linux x64 host (Fedora 44, GCC 16.2.1, RX 6400 / RADV, debug, since 2026-09-26); Windows 11 x64 from the Windows host (Windows 11 26H2, VS 2026 MSVC 19.51, RX 6400 / Adrenalin 26.8.1, debug and debugoptimized, since 2026-09-28); Windows 11 arm64 from the Windows arm64 host (Windows 11 25H2 build 26200, VS 2026 MSVC 19.51.36256 for ARM64, Qualcomm Snapdragon X with Adreno X1-85 (driver 31.0.128.0), debugoptimized, since 2026-10-03); Linux arm64 from the Linux arm64 host (Fedora 44 Asahi, kernel 7.1.6 with 16k pages, GCC 16.2.1, Apple M1 / Honeykrisp (Mesa 26.2.3), 8 GB, debug, since 2026-10-04); the rest from the macOS host, macOS 27 arm64, Apple Clang 21, debug. "No engine build" means the engine has never been configured on that OS. Hosted CI did not run from 2026-09-24 (Actions minutes) until both repositories went public on 2026-10-29; the "hosted CI" entries in this table predate that gap.
@@ -146,7 +146,9 @@ Charter milestone numbers. Older notes use the stock-maps phase's own M2–M5, w
 The app's game module is found: since #24 `FindDLL` tries the executable's directory, then the package's module root (`Contents/Frameworks` in the app; `FileSystem.cpp:4792-4799`), and the 2026-09-30 app runs loaded it from there.
 
 ## Release gate (CHARTER §11)
-Both repositories are public since 2026-10-29. No release has been made yet; v0.1.0 is being prepared (`docs/releasing.md`). The `screenshots-prNNN` prereleases were review material, not releases, and were deleted on 2026-10-29.
+Both repositories are public since 2026-10-29. No release has been made yet; v0.1.0 is being prepared (`docs/releasing.md`, notes in `docs/releases/v0.1.0.md`). Its packages are built as unpublished drafts; it is published only once the known bugs are fixed (owner, 2026-11-01), and then retagged and rebuilt. The `screenshots-prNNN` prereleases were review material, not releases, and were deleted on 2026-10-29.
+- **Open bugs (2026-11-02):** #385 (macOS: fullscreen stays black; a fix is in draft #409, waiting for the owner's test), #394 (SDL text input stays on in play; fix in #411 and game #70), #392 (typed text through XTest under Xwayland: a test-setup problem, not the client; X11 typing is tested by `text-input-x11` since #405) and #197 (a fresh profile skips retail's login dialog; the name can be changed in the menus).
+- **Fixed since 2026-10-29 from the LAN play sessions:** retail's default key bindings on a fresh profile (#363), Escape opens the menu in game (#372), Alt+Enter toggles fullscreen (#365; Command+Return on macOS, #380), the ready-up hint's key name (#366), typed text in the console and chat (#388), the menu cursor follows the system pointer (#382), the fullscreen mode list (#383), BSE particle effects (#368), the deploy map and HUD clipping (#378), the command map's masked territory outlines on Vulkan and OpenGL (#379, #396, #398), graphics presets that survive a restart (#389) and a fresh profile's preset picked from the GPU (#387), and audio fixes (#367, #374).
 1. **jmarshall's reconstruction code has no licence: unresolved; accepted as a risk for v0.1.0 (owner, 2026-10-29).**
    - Both histories start from jmarshall's three upstream commits (`docs/provenance.md` §1), which carry no licence file.
    - A file-by-file audit (2026-10-29) found 230 files, about 82k lines, that are his own text with no ETQW SDK, Doom 3 GPL or third-party counterpart. 180 of them reached shipped builds. 154 upstream files carry his own "GPL v3 or later" header; most of those are Doom 3-derived, and none is in the shipped core.
@@ -173,12 +175,12 @@ Both repositories are public since 2026-10-29. No release has been made yet; v0.
    - The repositories went public on 2026-10-29 without being recreated. A scan that day of every blob reachable from either repository, GitHub's `refs/pull/*` included, found one retail image the earlier scan missed: the launch splash in jmarshall's initial commit `6de0697`, reachable only through `refs/pull/1/head`. The owner kept it and made it, with the retail icon, the one exception to the rule (decision 0004, `docs/provenance.md` §7).
    - No `.exe`, `.pdb`, `.pk4` or capture files and no raw decompiler output were found.
    - Third-party code binaries: the owner approved the deletion on 2026-10-26 (all eight, including `src/sys/win32/eaxguid.lib`); deleted in #301. `src/openal/lib/openal32.lib`, `src/openal/lib/eaxguid.lib`, `src/sys/win32/eaxguid.lib`, zlib's four `contrib/masmx{64,86}/*.obj` and the PowerPC `src/openal/osx/OpenAL.framework` binary were deleted because no build target references them — OpenAL is compiled out everywhere (`ID_OPENAL` is defined nowhere) and zlib is the system dependency. What remains binary is documentation, vendored UI/media assets and SDL2's Gradle wrapper jar — no prebuilt code in any engine build target; see `docs/provenance.md` §6.
-6. **SDK EULA with the game repo and every package; retail-install check enforced; nothing sold: not cleared (both safeguards are in place; no package exists yet to carry them).**
+6. **SDK EULA with the game repo and every package; retail-install check enforced; nothing sold: not cleared (both safeguards are in place; no package has been published yet).**
    - The owner accepted the EULA §2 risk as openQ4 does (A3, 2026-09-25), with two safeguards (`docs/decisions/0002-sdk-eula-risk-and-retail-install-check.md`):
      - the retail-install check, openQ4's design (A7): enforced since engine PR #19 (`fs_validateOfficialPaks`, meson `retail-install-check`);
      - the licence texts in every package: the engine and game install sets carry them since engine PR #19 (checked by meson `install-licenses`) and game PR #12.
    - The EULA ships verbatim in the game repo (`legal/EULA SDK ETQW.rtf`, `EULA_SDK_ETQW.txt`).
-   - No packages exist. Nothing is sold.
+   - Draft v0.1.0 packages exist (unpublished, built by `manual-release.yml`). Nothing is sold.
 
 ## Compatibility record
 - **Module ABI:** `GAME_API_VERSION` is 8 (1008 with `SD_PUBLIC_TOOLS`), in openETQW-game `src/game/Game.h:467–471`. The engine checks it at load (`Common.cpp:1286`). The previous STATUS said 1, which was wrong. No interface change on 2026-09-24 or 2026-09-25. `struct-layout` asserts `gameImport_t` 192 bytes and `gameExport_t` 24 bytes on arm64 (unit-tested).
