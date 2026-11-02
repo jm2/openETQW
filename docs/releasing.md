@@ -3,8 +3,8 @@
 
 openETQW's CI and release pipeline follows openQ4's (jm2/openQ4 b37b1456), with
 one deliberate difference: **one macOS build**. openQ4 ships an OpenGL and a Metal
-macOS build; openETQW's renderer defaults to Vulkan on every platform (MoltenVK over
-Metal on macOS) and falls back to OpenGL at run time, so there is one macOS app.
+macOS build; openETQW's renderer defaults to Vulkan on every platform (Mesa's KosmicKrisp
+over Metal on macOS) and falls back to OpenGL at run time, so there is one macOS app.
 
 Both repositories are public since 2026-10-29, so the workflows below run on hosted
 runners and fetch the companion anonymously. Before that, hosted CI had not run since
@@ -48,7 +48,7 @@ Options: `--sanitize address,undefined`, `--cross-file tools/cross/linux-arm64.i
 | `commit-validation.yml` | pull request | actionlint and shellcheck; script smoke (pyflakes, include case, Zero-SDK, integration skips, profile dry runs); the `pr` profile on Linux x64 GCC and Clang, Linux ARM64, macOS arm64, Windows x64 and ARM64; the `pr` profile under ASan+UBSan on Linux x64 Clang |
 | `push-verification.yml` | push to `main` | the `push` profile on Linux x64 and ARM64, macOS arm64, Windows x64 and ARM64; publishes each staged payload as a tarball artifact (modes kept) |
 | `linux-arm64-cross.yml` | pull request, push to `main` | the game and the engine cross-compiled for Linux ARM64 on an x64 runner, installed and checked |
-| `macos-debug.yml` | manual | a debug build through the `push` profile, host diagnostics, an optional MoltenVK `vulkaninfo` probe; publishes the debug payload |
+| `macos-debug.yml` | manual | a debug build through the `push` profile, host diagnostics, an optional KosmicKrisp `vulkaninfo` probe; publishes the debug payload |
 | `macos-sanitizer.yml` | manual | ASan+UBSan build, instrumentation check, unit suite and smoke |
 | `manual-release.yml` | manual | version, packages for every platform, checks, changelog, GitHub release (a draft by default) |
 
@@ -71,12 +71,13 @@ and one text per bundled binary) and a README.
 |---|---|---|
 | Windows x64, ARM64 | `openetqw-<v>-windows-<arch>.zip`, `openetqw-<v>-windows-<arch>-setup.exe` (Inno Setup, per-user install) | SDL3, zlib, the MSVC runtime |
 | Linux x64, ARM64 | `openetqw-<v>-linux-<arch>.tar.xz`, `-debug.tar.xz` (split symbols), `openetqw-<v>-<x86_64\|aarch64>.AppImage` | SDL3 (the rest is the system's: Vulkan, OpenGL, zlib) |
-| macOS arm64 | `openetqw-<v>-macos-arm64.dmg` when signed and notarized, else `openetqw-<v>-macos-arm64-unsigned.tar.gz` | SDL3, the Vulkan loader and MoltenVK, built or fetched from pinned sources for macOS 11.0 (`tools/build/prepare_macos_deps.py`; MoltenVK stays at 1.4.1, whose dylib runs on 11.0, where 1.4.2's needs 12.0); the packager checks that every library the app names is inside it and runs on 11.0 |
+| macOS arm64 | `openetqw-<v>-macos-arm64.dmg` when signed and notarized, else `openetqw-<v>-macos-arm64-unsigned.tar.gz` | SDL3 and the Vulkan loader for macOS 11.0, and the Vulkan driver, Mesa's KosmicKrisp with its SPIRV-Tools, for macOS 26.0 (it needs Metal 4; on an older macOS the engine starts on OpenGL), all built from pinned sources (`tools/build/prepare_macos_deps.py`; MoltenVK stays at 1.4.1, whose dylib runs on 11.0, where 1.4.2's needs 12.0); the packager checks that every library the app names is inside it and runs on 11.0 |
 
 macOS is arm64 only: the owner dropped macOS x64 on 2026-09-30, and the universal2 candidate workflow and its assembler went with it. The macOS app is `openETQW.app` in the self-contained layout the engine expects
 (`OpenETQWRuntimeLayout` = `self-contained-v1`): the engine's content in
-`Contents/Resources/base`, the game module in `Contents/Frameworks`, MoltenVK found by
-the Vulkan loader through `Contents/Resources/vulkan/icd.d`. Without the Apple
+`Contents/Resources/base`, the game module in `Contents/Frameworks`, KosmicKrisp found by
+the Vulkan loader through `Contents/Resources/vulkan/icd.d`. KosmicKrisp replaced MoltenVK
+on 2026-11-02 (owner; #417: about 3x the frame rate on an M1 Max). Without the Apple
 signing secrets it is signed ad hoc; macOS then asks the user to allow it on first
 launch.
 

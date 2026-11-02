@@ -435,7 +435,7 @@ if build_engine
     # macOS: the renderer reaches Vulkan only through SDL_Vulkan_LoadLibrary
     # (VK_NO_PROTOTYPES), so b_asneeded's -dead_strip_dylibs would drop the
     # loader. Keep it linked: a package bundles it (package_release.py refuses a
-    # client without it), and it finds the bundled MoltenVK through the ICD manifest
+    # client without it), and it finds the bundled KosmicKrisp through the ICD manifest
     override_options: host_system == 'darwin' ? ['b_asneeded=false'] : [],
     install: true,
     install_dir: install_root,

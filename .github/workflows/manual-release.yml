@@ -6,13 +6,13 @@
 #             tag check, the companion commit resolved once, and whether the
 #             Apple signing secrets are present
 #   build     one job per package: Windows x64/ARM64, Linux x64/ARM64 and ONE
-#             macOS build (arm64, Vulkan on MoltenVK). Each builds a pinned
+#             macOS build (arm64, Vulkan on KosmicKrisp). Each builds a pinned
 #             glslangValidator, validates and stages with the 'push' profile of
 #             tools/validation/openetqw_validate.py with the release version
 #             stamped in, and packages with tools/build/package_release.py:
 #               Windows  zip + Inno Setup installer
 #               Linux    tar.xz + split debug symbols + AppImage
-#               macOS    openETQW.app with SDL3, the Vulkan loader and MoltenVK built
+#               macOS    openETQW.app with SDL3, the Vulkan loader and KosmicKrisp built
 #                        for macOS 11.0 (tools/build/prepare_macos_deps.py): a
 #                        Developer ID signed, notarized DMG when the six Apple
 #                        secrets are set, else an ad hoc signed tar.gz
@@ -257,7 +257,7 @@ jobs:
             arch: arm64
             vcpkg_triplet: ""
           - id: macos-arm64
-            label: macOS arm64 (Vulkan/MoltenVK)
+            label: macOS arm64 (Vulkan/KosmicKrisp)
             os: macos-26
             platform: macos
             arch: arm64
@@ -303,9 +303,11 @@ jobs:
           ninja-version: ${{ env.NINJA_VERSION }}
           sdl3-tag: ${{ env.SDL3_TAG }}
 
-      - name: Build the macOS libraries for macOS 11.0 (SDL3, Vulkan loader, MoltenVK)
+      - name: Build the macOS libraries (SDL3 and the Vulkan loader for macOS 11.0; SPIRV-Tools and KosmicKrisp for 26.0)
         if: matrix.platform == 'macos'
-        run: python tools/build/prepare_macos_deps.py --arch arm64 --prefix "${RUNNER_TEMP}/macos-deps"
+        run: |
+          python -m venv "${RUNNER_TEMP}/mesa-venv" && "${RUNNER_TEMP}/mesa-venv/bin/pip" install --quiet packaging mako pyyaml
+          python tools/build/prepare_macos_deps.py --arch arm64 --prefix "${RUNNER_TEMP}/macos-deps" --mesa-python "${RUNNER_TEMP}/mesa-venv/bin/python"
 
       - name: Build glslangValidator
         run: python tools/build/build_glslang.py --output-dir "${RUNNER_TEMP}/glslang"
@@ -344,7 +346,8 @@ jobs:
               deps="${RUNNER_TEMP}/macos-deps"
               args+=(--license "SDL3=${deps}/share/licenses/SDL3/LICENSE.txt")
               args+=(--license "Vulkan-Loader=${deps}/share/licenses/Vulkan-Loader/LICENSE.txt")
-              args+=(--license "MoltenVK=${deps}/share/licenses/MoltenVK/LICENSE") ;;
+              args+=(--license "SPIRV-Tools=${deps}/share/licenses/SPIRV-Tools/LICENSE")
+              args+=(--license "Mesa=${deps}/share/licenses/Mesa/license.rst") ;;
           esac
           for arg in "${args[@]}"; do
             case "${arg}" in --license) ;; *) test -f "${arg#*=}" || { echo "::error::missing licence text ${arg#*=}"; exit 1; } ;; esac
@@ -416,7 +419,7 @@ jobs:
               if [ ! -f "${game_pdb}" ]; then echo "::error::no game module PDB at ${game_pdb}"; exit 1; fi
               args+=(--extra-pdb "${game_pdb}") ;;
             macos)
-              args+=(--macos-moltenvk "${RUNNER_TEMP}/macos-deps/lib/libMoltenVK.dylib"
+              args+=(--macos-kosmickrisp "${RUNNER_TEMP}/macos-deps/lib/libvulkan_kosmickrisp.dylib"
                      --macos-lib-dir "${RUNNER_TEMP}/macos-deps/lib")
               if [ "${MACOS_SIGNED}" = "true" ]; then
                 args+=(--macos-sign-identity "${SIGN_IDENTITY}" --macos-dmg)
