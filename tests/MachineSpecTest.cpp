@@ -109,7 +109,9 @@ int main() {
 	Expect( idStr::Cmp( Sys_MachineSpecPreset( 0 ), "specs/minspec.dat" ) == 0, "level 0 runs minspec" );
 	Expect( idStr::Cmp( Sys_MachineSpecPreset( 1 ), "specs/recspec.dat" ) == 0, "level 1 runs recspec" );
 	Expect( idStr::Cmp( Sys_MachineSpecPreset( 2 ), "specs/highspec.dat" ) == 0, "level 2 runs highspec" );
-	Expect( idStr::Cmp( Sys_MachineSpecQuality( 1 ), "Normal" ) == 0, "level 1 is Normal quality" );
+	Expect( idStr::Cmp( Sys_MachineSpecQualifies( 1 ), "This system qualifies for Normal quality." ) == 0 &&
+		idStr::Cmp( Sys_MachineSpecQualifies( 2 ), "This system qualifies for High quality!" ) == 0,
+		"the qualifies line, as retail prints it" );
 	Expect( Sys_MachineSpecSoundsPerShader( 0 ) == 3 && Sys_MachineSpecSoundsPerShader( 1 ) == 3 &&
 		Sys_MachineSpecSoundsPerShader( 2 ) == 0, "s_maxSoundsPerShader: 3 below High, 0 at High" );
 

@@ -139,6 +139,7 @@ def main() -> int:
             gfx.name = "VulkanClient"
             gfx.slot = 0
             # the starts share one profile, which the test's directory removes
+            h.remove_private_dir(gfx.savepath)
             gfx.savepath = profile
             gfx._own_savepath = False
             gfx.start()
@@ -210,6 +211,7 @@ def main() -> int:
             gfx = MenuClient(client, data, args.port, connect_to="unused", log_path=logs[3],
                              cvars={"r_vkValidation": "0"})
             gfx.name = "VulkanClient"
+            h.remove_private_dir(gfx.savepath)
             gfx.savepath = profile
             gfx._own_savepath = False
             try:
@@ -218,11 +220,13 @@ def main() -> int:
                     raise Failed("the client never reached the main menu")
                 gfx.sync()
                 # the settings menu's overall preset and its Autodetect button
-                for level, quality, sounds, name in (("0", "2", "3", "Low"), ("2", "0", "0", "High")):
+                for level, quality, sounds, name, said_line in (
+                        ("0", "2", "3", "Low", "This system qualifies for Low quality."),
+                        ("2", "0", "0", "High", "This system qualifies for High quality!")):
                     mark = gfx.mark()
                     gfx.send(f"setMachineSpec {level}")
                     gfx.sync()
-                    said = any(f"This system qualifies for {name} quality." in ln.text for ln in gfx.snapshot(mark))
+                    said = any(said_line in ln.text for ln in gfx.snapshot(mark))
                     values = {n: cvar_value(gfx, n) for n in ("com_machineSpec", "r_shaderQuality",
                                                                "s_maxSoundsPerShader") + LEVELS}
                     expect(said and values["com_machineSpec"] == level and values["r_shaderQuality"] == quality

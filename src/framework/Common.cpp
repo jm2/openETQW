@@ -1712,7 +1712,7 @@ void idCommonLocal::SetMachineSpec_f( const idCmdArgs& args ) {
 	} else {
 		level = commonLocal.DetectMachineSpec( commands );
 	}
-	commonLocal.Printf( "This system qualifies for %s quality.\n", Sys_MachineSpecQuality( level ) );
+	commonLocal.Printf( "%s\n", Sys_MachineSpecQualifies( level ) );
 	commonLocal.ApplyMachineSpec( level, commands );
 }
 

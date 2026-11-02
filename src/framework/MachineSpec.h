@@ -123,9 +123,10 @@ inline const char* Sys_MachineSpecPreset( int level ) {
 	return level <= 0 ? "specs/minspec.dat" : ( level == 1 ? "specs/recspec.dat" : "specs/highspec.dat" );
 }
 
-// the quality name retail's setMachineSpec prints for a level
-inline const char* Sys_MachineSpecQuality( int level ) {
-	return level <= 0 ? "Low" : ( level == 1 ? "Normal" : "High" );
+// the line retail's setMachineSpec prints for a level
+inline const char* Sys_MachineSpecQualifies( int level ) {
+	return level <= 0 ? "This system qualifies for Low quality." :
+		( level == 1 ? "This system qualifies for Normal quality." : "This system qualifies for High quality!" );
 }
 
 // s_maxSoundsPerShader at a level, as retail's setMachineSpec sets it
