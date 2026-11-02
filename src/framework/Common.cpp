@@ -305,6 +305,9 @@ private:
 	void					InitGame( bool resetConfigs );
 	void					LoadGameDLL();
 	void					InitMachineSpec();
+	int						DetectMachineSpec( idStr& commands );
+	void					ApplyMachineSpec( int level, const idStr& commands );
+	static void				SetMachineSpec_f( const idCmdArgs& args );
 	void					UnloadGameDLL();
 	void					InitLanguageDict( bool reload );
 	void					InitSIMD();
@@ -1354,6 +1357,7 @@ void idCommonLocal::InitCommands() {
 	cmdSystem->AddCommand( "status", Com_Status_f, CMD_FL_SYSTEM, "displays server status" );
 	cmdSystem->AddCommand( "help", Com_Help_f, CMD_FL_SYSTEM, "displays commonly used commands" );
 	cmdSystem->AddCommand( "writeConfig", Com_WriteConfig_f, CMD_FL_SYSTEM, "writes a configuration file" );
+	cmdSystem->AddCommand( "setMachineSpec", idCommonLocal::SetMachineSpec_f, CMD_FL_SYSTEM, "sets the graphics preset: 0 low, 1 normal, 2 high, or detect it from the GPU" );
 	cmdSystem->AddCommand( "listModes", Com_ListModes_f, CMD_FL_RENDERER, "lists video modes" );
 #ifdef ETQW_WITH_RADIANT
 	cmdSystem->AddCommand( "editor", Com_Editor_f, CMD_FL_TOOL, "opens the ETQW Radiant level editor" );
@@ -1628,10 +1632,25 @@ void idCommonLocal::InitMachineSpec() {
 		( networkSystem != NULL && networkSystem->IsDedicated() ) ) {
 		return;
 	}
+	idStr commands;
+	const int level = DetectMachineSpec( commands );
+	ApplyMachineSpec( level, commands );
+	cmdSystem->ExecuteCommandBuffer();
+}
+
+/*
+==================
+idCommonLocal::DetectMachineSpec
+
+The preset level for this GPU and the commands that set it: device.info's entry for
+a GPU it lists, the high preset for any other (docs/compat-ledger.md 082).
+==================
+*/
+int idCommonLocal::DetectMachineSpec( idStr& commands ) {
 	unsigned int vendorID = 0;
 	unsigned int deviceID = 0;
 	const bool knownGpu = R_GetGpuPciIds( vendorID, deviceID );
-	idStr commands;
+	commands.Clear();
 	bool listed = false;
 	if ( knownGpu ) {
 		void* deviceInfo = NULL;
@@ -1648,16 +1667,53 @@ void idCommonLocal::InitMachineSpec() {
 		}
 		Printf( "machine spec: GPU %04x:%04x is in device.info; running its entry\n", vendorID, deviceID );
 	} else {
-		commands = "exec specs/highspec.dat\n";
+		commands = va( "exec %s\n", Sys_MachineSpecPreset( level ) );
 		if ( knownGpu ) {
 			Printf( "machine spec: GPU %04x:%04x is not in device.info; the high preset\n", vendorID, deviceID );
 		} else {
 			Printf( "machine spec: the GPU's PCI IDs are unknown; the high preset\n" );
 		}
 	}
+	return level;
+}
+
+/*
+==================
+idCommonLocal::ApplyMachineSpec
+
+Records a preset level and queues the commands that set it.
+==================
+*/
+void idCommonLocal::ApplyMachineSpec( int level, const idStr& commands ) {
 	com_machineSpec.SetInteger( level );
+	cvarSystem->SetCVarInteger( "s_maxSoundsPerShader", Sys_MachineSpecSoundsPerShader( level ) );
 	cmdSystem->BufferCommandText( CMD_EXEC_APPEND, commands.c_str() );
-	cmdSystem->ExecuteCommandBuffer();
+}
+
+/*
+==================
+idCommonLocal::SetMachineSpec_f
+
+setMachineSpec [level] [detect]: the settings menu's overall preset (0 Low, 1 Normal,
+2 High) and its Autodetect button ("setMachineSpec -1 detect"). Without the command
+the menu's overall preset did nothing: only its five part lists applied, so the
+lighting part never ran and com_machineSpec stayed -1.
+==================
+*/
+void idCommonLocal::SetMachineSpec_f( const idCmdArgs& args ) {
+	if ( com_skipRenderer.GetBool() || ( networkSystem != NULL && networkSystem->IsDedicated() ) ) {
+		commonLocal.Printf( "setMachineSpec: no renderer\n" );
+		return;
+	}
+	int level = args.Argc() > 1 ? atoi( args.Argv( 1 ) ) : -1;
+	idStr commands;
+	if ( Sys_IsMachineSpecLevel( level ) ) {
+		commands = va( "exec %s\n", Sys_MachineSpecPreset( level ) );
+	} else {
+		level = commonLocal.DetectMachineSpec( commands );
+	}
+	commonLocal.Printf( "%s\n", Sys_MachineSpecQualifies( level ) );
+	commonLocal.ApplyMachineSpec( level, commands );
 }
 
 void idCommonLocal::Init( int argc, const char** argv, const char* cmdline ) {
