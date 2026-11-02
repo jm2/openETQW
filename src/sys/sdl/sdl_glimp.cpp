@@ -17,8 +17,9 @@ void Sys_UpdateSDLTextInput( void );
 // A Retina window is 2x its size in pixels each way, so rendering at the Retina
 // size draws four times the pixels the chosen mode asks for (#417). By default the
 // game draws at the window's size in points and the compositor scales it up, as on
-// a display without scaling; 1 draws at the full Retina size.
-idCVar r_highDPI( "r_highDPI", "0", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_BOOL | CVAR_INIT,
+// a display without scaling; 1 draws at the full Retina size. Read when the
+// window is created.
+idCVar r_highDPI( "r_highDPI", "0", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_BOOL,
 	"macOS: 1 renders at the display's full (Retina) pixel size, 0 at the window's size in points (takes effect at the next start)" );
 #endif
 
@@ -441,7 +442,13 @@ private:
 			}
 			sizes.Append( mode->w );
 			sizes.Append( mode->h );
+			// a fullscreen window is the display's size in points; only a high-DPI
+			// window (r_highDPI on macOS) also offers the display's pixel size
+#ifdef __APPLE__
+			if ( mode->pixel_density > 1.0f && r_highDPI.GetBool() ) {
+#else
 			if ( mode->pixel_density > 1.0f ) {
+#endif
 				sizes.Append( idMath::Ftoi( mode->w * mode->pixel_density + 0.5f ) );
 				sizes.Append( idMath::Ftoi( mode->h * mode->pixel_density + 0.5f ) );
 			}
