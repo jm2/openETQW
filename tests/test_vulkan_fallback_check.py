@@ -48,11 +48,15 @@ WINDOW_FALLBACK = "SDL3: failed to create a Vulkan window (no driver); falling b
 INIT_FALLBACK = "Vulkan initialization failed; falling back to OpenGL for this run."
 
 
+CLIENTS: list[VulkanClient] = []
+
+
 def client(lines: list[str], cvars: dict | None = None, code: int = 0) -> VulkanClient:
     c = VulkanClient(Path("openETQW-client"), Path("data"), 29999, map_name="valley", cvars=cvars)
     c.lines = [h.LogLine(0.0, s) for s in lines]
     c.proc = _ExitedProc(code)
     c._reader = None
+    CLIENTS.append(c)  # cleanup() removes the private savepath each one made
     return c
 
 
@@ -72,6 +76,15 @@ def main() -> int:
 
     c = client(["SDL3 OpenGL window created", WINDOW_FALLBACK], cvars={"r_renderAPI": "opengl"})
     expect(c.opengl_fallback() is None and int(c.quit()) == 0, "a client asked for OpenGL is not flagged")
+
+    c = client(["SDL3 OpenGL window created", WINDOW_FALLBACK], code=-9)
+    code = c.quit()
+    expect(int(code) == -9, "a killed client that fell back keeps its own code")
+    c.proc.returncode = h.ExitStatus(-9, "-9; killed after the 'quit' timeout of 45 s")
+    expect("timeout" in str(c.quit()), "the failing status keeps the kill reason")
+
+    for c in CLIENTS:
+        c.cleanup()
 
     if failures:
         print(f"FAIL: {len(failures)} check(s) failed")

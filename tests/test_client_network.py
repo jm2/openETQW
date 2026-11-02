@@ -91,8 +91,10 @@ class VulkanClient(h.DedicatedServer):
             return code
         name = getattr(self, "name", "the Vulkan client")
         print(f"FAIL: {name} was asked for Vulkan but ran on OpenGL: {fallback}")
-        raw = int(code) if code is not None else 0
-        return h.ExitStatus(raw or 1, f"{h.exit_status_text(raw)}, but it was asked for Vulkan and ran on OpenGL: {fallback}")
+        # a clean exit becomes 1; a crash or a kill keeps its code and its text
+        status = (int(code) if code is not None else 0) or 1
+        exited = str(code) if code is not None else "no exit status"
+        return h.ExitStatus(status, f"{status} (the process: {exited}; asked for Vulkan, it ran on OpenGL: {fallback})")
 
 
 def check_gui_updates(gfx, what, seconds=3.0, min_per_second=40.0):
