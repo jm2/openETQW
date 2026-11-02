@@ -5297,21 +5297,46 @@ bool CreateToolPipelines( sdVulkanBackendState& state ) {
 // postprocess/glow's passes (glow.frag, #233): one pipeline for the quarter-size
 // buffers, one for the screen.  No vertex input: glow.vert covers the target with
 // one triangle.  Missing pipelines leave the glow undrawn, as before.
+// The frame's last pass (#418): the glow's full-screen triangle, writing the
+// swapchain's alpha only, as 1. Lit world surfaces leave alpha 0 (the glow's
+// source weight); macOS fullscreen keeps the layer non-opaque (#385), and its
+// compositor then showed those surfaces black. Built on its own shaders, so a
+// failed glow shader doesn't take it away; pipelineInfo is the glow screen pass's.
+void CreateOpaqueAlphaPipeline( sdVulkanBackendState& state, VkGraphicsPipelineCreateInfo pipelineInfo,
+	VkPipelineShaderStageCreateInfo* shaderStages, VkPipelineColorBlendAttachmentState& blendAttachment ) {
+	VkShaderModule vertexModule = VK_NULL_HANDLE;
+	VkShaderModule fragmentModule = VK_NULL_HANDLE;
+	if ( CompileVulkanShaderModule( state, "vkprogs/gui/glow.vert",
+			SPIRV_SHADER_STAGE_VERTEX, vertexModule ) &&
+		CompileVulkanShaderModule( state, "vkprogs/gui/opaque_alpha.frag",
+			SPIRV_SHADER_STAGE_FRAGMENT, fragmentModule ) ) {
+		shaderStages[ 0 ].module = vertexModule;
+		shaderStages[ 1 ].module = fragmentModule;
+		blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_A_BIT;
+		CheckVulkanResult( state.CreateGraphicsPipelines( state.device, VK_NULL_HANDLE, 1,
+			&pipelineInfo, NULL, &state.opaqueAlphaPipeline ), "vkCreateGraphicsPipelines(opaque alpha)" );
+	} else {
+		common->Warning( "Vulkan: the opaque-alpha shaders failed; the swapchain keeps the scene's alpha" );
+	}
+	if ( vertexModule != VK_NULL_HANDLE ) {
+		state.DestroyShaderModule( state.device, vertexModule, NULL );
+	}
+	if ( fragmentModule != VK_NULL_HANDLE ) {
+		state.DestroyShaderModule( state.device, fragmentModule, NULL );
+	}
+}
+
 void CreateGlowPipelines( sdVulkanBackendState& state ) {
 	VkShaderModule vertexModule = VK_NULL_HANDLE;
 	VkShaderModule fragmentModule = VK_NULL_HANDLE;
-	if ( !CompileVulkanShaderModule( state, "vkprogs/gui/glow.vert",
-		SPIRV_SHADER_STAGE_VERTEX, vertexModule ) ||
-		!CompileVulkanShaderModule( state, "vkprogs/gui/glow.frag",
-			SPIRV_SHADER_STAGE_FRAGMENT, fragmentModule ) ) {
-		if ( vertexModule != VK_NULL_HANDLE ) {
-			state.DestroyShaderModule( state.device, vertexModule, NULL );
-		}
-		if ( fragmentModule != VK_NULL_HANDLE ) {
-			state.DestroyShaderModule( state.device, fragmentModule, NULL );
-		}
+	// a failed glow shader drops the glow only; the opaque-alpha pass below is
+	// built from its own modules
+	const bool glowShaders = CompileVulkanShaderModule( state, "vkprogs/gui/glow.vert",
+		SPIRV_SHADER_STAGE_VERTEX, vertexModule ) &&
+		CompileVulkanShaderModule( state, "vkprogs/gui/glow.frag",
+			SPIRV_SHADER_STAGE_FRAGMENT, fragmentModule );
+	if ( !glowShaders ) {
 		common->Warning( "Vulkan: the postprocess glow shaders failed; the glow is not drawn" );
-		return;
 	}
 	VkPipelineShaderStageCreateInfo shaderStages[ 2 ];
 	memset( shaderStages, 0, sizeof( shaderStages ) );
@@ -5387,8 +5412,10 @@ void CreateGlowPipelines( sdVulkanBackendState& state ) {
 	pipelineInfo.pDepthStencilState = &depthStencil;
 	pipelineInfo.pDynamicState = &dynamicState;
 	pipelineInfo.layout = state.guiPipelineLayout;
-	CheckVulkanResult( state.CreateGraphicsPipelines( state.device, VK_NULL_HANDLE, 1,
-		&pipelineInfo, NULL, &state.glowBufferPipeline ), "vkCreateGraphicsPipelines(glow buffer)" );
+	if ( glowShaders ) {
+		CheckVulkanResult( state.CreateGraphicsPipelines( state.device, VK_NULL_HANDLE, 1,
+			&pipelineInfo, NULL, &state.glowBufferPipeline ), "vkCreateGraphicsPipelines(glow buffer)" );
+	}
 	// the screen pass runs inside the swapchain rendering, so it names the depth
 	// and stencil formats too; it writes colour only, as the HUD draws over it
 	renderingInfo.pColorAttachmentFormats = &state.swapchainFormat;
@@ -5398,25 +5425,17 @@ void CreateGlowPipelines( sdVulkanBackendState& state ) {
 	renderingInfo.stencilAttachmentFormat = depthFormat;
 	blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT |
 		VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT;
-	CheckVulkanResult( state.CreateGraphicsPipelines( state.device, VK_NULL_HANDLE, 1,
-		&pipelineInfo, NULL, &state.glowScreenPipeline ), "vkCreateGraphicsPipelines(glow screen)" );
-	state.DestroyShaderModule( state.device, fragmentModule, NULL );
-	// The frame's last pass (#418): the same full-screen triangle, writing the
-	// swapchain's alpha only, as 1. Lit world surfaces leave alpha 0 (the glow's
-	// source weight); macOS fullscreen keeps the layer non-opaque (#385), and its
-	// compositor then showed those surfaces black.
-	fragmentModule = VK_NULL_HANDLE;
-	if ( CompileVulkanShaderModule( state, "vkprogs/gui/opaque_alpha.frag",
-			SPIRV_SHADER_STAGE_FRAGMENT, fragmentModule ) ) {
-		shaderStages[ 1 ].module = fragmentModule;
-		blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_A_BIT;
+	if ( glowShaders ) {
 		CheckVulkanResult( state.CreateGraphicsPipelines( state.device, VK_NULL_HANDLE, 1,
-			&pipelineInfo, NULL, &state.opaqueAlphaPipeline ), "vkCreateGraphicsPipelines(opaque alpha)" );
-		state.DestroyShaderModule( state.device, fragmentModule, NULL );
-	} else {
-		common->Warning( "Vulkan: the opaque-alpha shader failed; the swapchain keeps the scene's alpha" );
+			&pipelineInfo, NULL, &state.glowScreenPipeline ), "vkCreateGraphicsPipelines(glow screen)" );
 	}
-	state.DestroyShaderModule( state.device, vertexModule, NULL );
+	if ( fragmentModule != VK_NULL_HANDLE ) {
+		state.DestroyShaderModule( state.device, fragmentModule, NULL );
+	}
+	if ( vertexModule != VK_NULL_HANDLE ) {
+		state.DestroyShaderModule( state.device, vertexModule, NULL );
+	}
+	CreateOpaqueAlphaPipeline( state, pipelineInfo, shaderStages, blendAttachment );
 }
 
 // the GUI blends DrawGuiFan draws with, by drawStateBits & 0xFF; anything else
