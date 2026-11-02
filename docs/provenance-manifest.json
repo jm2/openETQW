@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5617,
+  "totalFiles": 5619,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 394
   },
   "postSplitCounts": {
-    "Reconstruction_original": 334,
+    "Reconstruction_original": 336,
     "ThirdParty": 1,
     "Retail_asset": 4,
     "Doom3_GPL": 2,
@@ -48705,6 +48705,18 @@
       "spdx": "GPL-3.0-or-later"
     },
     {
+      "path": "src/renderer/GuiStageColor.h",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "9e4767db618f853ed70fa87f8a8d94c95eb75fbb5cf78f4e95528f173bb1797d",
+      "canonicalSha256": "9e4767db618f853ed70fa87f8a8d94c95eb75fbb5cf78f4e95528f173bb1797d",
+      "bytes": 1516,
+      "addedAfterSplit": true,
+      "addedIn": "ab634b6fcf4dd56fc1dc2a51e8a1716b8b5003c3",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
       "path": "src/renderer/GuiTextLayout.cpp",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -49197,6 +49209,18 @@
       "spdx": "GPL-3.0-or-later"
     },
     {
+      "path": "tests/GuiStageColorTest.cpp",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "2f832edd3883ad17d10e9fefb9d0fc041e293c88c2d0814077dd357e163d058a",
+      "canonicalSha256": "2f832edd3883ad17d10e9fefb9d0fc041e293c88c2d0814077dd357e163d058a",
+      "bytes": 3192,
+      "addedAfterSplit": true,
+      "addedIn": "ab634b6fcf4dd56fc1dc2a51e8a1716b8b5003c3",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
       "path": "tests/GuiTextLayoutTest.cpp",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -49405,9 +49429,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "910db3b781ae2095f41821be83297fb5184fdc73df275294a42c63f59d3f052f",
-      "canonicalSha256": "910db3b781ae2095f41821be83297fb5184fdc73df275294a42c63f59d3f052f",
-      "bytes": 57624,
+      "rawSha256": "deb9ea1bf0ced7aab65bdc475e30399aab937bab5c0fdce2321f95ea3fc0beaa",
+      "canonicalSha256": "deb9ea1bf0ced7aab65bdc475e30399aab937bab5c0fdce2321f95ea3fc0beaa",
+      "bytes": 58234,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": "GPL-3.0-or-later"
