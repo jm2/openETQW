@@ -11,7 +11,7 @@
 
 void Sys_SDL_SetVideoHints( void );
 SDL_Window* Sys_GetGameSDLWindow( void );
-void Sys_StartSDLTextInput( void );
+void Sys_UpdateSDLTextInput( void );
 
 namespace {
 
@@ -190,8 +190,8 @@ public:
 		renderContext.Create( rcParms );
 
 		EnumerateMonitors();
-		// typed text reaches the engine only once text input is on (sdl_events.cpp)
-		Sys_StartSDLTextInput();
+		// typed text reaches the engine only while text input is on (sdl_events.cpp)
+		Sys_UpdateSDLTextInput();
 		// the game takes the mouse once its window is up, as on Windows (SystemBootstrap.cpp);
 		// it stays uncaptured while a menu cursor shows (idMouseSDL, #382)
 		if ( sys != NULL ) {
