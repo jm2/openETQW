@@ -740,6 +740,8 @@ struct sdVulkanBackendState {
 	VkDescriptorSet			glowDescriptorSets[ 4 ];
 	VkPipeline				glowBufferPipeline;
 	VkPipeline				glowScreenPipeline;
+	// the frame's last pass: swapchain alpha to 1, colour untouched (#418)
+	VkPipeline				opaqueAlphaPipeline;
 	const sdDeclAtmosphere*	glowAtmosphere;
 	VkPipeline				worldPipeline;
 	VkPipeline				worldDepthPipeline;
@@ -1023,6 +1025,7 @@ struct sdVulkanBackendState {
 		memset( glowDescriptorSets, 0, sizeof( glowDescriptorSets ) );
 		glowBufferPipeline = VK_NULL_HANDLE;
 		glowScreenPipeline = VK_NULL_HANDLE;
+		opaqueAlphaPipeline = VK_NULL_HANDLE;
 		glowAtmosphere = NULL;
 		worldPipeline = VK_NULL_HANDLE;
 		worldDepthPipeline = VK_NULL_HANDLE;
@@ -3994,6 +3997,10 @@ void DestroyGuiResources( sdVulkanBackendState& state ) {
 		state.DestroyPipeline( state.device, state.glowScreenPipeline, NULL );
 		state.glowScreenPipeline = VK_NULL_HANDLE;
 	}
+	if ( state.opaqueAlphaPipeline != VK_NULL_HANDLE ) {
+		state.DestroyPipeline( state.device, state.opaqueAlphaPipeline, NULL );
+		state.opaqueAlphaPipeline = VK_NULL_HANDLE;
+	}
 	if ( state.skyPipeline != VK_NULL_HANDLE ) {
 		state.DestroyPipeline( state.device, state.skyPipeline, NULL );
 		state.skyPipeline = VK_NULL_HANDLE;
@@ -5393,8 +5400,23 @@ void CreateGlowPipelines( sdVulkanBackendState& state ) {
 		VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT;
 	CheckVulkanResult( state.CreateGraphicsPipelines( state.device, VK_NULL_HANDLE, 1,
 		&pipelineInfo, NULL, &state.glowScreenPipeline ), "vkCreateGraphicsPipelines(glow screen)" );
-	state.DestroyShaderModule( state.device, vertexModule, NULL );
 	state.DestroyShaderModule( state.device, fragmentModule, NULL );
+	// The frame's last pass (#418): the same full-screen triangle, writing the
+	// swapchain's alpha only, as 1. Lit world surfaces leave alpha 0 (the glow's
+	// source weight); macOS fullscreen keeps the layer non-opaque (#385), and its
+	// compositor then showed those surfaces black.
+	fragmentModule = VK_NULL_HANDLE;
+	if ( CompileVulkanShaderModule( state, "vkprogs/gui/opaque_alpha.frag",
+			SPIRV_SHADER_STAGE_FRAGMENT, fragmentModule ) ) {
+		shaderStages[ 1 ].module = fragmentModule;
+		blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_A_BIT;
+		CheckVulkanResult( state.CreateGraphicsPipelines( state.device, VK_NULL_HANDLE, 1,
+			&pipelineInfo, NULL, &state.opaqueAlphaPipeline ), "vkCreateGraphicsPipelines(opaque alpha)" );
+		state.DestroyShaderModule( state.device, fragmentModule, NULL );
+	} else {
+		common->Warning( "Vulkan: the opaque-alpha shader failed; the swapchain keeps the scene's alpha" );
+	}
+	state.DestroyShaderModule( state.device, vertexModule, NULL );
 }
 
 // the GUI blends DrawGuiFan draws with, by drawStateBits & 0xFF; anything else
@@ -7874,6 +7896,24 @@ void sdVulkanBackend::EndFrame( bool ) {
 	bool screenshotRecorded = false;
 	{
 		RENDER_METRIC_SCOPE( "Vulkan finish command buffer" );
+		if ( state->opaqueAlphaPipeline != VK_NULL_HANDLE ) {
+			// alpha to 1 over the whole frame, after the glow and the GUI (#418)
+			VkViewport viewport;
+			viewport.x = 0.0f;
+			viewport.y = 0.0f;
+			viewport.width = static_cast< float >( state->extent.width );
+			viewport.height = static_cast< float >( state->extent.height );
+			viewport.minDepth = 0.0f;
+			viewport.maxDepth = 1.0f;
+			state->CmdSetViewport( frame.commandBuffer, 0, 1, &viewport );
+			VkRect2D scissor;
+			memset( &scissor, 0, sizeof( scissor ) );
+			scissor.extent = state->extent;
+			state->CmdSetScissor( frame.commandBuffer, 0, 1, &scissor );
+			state->CmdBindPipeline( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+				state->opaqueAlphaPipeline );
+			state->CmdDraw( frame.commandBuffer, 3, 1, 0, 0 );
+		}
 		state->CmdEndRendering( frame.commandBuffer );
 
 	// r_vkScreenshot: copy the finished frame to a host buffer before presenting it.
