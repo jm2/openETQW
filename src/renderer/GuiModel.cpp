@@ -11,6 +11,7 @@
 #include "GuiModel.h"
 #include "GuiFont.h"
 #include "GuiClip.h"
+#include "GuiStageColor.h"
 #include "DeviceContext.h"
 #include "Material.h"
 #include "Image.h"
@@ -914,25 +915,8 @@ void sdGuiModel::SubmitFrameVulkan() {
 			const byte* rgba = reinterpret_cast< const byte* >( &primitive.color );
 			const idVec4 vertexColor( rgba[ 0 ] / 255.0f, rgba[ 1 ] / 255.0f,
 				rgba[ 2 ] / 255.0f, rgba[ 3 ] / 255.0f );
-			switch ( stage->vertexColor ) {
-				case SVC_MODULATE:
-					stageColor.x *= vertexColor.x;
-					stageColor.y *= vertexColor.y;
-					stageColor.z *= vertexColor.z;
-					stageColor.w *= vertexColor.w;
-					break;
-				case SVC_MODULATE_ALPHA:
-					stageColor.w *= vertexColor.w;
-					break;
-				case SVC_INVERSE_MODULATE:
-					stageColor.x *= 1.0f - vertexColor.x;
-					stageColor.y *= 1.0f - vertexColor.y;
-					stageColor.z *= 1.0f - vertexColor.z;
-					stageColor.w *= 1.0f - vertexColor.w;
-					break;
-				default:
-					break;
-			}
+			stageColor = GuiStageColor( stageColor, stage->vertexColor, vertexColor,
+				stage->renderProgram != NULL && GuiStageUsesRawVertexColor( stage->renderProgram->GetName() ) );
 
 			sdVulkanGuiVertex vertices[ idWinding2D::MAX_POINTS ];
 			for ( int vertexIndex = 0; vertexIndex < primitive.numVerts; ++vertexIndex ) {
