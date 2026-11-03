@@ -39,7 +39,7 @@ stays as it is (`--validate` calls it).
 With no options:
 1. **Dependencies.** Checks the tools and libraries.
    - macOS: the Xcode command line tools, Python 3, Homebrew, and the formulae `meson ninja
-     pkgconf sdl3 vulkan-headers vulkan-loader molten-vk glslang`. Missing formulae are
+     pkgconf sdl3 vulkan-headers vulkan-loader mesa glslang`. Missing formulae are
      installed with `brew install`, as tributary does.
    - Linux: `c++`, `meson`, `ninja`, `pkg-config`, `glslangValidator`, and the pkg-config
      modules `sdl3`, `vulkan`, `zlib` and `gl` plus the Vulkan headers. It prints the

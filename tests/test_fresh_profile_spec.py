@@ -24,6 +24,12 @@ The Vulkan client then hosts valley three times on one profile:
      stays 2
   F4 "+safe" still skips the saved profile: the third start, on the same profile,
      logs no choice and has r_shaderQuality at its default, 0
+A fourth start on the same profile stays at the main menu, where the settings menu runs:
+  F5 the settings menu's overall preset, "setMachineSpec 0" and then 2, runs the
+     whole preset: com_machineSpec, the six com_last*Level values (lighting too),
+     r_shaderQuality and s_maxSoundsPerShader take the level's values, as on retail
+  F6 its Autodetect button, "setMachineSpec -1 detect", picks the preset as a fresh
+     profile does (2 on any current GPU)
 
 Usage: test_fresh_profile_spec.py [--client-binary PATH] [--port N] [--log-dir DIR]
 Exit status: 0 pass, 1 fail, 77 skip (no client binary or retail data).
@@ -42,6 +48,8 @@ import etqw_harness as h  # noqa: E402
 from test_campaign_client_maps import find_client  # noqa: E402
 from test_client_network import VulkanClient  # noqa: E402
 from test_reconnect_restart import Failed  # noqa: E402
+from test_remote_client_map_change import READY  # noqa: E402
+from test_vid_restart import MenuClient  # noqa: E402
 
 LEVELS = ("com_lastGraphicsLevel", "com_lastGraphicsDetailLevel", "com_lastCPULevel",
           "com_lastCPUDetailLevel", "com_lastFoliageLevel", "com_lastLightingLevel")
@@ -101,10 +109,10 @@ def main() -> int:
         print(f"[SKIP] {e}")
         return h.EXIT_SKIP
     h.install_signal_handlers()
-    logs = [None, None, None]
+    logs = [None, None, None, None]
     if args.log_dir:
         Path(args.log_dir).mkdir(parents=True, exist_ok=True)
-        logs = [Path(args.log_dir) / f"fresh-profile-spec-{i}.log" for i in (1, 2, 3)]
+        logs = [Path(args.log_dir) / f"fresh-profile-spec-{i}.log" for i in (1, 2, 3, 4)]
 
     failures: list[str] = []
 
@@ -131,6 +139,7 @@ def main() -> int:
             gfx.name = "VulkanClient"
             gfx.slot = 0
             # the starts share one profile, which the test's directory removes
+            h.remove_private_dir(gfx.savepath)
             gfx.savepath = profile
             gfx._own_savepath = False
             gfx.start()
@@ -195,6 +204,52 @@ def main() -> int:
             finally:
                 code = gfx.quit()
             expect(code == 0, f"the third client exits 0 (exit {code})")
+
+            print("4. the settings menu's overall preset, at the main menu")
+            # at the main menu, as the settings menu runs it: in a multiplayer game
+            # s_maxSoundsPerShader can't be changed
+            gfx = MenuClient(client, data, args.port, connect_to="unused", log_path=logs[3],
+                             cvars={"r_vkValidation": "0"})
+            gfx.name = "VulkanClient"
+            h.remove_private_dir(gfx.savepath)
+            gfx.savepath = profile
+            gfx._own_savepath = False
+            try:
+                gfx.start()
+                if not gfx.wait_for_text(READY, 180.0):
+                    raise Failed("the client never reached the main menu")
+                gfx.sync()
+                # the settings menu's overall preset and its Autodetect button
+                for level, quality, sounds, name, said_line in (
+                        ("0", "2", "3", "Low", "This system qualifies for Low quality."),
+                        ("2", "0", "0", "High", "This system qualifies for High quality!")):
+                    mark = gfx.mark()
+                    gfx.send(f"setMachineSpec {level}")
+                    gfx.sync()
+                    said = any(said_line in ln.text for ln in gfx.snapshot(mark))
+                    values = {n: cvar_value(gfx, n) for n in ("com_machineSpec", "r_shaderQuality",
+                                                               "s_maxSoundsPerShader") + LEVELS}
+                    expect(said and values["com_machineSpec"] == level and values["r_shaderQuality"] == quality
+                           and values["s_maxSoundsPerShader"] == sounds
+                           and all(values[n] == level for n in LEVELS),
+                           f"F5 setMachineSpec {level} runs the whole {name} preset, lighting included ({values})")
+                mark = gfx.mark()
+                gfx.send("setMachineSpec 0")
+                gfx.sync()
+                gfx.send("setMachineSpec -1 detect")
+                gfx.sync()
+                choice = [m for ln in gfx.snapshot(mark) if (m := CHOICE.search(ln.text))]
+                spec = cvar_value(gfx, "com_machineSpec")
+                listed = bool(choice) and choice[0].group(4) is None and bool(choice[0].group(2))
+                expect(len(choice) == 1 and (spec in ("0", "1", "2") if listed else spec == "2"),
+                       f"F6 setMachineSpec -1 detect picks the preset from the GPU "
+                       f"({[m.group(0) for m in choice]}, com_machineSpec {spec})")
+            except Failed as e:
+                failures.append(str(e))
+                print(f"FAIL: {e}")
+            finally:
+                code = gfx.quit()
+            expect(code == 0, f"the fourth client exits 0 (exit {code})")
 
     if failures:
         print(f"FAIL: {len(failures)} check(s) failed")

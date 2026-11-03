@@ -7,15 +7,18 @@ retail's material stage runs trivialMaskImage, which multiplies the outline by
 textures/common/cmmask at the draw's mask coordinates. sdGuiModel::ClipToMask
 cuts a masked draw only to the square where those coordinates are 0..1, so
 without the mask texture the outlines run out of the HUD minimap's circle into
-the square's corners (Vulkan).
+the square's corners (Vulkan). Under OpenGL the stage was not drawn at all: its Cg
+vertex program had no ARB port, and the GUI path passed no mask coordinates (#396).
 
-The Vulkan client hosts valley (objective rules), spawns a GDF soldier and takes
-a screenshot (r_vkScreenshot). The minimap is a circle of radius about 56 around
+The client hosts valley (objective rules), spawns a GDF soldier and takes a
+screenshot (r_vkScreenshot, which OpenGL also writes); --render-api opengl runs it
+on the OpenGL renderer. The minimap is a circle of radius about 56 around
 (576.75, 63) in the 640x480 GUI space. Territory outlines are the bright green of
 friendly territory (green at least 70, and at least 25 above red and 40 above
 blue); samples every half unit:
-  M1 inside the circle (radius below 0.95 of its own) at least 300 samples are
-     outline green: the HUD and its territories are drawn (main: about 1,700)
+  M1 inside the circle (radius below 0.95 of its own) at least 1,300 samples are
+     outline green: the HUD and its masked territory outlines are drawn (Vulkan:
+     about 1,660-1,700; OpenGL before #396, without the masked stage: about 920)
   M2 between the circle (radius above 1.08 of its own) and the square around it
      at most 15 samples are outline green (main: about 160)
   M3 there, at most 15 samples are near black (luminance below 12; none on main
@@ -25,6 +28,7 @@ The screenshot shows retail content and is deleted with the test's temporary
 directory.
 
 Usage: test_hud_minimap_mask.py [--client-binary PATH] [--port N] [--log-dir DIR] [--vk-validation]
+                               [--render-api vulkan|opengl]
 Exit status: 0 pass, 1 fail, 77 skip (no client binary or retail data).
 """
 
@@ -47,7 +51,7 @@ CENTRE = (576.75, 63.0)
 RADIUS = 56.0
 INSIDE = 0.95
 OUTSIDE = 1.08
-MIN_INSIDE = 300
+MIN_INSIDE = 1300
 MAX_OUTSIDE = 15
 DARK = 12.0
 MAX_DARK = 15
@@ -95,6 +99,7 @@ def main() -> int:
     ap.add_argument("--log-dir")
     ap.add_argument("--vk-validation", action="store_true",
                     help="run with the Vulkan validation layer (r_vkValidation 1)")
+    ap.add_argument("--render-api", choices=("vulkan", "opengl"), default="vulkan")
     args = ap.parse_args()
     try:
         client = find_client(args.client_binary)
@@ -106,7 +111,7 @@ def main() -> int:
     log = None
     if args.log_dir:
         Path(args.log_dir).mkdir(parents=True, exist_ok=True)
-        log = Path(args.log_dir) / "hud-minimap-mask.log"
+        log = Path(args.log_dir) / f"hud-minimap-mask-{args.render_api}.log"
 
     failures: list[str] = []
 
@@ -119,6 +124,7 @@ def main() -> int:
         shot = Path(tmp) / "hud.tga"
         gfx = VulkanClient(client, data, args.port, map_name="valley", log_path=log,
                            cvars={"si_rules": "sdGameRulesObjective",
+                                  "r_renderAPI": args.render_api,
                                   "r_vkValidation": "1" if args.vk_validation else "0"})
         gfx.name = "VulkanClient"
         gfx.slot = 0

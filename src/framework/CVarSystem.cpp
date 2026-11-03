@@ -63,6 +63,10 @@ private:
 	idStr					descriptionString;		// description
 	idStr					latchedString;			// applied by UpdateLatched
 	idList< idCVarCallback* > callbacks;
+	// the flags code gave the CVar (its registration, or a set with flags), without
+	// those seta, sets and setu add: UpdateCheat decides by these alone, so a command
+	// that archives a CVar can't make a cheat CVar changeable in multiplayer
+	int						codeFlags;
 
 	virtual void			InternalRegisterCallback( idCVarCallback* callback );
 	virtual void			InternalUnRegisterCallback( idCVarCallback* callback );
@@ -81,6 +85,7 @@ idInternalCVar::idInternalCVar
 ============
 */
 idInternalCVar::idInternalCVar( void ) {
+	codeFlags = 0;
 }
 
 /*
@@ -97,6 +102,7 @@ idInternalCVar::idInternalCVar( const char *newName, const char *newValue, int n
 	descriptionString = "";
 	description = descriptionString.c_str();
 	flags = ( newFlags & ~CVAR_STATIC ) | CVAR_MODIFIED;
+	codeFlags = newFlags & ~CVAR_STATIC;
 	valueMin = 1;
 	valueMax = -1;
 	valueStrings = NULL;
@@ -120,6 +126,7 @@ idInternalCVar::idInternalCVar( const idCVar *cvar ) {
 	descriptionString = cvar->GetDescription();
 	description = descriptionString.c_str();
 	flags = cvar->GetFlags() | CVAR_MODIFIED;
+	codeFlags = cvar->GetFlags();
 	valueMin = cvar->GetMinValue();
 	valueMax = cvar->GetMaxValue();
 	valueStrings = CopyValueStrings( cvar->GetValueStrings() );
@@ -211,6 +218,7 @@ void idInternalCVar::Update( const idCVar *cvar ) {
 	}
 
 	flags |= cvar->GetFlags();
+	codeFlags |= cvar->GetFlags();
 
 	UpdateCheat();
 
@@ -301,7 +309,7 @@ idInternalCVar::UpdateCheat
 */
 void idInternalCVar::UpdateCheat( void ) {
 	// all variables are considered cheats except for a few types
-	if ( flags & ( CVAR_NOCHEAT | CVAR_INIT | CVAR_ROM | CVAR_ARCHIVE | CVAR_USERINFO | CVAR_SERVERINFO | CVAR_NETWORKSYNC ) ) {
+	if ( codeFlags & ( CVAR_NOCHEAT | CVAR_INIT | CVAR_ROM | CVAR_ARCHIVE | CVAR_USERINFO | CVAR_SERVERINFO | CVAR_NETWORKSYNC ) ) {
 		flags &= ~CVAR_CHEAT;
 	} else {
 		flags |= CVAR_CHEAT;
@@ -702,6 +710,7 @@ void idCVarSystemLocal::SetInternal( const char *name, const char *value, int fl
 	if ( internal ) {
 		internal->InternalSetString( value, force, clearLatched );
 		internal->flags |= flags & ~CVAR_STATIC;
+		internal->codeFlags |= flags & ~CVAR_STATIC;
 		internal->UpdateCheat();
 	} else {
 		internal = new idInternalCVar( name, value, flags );
@@ -1206,10 +1215,10 @@ void idCVarSystemLocal::SetA_f( const idCmdArgs &args ) {
 		return;
 	}
 
-	// FIXME: enable this for ship, so mods can store extra data
-	// but during development we don't want obsolete cvars to continue
-	// to be saved
-//	cvar->flags |= CVAR_ARCHIVE;
+	// seta saves the CVar, registered or not, as retail 1.5 does: its presets
+	// (specs/*.dat) seta CVars that aren't registered as archived, and without
+	// this their values were lost on the next start
+	cvar->flags |= CVAR_ARCHIVE;
 }
 
 /*

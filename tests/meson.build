@@ -145,6 +145,16 @@ text_input_char_test = executable(
 )
 test('text-input-char', text_input_char_test, suite: 'unit', timeout: 30)
 
+# 5a2b. text input only while the console or a GUI edit box takes text, and the keys
+#       an input method's open composition owns (#394)
+text_input_focus_test = executable(
+  'openetqw-text-input-focus-test',
+  files('TextInputFocusTest.cpp'),
+  include_directories: [include_directories('../src/sys/sdl')],
+  install: false,
+)
+test('text-input-focus', text_input_focus_test, suite: 'unit', timeout: 30)
+
 # 5a3. the fullscreen chord: Alt+Return on Windows and Linux, Command+Return on macOS
 fullscreen_chord_test = executable(
   'openetqw-fullscreen-chord-test',
@@ -227,6 +237,19 @@ gui_clip_test = executable(
 )
 test('gui-clip', gui_clip_test, suite: 'unit', timeout: 30)
 
+# GUI stage colour (src/renderer/GuiStageColor.h): the trivial programs apply the
+# stage's vertexColor mode, and trivialMaskImage takes the draw's colour as it is (#398)
+gui_stage_color_test = executable(
+  'openetqw-gui-stage-color-test',
+  files('GuiStageColorTest.cpp'),
+  include_directories: engine_include_dirs + [include_directories('../src/renderer')],
+  cpp_args: common_engine_defs + ['-DID_DEDICATED'] + engine_pch_args,
+  dependencies: test_deps + [zlib_dep, threads_dep],
+  link_args: test_link_args,
+  install: false,
+)
+test('gui-stage-color', gui_stage_color_test, suite: 'unit', timeout: 30)
+
 # The r_mode table's modes the display lists are marked available, so the game's
 # fullscreen mode list is not empty (#383)
 video_mode_availability_test = executable(
@@ -272,6 +295,18 @@ machine_spec_test = executable(
   install: false,
 )
 test('machine-spec', machine_spec_test, suite: 'unit', timeout: 30)
+
+# reloadEngine's command line: the start's, without the game-starting commands (#420)
+reload_engine_test = executable(
+  'openetqw-reload-engine-test',
+  files('ReloadEngineTest.cpp'),
+  include_directories: engine_include_dirs + [include_directories('../src/framework')],
+  cpp_args: common_engine_defs + ['-DID_DEDICATED'] + engine_pch_args,
+  dependencies: test_deps + [zlib_dep, threads_dep],
+  link_args: test_link_args,
+  install: false,
+)
+test('reload-engine-args', reload_engine_test, suite: 'unit', timeout: 30)
 
 # Every package carries the licence texts (GPL, SDK EULA, third-party notices)
 test(
@@ -351,6 +386,15 @@ test(
   'harness-failure-markers',
   py,
   args: [meson.project_source_root() / 'tests' / 'test_harness_failure_markers.py'],
+  suite: 'unit',
+  timeout: 30,
+)
+
+# The Vulkan client tests fail when the client fell back to OpenGL (#414)
+test(
+  'vulkan-fallback-check',
+  py,
+  args: [meson.project_source_root() / 'tests' / 'test_vulkan_fallback_check.py'],
   suite: 'unit',
   timeout: 30,
 )
@@ -1255,6 +1299,40 @@ if build_engine and build_dedicated
     is_parallel: false,
   )
 
+  # a cheat CVar stays locked in a multiplayer game after seta, sets or setu
+  test(
+    'cheat-cvar-lock',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_cheat_cvar_lock.py',
+      '--client-binary', campaign_client,
+      '--port', '29929',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'cheat-cvar-lock',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 300,
+    is_parallel: false,
+  )
+
+  # reloadEngine starts the engine again at the main menu (#420)
+  test(
+    'reload-engine',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_reload_engine.py',
+      '--client-binary', campaign_client,
+      '--port', '29933',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'reload-engine',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 500,
+    is_parallel: false,
+  )
+
   # a decl index of -1 is "none" and is looked up without a warning (#377)
   test(
     'decl-index-none',
@@ -1331,6 +1409,24 @@ if build_engine and build_dedicated
       meson.project_source_root() / 'tests' / 'test_hud_minimap_mask.py',
       '--client-binary', campaign_client,
       '--port', '29919',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'hud-minimap-mask',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 400,
+    is_parallel: false,
+  )
+
+  # The same on the OpenGL renderer: the masked stage's ARB port and mask coordinates (#396)
+  test(
+    'hud-minimap-mask-gl',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_hud_minimap_mask.py',
+      '--client-binary', campaign_client,
+      '--port', '29923',
+      '--render-api', 'opengl',
       '--log-dir', meson.project_build_root() / 'meson-logs' / 'hud-minimap-mask',
     ],
     workdir: meson.project_source_root(),

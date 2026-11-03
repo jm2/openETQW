@@ -17,7 +17,7 @@
 # it an error.
 #
 # release-tools: also install what a package bundles, glslangValidator (the
-# engine compiles its SPIR-V at run time) and, on macOS, MoltenVK.
+# engine compiles its SPIR-V at run time) and, on macOS, the KosmicKrisp build tools (LLVM, SPIRV-LLVM-Translator, libclc, bison).
 
 name: Prepare openETQW build
 description: Fetch the companion, install Meson/Ninja and the platform build dependencies
@@ -56,7 +56,7 @@ inputs:
     description: SDL3 release tag built on Linux (Ubuntu 24.04 ships none)
     required: true
   release-tools:
-    description: "'true' also installs glslangValidator and, on macOS, MoltenVK"
+    description: "'true' also installs glslangValidator and, on macOS, KosmicKrisp's build tools"
     required: false
     default: "false"
 
@@ -136,7 +136,7 @@ runs:
         set -euo pipefail
         packages=(sdl3 vulkan-headers vulkan-loader)
         if [ "${RELEASE_TOOLS}" = "true" ]; then
-          packages+=(glslang molten-vk)
+          packages+=(glslang llvm spirv-llvm-translator libclc bison)
         fi
         brew install "${packages[@]}"
         prefix="$(brew --prefix)"

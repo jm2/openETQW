@@ -20,6 +20,8 @@
 
 #include <winsock2.h>
 #include <mswsock.h>
+#include <string>
+#include <vector>
 #include <timeapi.h>
 #include <direct.h>
 #include <io.h>
@@ -883,6 +885,63 @@ void Sys_Error( const char *error, ... ) {
 void Sys_Quit() {
 	fflush( NULL );
 	ExitProcess( 0 );
+}
+
+/*
+==================
+Sys_Relaunch
+
+reloadEngine (#420): the engine has shut down; start the same executable again with
+these arguments, each quoted for the new process's WinMain. Sys_Quit then ends this
+process. Returns whether or not the new process started.
+==================
+*/
+// each argument in double quotes, as the new process's WinMain splits its command line
+// with idCmdArgs::TokenizeString (an idLexer: a quoted string has no escapes, and an
+// unquoted // would start a comment). An argument holding a double quote can't be
+// passed and is left out
+static void Win_AppendQuotedArg( std::wstring& line, const std::wstring& arg ) {
+	if ( arg.find( L'"' ) != std::wstring::npos ) {
+		return;
+	}
+	line += L" \"";
+	line += arg;
+	line += L'"';
+}
+
+// the engine's strings on Windows are in the ANSI code page, as WinMain's command line is
+static std::wstring Win_WideFromACP( const char* text ) {
+	const int length = MultiByteToWideChar( CP_ACP, 0, text, -1, NULL, 0 );
+	if ( length <= 1 ) {
+		return std::wstring();
+	}
+	std::wstring wide( static_cast< size_t >( length - 1 ), L'\0' );
+	MultiByteToWideChar( CP_ACP, 0, text, -1, &wide[ 0 ], length );
+	return wide;
+}
+
+void Sys_Relaunch( const std::vector< std::string >& args ) {
+	wchar_t exe[ MAX_PATH * 4 ];
+	const DWORD length = GetModuleFileNameW( NULL, exe, static_cast< DWORD >( sizeof( exe ) / sizeof( exe[ 0 ] ) ) );
+	if ( length == 0 || length >= sizeof( exe ) / sizeof( exe[ 0 ] ) ) {
+		fprintf( stderr, "reloadEngine: the executable's path is unknown; quitting instead\n" );
+		return;
+	}
+	std::wstring line = L"\"";
+	line += exe;
+	line += L'"';
+	for ( size_t i = 0; i < args.size(); i++ ) {
+		Win_AppendQuotedArg( line, Win_WideFromACP( args[ i ].c_str() ) );
+	}
+	STARTUPINFOW startup = {};
+	startup.cb = sizeof( startup );
+	PROCESS_INFORMATION process = {};
+	if ( !CreateProcessW( exe, &line[ 0 ], NULL, NULL, FALSE, 0, NULL, NULL, &startup, &process ) ) {
+		fprintf( stderr, "reloadEngine: CreateProcess failed (%lu); quitting instead\n", GetLastError() );
+		return;
+	}
+	CloseHandle( process.hThread );
+	CloseHandle( process.hProcess );
 }
 
 bool Sys_AlreadyRunning() {
