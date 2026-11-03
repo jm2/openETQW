@@ -20,6 +20,8 @@
 #include <pthread.h>
 #include <signal.h>
 #include <atomic>
+#include <string>
+#include <vector>
 
 #if defined( __APPLE__ )
 #include <mach-o/dyld.h>
@@ -89,6 +91,45 @@ void Posix_SetExit( int ret ) {
 
 void Sys_Quit( void ) {
 	Posix_Exit( exitCode );
+}
+
+/*
+==================
+Sys_Relaunch
+
+reloadEngine (#420): the engine has shut down; the process becomes the same executable
+again, with these arguments. Exec keeps the process, so a launcher waiting on it (an
+AppImage's runtime, a terminal) keeps waiting. Returns only if the exec failed.
+==================
+*/
+void Sys_Relaunch( const std::vector< std::string >& args ) {
+	char exe[ MAX_OSPATH ];
+	exe[ 0 ] = '\0';
+#if defined( __APPLE__ )
+	char rawPath[ MAX_OSPATH ];
+	uint32_t size = sizeof( rawPath );
+	if ( _NSGetExecutablePath( rawPath, &size ) == 0 && realpath( rawPath, exe ) == NULL ) {
+		idStr::Copynz( exe, rawPath, sizeof( exe ) );
+	}
+#else
+	const ssize_t length = readlink( "/proc/self/exe", exe, sizeof( exe ) - 1 );
+	exe[ length > 0 && length < static_cast< ssize_t >( sizeof( exe ) - 1 ) ? length : 0 ] = '\0';
+#endif
+	if ( exe[ 0 ] == '\0' ) {
+		fprintf( stderr, "reloadEngine: the executable's path is unknown; quitting instead\n" );
+		return;
+	}
+	// std::vector, not idList: idLib's memory is shut down by now
+	std::vector< char* > argv;
+	argv.push_back( exe );
+	for ( size_t i = 0; i < args.size(); i++ ) {
+		argv.push_back( const_cast< char* >( args[ i ].c_str() ) );
+	}
+	argv.push_back( NULL );
+	Posix_Shutdown();
+	fflush( NULL );
+	execv( exe, argv.data() );
+	fprintf( stderr, "reloadEngine: exec %s failed: %s; quitting instead\n", exe, strerror( errno ) );
 }
 
 void Posix_QueEvent( sysEventType_t type, int value, int value2, int ptrLength, void *ptr ) {

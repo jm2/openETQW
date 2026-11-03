@@ -296,6 +296,18 @@ machine_spec_test = executable(
 )
 test('machine-spec', machine_spec_test, suite: 'unit', timeout: 30)
 
+# reloadEngine's command line: the start's, without the game-starting commands (#420)
+reload_engine_test = executable(
+  'openetqw-reload-engine-test',
+  files('ReloadEngineTest.cpp'),
+  include_directories: engine_include_dirs + [include_directories('../src/framework')],
+  cpp_args: common_engine_defs + ['-DID_DEDICATED'] + engine_pch_args,
+  dependencies: test_deps + [zlib_dep, threads_dep],
+  link_args: test_link_args,
+  install: false,
+)
+test('reload-engine-args', reload_engine_test, suite: 'unit', timeout: 30)
+
 # Every package carries the licence texts (GPL, SDK EULA, third-party notices)
 test(
   'install-licenses',
@@ -1279,6 +1291,40 @@ if build_engine and build_dedicated
       '--client-binary', campaign_client,
       '--port', '29906',
       '--log-dir', meson.project_build_root() / 'meson-logs' / 'text-input-x11',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 500,
+    is_parallel: false,
+  )
+
+  # a cheat CVar stays locked in a multiplayer game after seta, sets or setu
+  test(
+    'cheat-cvar-lock',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_cheat_cvar_lock.py',
+      '--client-binary', campaign_client,
+      '--port', '29929',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'cheat-cvar-lock',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 300,
+    is_parallel: false,
+  )
+
+  # reloadEngine starts the engine again at the main menu (#420)
+  test(
+    'reload-engine',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_reload_engine.py',
+      '--client-binary', campaign_client,
+      '--port', '29933',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'reload-engine',
     ],
     workdir: meson.project_source_root(),
     suite: ['client', 'integration'],
