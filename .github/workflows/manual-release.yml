@@ -306,6 +306,8 @@ jobs:
       - name: Build the macOS libraries (SDL3 and the Vulkan loader for macOS 11.0; SPIRV-Tools and KosmicKrisp for 26.0)
         if: matrix.platform == 'macos'
         run: |
+          # Mesa's build-host tools (prepare_macos_deps.py): not bundled, not pinned
+          brew install llvm spirv-llvm-translator libclc bison glslang
           python -m venv "${RUNNER_TEMP}/mesa-venv" && "${RUNNER_TEMP}/mesa-venv/bin/pip" install --quiet packaging mako pyyaml
           python tools/build/prepare_macos_deps.py --arch arm64 --prefix "${RUNNER_TEMP}/macos-deps" --mesa-python "${RUNNER_TEMP}/mesa-venv/bin/python"
 
