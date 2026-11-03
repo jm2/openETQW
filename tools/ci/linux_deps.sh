@@ -136,6 +136,10 @@ if [[ "${target_arch}" == arm64 ]]; then
   )
   export PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig
 fi
+# SDL_RPATH=OFF: otherwise sdl3.pc carries -Wl,-rpath,<prefix>/lib, which the client
+# links with and `meson install` keeps, so a package would name this CI prefix
+# in its RUNPATH. The build tree still finds SDL3 (Meson adds its own build-only
+# entry, and LD_LIBRARY_PATH is exported below).
 cmake -S "${src}/SDL" -B "${src}/build" -G Ninja ${cross_args[@]+"${cross_args[@]}"} \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="${prefix}" \
@@ -143,7 +147,8 @@ cmake -S "${src}/SDL" -B "${src}/build" -G Ninja ${cross_args[@]+"${cross_args[@
   -DSDL_SHARED=ON \
   -DSDL_STATIC=OFF \
   -DSDL_TESTS=OFF \
-  -DSDL_EXAMPLES=OFF
+  -DSDL_EXAMPLES=OFF \
+  -DSDL_RPATH=OFF
 cmake --build "${src}/build"
 cmake --install "${src}/build"
 rm -rf "${src}"
