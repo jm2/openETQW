@@ -256,6 +256,32 @@ def test_package_release(tmp: Path) -> None:
         check(False, "bundling without every licence text fails")
     except package.PackageError as error:
         check("SDL3" in str(error) and "zlib" in str(error), "bundling without every licence text fails")
+    # a packaged Linux binary's RUNPATH is $ORIGIN alone: v0.1.0's first cut named the
+    # CI's SDL3 prefix after it (sdl3.pc's -Wl,-rpath), which meson install keeps
+    released = "0x000000000000001d (RUNPATH)            Library runpath: [$ORIGIN:/home/runner/work/_temp/sdl3/lib]"
+    check(package.linux_runpath(released) == ["$ORIGIN", "/home/runner/work/_temp/sdl3/lib"], "RUNPATH entries are read from readelf -d")
+    try:
+        package.check_linux_runpath("openETQW-client_x64", released)
+        check(False, "a RUNPATH naming a build-host directory is rejected")
+    except package.PackageError as error:
+        check("/home/runner/work/_temp/sdl3/lib" in str(error), "a RUNPATH naming a build-host directory is rejected")
+    old_style = "0x000000000000000f (RPATH)              Library rpath: [$ORIGIN:/opt/sdl3/lib]"
+    check(package.linux_runpath(old_style) == ["$ORIGIN", "/opt/sdl3/lib"], "an old-style RPATH is read too")
+    try:
+        package.check_linux_runpath("openETQW-client_x64", old_style)
+        check(False, "an RPATH naming a build-host directory is rejected")
+    except package.PackageError as error:
+        check("/opt/sdl3/lib" in str(error), "an RPATH naming a build-host directory is rejected")
+    try:
+        package.check_linux_runpath("openETQW-client_x64", "0x0000000000000001 (NEEDED)  Shared library: [libSDL3.so.0]")
+        check(False, "a binary without $ORIGIN RUNPATH is rejected")
+    except package.PackageError as error:
+        check("no $ORIGIN" in str(error), "a binary without $ORIGIN RUNPATH is rejected")
+    try:
+        package.check_linux_runpath("openETQW-client_x64", "0x000000000000001d (RUNPATH)  Library runpath: [$ORIGIN]")
+        check(True, "a $ORIGIN-only RUNPATH is accepted")
+    except package.PackageError as error:
+        check(False, f"a $ORIGIN-only RUNPATH is accepted ({error})")
     # macOS packages are arm64 only (the owner dropped macOS x64, 2026-09-30)
     completed = subprocess.run([sys.executable, str(ROOT / "tools" / "build" / "package_release.py"), "--platform", "macos",
                                 "--arch", "x64", "--install-dir", str(tmp), "--version-tag", "1.2.3", "--output-dir",

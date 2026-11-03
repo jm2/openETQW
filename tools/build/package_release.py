@@ -272,6 +272,27 @@ def split_debug(binary: Path, debug_root: Path, objcopy: str) -> None:
     os.chmod(debug_file, 0o644)
 
 
+def linux_runpath(readelf_dynamic: str) -> list[str]:
+    """The RUNPATH (or RPATH) entries in `readelf -dW` output."""
+    entries: list[str] = []
+    for line in readelf_dynamic.splitlines():
+        match = re.search(r"\((?:RUNPATH|RPATH)\)\s+Library r(?:un)?path: \[(.*)\]", line)
+        if match:
+            entries += [entry for entry in match.group(1).split(":") if entry]
+    return entries
+
+
+def check_linux_runpath(name: str, readelf_dynamic: str) -> None:
+    """A packaged binary looks for libraries beside itself only: an absolute entry
+    (the build host's SDL3 prefix, say) would name a path from the build machine."""
+    entries = linux_runpath(readelf_dynamic)
+    if "$ORIGIN" not in entries:
+        raise PackageError(f"{name} has no $ORIGIN RUNPATH, so it would not find the bundled SDL3 (meson.build install_rpath)")
+    others = [entry for entry in entries if entry != "$ORIGIN"]
+    if others:
+        raise PackageError(f"{name} has RUNPATH entries other than $ORIGIN: {':'.join(others)} (a build-host path; tools/ci/linux_deps.sh builds SDL3 with SDL_RPATH=OFF)")
+
+
 def package_linux(args, install: Path, work: Path, licenses: dict[str, Path], sources: dict[str, str]) -> dict[str, str]:
     arch = args.arch
     top = f"{ASSET_PREFIX}-{args.version_tag}-linux-{arch}"
@@ -280,9 +301,8 @@ def package_linux(args, install: Path, work: Path, licenses: dict[str, Path], so
     debug.mkdir(parents=True)
     copy_tree(install, package)
     client = package / f"openETQW-client_{arch}"
-    runpath = run(["readelf", "-dW", str(client)], capture=True)
-    if "$ORIGIN" not in runpath:
-        raise PackageError(f"{client.name} has no $ORIGIN RUNPATH, so it would not find the bundled SDL3 (meson.build install_rpath)")
+    for binary in [client, package / f"openETQW-ded_{arch}"]:
+        check_linux_runpath(binary.name, run(["readelf", "-dW", str(binary)], capture=True))
     sdl3 = args.linux_sdl3 or linux_needed_library(install / client.name, "libSDL3.so.0")
     copy_file(sdl3, package / "libSDL3.so.0", 0o644)
     copy_file(args.glslang_dir / "glslangValidator", package / "glslangValidator", 0o755)
