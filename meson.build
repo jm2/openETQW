@@ -435,7 +435,7 @@ if build_engine
     # macOS: the renderer reaches Vulkan only through SDL_Vulkan_LoadLibrary
     # (VK_NO_PROTOTYPES), so b_asneeded's -dead_strip_dylibs would drop the
     # loader. Keep it linked: a package bundles it (package_release.py refuses a
-    # client without it), and it finds the bundled MoltenVK through the ICD manifest
+    # client without it), and it finds the bundled KosmicKrisp through the ICD manifest
     override_options: host_system == 'darwin' ? ['b_asneeded=false'] : [],
     install: true,
     install_dir: install_root,
@@ -602,13 +602,25 @@ endif
 # does the same for scripts run by hand. (macOS saves under ~/Library/Application
 # Support, as it did before the installed-engine paths.)
 test_home = meson.project_build_root() / 'test-home'
+isolated_test_env = {
+  'OPENETQW_TEST_HOME': test_home,
+  'XDG_DATA_HOME': test_home / 'xdg-data',
+  'LOCALAPPDATA': test_home / 'localappdata',
+}
+# macOS: the Vulkan driver is the KosmicKrisp in the dependency prefix the loader
+# came from (tools/build/prepare_macos_deps.py). The app finds it through its
+# bundled manifest; a client run from this build directory would otherwise get
+# whatever the loader's search turns up, such as a Homebrew Mesa with no Metal
+# surface, and fall back to OpenGL (#421).
+if host_system == 'darwin' and is_variable('vulkan_dep') and vulkan_dep.found() and vulkan_dep.type_name() == 'pkgconfig'
+  kosmickrisp_icd = vulkan_dep.get_variable(pkgconfig: 'libdir') / '..' / 'share' / 'vulkan' / 'icd.d' / 'kosmickrisp_mesa_icd.aarch64.json'
+  if fs_mod.is_file(kosmickrisp_icd)
+    isolated_test_env += {'VK_DRIVER_FILES': kosmickrisp_icd}
+  endif
+endif
 add_test_setup(
   'isolated',
-  env: {
-    'OPENETQW_TEST_HOME': test_home,
-    'XDG_DATA_HOME': test_home / 'xdg-data',
-    'LOCALAPPDATA': test_home / 'localappdata',
-  },
+  env: isolated_test_env,
   is_default: true,
 )
 

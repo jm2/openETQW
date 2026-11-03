@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # macOS Sanitizer (manual; as openQ4's macos-sanitizer.yml, one build: Vulkan
-# on MoltenVK). The game and the engine built with AddressSanitizer and
+# on KosmicKrisp). The game and the engine built with AddressSanitizer and
 # UndefinedBehaviorSanitizer through the 'push' profile of
 # tools/validation/openetqw_validate.py: the unit suite and the assetless
 # dedicated-server smoke run instrumented, and the staged binaries are checked
@@ -35,7 +35,7 @@ env:
 
 jobs:
   macos-sanitizer:
-    name: macOS ${{ matrix.arch }} ASan+UBSan (Vulkan/MoltenVK)
+    name: macOS ${{ matrix.arch }} ASan+UBSan (Vulkan/KosmicKrisp)
     runs-on: macos-26  # macOS is arm64 only (owner, 2026-09-30)
     timeout-minutes: 150
     strategy:

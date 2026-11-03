@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # macOS Debug (manual; as openQ4's macos-debug.yml, with one build: the Vulkan
-# renderer on MoltenVK over Metal, which is the default on every platform).
+# renderer on KosmicKrisp over Metal, which is the default on every platform).
 # A debug build of the game and the engine through the 'push' profile of
 # tools/validation/openetqw_validate.py (unit suite, integration skips, install,
 # staged-payload checks, dedicated-server smoke), plus host diagnostics and, on
-# request, a MoltenVK capability probe (vulkaninfo). The staged debug payload
+# request, a KosmicKrisp capability probe (vulkaninfo). The staged debug payload
 # is published for symbolicating reports from macOS testers.
 #
 # Evidence scope: a hosted build and assetless checks only, never a gameplay
@@ -16,8 +16,8 @@ name: macOS Debug
 on:
   workflow_dispatch:
     inputs:
-      moltenvk_probe:
-        description: "Run vulkaninfo against MoltenVK on the runner (best effort: a hosted runner may have no usable Metal device)"
+      vulkan_probe:
+        description: "Run vulkaninfo against Homebrew's KosmicKrisp on the runner (best effort: a hosted runner may have no usable Metal device)"
         required: true
         default: false
         type: boolean
@@ -48,7 +48,7 @@ env:
 
 jobs:
   macos-debug:
-    name: macOS ${{ matrix.arch }} Debug (Vulkan/MoltenVK)
+    name: macOS ${{ matrix.arch }} Debug (Vulkan/KosmicKrisp)
     runs-on: macos-26  # macOS is arm64 only (owner, 2026-09-30)
     timeout-minutes: 120
     strategy:
@@ -116,15 +116,15 @@ jobs:
         if: steps.prepare.outputs.available == 'true'
         run: python tools/validation/openetqw_validate.py push --build-dir build --buildtype debug
 
-      - name: MoltenVK capability probe
-        if: steps.prepare.outputs.available == 'true' && inputs.moltenvk_probe
+      - name: KosmicKrisp capability probe
+        if: steps.prepare.outputs.available == 'true' && inputs.vulkan_probe
         continue-on-error: true
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
         run: |
           set -euo pipefail
-          brew install vulkan-tools
-          icd="$(brew --prefix molten-vk)/etc/vulkan/icd.d/MoltenVK_icd.json"
+          brew install vulkan-tools mesa
+          icd="$(ls "$(brew --prefix mesa)"/share/vulkan/icd.d/kosmickrisp_mesa_icd*.json)"
           VK_ICD_FILENAMES="${icd}" vulkaninfo --summary 2>&1 | tee .tmp/macos-debug/vulkaninfo-summary.txt
           VK_ICD_FILENAMES="${icd}" vulkaninfo > .tmp/macos-debug/vulkaninfo.txt 2>&1 || true
 

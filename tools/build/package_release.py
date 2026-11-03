@@ -7,7 +7,8 @@ base/vkprogs, base/glprogs and licenses/; tools/validation/openetqw_validate.py 
 and makes the package users download. Plays the role of openQ4's
 tools/build/package_nightly.py (jm2/openQ4 b37b1456), written for openETQW's
 single Vulkan-first build: one package per platform and architecture, and one
-macOS build (Vulkan on MoltenVK), not an OpenGL/Metal pair.
+macOS build (Vulkan on Mesa's KosmicKrisp, OpenGL where it cannot start), not an
+OpenGL/Metal pair.
 
 Every package carries:
   - the engine client and dedicated server and the game module;
@@ -17,7 +18,7 @@ Every package carries:
     renderer finds it through the executable's directory;
   - the libraries the engine links that a user's system may lack, next to the
     engine (Linux: SDL3; Windows: SDL3, zlib and, with --windows-crt-dir, the
-    MSVC runtime; macOS: SDL3, the Vulkan loader and MoltenVK in the bundle);
+    MSVC runtime; macOS: SDL3, the Vulkan loader and KosmicKrisp in the bundle);
   - licenses/: the texts staged by meson install, plus one per bundled
     third-party binary (--license NAME=FILE); a bundled binary without a
     licence text fails the package;
@@ -73,7 +74,7 @@ TAG_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?$")
 BUNDLE_LICENSES = {
     "linux": ["glslang", "SDL3"],
     "windows": ["glslang", "SDL3", "zlib"],
-    "macos": ["glslang", "SDL3", "Vulkan-Loader", "MoltenVK"],
+    "macos": ["glslang", "SDL3", "Vulkan-Loader", "SPIRV-Tools", "Mesa"],
 }
 
 
@@ -409,8 +410,16 @@ def version_tuple(value: str) -> tuple[int, ...]:
     return tuple(int(part) for part in value.split("."))
 
 
+# The Vulkan driver and what only it links need Metal 4 (macOS 26). The loader opens
+# the driver at run time; on an older macOS it fails to load and the engine starts
+# on OpenGL, so they may need a newer macOS than the app.
+MACOS_DRIVER_MIN_OS = "26.0"
+MACOS_DRIVER_IMAGES = ("libvulkan_kosmickrisp.dylib", "libSPIRV-Tools.dylib")
+
+
 def check_bundle(app: Path) -> None:
-    """Every Mach-O in the app resolves its libraries inside it and runs on MACOS_MIN_OS."""
+    """Every Mach-O in the app resolves its libraries inside it and runs on MACOS_MIN_OS
+    (the Vulkan driver's images on MACOS_DRIVER_MIN_OS)."""
     frameworks = app / "Contents" / "Frameworks"
     images = sorted(p for d in (app / "Contents" / "MacOS", frameworks) for p in d.iterdir() if p.is_file())
     problems = []
@@ -429,8 +438,9 @@ def check_bundle(app: Path) -> None:
                 problems.append(f"{image.name} needs {reference}, outside the app")
         commands = run(["otool", "-arch", "all", "-l", str(image)], capture=True)
         minos = {line.split()[1] for line in commands.splitlines() if line.strip().startswith("minos ")}
-        if not minos or any(version_tuple(v) > version_tuple(MACOS_MIN_OS) for v in minos):
-            problems.append(f"{image.name} needs macOS {sorted(minos) or 'unknown'}, above {MACOS_MIN_OS}")
+        floor = MACOS_DRIVER_MIN_OS if image.name in MACOS_DRIVER_IMAGES else MACOS_MIN_OS
+        if not minos or any(version_tuple(v) > version_tuple(floor) for v in minos):
+            problems.append(f"{image.name} needs macOS {sorted(minos) or 'unknown'}, above {floor}")
     if problems:
         raise PackageError("the app bundle is not self-contained:\n  " + "\n  ".join(problems))
 
@@ -486,25 +496,35 @@ def package_macos(args, install: Path, work: Path, licenses: dict[str, Path], so
             if not rpath.startswith(("@executable_path", "@loader_path")):
                 run(["install_name_tool", "-delete_rpath", rpath, str(image)])
     if not any(name.startswith("libvulkan") for name in bundled):
-        raise PackageError("the client does not link the Vulkan loader; nothing would load MoltenVK")
+        raise PackageError("the client does not link the Vulkan loader; nothing would load KosmicKrisp")
 
-    # MoltenVK is a loader driver: the Vulkan loader finds it through the bundle's ICD manifest
-    if not args.macos_moltenvk:
-        raise PackageError("--macos-moltenvk is required (libMoltenVK.dylib)")
-    copy_file(args.macos_moltenvk, frameworks / "libMoltenVK.dylib", 0o755)
-    run(["install_name_tool", "-id", "@rpath/libMoltenVK.dylib", str(frameworks / "libMoltenVK.dylib")])
-    icd = resources / "vulkan" / "icd.d" / "MoltenVK_icd.json"
+    # Mesa's KosmicKrisp is the Vulkan driver (#417: about 3x MoltenVK's frame rate on
+    # an M1 Max; MoltenVK dropped, owner 2026-11-02). It is a loader driver: the Vulkan
+    # loader finds it through the bundle's ICD manifest, Mesa's own with the library
+    # path pointed into Frameworks. It needs Metal 4 (macOS 26); on an older macOS it
+    # does not load and the engine starts on OpenGL.
+    if not args.macos_kosmickrisp:
+        raise PackageError("--macos-kosmickrisp is required (libvulkan_kosmickrisp.dylib)")
+    driver = args.macos_kosmickrisp.resolve()
+    manifests = sorted((driver.parent.parent / "share" / "vulkan" / "icd.d").glob("kosmickrisp_mesa_icd*.json"))
+    if len(manifests) != 1:
+        raise PackageError(f"expected one KosmicKrisp ICD manifest beside {driver}, found {len(manifests)}")
+    manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
+    copy_file(driver, frameworks / driver.name, 0o755)
+    run(["install_name_tool", "-id", f"@rpath/{driver.name}", str(frameworks / driver.name)])
+    manifest["ICD"]["library_path"] = f"../../../Frameworks/{driver.name}"
+    icd = resources / "vulkan" / "icd.d" / "kosmickrisp_mesa_icd.json"
     icd.parent.mkdir(parents=True)
-    icd.write_text(json.dumps({
-        "file_format_version": "1.0.0",
-        "ICD": {
-            "library_path": "../../../Frameworks/libMoltenVK.dylib",
-            "api_version": "1.3.0",
-            "is_portability_driver": True,
-        },
-    }, indent=4) + "\n", encoding="utf-8")
-    for extra in bundle_macos_dependencies([frameworks / "libMoltenVK.dylib"], frameworks, lib_dirs):
-        log(f"MoltenVK needs {extra}")
+    icd.write_text(json.dumps(manifest, indent=4) + "\n", encoding="utf-8")
+    driver_images = [frameworks / driver.name]
+    for extra in bundle_macos_dependencies([frameworks / driver.name], frameworks, lib_dirs):
+        log(f"KosmicKrisp needs {extra}")
+        driver_images.append(frameworks / extra)
+    # as for the client's images above: no build-host library directory ships
+    for image in driver_images:
+        for rpath in sorted(set(macho_rpaths(image))):
+            if not rpath.startswith(("@executable_path", "@loader_path")):
+                run(["install_name_tool", "-delete_rpath", rpath, str(image)])
     check_bundle(app)
     for resource in (SPLASH, MACOS_ICON):
         if not (resources / resource).is_file():
@@ -592,7 +612,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--objcopy", default=None)
     parser.add_argument("--windows-crt-dir", type=Path, default=None, help="Microsoft.VC14x.CRT directory to bundle app-locally")
     parser.add_argument("--extra-pdb", type=Path, action="append", default=[], help="Windows: another PDB for the -pdb.zip")
-    parser.add_argument("--macos-moltenvk", type=Path, default=None, help="libMoltenVK.dylib to bundle")
+    parser.add_argument("--macos-kosmickrisp", type=Path, default=None,
+                        help="Mesa's libvulkan_kosmickrisp.dylib to bundle (its ICD manifest from <prefix>/share/vulkan/icd.d)")
     parser.add_argument("--macos-lib-dir", type=Path, action="append", default=[],
                         help="where @rpath libraries the staged engine names are found (prepare_macos_deps.py's <prefix>/lib)")
     parser.add_argument("--macos-sign-identity", default="-", help="codesign identity (default '-': ad hoc)")
