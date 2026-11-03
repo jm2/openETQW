@@ -28,6 +28,7 @@
 #include "NotificationSystem.h"
 #include "Session_local.h"
 #include "MachineSpec.h"
+#include "ReloadEngine.h"
 #include "../decllib/declLocStr.h"
 #include "../renderer/DeviceContext.h"
 #include "../renderer/FrameSyncTiming.h"
@@ -199,6 +200,18 @@ idGameEdit* gameEdit = NULL;
 
 static idCmdArgs com_consoleLines[ MAX_CONSOLE_LINES ];
 static int com_numConsoleLines;
+// the command line as the engine started with it, for reloadEngine to start it again
+static idStrList com_launchArgs;
+// set by reloadEngine: Quit starts the engine again with these arguments
+static bool com_relaunch = false;
+static bool com_relaunchResetConfigs = false;
+static idStrList com_relaunchArgs;
+
+// starts the running executable again with these arguments after the engine has shut
+// down, in place of exiting; returns only if it could not (src/sys/posix/posix_main.cpp,
+// src/sys/win32/SystemBootstrap.cpp). The arguments are std::strings: Shutdown frees
+// idStr's memory
+void Sys_Relaunch( const std::vector< std::string >& args );
 
 /*
 ==================
@@ -695,6 +708,12 @@ void idCommonLocal::ParseCommandLine( int argc, const char** argv ) {
 		com_consoleLines[ i ].Clear();
 	}
 	com_numConsoleLines = 0;
+	com_launchArgs.Clear();
+	for ( int arg = 0; arg < argc; ++arg ) {
+		if ( argv[ arg ] != NULL ) {
+			com_launchArgs.Append( argv[ arg ] );
+		}
+	}
 	for ( int arg = 0; arg < argc && com_numConsoleLines < MAX_CONSOLE_LINES; ++arg ) {
 		const char* value = argv[ arg ];
 		if ( value == NULL ) {
@@ -811,6 +830,13 @@ void idCommonLocal::WriteConfigToFile( const char* filename, bool writeBindings,
 
 void idCommonLocal::WriteConfiguration() {
 	if ( !com_fullyInitialized || cvarSystem == NULL || fileSystem == NULL ) {
+		return;
+	}
+	if ( com_relaunchResetConfigs ) {
+		// reloadEngine resetConfigs: the next start has no saved settings; the
+		// bindings are kept
+		WriteConfigToFile( BINDING_FILE, true, false );
+		fileSystem->RemoveFile( CONFIG_FILE );
 		return;
 	}
 	if ( ( cvarSystem->GetModifiedFlags() & CVAR_ARCHIVE ) == 0 ) {
@@ -1322,6 +1348,46 @@ static void Com_Help_f( const idCmdArgs& ) {
 	common->Printf( "  quit         - shutdown and exit server\n" );
 }
 
+/*
+==================
+Com_ReloadEngine_f
+
+reloadEngine [resetConfigs] [menu]: the settings menu's "restart required" Yes, its
+restore-defaults path and the mod chooser (retail's guis/mainmenu, #420). Retail 1.5
+restarts the engine in place; openETQW shuts down as quit does and starts the
+executable again with the same command line (owner decision, 2026-11-02, ledger 085).
+"menu" leaves out the command line's commands that start or join a game, so it comes
+back at the main menu; "resetConfigs" drops the saved settings (etqwconfig.cfg), so it
+starts as a fresh profile. The mod chooser's fs_game is passed on.
+==================
+*/
+static void Com_ReloadEngine_f( const idCmdArgs& args ) {
+	bool resetConfigs = false;
+	bool menu = false;
+	for ( int i = 1; i < args.Argc(); i++ ) {
+		if ( idStr::Icmp( args.Argv( i ), "resetConfigs" ) == 0 ) {
+			resetConfigs = true;
+		} else if ( idStr::Icmp( args.Argv( i ), "menu" ) == 0 ) {
+			menu = true;
+		}
+	}
+	if ( !menu && !resetConfigs ) {
+		// a bare reloadEngine is the game's SetupReloadEngine, for a map or campaign in
+		// an addon pack not referenced yet: retail reloads in place and then runs the map
+		// change (PostReloadEngine). A new run of the executable would lose both and find
+		// the pack unreferenced again, so it would restart without end; addon maps are
+		// not supported yet, and the map change is left undone, as before
+		common->Warning( "reloadEngine: a map from an addon pack needs an in-place engine reload, which openETQW doesn't have yet; the map change is ignored" );
+		return;
+	}
+	Sys_ReloadEngineArgs( com_launchArgs, menu, cvarSystem->GetCVarString( "fs_game" ), com_relaunchArgs );
+	common->Printf( "reloadEngine: starting the engine again%s%s\n", menu ? ", at the main menu" : "",
+		resetConfigs ? ", without the saved settings" : "" );
+	com_relaunchResetConfigs = resetConfigs;
+	com_relaunch = true;
+	cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "quit\n" );
+}
+
 static void Com_WriteConfig_f( const idCmdArgs& args ) {
 	if ( args.Argc() != 2 ) {
 		common->Printf( "Usage: writeConfig <filename>\n" );
@@ -1358,6 +1424,7 @@ void idCommonLocal::InitCommands() {
 	cmdSystem->AddCommand( "status", Com_Status_f, CMD_FL_SYSTEM, "displays server status" );
 	cmdSystem->AddCommand( "help", Com_Help_f, CMD_FL_SYSTEM, "displays commonly used commands" );
 	cmdSystem->AddCommand( "writeConfig", Com_WriteConfig_f, CMD_FL_SYSTEM, "writes a configuration file" );
+	cmdSystem->AddCommand( "reloadEngine", Com_ReloadEngine_f, CMD_FL_SYSTEM, "restarts the engine: reloadEngine [resetConfigs] [menu]" );
 	cmdSystem->AddCommand( "setMachineSpec", idCommonLocal::SetMachineSpec_f, CMD_FL_SYSTEM, "sets the graphics preset: 0 low, 1 normal, 2 high, or detect it from the GPU" );
 	cmdSystem->AddCommand( "listModes", Com_ListModes_f, CMD_FL_RENDERER, "lists video modes" );
 #ifdef ETQW_WITH_RADIANT
@@ -1860,7 +1927,14 @@ void idCommonLocal::Shutdown() {
 
 void idCommonLocal::Quit() {
 	if ( com_errorEntered == ERP_NONE ) {
+		std::vector< std::string > relaunchArgs;
+		for ( int i = 0; com_relaunch && i < com_relaunchArgs.Num(); i++ ) {
+			relaunchArgs.push_back( com_relaunchArgs[ i ].c_str() );
+		}
 		Shutdown();
+		if ( com_relaunch ) {
+			Sys_Relaunch( relaunchArgs );
+		}
 	}
 	Sys_Quit();
 }
