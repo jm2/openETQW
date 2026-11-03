@@ -12,8 +12,8 @@
 #             stamped in, and packages with tools/build/package_release.py:
 #               Windows  zip + Inno Setup installer
 #               Linux    tar.xz + split debug symbols + AppImage
-#               macOS    openETQW.app with SDL3, the Vulkan loader and KosmicKrisp built
-#                        for macOS 11.0 (tools/build/prepare_macos_deps.py): a
+#               macOS    openETQW.app with SDL3 and the Vulkan loader built for macOS
+#                        11.0 and KosmicKrisp for 26.0 (tools/build/prepare_macos_deps.py): a
 #                        Developer ID signed, notarized DMG when the six Apple
 #                        secrets are set, else an ad hoc signed tar.gz
 #   release   the exact asset set checked (tools/build/verify_release_asset_set.py),

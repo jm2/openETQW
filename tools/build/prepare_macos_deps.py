@@ -189,7 +189,7 @@ def check_output(prefix: Path, arch: str) -> None:
         reference = line.split()[0]
         if Path(reference).name == "libvulkan_kosmickrisp.dylib":
             continue  # its own install name
-        if not reference.startswith(("/usr/lib/", "/System/", "@rpath/", str(prefix), str(prefix.resolve()))):
+        if not reference.startswith(("/usr/lib/", "/System/", "@rpath/", f"{prefix}/", f"{prefix.resolve()}/")):
             raise SystemExit(f"prepare_macos_deps: KosmicKrisp links {reference}, outside {prefix}")
     if len(list((prefix / "share" / "vulkan" / "icd.d").glob("kosmickrisp_mesa_icd*.json"))) != 1:
         raise SystemExit(f"prepare_macos_deps: no KosmicKrisp ICD manifest in {prefix}/share/vulkan/icd.d")

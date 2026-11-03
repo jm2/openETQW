@@ -71,7 +71,7 @@ and one text per bundled binary) and a README.
 |---|---|---|
 | Windows x64, ARM64 | `openetqw-<v>-windows-<arch>.zip`, `openetqw-<v>-windows-<arch>-setup.exe` (Inno Setup, per-user install) | SDL3, zlib, the MSVC runtime |
 | Linux x64, ARM64 | `openetqw-<v>-linux-<arch>.tar.xz`, `-debug.tar.xz` (split symbols), `openetqw-<v>-<x86_64\|aarch64>.AppImage` | SDL3 (the rest is the system's: Vulkan, OpenGL, zlib) |
-| macOS arm64 | `openetqw-<v>-macos-arm64.dmg` when signed and notarized, else `openetqw-<v>-macos-arm64-unsigned.tar.gz` | SDL3 and the Vulkan loader for macOS 11.0, and the Vulkan driver, Mesa's KosmicKrisp with its SPIRV-Tools, for macOS 26.0 (it needs Metal 4; on an older macOS the engine starts on OpenGL), all built from pinned sources (`tools/build/prepare_macos_deps.py`; MoltenVK stays at 1.4.1, whose dylib runs on 11.0, where 1.4.2's needs 12.0); the packager checks that every library the app names is inside it and runs on 11.0 |
+| macOS arm64 | `openetqw-<v>-macos-arm64.dmg` when signed and notarized, else `openetqw-<v>-macos-arm64-unsigned.tar.gz` | SDL3 and the Vulkan loader for macOS 11.0, and the Vulkan driver, Mesa's KosmicKrisp with its SPIRV-Tools, for macOS 26.0 (it needs Metal 4; on an older macOS the engine starts on OpenGL), all built from pinned sources (`tools/build/prepare_macos_deps.py`); the packager checks that every library the app names is inside it and runs on 11.0, the driver and its SPIRV-Tools on 26.0 |
 
 macOS is arm64 only: the owner dropped macOS x64 on 2026-09-30, and the universal2 candidate workflow and its assembler went with it. The macOS app is `openETQW.app` in the self-contained layout the engine expects
 (`OpenETQWRuntimeLayout` = `self-contained-v1`): the engine's content in

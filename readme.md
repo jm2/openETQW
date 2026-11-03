@@ -149,7 +149,7 @@ and macOS asks for Local Network access the first time.
 
 ### Renderers
 
-**Vulkan is the default and the one to use** (MoltenVK on macOS). **OpenGL is a fallback**
+**Vulkan is the default and the one to use** (Mesa's KosmicKrisp on macOS). **OpenGL is a fallback**
 (`+set r_renderAPI opengl`) for systems where Vulkan doesn't work. Some of the original
 effects, such as smoke and the vision enhancer, were written for NVIDIA's Cg, which has no
 runtime on 64-bit systems, so OpenGL leaves them out. The sky, atmosphere, grass and
@@ -174,7 +174,7 @@ warns you; add `--sync-game` to do it.
 ### macOS
 
 You need the Xcode command line tools, Python 3 and these Homebrew packages: `meson`,
-`ninja`, `pkgconf`, `sdl3`, `vulkan-headers`, `vulkan-loader`, `molten-vk`. Clone both
+`ninja`, `pkgconf`, `sdl3`, `vulkan-headers`, `vulkan-loader`, `mesa` (its KosmicKrisp Vulkan driver). Clone both
 repositories side by side (or set `OPENETQW_GAME_REPO`).
 
 ```sh

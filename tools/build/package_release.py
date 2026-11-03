@@ -516,8 +516,15 @@ def package_macos(args, install: Path, work: Path, licenses: dict[str, Path], so
     icd = resources / "vulkan" / "icd.d" / "kosmickrisp_mesa_icd.json"
     icd.parent.mkdir(parents=True)
     icd.write_text(json.dumps(manifest, indent=4) + "\n", encoding="utf-8")
+    driver_images = [frameworks / driver.name]
     for extra in bundle_macos_dependencies([frameworks / driver.name], frameworks, lib_dirs):
         log(f"KosmicKrisp needs {extra}")
+        driver_images.append(frameworks / extra)
+    # as for the client's images above: no build-host library directory ships
+    for image in driver_images:
+        for rpath in sorted(set(macho_rpaths(image))):
+            if not rpath.startswith(("@executable_path", "@loader_path")):
+                run(["install_name_tool", "-delete_rpath", rpath, str(image)])
     check_bundle(app)
     for resource in (SPLASH, MACOS_ICON):
         if not (resources / resource).is_file():

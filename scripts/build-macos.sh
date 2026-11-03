@@ -16,7 +16,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/build-common.sh"
 
 # Homebrew formulae: the build tools, the client's libraries, and glslang, whose
 # glslangValidator the client runs to compile its Vulkan shaders.
-BREW_FORMULAE=(meson ninja pkgconf sdl3 vulkan-headers vulkan-loader molten-vk glslang)
+BREW_FORMULAE=(meson ninja pkgconf sdl3 vulkan-headers vulkan-loader mesa glslang)
 
 platform_check_deps() {
   [[ "$(uname -s)" == Darwin ]] || error "This is the macOS helper; on Linux use scripts/build-linux.sh"
