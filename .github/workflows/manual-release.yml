@@ -307,7 +307,7 @@ jobs:
         if: matrix.platform == 'macos'
         run: |
           # Mesa's build-host tools (prepare_macos_deps.py): not bundled, not pinned
-          brew install llvm spirv-llvm-translator libclc bison glslang
+          brew install llvm spirv-llvm-translator bison flex libelf glslang pkgconf
           python -m venv "${RUNNER_TEMP}/mesa-venv" && "${RUNNER_TEMP}/mesa-venv/bin/pip" install --quiet packaging mako pyyaml
           python tools/build/prepare_macos_deps.py --arch arm64 --prefix "${RUNNER_TEMP}/macos-deps" --mesa-python "${RUNNER_TEMP}/mesa-venv/bin/python"
 
