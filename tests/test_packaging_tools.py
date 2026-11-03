@@ -265,6 +265,13 @@ def test_package_release(tmp: Path) -> None:
         check(False, "a RUNPATH naming a build-host directory is rejected")
     except package.PackageError as error:
         check("/home/runner/work/_temp/sdl3/lib" in str(error), "a RUNPATH naming a build-host directory is rejected")
+    old_style = "0x000000000000000f (RPATH)              Library rpath: [$ORIGIN:/opt/sdl3/lib]"
+    check(package.linux_runpath(old_style) == ["$ORIGIN", "/opt/sdl3/lib"], "an old-style RPATH is read too")
+    try:
+        package.check_linux_runpath("openETQW-client_x64", old_style)
+        check(False, "an RPATH naming a build-host directory is rejected")
+    except package.PackageError as error:
+        check("/opt/sdl3/lib" in str(error), "an RPATH naming a build-host directory is rejected")
     try:
         package.check_linux_runpath("openETQW-client_x64", "0x0000000000000001 (NEEDED)  Shared library: [libSDL3.so.0]")
         check(False, "a binary without $ORIGIN RUNPATH is rejected")
