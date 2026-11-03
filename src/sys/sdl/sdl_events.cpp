@@ -12,6 +12,9 @@
 #include "TextInputFocus.h"
 
 SDL_Window* Sys_GetGameSDLWindow( void );
+#ifdef __APPLE__
+void Sys_KeepFullscreenComposited( void ); // macosx_sdl3.cpp (#385)
+#endif
 
 /*
 SDL3 sends SDL_EVENT_TEXT_INPUT only for a window that has called SDL_StartTextInput,
@@ -454,4 +457,7 @@ void Sys_ProcessSDLEvents( void ) {
 				break;
 		}
 	}
+#ifdef __APPLE__
+	Sys_KeepFullscreenComposited();
+#endif
 }

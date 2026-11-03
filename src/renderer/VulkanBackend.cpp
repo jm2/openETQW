@@ -39,6 +39,10 @@
 
 #include "draw_raytracing.h"
 
+#ifdef __APPLE__
+void Sys_KeepFullscreenComposited( void ); // sys/osx/macosx_sdl3.cpp (#385)
+#endif
+
 #include <atomic>
 #include <chrono>
 #include <deque>
@@ -736,6 +740,8 @@ struct sdVulkanBackendState {
 	VkDescriptorSet			glowDescriptorSets[ 4 ];
 	VkPipeline				glowBufferPipeline;
 	VkPipeline				glowScreenPipeline;
+	// the frame's last pass: swapchain alpha to 1, colour untouched (#418)
+	VkPipeline				opaqueAlphaPipeline;
 	const sdDeclAtmosphere*	glowAtmosphere;
 	VkPipeline				worldPipeline;
 	VkPipeline				worldDepthPipeline;
@@ -1019,6 +1025,7 @@ struct sdVulkanBackendState {
 		memset( glowDescriptorSets, 0, sizeof( glowDescriptorSets ) );
 		glowBufferPipeline = VK_NULL_HANDLE;
 		glowScreenPipeline = VK_NULL_HANDLE;
+		opaqueAlphaPipeline = VK_NULL_HANDLE;
 		glowAtmosphere = NULL;
 		worldPipeline = VK_NULL_HANDLE;
 		worldDepthPipeline = VK_NULL_HANDLE;
@@ -2354,6 +2361,12 @@ bool CreateSwapchain( sdVulkanBackendState& state, int requestedWidth,
 		NULL, &newSwapchain ), "vkCreateSwapchainKHR" ) ) {
 		return false;
 	}
+#ifdef __APPLE__
+	// MoltenVK makes the layer opaque again with each new swapchain; in
+	// fullscreen that would let macOS scan it straight to the display, which
+	// shows black (#385). Restore it now rather than at the next event pump.
+	Sys_KeepFullscreenComposited();
+#endif
 	unsigned int newImageCount = 0;
 	state.GetSwapchainImagesKHR( state.device, newSwapchain, &newImageCount, NULL );
 	idList< VkImage > newImages;
@@ -3984,6 +3997,10 @@ void DestroyGuiResources( sdVulkanBackendState& state ) {
 		state.DestroyPipeline( state.device, state.glowScreenPipeline, NULL );
 		state.glowScreenPipeline = VK_NULL_HANDLE;
 	}
+	if ( state.opaqueAlphaPipeline != VK_NULL_HANDLE ) {
+		state.DestroyPipeline( state.device, state.opaqueAlphaPipeline, NULL );
+		state.opaqueAlphaPipeline = VK_NULL_HANDLE;
+	}
 	if ( state.skyPipeline != VK_NULL_HANDLE ) {
 		state.DestroyPipeline( state.device, state.skyPipeline, NULL );
 		state.skyPipeline = VK_NULL_HANDLE;
@@ -5280,21 +5297,46 @@ bool CreateToolPipelines( sdVulkanBackendState& state ) {
 // postprocess/glow's passes (glow.frag, #233): one pipeline for the quarter-size
 // buffers, one for the screen.  No vertex input: glow.vert covers the target with
 // one triangle.  Missing pipelines leave the glow undrawn, as before.
+// The frame's last pass (#418): the glow's full-screen triangle, writing the
+// swapchain's alpha only, as 1. Lit world surfaces leave alpha 0 (the glow's
+// source weight); macOS fullscreen keeps the layer non-opaque (#385), and its
+// compositor then showed those surfaces black. Built on its own shaders, so a
+// failed glow shader doesn't take it away; pipelineInfo is the glow screen pass's.
+void CreateOpaqueAlphaPipeline( sdVulkanBackendState& state, VkGraphicsPipelineCreateInfo pipelineInfo,
+	VkPipelineShaderStageCreateInfo* shaderStages, VkPipelineColorBlendAttachmentState& blendAttachment ) {
+	VkShaderModule vertexModule = VK_NULL_HANDLE;
+	VkShaderModule fragmentModule = VK_NULL_HANDLE;
+	if ( CompileVulkanShaderModule( state, "vkprogs/gui/glow.vert",
+			SPIRV_SHADER_STAGE_VERTEX, vertexModule ) &&
+		CompileVulkanShaderModule( state, "vkprogs/gui/opaque_alpha.frag",
+			SPIRV_SHADER_STAGE_FRAGMENT, fragmentModule ) ) {
+		shaderStages[ 0 ].module = vertexModule;
+		shaderStages[ 1 ].module = fragmentModule;
+		blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_A_BIT;
+		CheckVulkanResult( state.CreateGraphicsPipelines( state.device, VK_NULL_HANDLE, 1,
+			&pipelineInfo, NULL, &state.opaqueAlphaPipeline ), "vkCreateGraphicsPipelines(opaque alpha)" );
+	} else {
+		common->Warning( "Vulkan: the opaque-alpha shaders failed; the swapchain keeps the scene's alpha" );
+	}
+	if ( vertexModule != VK_NULL_HANDLE ) {
+		state.DestroyShaderModule( state.device, vertexModule, NULL );
+	}
+	if ( fragmentModule != VK_NULL_HANDLE ) {
+		state.DestroyShaderModule( state.device, fragmentModule, NULL );
+	}
+}
+
 void CreateGlowPipelines( sdVulkanBackendState& state ) {
 	VkShaderModule vertexModule = VK_NULL_HANDLE;
 	VkShaderModule fragmentModule = VK_NULL_HANDLE;
-	if ( !CompileVulkanShaderModule( state, "vkprogs/gui/glow.vert",
-		SPIRV_SHADER_STAGE_VERTEX, vertexModule ) ||
-		!CompileVulkanShaderModule( state, "vkprogs/gui/glow.frag",
-			SPIRV_SHADER_STAGE_FRAGMENT, fragmentModule ) ) {
-		if ( vertexModule != VK_NULL_HANDLE ) {
-			state.DestroyShaderModule( state.device, vertexModule, NULL );
-		}
-		if ( fragmentModule != VK_NULL_HANDLE ) {
-			state.DestroyShaderModule( state.device, fragmentModule, NULL );
-		}
+	// a failed glow shader drops the glow only; the opaque-alpha pass below is
+	// built from its own modules
+	const bool glowShaders = CompileVulkanShaderModule( state, "vkprogs/gui/glow.vert",
+		SPIRV_SHADER_STAGE_VERTEX, vertexModule ) &&
+		CompileVulkanShaderModule( state, "vkprogs/gui/glow.frag",
+			SPIRV_SHADER_STAGE_FRAGMENT, fragmentModule );
+	if ( !glowShaders ) {
 		common->Warning( "Vulkan: the postprocess glow shaders failed; the glow is not drawn" );
-		return;
 	}
 	VkPipelineShaderStageCreateInfo shaderStages[ 2 ];
 	memset( shaderStages, 0, sizeof( shaderStages ) );
@@ -5370,8 +5412,10 @@ void CreateGlowPipelines( sdVulkanBackendState& state ) {
 	pipelineInfo.pDepthStencilState = &depthStencil;
 	pipelineInfo.pDynamicState = &dynamicState;
 	pipelineInfo.layout = state.guiPipelineLayout;
-	CheckVulkanResult( state.CreateGraphicsPipelines( state.device, VK_NULL_HANDLE, 1,
-		&pipelineInfo, NULL, &state.glowBufferPipeline ), "vkCreateGraphicsPipelines(glow buffer)" );
+	if ( glowShaders ) {
+		CheckVulkanResult( state.CreateGraphicsPipelines( state.device, VK_NULL_HANDLE, 1,
+			&pipelineInfo, NULL, &state.glowBufferPipeline ), "vkCreateGraphicsPipelines(glow buffer)" );
+	}
 	// the screen pass runs inside the swapchain rendering, so it names the depth
 	// and stencil formats too; it writes colour only, as the HUD draws over it
 	renderingInfo.pColorAttachmentFormats = &state.swapchainFormat;
@@ -5381,10 +5425,17 @@ void CreateGlowPipelines( sdVulkanBackendState& state ) {
 	renderingInfo.stencilAttachmentFormat = depthFormat;
 	blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT |
 		VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT;
-	CheckVulkanResult( state.CreateGraphicsPipelines( state.device, VK_NULL_HANDLE, 1,
-		&pipelineInfo, NULL, &state.glowScreenPipeline ), "vkCreateGraphicsPipelines(glow screen)" );
-	state.DestroyShaderModule( state.device, vertexModule, NULL );
-	state.DestroyShaderModule( state.device, fragmentModule, NULL );
+	if ( glowShaders ) {
+		CheckVulkanResult( state.CreateGraphicsPipelines( state.device, VK_NULL_HANDLE, 1,
+			&pipelineInfo, NULL, &state.glowScreenPipeline ), "vkCreateGraphicsPipelines(glow screen)" );
+	}
+	if ( fragmentModule != VK_NULL_HANDLE ) {
+		state.DestroyShaderModule( state.device, fragmentModule, NULL );
+	}
+	if ( vertexModule != VK_NULL_HANDLE ) {
+		state.DestroyShaderModule( state.device, vertexModule, NULL );
+	}
+	CreateOpaqueAlphaPipeline( state, pipelineInfo, shaderStages, blendAttachment );
 }
 
 // the GUI blends DrawGuiFan draws with, by drawStateBits & 0xFF; anything else
@@ -7864,6 +7915,24 @@ void sdVulkanBackend::EndFrame( bool ) {
 	bool screenshotRecorded = false;
 	{
 		RENDER_METRIC_SCOPE( "Vulkan finish command buffer" );
+		if ( state->opaqueAlphaPipeline != VK_NULL_HANDLE ) {
+			// alpha to 1 over the whole frame, after the glow and the GUI (#418)
+			VkViewport viewport;
+			viewport.x = 0.0f;
+			viewport.y = 0.0f;
+			viewport.width = static_cast< float >( state->extent.width );
+			viewport.height = static_cast< float >( state->extent.height );
+			viewport.minDepth = 0.0f;
+			viewport.maxDepth = 1.0f;
+			state->CmdSetViewport( frame.commandBuffer, 0, 1, &viewport );
+			VkRect2D scissor;
+			memset( &scissor, 0, sizeof( scissor ) );
+			scissor.extent = state->extent;
+			state->CmdSetScissor( frame.commandBuffer, 0, 1, &scissor );
+			state->CmdBindPipeline( frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+				state->opaqueAlphaPipeline );
+			state->CmdDraw( frame.commandBuffer, 3, 1, 0, 0 );
+		}
 		state->CmdEndRendering( frame.commandBuffer );
 
 	// r_vkScreenshot: copy the finished frame to a host buffer before presenting it.
