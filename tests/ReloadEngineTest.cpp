@@ -67,9 +67,12 @@ int main() {
 		"+connect 127.0.0.1:27733 +exec autoexec.cfg +set fs_game mymod",
 		va( "without menu the game-starting commands stay; the mod chooser's fs_game wins (%s)", Join( out ).c_str() ) );
 
-	static const char* const lead[] = { "-psn_0_1234", "+devmap", "valley", "+seta", "fs_game", "x", NULL };
+	static const char* const lead[] = { "ETQW", "-psn_0_1234", "+devmap", "valley", "+seta", "fs_game", "x",
+		"+reloadEngine", "menu", "+set", "r_mode", "3", NULL };
 	Sys_ReloadEngineArgs( Args( lead ), true, "", out );
-	Expect( Join( out ) == "-psn_0_1234", va( "arguments before the first + stay; no fs_game, none added (%s)", Join( out ).c_str() ) );
+	Expect( Join( out ) == "+set r_mode 3",
+		va( "arguments before the first + and the command line's own reloadEngine are left out; no fs_game, none added (%s)",
+			Join( out ).c_str() ) );
 
 	Expect( Sys_IsGameStartCommand( "SPAWNSERVER" ) && Sys_IsGameStartCommand( "connect" ) &&
 		Sys_IsGameStartCommand( "devmap" ) && !Sys_IsGameStartCommand( "exec" ) && !Sys_IsGameStartCommand( "set" ),

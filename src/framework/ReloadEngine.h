@@ -6,7 +6,8 @@
 The command line reloadEngine starts the engine again with (#420): the one it started
 with. With "menu" (the settings menu and the mod chooser pass it) the commands that
 start or join a game are left out, so the engine comes back at the main menu. fs_game,
-which the mod chooser sets just before, is passed on.
+which the mod chooser sets just before, is passed on. The command line's own
+reloadEngine, if any, is left out, or the engine would restart without end.
 */
 
 // true for a command-line command that starts or joins a game
@@ -22,6 +23,11 @@ inline bool Sys_IsGameStartCommand( const char* command ) {
 	return false;
 }
 
+// true for a command line's own reloadEngine, which would restart without end
+inline bool Sys_IsReloadEngineCommand( const char* command ) {
+	return idStr::Icmp( command, "reloadEngine" ) == 0;
+}
+
 // true for a command line's "+set fs_game x" (or seta, sets, setu)
 inline bool Sys_IsFsGameSet( const idStrList& line ) {
 	return line.Num() >= 2 && idStr::Icmpn( line[ 0 ], "set", 3 ) == 0 && line[ 0 ].Length() <= 4 &&
@@ -30,10 +36,10 @@ inline bool Sys_IsFsGameSet( const idStrList& line ) {
 
 inline void Sys_ReloadEngineArgs( const idStrList& launchArgs, bool menu, const char* fsGame, idStrList& out ) {
 	out.Clear();
-	// split into the command line's commands: each starts at a "+"; anything before the
-	// first one stays as it is
+	// split into the command line's commands: each starts at a "+". Anything before the
+	// first one is left out: it is no command (Windows' WinMain passes the game's name
+	// there when the command line is empty, macOS a -psn_ argument)
 	idList< idStrList > lines;
-	idStrList leading;
 	for ( int i = 0; i < launchArgs.Num(); i++ ) {
 		const idStr& arg = launchArgs[ i ];
 		if ( arg.Length() > 0 && arg[ 0 ] == '+' ) {
@@ -42,11 +48,8 @@ inline void Sys_ReloadEngineArgs( const idStrList& launchArgs, bool menu, const 
 			lines.Append( line );
 		} else if ( lines.Num() > 0 ) {
 			lines[ lines.Num() - 1 ].Append( arg );
-		} else {
-			leading.Append( arg );
 		}
 	}
-	out = leading;
 	for ( int i = 0; i < lines.Num(); i++ ) {
 		const idStrList& line = lines[ i ];
 		if ( line.Num() == 0 ) {
@@ -55,7 +58,7 @@ inline void Sys_ReloadEngineArgs( const idStrList& launchArgs, bool menu, const 
 		if ( menu && Sys_IsGameStartCommand( line[ 0 ] ) ) {
 			continue;
 		}
-		if ( Sys_IsFsGameSet( line ) ) {
+		if ( Sys_IsFsGameSet( line ) || Sys_IsReloadEngineCommand( line[ 0 ] ) ) {
 			continue;
 		}
 		out.Append( "+" + line[ 0 ] );

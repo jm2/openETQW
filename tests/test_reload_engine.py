@@ -13,6 +13,9 @@ console stay. On Windows it starts a new process, which this test can't follow: 
 there (exit 77).
 
 The Vulkan client hosts valley with +set ui_name on its command line:
+  R0 a bare "reloadEngine", which the game's SetupReloadEngine sends for a map in an
+     addon pack not referenced yet, is ignored with a warning: a new run would find the
+     pack unreferenced again and restart without end
   R1 "reloadEngine menu" shuts the engine down and starts it again: the process
      prints the start-up banner a second time, and the second start doesn't load
      valley (the command line's +spawnServer is left out)
@@ -96,6 +99,14 @@ def main() -> int:
         gfx.sync()
         gfx.send("seta com_showFPS 1")
         gfx.sync()
+
+        print("0. a bare reloadEngine (the game's SetupReloadEngine, for an addon map)")
+        mark = gfx.mark()
+        gfx.send("reloadEngine")
+        gfx.sync()
+        lines = [ln.text for ln in gfx.snapshot(mark)]
+        expect(any("the map change is ignored" in t for t in lines) and not any(READY in t for t in lines),
+               "R0 a bare reloadEngine is ignored with a warning: no restart, which would not end")
 
         print("1. reloadEngine menu")
         mark = gfx.mark()

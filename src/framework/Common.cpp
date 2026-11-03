@@ -1370,6 +1370,15 @@ static void Com_ReloadEngine_f( const idCmdArgs& args ) {
 			menu = true;
 		}
 	}
+	if ( !menu && !resetConfigs ) {
+		// a bare reloadEngine is the game's SetupReloadEngine, for a map or campaign in
+		// an addon pack not referenced yet: retail reloads in place and then runs the map
+		// change (PostReloadEngine). A new run of the executable would lose both and find
+		// the pack unreferenced again, so it would restart without end; addon maps are
+		// not supported yet, and the map change is left undone, as before
+		common->Warning( "reloadEngine: a map from an addon pack needs an in-place engine reload, which openETQW doesn't have yet; the map change is ignored" );
+		return;
+	}
 	Sys_ReloadEngineArgs( com_launchArgs, menu, cvarSystem->GetCVarString( "fs_game" ), com_relaunchArgs );
 	common->Printf( "reloadEngine: starting the engine again%s%s\n", menu ? ", at the main menu" : "",
 		resetConfigs ? ", without the saved settings" : "" );

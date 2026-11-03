@@ -892,44 +892,31 @@ void Sys_Quit() {
 Sys_Relaunch
 
 reloadEngine (#420): the engine has shut down; start the same executable again with
-these arguments, quoted as CommandLineToArgvW reads them. Sys_Quit then ends this
+these arguments, each quoted for the new process's WinMain. Sys_Quit then ends this
 process. Returns whether or not the new process started.
 ==================
 */
+// each argument in double quotes, as the new process's WinMain splits its command line
+// with idCmdArgs::TokenizeString (an idLexer: a quoted string has no escapes, and an
+// unquoted // would start a comment). An argument holding a double quote can't be
+// passed and is left out
 static void Win_AppendQuotedArg( std::wstring& line, const std::wstring& arg ) {
-	line += L' ';
-	if ( !arg.empty() && arg.find_first_of( L" \t\n\v\"" ) == std::wstring::npos ) {
-		line += arg;
+	if ( arg.find( L'"' ) != std::wstring::npos ) {
 		return;
 	}
-	line += L'"';
-	for ( size_t i = 0; ; i++ ) {
-		size_t backslashes = 0;
-		while ( i < arg.size() && arg[ i ] == L'\\' ) {
-			i++;
-			backslashes++;
-		}
-		if ( i == arg.size() ) {
-			line.append( backslashes * 2, L'\\' );
-			break;
-		}
-		if ( arg[ i ] == L'"' ) {
-			line.append( backslashes * 2 + 1, L'\\' );
-		} else {
-			line.append( backslashes, L'\\' );
-		}
-		line += arg[ i ];
-	}
+	line += L" \"";
+	line += arg;
 	line += L'"';
 }
 
-static std::wstring Win_WideFromUTF8( const char* text ) {
-	const int length = MultiByteToWideChar( CP_UTF8, 0, text, -1, NULL, 0 );
+// the engine's strings on Windows are in the ANSI code page, as WinMain's command line is
+static std::wstring Win_WideFromACP( const char* text ) {
+	const int length = MultiByteToWideChar( CP_ACP, 0, text, -1, NULL, 0 );
 	if ( length <= 1 ) {
 		return std::wstring();
 	}
 	std::wstring wide( static_cast< size_t >( length - 1 ), L'\0' );
-	MultiByteToWideChar( CP_UTF8, 0, text, -1, &wide[ 0 ], length );
+	MultiByteToWideChar( CP_ACP, 0, text, -1, &wide[ 0 ], length );
 	return wide;
 }
 
@@ -940,11 +927,11 @@ void Sys_Relaunch( const std::vector< std::string >& args ) {
 		fprintf( stderr, "reloadEngine: the executable's path is unknown; quitting instead\n" );
 		return;
 	}
-	std::wstring line;
-	Win_AppendQuotedArg( line, exe );
-	line.erase( 0, 1 );
+	std::wstring line = L"\"";
+	line += exe;
+	line += L'"';
 	for ( size_t i = 0; i < args.size(); i++ ) {
-		Win_AppendQuotedArg( line, Win_WideFromUTF8( args[ i ].c_str() ) );
+		Win_AppendQuotedArg( line, Win_WideFromACP( args[ i ].c_str() ) );
 	}
 	STARTUPINFOW startup = {};
 	startup.cb = sizeof( startup );
