@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5623,
+  "totalFiles": 5624,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 394
   },
   "postSplitCounts": {
-    "Reconstruction_original": 340,
+    "Reconstruction_original": 341,
     "ThirdParty": 1,
     "Retail_asset": 4,
     "Doom3_GPL": 2,
@@ -48169,9 +48169,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "01d368e9681110ae16daacefc9103a1b9d2a7439c1c0457ebe7c9981b911b1b8",
-      "canonicalSha256": "01d368e9681110ae16daacefc9103a1b9d2a7439c1c0457ebe7c9981b911b1b8",
-      "bytes": 165616,
+      "rawSha256": "e0d12b099207e9669db09f0c09c9850d2e46780e5d4a8ea892547110e308f257",
+      "canonicalSha256": "e0d12b099207e9669db09f0c09c9850d2e46780e5d4a8ea892547110e308f257",
+      "bytes": 167305,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": null
@@ -49465,9 +49465,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "ba81c1274f0dfe4d053247cba6b7bf9357b1ae50dc98aed3ab4502df4f252d1f",
-      "canonicalSha256": "ba81c1274f0dfe4d053247cba6b7bf9357b1ae50dc98aed3ab4502df4f252d1f",
-      "bytes": 59437,
+      "rawSha256": "ca11c253642b53381d0faa1ab21b6e2c8c301d63f2c1a16dae0888998c1fe30e",
+      "canonicalSha256": "ca11c253642b53381d0faa1ab21b6e2c8c301d63f2c1a16dae0888998c1fe30e",
+      "bytes": 59947,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": "GPL-3.0-or-later"
@@ -49650,6 +49650,18 @@
       "bytes": 11919,
       "addedAfterSplit": true,
       "addedIn": "bb3c5ea2baca45b575eb5cd4aa1abd6d4d498961",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
+      "path": "tests/test_cheat_cvar_lock.py",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "9c0f1426fb6781288cae0b7d518fb277869611e2b5ae346a23fdad131dce7778",
+      "canonicalSha256": "9c0f1426fb6781288cae0b7d518fb277869611e2b5ae346a23fdad131dce7778",
+      "bytes": 4683,
+      "addedAfterSplit": true,
+      "addedIn": "bd447253da7dff03bd5a9ecfac35562c6bc6a8f8",
       "spdx": "GPL-3.0-or-later"
     },
     {
@@ -50305,9 +50317,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "981cbbdb1d311eb6715a3996f3860b7612e4e6aa316417e2d25a138700f7c380",
-      "canonicalSha256": "981cbbdb1d311eb6715a3996f3860b7612e4e6aa316417e2d25a138700f7c380",
-      "bytes": 4784,
+      "rawSha256": "3627eff559b72991f731ecae709a3b2b600f8dd93bc24ab18177af083bee0d1c",
+      "canonicalSha256": "3627eff559b72991f731ecae709a3b2b600f8dd93bc24ab18177af083bee0d1c",
+      "bytes": 5424,
       "addedAfterSplit": true,
       "addedIn": "9aaaf7ff9b47ab1611a39702bf560ff972994c41",
       "spdx": "GPL-3.0-or-later"
