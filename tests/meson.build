@@ -276,6 +276,13 @@ sound_hw_shutdown_test = executable(
   install: false,
 )
 test('sound-hw-shutdown', sound_hw_shutdown_test, suite: 'unit', timeout: 30)
+test(
+  'sound-hw-lock',
+  py,
+  args: [meson.project_source_root() / 'tests' / 'test_sound_hw_lock.py'],
+  suite: 'unit',
+  timeout: 30,
+)
 
 # An effect segment whose "detail" is above bse_detailLevel is left out (#423)
 bse_detail_cull_test = executable(
@@ -288,13 +295,6 @@ bse_detail_cull_test = executable(
   install: false,
 )
 test('bse-detail-cull', bse_detail_cull_test, suite: 'unit', timeout: 30)
-test(
-  'sound-hw-lock',
-  py,
-  args: [meson.project_source_root() / 'tests' / 'test_sound_hw_lock.py'],
-  suite: 'unit',
-  timeout: 30,
-)
 
 # A fresh profile's graphics preset: retail's device.info table, read by PCI ID (#387)
 machine_spec_test = executable(
