@@ -24,6 +24,10 @@ GNU General Public License for more details.
 #pragma hdrstop
 
 #include "BSESim.h"
+#include "BSE_DetailCull.h"
+
+// the presets set it: 0.5 in Low, the default elsewhere (#423)
+idCVar bse_detailLevel( "bse_detailLevel", "1.0", CVAR_FLOAT | CVAR_ARCHIVE, "Detail setting for effects" );
 
 bseSimulation::bseSimulation() {
 	effect = NULL;
@@ -52,9 +56,13 @@ void bseSimulation::ServiceInternal( const rvBSEOwner &owner, idList<rvBSEPartic
 	if ( stats != NULL ) stats->effectsServiced++;
 	const int maxEffectParticles = 16384;
 	const int diversitySeed = idMath::Ftoi( owner.diversity * idRandom::MAX_RAND );
+	const float detailLevel = bse_detailLevel.GetFloat();
 
 	for ( int i = 0; i < effect->GetNumSegmentTemplates(); i++ ) {
 		const bseSegmentTemplate &segmentTemplate = *effect->GetSegmentTemplate( i );
+		if ( BSE_SegmentDetailCulled( segmentTemplate.detail, detailLevel ) ) {
+			continue;
+		}
 		if ( segmentTemplate.type != SEG_EFFECT ) {
 			segments[i].Service( owner, particles, maxEffectParticles, stats );
 			continue;

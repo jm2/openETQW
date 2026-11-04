@@ -149,7 +149,8 @@ void bseSegmentTemplate::Init() {
 	frequencyShift.Zero();
 	particleCap = 0.0f;
 	scale = 1.0f;
-	detail = 1.0f;
+	// no "detail": drawn at every bse_detailLevel (BSE_DetailCull.h), as openQ4's 0
+	detail = 0.0f;
 	decalAxis = 0;
 	soundShader.Clear();
 	soundChannel.Clear();
