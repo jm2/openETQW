@@ -1252,6 +1252,9 @@ void idCommonLocal::Frame() {
 				// multiplayer frame did; without it no GUI updated during a network game
 				session->GuiFrameEvents( false );
 			}
+			// the mixer plays the menu's sound world while the main menu is up and the
+			// game's otherwise (#436); only a window gaining the focus set it before
+			session->SetPlayingSoundWorld();
 			// com_unlockFPS 0: the renderer does not go faster than the game ticks (retail's
 			// "fixed fps, i.e. 30 fps"): an in-game frame that ran no tick is not drawn
 			frameDrawn = com_unlockFPS.GetBool() || !com_frameInGame || com_frameTicks > 0;

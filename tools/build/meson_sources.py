@@ -126,7 +126,17 @@ BSE_PARTICLE_SOURCES = (
 )
 
 CLIENT_SOUND_SOURCES = (
-    "src/sound/SoundSystemBootstrap.cpp",
+    # Doom 3's software mixer, behind ETQW's sound interfaces, writing through
+    # idAudioHardware (sdl_sound.cpp) (#436); it doesn't use OpenAL
+    "src/sound/snd_cache.cpp",
+    "src/sound/snd_decoder.cpp",
+    "src/sound/snd_efxfile.cpp",
+    "src/sound/snd_emitter.cpp",
+    "src/sound/snd_system.cpp",
+    "src/sound/snd_wavefile.cpp",
+    "src/sound/snd_world.cpp",
+    "src/sound/SoundBink.cpp",
+    "src/sound/snd_openal_none.cpp",
 )
 
 CLIENT_RENDERER_SOURCES = (

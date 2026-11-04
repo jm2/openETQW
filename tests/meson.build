@@ -1341,6 +1341,27 @@ if build_engine and build_dedicated
     is_parallel: false,
   )
 
+  # the client mixes game sound into the audio device, at the main menu and in valley
+  # (#436). Windows only for now: only Windows has a sound thread that drives the mixer
+  # (win_soundthread.cpp); Linux and macOS get theirs next
+  if host_system == 'windows'
+    test(
+      'sound-mix',
+      py,
+      args: [
+        meson.project_source_root() / 'tests' / 'test_sound_mix.py',
+        '--client-binary', campaign_client,
+        '--port', '29942',
+        '--log-dir', meson.project_build_root() / 'meson-logs' / 'sound-mix',
+      ],
+      workdir: meson.project_source_root(),
+      suite: ['client', 'integration'],
+      protocol: 'exitcode',
+      timeout: 400,
+      is_parallel: false,
+    )
+  endif
+
   # bse_detailLevel and r_stuffCacheMegs (the presets set them) are registered as retail
   # registers them: archived, so changeable in a multiplayer game and saved (#423)
   test(

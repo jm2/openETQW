@@ -29,14 +29,28 @@ If you have questions concerning this license or the applicable additional terms
 #ifndef __SND_LOCAL_H__
 #define __SND_LOCAL_H__
 
-#include "../openal/include/al.h"
-#include "../openal/include/alc.h"
-#include "../openal/idal.h"
+// ETQW's sound interfaces (the game SDK's headers) and the audio device (#436)
+#include "../idlib/threading/Lock.h"
+#include "SoundSystem.h"
+#include "SoundWorld.h"
+#include "SoundShader.h"
+#include "AudioHardware.h"
+
+// The mixer writes through idAudioHardware; it doesn't use OpenAL. The OpenAL types
+// stay for the declarations (precompiled.h includes al.h, alc.h and idal.h), and
+// snd_openal_none.cpp leaves idal.h's entry points NULL.
+#ifndef ID_OPENAL
+#define ID_OPENAL 0
+#endif
 #define ID_ALCHAR (ALubyte *)
 #ifndef OPENAL
 #define OPENAL
 #endif
 #include "../openal/include/efxlib.h"
+
+// Doom 3's sound.h units; ETQW's headers don't carry them
+const float DOOM_TO_METERS = 0.0254f;					// doom to meters
+const float METERS_TO_DOOM = ( 1.0f / DOOM_TO_METERS );	// meters to doom
 
 // demo sound commands
 typedef enum {
@@ -171,6 +185,10 @@ idWaveFile
 ===================================================================================
 */
 
+// the file a sample name loads from: the name as .ogg, retail's
+// generated/ogg/<name>.ogg, or the name itself (snd_wavefile.cpp, #436)
+bool Sound_ResolveSampleFile( const char* sampleName, idStr& fileName );
+
 class idWaveFile {
 public:
 				    idWaveFile( void );
@@ -214,36 +232,6 @@ private:
 };
 
 
-/*
-===================================================================================
-
-idAudioHardware
-
-===================================================================================
-*/
-
-class idAudioHardware {
-public:
-	static idAudioHardware *Alloc();
-
-    virtual					~idAudioHardware();
-
-    virtual bool			Initialize( ) = 0;
-
-	virtual bool			Lock( void **pDSLockedBuffer, ulong *dwDSLockedBufferSize ) = 0;
-	virtual bool			Unlock( void *pDSLockedBuffer, dword dwDSLockedBufferSize ) = 0;
-	virtual bool			GetCurrentPosition( ulong *pdwCurrentWriteCursor ) = 0;
-	
-	// try to write as many sound samples to the device as possible without blocking and prepare for a possible new mixing call
-	// returns wether there is *some* space for writing available
-	virtual bool			Flush( void ) = 0;
-
-	virtual void			Write( bool flushing ) = 0;
-
-	virtual int				GetNumberOfSpeakers( void )= 0;
-	virtual int				GetMixBufferSize( void ) = 0;
-	virtual short*			GetMixBuffer( void ) = 0;
-};
 
 
 /*
@@ -405,7 +393,7 @@ public:
 	int					triggerGame44kHzTime;	// game time sample time the channel started
 	soundShaderParms_t	parms;					// combines the shader parms and the per-channel overrides
 	idSoundSample *		leadinSample;			// if not looped, this is the only sample
-	s_channelType		triggerChannel;
+	soundChannel_t		triggerChannel;
 	const idSoundShader *soundShader;
 	idSampleDecoder *	decoder;
 	float				diversity;
@@ -441,12 +429,14 @@ public:
 	virtual void		UpdateEmitter( const idVec3 &origin, int listenerId, const soundShaderParms_t *parms );
 
 	// returns the length of the started sound in msec
-	virtual int			StartSound( const idSoundShader *shader, const s_channelType channel, float diversity = 0, int shaderFlags = 0, bool allowSlow = true /* D3XP */ );
+	virtual int			StartSound( const idSoundShader *shader, const soundChannel_t channelStart, soundChannel_t channelEnd, float diversity = 0, int shaderFlags = 0 );
+	// ETQW: the parameters a channel plays with (the emitter's when none plays on it)
+	virtual const soundShaderParms_t& GetChannelParms( const soundChannel_t channel );
 
 	// can pass SCHANNEL_ANY
-	virtual void		ModifySound( const s_channelType channel, const soundShaderParms_t *parms );
-	virtual void		StopSound( const s_channelType channel );
-	virtual void		FadeSound( const s_channelType channel, float to, float over );
+	virtual void		ModifySound( const soundChannel_t channel, const soundShaderParms_t& parms );
+	virtual void		StopSound( const soundChannel_t channel );
+	virtual void		FadeSound( const soundChannel_t channel, float to, float over );
 
 	virtual bool		CurrentlyPlaying( void ) const;
 
@@ -455,6 +445,11 @@ public:
 
 	// used for save games
 	virtual	int			Index( void ) const;
+	// ETQW: a Bink cinematic's frames, for a shader that names a .bik sample
+	virtual cinData_t	ImageForTime( const int milliseconds );
+	// ETQW: start a channel's sample this many milliseconds in
+	virtual void		SetChannelOffset( const soundChannel_t channel, int ms );
+	int					StartSoundOnChannel( const idSoundShader *shader, const soundChannel_t channel, float diversity, int shaderFlags );
 
 	//----------------------------------------------
 
@@ -501,6 +496,9 @@ public:
 	// last generated value
 	int					ampTime;
 	float				amplitude;
+
+	// ETQW: the Bink movie a shader named (GUI cinematics, #190)
+	class sdSoundBinkMovie *	movie;
 };
 
 
@@ -554,7 +552,9 @@ public:
 
 	// where is the camera/microphone
 	// listenerId allows listener-private sounds to be added
-	virtual void			PlaceListener( const idVec3 &origin, const idMat3 &axis, const int listenerId, const int gameTime, const idStr& areaName );
+	virtual void			PlaceListener( const idVec3 &origin, const idMat3 &axis, const int listenerId, const int gameTime );
+	virtual const idVec3&	GetListenerPosition() const { return listenerQU; }
+	virtual const idMat3&	GetListenerAxis() const { return listenerAxis; }
 
 	// fade all sounds in the world with a given shader soundClass
 	// to is in Db (sigh), over is in seconds
@@ -568,7 +568,11 @@ public:
 	virtual void			ProcessDemoCommand( idDemoFile *readDemo );
 
 	// background music
-	virtual void			PlayShaderDirectly( const char *name, int channel = -1 );
+	virtual void			PlayShaderDirectly( const idSoundShader* shader, const soundChannel_t channel = SCHANNEL_ANY, int* length = NULL );
+	virtual bool			IsMuted() const;
+	virtual void			BeginLevelLoad( void );
+	// ETQW: the system mixes the playing world through MixLoop( current44kHz )
+	virtual void			MixLoop( int current44kHz );
 
 	// pause and unpause the sound world
 	virtual void			Pause( void );
@@ -583,14 +587,14 @@ public:
 	virtual void			WriteToSaveGame( idFile *savefile );
 	virtual void			ReadFromSaveGame( idFile *savefile );
 	
-	virtual void			ReadFromSaveGameSoundChannel( idFile *saveGame, idSoundChannel *ch );
-	virtual void			ReadFromSaveGameSoundShaderParams( idFile *saveGame, soundShaderParms_t *params );
-	virtual void			WriteToSaveGameSoundChannel( idFile *saveGame, idSoundChannel *ch );
-	virtual void			WriteToSaveGameSoundShaderParams( idFile *saveGame, soundShaderParms_t *params );
+	void					ReadFromSaveGameSoundChannel( idFile *saveGame, idSoundChannel *ch );
+	void					ReadFromSaveGameSoundShaderParams( idFile *saveGame, soundShaderParms_t *params );
+	void					WriteToSaveGameSoundChannel( idFile *saveGame, idSoundChannel *ch );
+	void					WriteToSaveGameSoundShaderParams( idFile *saveGame, soundShaderParms_t *params );
 	
-	virtual void			SetSlowmo( bool active );
-	virtual void			SetSlowmoSpeed( float speed );
-	virtual void			SetEnviroSuit( bool active );
+	void					SetSlowmo( bool active );
+	void					SetSlowmoSpeed( float speed );
+	void					SetEnviroSuit( bool active );
 
 	//=======================================
 
@@ -611,7 +615,7 @@ public:
 	void					MixLoop( int current44kHz, int numSpeakers, float *finalMixBuffer );
 	void					AVIUpdate( void );
 	void					ResolveOrigin( const int stackDepth, const soundPortalTrace_t *prevStack, const int soundArea, const float dist, const idVec3& soundOrigin, idSoundEmitterLocal *def );
-	float					FindAmplitude( idSoundEmitterLocal *sound, const int localTime, const idVec3 *listenerPosition, const s_channelType channel, bool shakesOnly );
+	float					FindAmplitude( idSoundEmitterLocal *sound, const int localTime, const idVec3 *listenerPosition, const soundChannel_t channel, bool shakesOnly );
 
 	//============================================
 
@@ -668,6 +672,9 @@ class idSoundSystemLocal : public idSoundSystem {
 public:
 	idSoundSystemLocal( ) {
 		isInitialized = false;
+		mixPeak = 0;
+		mixBlocks = 0;
+		asyncUpdates = 0;
 	}
 
 	// all non-hardware initialization
@@ -684,15 +691,30 @@ public:
 	// async loop, called at 60Hz
 	virtual int				AsyncUpdate( int time );
 	// async loop, when the sound driver uses a write strategy
-	virtual int				AsyncUpdateWrite( int time );
+	int						AsyncUpdateWrite( int time );
 	// direct mixing called from the sound driver thread for OSes that support it
-	virtual int				AsyncMix( int soundTime, float *mixBuffer );
+	int						AsyncMix( int soundTime, float *mixBuffer );
 
 	virtual void			SetMute( bool mute );
+	virtual bool			IsMuted() const { return muted; }
+	// ETQW: the sound thread holds it around AsyncUpdate (win_soundthread.cpp)
+	virtual sdLock&			GetLock() { return lock; }
+	virtual void			FreeSoundWorld( idSoundWorld* sw );
+	// ETQW: voice capture and device lists; VoIP isn't mixed here yet
+	virtual void			StartCapture() {}
+	virtual void			StopCapture() {}
+	virtual int				GetCaptureRate( void ) const { return 0; }
+	virtual bool			QuerySpeakers( int numSpeakers ) const;
+	virtual void			RefreshSoundDevices( void ) {}
+	virtual const idWStrList*	ListSoundPlaybackDevices() const { return new idWStrList; }
+	virtual const idWStrList*	ListSoundCaptureDevices() const { return new idWStrList; }
+	virtual void			FreeDeviceList( const idWStrList* list ) const { delete list; }
+	virtual int				GetAudioDeviceHash( const wchar_t* name ) const;
+	virtual int				GetAudioDeviceHash( const char* name ) const;
 
 	virtual cinData_t		ImageForTime( const int milliseconds, const bool waveform );
 
-	int						GetSoundDecoderInfo( int index, soundDecoderInfo_t &decoderInfo );
+	virtual int				GetSoundDecoderInfo( int index, soundDecoderInfo_t &decoderInfo );
 
 	// if rw == NULL, no portal occlusion or rendered debugging is available
 	virtual idSoundWorld	*AllocSoundWorld( idRenderWorld *rw );
@@ -705,11 +727,11 @@ public:
 	virtual idSoundWorld	*GetPlayingSoundWorld( void );
 
 	virtual	void			BeginLevelLoad( void );
-	virtual	void			EndLevelLoad( const char *mapString );
+	virtual	void			EndLevelLoad( void );
 
-	virtual void			PrintMemInfo( MemInfo_t *mi );
+	void					PrintMemInfo( MemInfo_t *mi );
 
-	virtual int				IsEAXAvailable( void );
+	int						IsEAXAvailable( void );
 
 	//-------------------------
 
@@ -723,6 +745,10 @@ public:
 	ALuint					AllocOpenALSource( idSoundChannel *chan, bool looping, bool stereo );
 	void					FreeOpenALSource( ALuint handle );
 
+	sdLock					lock;
+	int						mixPeak;				// soundMixStats: loudest mixed sample since it last asked
+	int						mixBlocks;				// soundMixStats: mix buffers written
+	int						asyncUpdates;			// soundMixStats: sound thread updates
 	idAudioHardware *		snd_audio_hw;
 	idSoundCache *			soundCache;
 
@@ -778,7 +804,6 @@ public:
 	static idCVar			s_dotbias2;
 	static idCVar			s_spatializationDecay;
 	static idCVar			s_showStartSound;
-	static idCVar			s_maxSoundsPerShader;
 	static idCVar			s_reverse;
 	static idCVar			s_showLevelMeter;
 	static idCVar			s_meterTopTime;
@@ -814,6 +839,10 @@ public:
 };
 
 extern	idSoundSystemLocal	soundSystemLocal;
+
+// Doom 3's Sys_Enter/LeaveCriticalSection for the mixer (snd_system.cpp)
+void Snd_EnterCriticalSection();
+void Snd_LeaveCriticalSection();
 
 
 /*

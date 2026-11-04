@@ -31,6 +31,41 @@ If you have questions concerning this license or the applicable additional terms
 
 #include "snd_local.h"
 
+/*
+================
+Sound_ResolveSampleFile
+
+The file a shader's sample name loads from (#436). Retail 1.5's shaders name
+"sounds/....wav", and its paks ship each as "generated/ogg/sounds/....ogg" (pak000,
+pak005; the localization paks carry the voice-over the same way). Tried in order: the
+name as .ogg, the generated .ogg, then the name itself. False when none exists.
+================
+*/
+bool Sound_ResolveSampleFile( const char* sampleName, idStr& fileName ) {
+	idStr name = sampleName;
+	name.BackSlashesToSlashes();
+
+	fileName = name;
+	fileName.SetFileExtension( ".ogg" );
+	if ( fileSystem->ReadFile( fileName, NULL, NULL ) > 0 ) {
+		return true;
+	}
+
+	fileName = "generated/ogg/";
+	fileName += name;
+	fileName.SetFileExtension( ".ogg" );
+	if ( fileSystem->ReadFile( fileName, NULL, NULL ) > 0 ) {
+		return true;
+	}
+
+	fileName = name;
+	if ( fileSystem->ReadFile( fileName, NULL, NULL ) > 0 ) {
+		return true;
+	}
+	fileName.Clear();
+	return false;
+}
+
 //-----------------------------------------------------------------------------
 // Name: idWaveFile::idWaveFile()
 // Desc: Constructs the class.  Call Open() to open a wave file for reading.  
@@ -77,12 +112,13 @@ int idWaveFile::Open( const char* strFileName, waveformatex_t* pwfx ) {
 		return -1;
 	}
 
-	idStr name = strFileName;
-
-	// note: used to only check for .wav when making a build
-	name.SetFileExtension( ".ogg" );
-	if ( fileSystem->ReadFile( name, NULL, NULL ) != -1 ) {
-		return OpenOGG( name, pwfx );
+	idStr name;
+	if ( Sound_ResolveSampleFile( strFileName, name ) ) {
+		idStr extension;
+		name.ExtractFileExtension( extension );
+		if ( extension.Icmp( "ogg" ) == 0 ) {
+			return OpenOGG( name, pwfx );
+		}
 	}
 
 	memset( &mpwfx, 0, sizeof( waveformatextensible_t ) );

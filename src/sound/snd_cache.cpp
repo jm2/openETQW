@@ -33,11 +33,35 @@ If you have questions concerning this license or the applicable additional terms
 #define USE_SOUND_CACHE_ALLOCATOR
 
 #ifdef USE_SOUND_CACHE_ALLOCATOR
-static idDynamicBlockAlloc<byte, 1<<20, 1<<10>	soundCacheAllocator;
+static idDynamicBlockAlloc<byte, 1<<20, 1<<10, false>	soundCacheAllocator;
 #else
-static idDynamicAlloc<byte, 1<<20, 1<<10>		soundCacheAllocator;
+static idDynamicAlloc<byte, 1<<20, 1<<10, false>		soundCacheAllocator;
 #endif
 
+
+/*
+===================
+Sound_FindSample
+
+The mixer's sample for a sound file a shader names (SoundShader.cpp, #436); NULL
+without a sound cache (s_noSound)
+===================
+*/
+idSoundSample* Sound_FindSample( const char* fileName, bool onDemand ) {
+	if ( soundSystemLocal.soundCache == NULL ) {
+		return NULL;
+	}
+	return soundSystemLocal.soundCache->FindSound( fileName, onDemand );
+}
+
+/*
+===================
+Sound_SampleName
+===================
+*/
+const char* Sound_SampleName( const idSoundSample* sample ) {
+	return sample != NULL ? sample->name.c_str() : "";
+}
 
 /*
 ===================
@@ -46,7 +70,6 @@ idSoundCache::idSoundCache()
 */
 idSoundCache::idSoundCache() {
 	soundCacheAllocator.Init();
-	soundCacheAllocator.SetLockMemory( true );
 	listCache.AssureSize( 1024, NULL );
 	listCache.SetGranularity( 256 );
 	insideLevelLoad = false;
@@ -263,12 +286,12 @@ void idSoundCache::PrintMemInfo( MemInfo_t *mi ) {
 		}
 
 		total += sample->objectMemSize;
-		f->Printf( "%s %s\n", idStr::FormatNumber( sample->objectMemSize ).c_str(), sample->name.c_str() );
+		f->Printf( "%s %s\n", va( "%d", sample->objectMemSize ), sample->name.c_str() );
 	}
 
 	mi->soundAssetsTotal = total;
 
-	f->Printf( "\nTotal sound bytes allocated: %s\n", idStr::FormatNumber( total ).c_str() );
+	f->Printf( "\nTotal sound bytes allocated: %s\n", va( "%d", total ) );
 	fileSystem->CloseFile( f );
 }
 
@@ -292,7 +315,7 @@ idSoundSample::idSoundSample() {
 	objectMemSize = 0;
 	nonCacheData = NULL;
 	amplitudeData = NULL;
-	openalBuffer = NULL;
+	openalBuffer = 0;
 	hardwareBuffer = false;
 	defaultSound = false;
 	onDemand = false;
@@ -415,12 +438,11 @@ idSoundSample::GetNewTimeStamp
 ID_TIME_T idSoundSample::GetNewTimeStamp( void ) const {
 	ID_TIME_T timestamp;
 
-	fileSystem->ReadFile( name, NULL, &timestamp );
-	if ( timestamp == FILE_NOT_FOUND_TIMESTAMP ) {
-		idStr oggName = name;
-		oggName.SetFileExtension( ".ogg" );
-		fileSystem->ReadFile( oggName, NULL, &timestamp );
+	idStr fileName;
+	if ( !Sound_ResolveSampleFile( name, fileName ) ) {
+		return FILE_NOT_FOUND_TIMESTAMP;
 	}
+	fileSystem->ReadFile( fileName, NULL, &timestamp );
 	return timestamp;
 }
 
@@ -439,7 +461,7 @@ void idSoundSample::Load( void ) {
 	timestamp = GetNewTimeStamp();
 
 	if ( timestamp == FILE_NOT_FOUND_TIMESTAMP ) {
-		common->Warning( "Couldn't load sound '%s' using default", name.c_str() );
+		common->Warning( "Couldn't find sound '%s' (nor generated/ogg/ as .ogg) using default", name.c_str() );
 		MakeDefault();
 		return;
 	}
@@ -449,7 +471,7 @@ void idSoundSample::Load( void ) {
 	waveformatex_t info;
 
 	if ( fh.Open( name, &info ) == -1 ) {
-		common->Warning( "Couldn't load sound '%s' using default", name.c_str() );
+		common->Warning( "Couldn't open sound '%s' using default", name.c_str() );
 		MakeDefault();
 		return;
 	}

@@ -107,7 +107,8 @@ static inline int vorbis_ftoi(double f){  /* yes, double!  Otherwise,
 #endif
 
 
-#if defined(_WIN32) && !defined(__GNUC__) && !defined(__BORLANDC__)
+/* openETQW: 32-bit x86 only; x64 and arm64 use the C fallback below (#436) */
+#if defined(_WIN32) && !defined(__GNUC__) && !defined(__BORLANDC__) && defined(_M_IX86)
 #  define VORBIS_FPU_CONTROL
 
 typedef ogg_int16_t vorbis_fpu_control;

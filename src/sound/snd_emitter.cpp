@@ -30,6 +30,7 @@ If you have questions concerning this license or the applicable additional terms
 #pragma hdrstop
 
 #include "snd_local.h"
+#include "SoundBink.h"
 
 
 /*
@@ -185,7 +186,7 @@ void idSoundChannel::Clear( void ) {
 	memset( &parms, 0, sizeof(parms) );
 
 	triggered = false;
-	openalSource = NULL;
+	openalSource = 0;
 	openalStreamingOffset = 0;
 	openalStreamingBuffer[0] = openalStreamingBuffer[1] = openalStreamingBuffer[2] = 0;
 	lastopenalStreamingBuffer[0] = lastopenalStreamingBuffer[1] = lastopenalStreamingBuffer[2] = 0;
@@ -342,6 +343,7 @@ idSoundEmitterLocal::idSoundEmitterLocal
 */
 idSoundEmitterLocal::idSoundEmitterLocal( void ) {	
 	soundWorld = NULL;
+	movie = NULL;
 	Clear();
 }
 
@@ -352,6 +354,8 @@ idSoundEmitterLocal::~idSoundEmitterLocal
 */
 idSoundEmitterLocal::~idSoundEmitterLocal( void ) {
 	Clear();
+	delete movie;
+	movie = NULL;
 }
 
 /*
@@ -380,6 +384,10 @@ void idSoundEmitterLocal::Clear( void ) {
 	spatializedOrigin.Zero();
 
 	memset( &parms, 0, sizeof( parms ) );
+
+	if ( movie != NULL ) {
+		movie->Close();
+	}
 }
 
 /*
@@ -651,7 +659,52 @@ idSoundEmitterLocal::StartSound
 returns the length of the started sound in msec
 =====================
 */
-int idSoundEmitterLocal::StartSound( const idSoundShader *shader, const s_channelType channel, float diversity, int soundShaderFlags, bool allowSlow ) {
+int idSoundEmitterLocal::StartSound( const idSoundShader *shader, const soundChannel_t channelStart, soundChannel_t channelEnd, float diversity, int soundShaderFlags ) {
+	if ( !shader ) {
+		return 0;
+	}
+
+	// a shader that names a Bink movie plays its frames (GUI cinematics, #190);
+	// its sound track isn't mixed
+	idStr binkPath;
+	if ( Sound_FindBinkPath( shader, binkPath ) ) {
+		if ( movie == NULL ) {
+			movie = new sdSoundBinkMovie;
+		}
+		movie->Open( binkPath.c_str() );
+		return 0;
+	}
+
+	// ETQW: the first channel of channelStart..channelEnd with nothing playing on it,
+	// or channelStart when all are busy
+	soundChannel_t channel = channelStart;
+	if ( channelStart != SCHANNEL_ANY && channelEnd > channelStart ) {
+		for ( soundChannel_t c = channelStart; c <= channelEnd; c++ ) {
+			bool busy = false;
+			for ( int i = 0; i < SOUND_MAX_CHANNELS; i++ ) {
+				if ( channels[i].triggerState && channels[i].soundShader && channels[i].triggerChannel == c ) {
+					busy = true;
+					break;
+				}
+			}
+			if ( !busy ) {
+				channel = c;
+				break;
+			}
+		}
+	}
+	return StartSoundOnChannel( shader, channel, diversity, soundShaderFlags );
+}
+
+/*
+===================
+idSoundEmitterLocal::StartSoundOnChannel
+
+Doom 3's StartSound, on one channel
+===================
+*/
+int idSoundEmitterLocal::StartSoundOnChannel( const idSoundShader *shader, const soundChannel_t channel, float diversity, int soundShaderFlags ) {
+	const bool allowSlow = true;
 	int i;
 
 	if ( !shader ) {
@@ -754,7 +807,7 @@ int idSoundEmitterLocal::StartSound( const idSoundShader *shader, const s_channe
 		}
 	}
 
-	Sys_EnterCriticalSection();
+	Snd_EnterCriticalSection();
 
 	// kill any sound that is currently playing on this channel
 	if ( channel != SCHANNEL_ANY ) {
@@ -788,7 +841,7 @@ int idSoundEmitterLocal::StartSound( const idSoundShader *shader, const s_channe
 
 	if ( i == SOUND_MAX_CHANNELS ) {
 		// we couldn't find a channel for it
-		Sys_LeaveCriticalSection();
+		Snd_LeaveCriticalSection();
 		if ( idSoundSystemLocal::s_showStartSound.GetInteger() ) {
 			common->Printf( "no channels available\n" );
 		}
@@ -863,7 +916,7 @@ int idSoundEmitterLocal::StartSound( const idSoundShader *shader, const s_channe
 	
 	length *= 1000 / (float)PRIMARYFREQ;
 
-	Sys_LeaveCriticalSection();
+	Snd_LeaveCriticalSection();
 
 	return length;
 }
@@ -873,10 +926,8 @@ int idSoundEmitterLocal::StartSound( const idSoundShader *shader, const s_channe
 idSoundEmitterLocal::ModifySound
 ===================
 */
-void idSoundEmitterLocal::ModifySound( const s_channelType channel, const soundShaderParms_t *parms ) {
-	if ( !parms ) {
-		common->Error( "idSoundEmitterLocal::ModifySound: NULL parms" );
-	}
+void idSoundEmitterLocal::ModifySound( const soundChannel_t channel, const soundShaderParms_t& newParms ) {
+	const soundShaderParms_t *parms = &newParms;
 	if ( idSoundSystemLocal::s_showStartSound.GetInteger() ) {
 		common->Printf( "ModifySound(%i,%i)\n", index, channel );
 	}
@@ -918,7 +969,7 @@ idSoundEmitterLocal::StopSound
 can pass SCHANNEL_ANY
 ===================
 */
-void idSoundEmitterLocal::StopSound( const s_channelType channel ) {
+void idSoundEmitterLocal::StopSound( const soundChannel_t channel ) {
 	int i;
 
 	if ( idSoundSystemLocal::s_showStartSound.GetInteger() ) {
@@ -932,7 +983,7 @@ void idSoundEmitterLocal::StopSound( const s_channelType channel ) {
 		soundWorld->writeDemo->WriteInt( channel );
 	}
 
-	Sys_EnterCriticalSection();
+	Snd_EnterCriticalSection();
 
 	for( i = 0; i < SOUND_MAX_CHANNELS; i++ ) {
 		idSoundChannel	*chan = &channels[i];
@@ -959,7 +1010,7 @@ void idSoundEmitterLocal::StopSound( const s_channelType channel ) {
 		chan->soundShader = NULL;
 	}
 
-	Sys_LeaveCriticalSection();
+	Snd_LeaveCriticalSection();
 }
 
 /*
@@ -969,7 +1020,7 @@ idSoundEmitterLocal::FadeSound
 to is in Db (sigh), over is in seconds
 ===================
 */
-void idSoundEmitterLocal::FadeSound( const s_channelType channel, float to, float over ) {
+void idSoundEmitterLocal::FadeSound( const soundChannel_t channel, float to, float over ) {
 	if ( idSoundSystemLocal::s_showStartSound.GetInteger() ) {
 		common->Printf( "FadeSound(%i,%i,%f,%f )\n", index, channel, to, over );
 	}
@@ -1026,7 +1077,57 @@ idSoundEmitterLocal::CurrentlyPlaying
 ===================
 */
 bool idSoundEmitterLocal::CurrentlyPlaying( void ) const {
-	return playing;
+	return playing || ( movie != NULL && movie->IsPlaying() );
+}
+
+/*
+===================
+idSoundEmitterLocal::GetChannelParms
+
+ETQW: the parameters the first sound on the channel plays with, or the emitter's
+when nothing plays on it
+===================
+*/
+const soundShaderParms_t& idSoundEmitterLocal::GetChannelParms( const soundChannel_t channel ) {
+	for ( int i = 0; i < SOUND_MAX_CHANNELS; i++ ) {
+		const idSoundChannel *chan = &channels[i];
+		if ( chan->triggerState && ( channel == SCHANNEL_ANY || chan->triggerChannel == channel ) ) {
+			return chan->parms;
+		}
+	}
+	return parms;
+}
+
+/*
+===================
+idSoundEmitterLocal::SetChannelOffset
+
+ETQW: the sound on the channel plays on from ms milliseconds in
+===================
+*/
+void idSoundEmitterLocal::SetChannelOffset( const soundChannel_t channel, int ms ) {
+	const int offset44kHz = soundSystemLocal.MillisecondsToSamples( Max( 0, ms ) );
+	for ( int i = 0; i < SOUND_MAX_CHANNELS; i++ ) {
+		idSoundChannel *chan = &channels[i];
+		if ( chan->triggerState && ( channel == SCHANNEL_ANY || chan->triggerChannel == channel ) ) {
+			chan->trigger44kHzTime -= offset44kHz;
+			chan->triggerGame44kHzTime -= offset44kHz;
+		}
+	}
+}
+
+/*
+===================
+idSoundEmitterLocal::ImageForTime
+
+ETQW: the frames of the Bink movie the last StartSound opened
+===================
+*/
+cinData_t idSoundEmitterLocal::ImageForTime( const int ) {
+	if ( movie == NULL ) {
+		return Sound_EmptyCinematicData();
+	}
+	return movie->ImageForTime();
 }
 
 /*
