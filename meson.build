@@ -417,6 +417,41 @@ if build_engine
     client_cpp_args += ['-DID_GL_HARDLINK']
   endif
 
+  # Ogg Vorbis decoding for the sound mixer: the copy Doom 3 shipped
+  # (src/sound/OggVorbis), built as C without its encoder and tools (#436)
+  oggvorbis_lib = static_library(
+    'openetqw-oggvorbis',
+    files(
+      'src/sound/OggVorbis/oggsrc/bitwise.c',
+      'src/sound/OggVorbis/oggsrc/framing.c',
+      'src/sound/OggVorbis/vorbissrc/analysis.c',
+      'src/sound/OggVorbis/vorbissrc/bitrate.c',
+      'src/sound/OggVorbis/vorbissrc/block.c',
+      'src/sound/OggVorbis/vorbissrc/codebook.c',
+      'src/sound/OggVorbis/vorbissrc/envelope.c',
+      'src/sound/OggVorbis/vorbissrc/floor0.c',
+      'src/sound/OggVorbis/vorbissrc/floor1.c',
+      'src/sound/OggVorbis/vorbissrc/info.c',
+      'src/sound/OggVorbis/vorbissrc/lookup.c',
+      'src/sound/OggVorbis/vorbissrc/lpc.c',
+      'src/sound/OggVorbis/vorbissrc/lsp.c',
+      'src/sound/OggVorbis/vorbissrc/mapping0.c',
+      'src/sound/OggVorbis/vorbissrc/mdct.c',
+      'src/sound/OggVorbis/vorbissrc/psy.c',
+      'src/sound/OggVorbis/vorbissrc/registry.c',
+      'src/sound/OggVorbis/vorbissrc/res0.c',
+      'src/sound/OggVorbis/vorbissrc/sharedbook.c',
+      'src/sound/OggVorbis/vorbissrc/smallft.c',
+      'src/sound/OggVorbis/vorbissrc/synthesis.c',
+      'src/sound/OggVorbis/vorbissrc/vorbisfile.c',
+      'src/sound/OggVorbis/vorbissrc/windowvb.c',
+    ),
+    include_directories: include_directories('src/sound/OggVorbis', 'src/sound/OggVorbis/vorbissrc'),
+    # libvorbis' os.h declares alloca through <alloca.h> only with HAVE_ALLOCA_H
+    c_args: cc.get_supported_arguments(['-w', '/w']) + (host_system != 'windows' ? ['-DHAVE_ALLOCA_H'] : []),
+    install: false,
+  )
+
   executable(
     engine_client_binary_name,
     openetqw_client_sources,
@@ -427,6 +462,7 @@ if build_engine
     cpp_args: client_cpp_args,
     objcpp_args: client_cpp_args,
     dependencies: client_deps,
+    link_with: oggvorbis_lib,
     link_args: client_link_args,
     # the game module resolves engine symbols on Linux and macOS; on Windows the
     # engine exports nothing, so there is no import library to build or install

@@ -10,13 +10,19 @@
 #include "../framework/DeclParseHelper.h"
 
 // The settings menu's overall preset sets it: 3 below High, 0 (no limit) at High
-// (#423). It was registered only in snd_system.cpp, which isn't built, so a set made
-// it an unregistered CVar, which counts as a cheat in a multiplayer game. The SDK's
-// snd_shader.cpp reads it when a shader is parsed, to keep at most that many samples;
-// nothing reads it here yet, since the sound backend loads no samples by shader.
+// (#423). Registered here, as the dedicated server builds this file and no mixer: an
+// unregistered CVar counts as a cheat in a multiplayer game. Read when a shader is
+// parsed, to keep at most that many samples, as the SDK's snd_shader.cpp does.
 idCVar s_maxSoundsPerShader(
 	"s_maxSoundsPerShader", "0",
 	CVAR_SOUND | CVAR_ARCHIVE, "", 0, 10, idCmdSystem::ArgCompletion_Integer<0,10> );
+
+#ifndef ID_DEDICATED
+// snd_cache.cpp: the mixer's sample for a sound file, and its name (#436)
+idSoundSample* Sound_FindSample( const char* fileName, bool onDemand );
+const char* Sound_SampleName( const idSoundSample* sample );
+#endif
+static void AddSample( idSoundSample** list, int& count, const idToken& token, bool onDemand );
 
 // The Bink sample each shader names, by shader name (#190).  The SDK's
 // idSoundShader keeps no sample names, and a shader read from a binary decl
@@ -124,12 +130,19 @@ bool idSoundShader::ParseShader( idParser& src ) {
 		soundShaderBinkSamples.RemoveIndex( binkIndex );
 	}
 
+	// the samples a shader keeps: at most s_maxSoundsPerShader (0 for all), raised to
+	// the shader's own minSamples, as the SDK's snd_shader.cpp does
+	int maxSamples = s_maxSoundsPerShader.GetInteger();
+	if ( com_makingBuild.GetBool() || maxSamples <= 0 || maxSamples > SOUND_MAX_LIST_WAVS ) {
+		maxSamples = SOUND_MAX_LIST_WAVS;
+	}
+
 	while ( src.ExpectAnyToken( &token ) ) {
 		if ( token == "}" ) {
 			return true;
 		}
 		if ( !token.Icmp( "minSamples" ) ) {
-			src.ParseInt();
+			maxSamples = idMath::ClampInt( src.ParseInt(), SOUND_MAX_LIST_WAVS, maxSamples );
 		} else if ( !token.Icmp( "description" ) ) {
 			if ( src.ReadTokenOnLine( &token ) ) {
 				desc = token.c_str();
@@ -219,6 +232,8 @@ bool idSoundShader::ParseShader( idParser& src ) {
 			}
 			if ( token.Find( ".bik", false ) != -1 ) {
 				RecordBinkSample( GetName(), token );
+			} else if ( numLeadins < maxSamples ) {
+				AddSample( leadins, numLeadins, token, onDemand );
 			}
 		} else if ( !token.Icmp( "ordered" ) || !token.Icmp( "plain" ) ) {
 			// Accepted legacy keywords.
@@ -249,6 +264,8 @@ bool idSoundShader::ParseShader( idParser& src ) {
 			return false;
 		} else if ( token.Find( ".bik", false ) != -1 ) {
 			RecordBinkSample( GetName(), token );
+		} else if ( numEntries < maxSamples ) {
+			AddSample( entries, numEntries, token, onDemand );
 		}
 	}
 	return false;
@@ -276,7 +293,37 @@ const idSoundShader* idSoundShader::GetAltSound() const { return altSound; }
 bool idSoundShader::HasDefaultSound() const { return false; }
 const soundShaderParms_t* idSoundShader::GetParms() const { return &parms; }
 int idSoundShader::GetNumSounds() const { return numLeadins + numEntries; }
-const char* idSoundShader::GetSound( int ) const { return ""; }
+const char* idSoundShader::GetSound( int index ) const {
+#ifndef ID_DEDICATED
+	if ( index >= 0 && index < numLeadins ) {
+		return Sound_SampleName( leadins[ index ] );
+	}
+	index -= numLeadins;
+	if ( index >= 0 && index < numEntries ) {
+		return Sound_SampleName( entries[ index ] );
+	}
+#endif
+	return "";
+}
+
+/*
+===============
+AddSample
+
+A sample the shader plays, from the mixer's sound cache (#436). The dedicated
+server keeps none.
+===============
+*/
+static void AddSample( idSoundSample** list, int& count, const idToken& token, bool onDemand ) {
+#ifndef ID_DEDICATED
+	idStr fileName = token;
+	fileName.BackSlashesToSlashes();
+	idSoundSample* sample = Sound_FindSample( fileName.c_str(), onDemand );
+	if ( sample != NULL ) {
+		list[ count++ ] = sample;
+	}
+#endif
+}
 bool idSoundShader::CheckShakesAndOgg() const { return false; }
 bool idSoundShader::IsOGGCompressed() const { return compressionMode == 3; }
 bool idSoundShader::RebuildTextSource() { return false; }
