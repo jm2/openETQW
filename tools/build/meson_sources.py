@@ -219,6 +219,8 @@ PLATFORM_POSIX_SOURCES = (
 
 POSIX_CLIENT_SOURCES = (
     "src/sys/osx/macosx_sdl3_main.cpp",
+    # the sound thread that drives the mixer (#436)
+    "src/sys/posix/posix_soundthread.cpp",
 )
 
 DARWIN_COMMON_SOURCES = (

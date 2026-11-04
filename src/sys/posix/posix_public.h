@@ -58,6 +58,10 @@ bool		Posix_ConsoleProcessEvent( const void *eventData );
 void		Posix_ConsoleFrame( void );
 void		Posix_ConsoleFatalErrorWait( void );
 void		Posix_ShutdownConsole( void );
+
+// the client's sound thread (posix_soundthread.cpp, #436)
+void		Posix_StartSoundThread( void );
+void		Posix_StopSoundThread( void );
 void		Posix_Shutdown( void );
 
 #endif /* !__SYS_POSIX__ */
