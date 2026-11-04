@@ -512,12 +512,16 @@ idSoundSystemLocal::GetCurrent44kHzTime
 ===============
 */
 int idSoundSystemLocal::GetCurrent44kHzTime( void ) const {
-	if ( snd_audio_hw ) {
+	// the mixed time once a sound thread mixes; until then (Linux and macOS have none
+	// yet) the wall clock, so sounds still finish and emitters are freed (#436)
+	if ( snd_audio_hw && mixBlocks > 0 ) {
 		return CurrentSoundTime;
 	} else {
 		// NOTE: this would overflow 31bits within about 1h20 ( not that important since we get a snd_audio_hw right away pbly )
 		//return ( ( Sys_Milliseconds()*441 ) / 10 ) * 4; 
-		return idMath::FtoiFast( (float)Sys_Milliseconds() * 176.4f );
+		// the time base AsyncUpdateWrite mixes in (inTime * 44.1), so nothing jumps
+		// when the first block is mixed
+		return static_cast< int >( static_cast< double >( Sys_Milliseconds() ) * 44.1 );
 	}
 }
 
@@ -1025,6 +1029,10 @@ idSoundWorld *idSoundSystemLocal::AllocSoundWorld( idRenderWorld *rw ) {
 
 	local->Init( rw );
 
+	Snd_EnterCriticalSection();
+	soundWorlds.Append( local );
+	Snd_LeaveCriticalSection();
+
 	return local;
 }
 
@@ -1102,7 +1110,30 @@ void idSoundSystemLocal::EndLevelLoad( void ) {
 	if ( !isInitialized ) {
 		return;
 	}
+	// ETQW keeps a world's sounds over a level load (the menu's music is paused, not
+	// stopped): a sample a channel still plays counts as referenced, so the purge
+	// keeps it, and the purge runs while the sound thread doesn't mix (#436)
+	Snd_EnterCriticalSection();
+	for ( int w = 0; w < soundWorlds.Num(); w++ ) {
+		const idSoundWorldLocal *world = soundWorlds[w];
+		for ( int e = 0; e < world->emitters.Num(); e++ ) {
+			const idSoundEmitterLocal *emitter = world->emitters[e];
+			if ( emitter == NULL ) {
+				continue;
+			}
+			for ( int c = 0; c < SOUND_MAX_CHANNELS; c++ ) {
+				const idSoundChannel &chan = emitter->channels[c];
+				if ( chan.triggerState && chan.leadinSample != NULL ) {
+					chan.leadinSample->levelLoadReferenced = true;
+				}
+				if ( chan.triggerState && chan.decoder != NULL && chan.decoder->GetSample() != NULL ) {
+					chan.decoder->GetSample()->levelLoadReferenced = true;
+				}
+			}
+		}
+	}
 	soundCache->EndLevelLoad();
+	Snd_LeaveCriticalSection();
 	// the EFX reverb database is OpenAL's (EAX); there is none without it
 	efxloaded = false;
 }
@@ -1448,6 +1479,7 @@ void idSoundSystemLocal::FreeSoundWorld( idSoundWorld* sw ) {
 	if ( currentSoundWorld == sw ) {
 		currentSoundWorld = NULL;
 	}
+	soundWorlds.Remove( static_cast< idSoundWorldLocal* >( sw ) );
 	Snd_LeaveCriticalSection();
 	delete sw;
 }

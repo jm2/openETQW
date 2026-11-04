@@ -115,26 +115,9 @@ bool Sound_FindBinkPath( const idSoundShader* shader, idStr& samplePath ) {
 	if ( shader == NULL ) {
 		return false;
 	}
-	// a shader from a binary decl has no text: the parsed sample (#190)
-	if ( shader->GetTextLength() <= 0 ) {
-		return SoundShader_GetBinkSample( shader, samplePath );
-	}
-
-	const int textLength = shader->GetTextLength();
-	char* text = static_cast< char* >( Mem_Alloc( textLength + 1 ) );
-	shader->GetText( text );
-	idParser src;
-	src.SetFlags( LEXFL_NOSTRINGCONCAT | LEXFL_ALLOWPATHNAMES );
-	src.LoadMemory( text, textLength, shader->GetName() );
-	idToken token;
-	while ( src.ReadToken( &token ) ) {
-		if ( token.Find( ".bik", false ) != -1 ) {
-			samplePath = token;
-			break;
-		}
-	}
-	Mem_Free( text );
-	return !samplePath.IsEmpty();
+	// the .bik sample the shader's parse recorded (SoundShader.cpp, #190), text or
+	// binary decl alike; every StartSound asks, so the shader text isn't read again
+	return SoundShader_GetBinkSample( shader, samplePath );
 }
 
 static bool ResolveBinkOSPath( const char* samplePath, idStr& osPath ) {

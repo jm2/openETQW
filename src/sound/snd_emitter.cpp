@@ -366,6 +366,9 @@ idSoundEmitterLocal::Clear
 void idSoundEmitterLocal::Clear( void ) {
 	int i;
 
+	// the sound thread may be mixing these channels (Free( true ) clears from the main thread)
+	Snd_EnterCriticalSection();
+
 	for( i = 0; i < SOUND_MAX_CHANNELS; i++ ) {
 		channels[i].ALStop();
 		channels[i].Clear();
@@ -388,6 +391,8 @@ void idSoundEmitterLocal::Clear( void ) {
 	if ( movie != NULL ) {
 		movie->Close();
 	}
+
+	Snd_LeaveCriticalSection();
 }
 
 /*
@@ -1107,6 +1112,7 @@ ETQW: the sound on the channel plays on from ms milliseconds in
 */
 void idSoundEmitterLocal::SetChannelOffset( const soundChannel_t channel, int ms ) {
 	const int offset44kHz = soundSystemLocal.MillisecondsToSamples( Max( 0, ms ) );
+	Snd_EnterCriticalSection();
 	for ( int i = 0; i < SOUND_MAX_CHANNELS; i++ ) {
 		idSoundChannel *chan = &channels[i];
 		if ( chan->triggerState && ( channel == SCHANNEL_ANY || chan->triggerChannel == channel ) ) {
@@ -1114,6 +1120,7 @@ void idSoundEmitterLocal::SetChannelOffset( const soundChannel_t channel, int ms
 			chan->triggerGame44kHzTime -= offset44kHz;
 		}
 	}
+	Snd_LeaveCriticalSection();
 }
 
 /*

@@ -14,10 +14,12 @@ every host, played at real time), then:
   A2 mix buffers are written: their count grows over two seconds
   A3 "testSound sounds/ui/main/click" (a retail GUI shader, generated/ogg) mixes a
      non-silent buffer: the peak sample is above 0
-  A4 the click's sample decoded: no "Couldn't find/open/load sound" warning
+  A4 the click's sample decoded: no "Couldn't find/open/load sound" or OpenOGG warning
 Then it hosts valley (the game's sound world):
   A5 the mixer plays the game's sound world: map ambience mixes a non-silent buffer
      within ten seconds of the map loading
+  A6 back at the main menu ("disconnect"), the menu's music, kept over the level
+     load's sample purge, mixes again and the client exits cleanly
 
 Usage: test_sound_mix.py [--client-binary PATH] [--port N] [--log-dir DIR]
 Exit status: 0 pass, 1 fail, 77 skip (no client binary or retail data).
@@ -40,7 +42,7 @@ from test_vid_restart import READY, MenuClient  # noqa: E402
 
 STATS = re.compile(r"soundMixStats: (\d+) mix buffers, peak (\d+), hardware (\w+), playing world (\w+)")
 SHADER = "sounds/ui/main/click"
-UNLOADED = re.compile(r"Couldn't (find|open|load) sound")
+UNLOADED = re.compile(r"Couldn't (find|open|load) sound|idWaveFile::OpenOGG")
 
 
 def stats(gfx) -> tuple[int, int, str, str] | None:
@@ -131,6 +133,19 @@ def main() -> int:
                 if now is not None:
                     loudest = max(loudest, now[1])
             expect(loudest > 0, f"A5 valley's sound world mixes a non-silent buffer (peak {loudest})")
+
+            gfx.send("disconnect")
+            time.sleep(3.0)
+            gfx.sync()
+            stats(gfx)
+            loudest = 0
+            deadline = time.monotonic() + 10.0
+            while time.monotonic() < deadline and loudest == 0:
+                time.sleep(0.5)
+                now = stats(gfx)
+                if now is not None:
+                    loudest = max(loudest, now[1])
+            expect(loudest > 0, f"A6 back at the main menu, its music mixes again (peak {loudest})")
     finally:
         code = gfx.quit()
         gfx.cleanup()

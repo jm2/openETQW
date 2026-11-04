@@ -746,6 +746,7 @@ public:
 	void					FreeOpenALSource( ALuint handle );
 
 	sdLock					lock;
+	idList<idSoundWorldLocal*>	soundWorlds;	// every world allocated, for the level-load purge
 	int						mixPeak;				// soundMixStats: loudest mixed sample since it last asked
 	int						mixBlocks;				// soundMixStats: mix buffers written
 	int						asyncUpdates;			// soundMixStats: sound thread updates
