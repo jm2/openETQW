@@ -55,6 +55,14 @@ idCVar r_renderAPI(
 );
 
 idCVar r_lightScale( "r_lightScale", "2", CVAR_RENDERER | CVAR_FLOAT, "all light intensities are multiplied by this" );
+// retail 1.5's MD5 LOD CVars, as its client lists them (#423). Retail's stock meshes carry
+// no LOD stages (r_MD5MaxLodStages 1; none of the paks' MD5 meshes has an LOD), so they
+// change nothing there either. They are registered so the Low preset's
+// "seta r_md5lodscale 1" sets an archived CVar: unregistered, it was a cheat in a
+// multiplayer game and could not be changed back
+idCVar r_MD5LodScale( "r_MD5LodScale", "3.4", CVAR_RENDERER | CVAR_FLOAT | CVAR_ARCHIVE, "LOD scaling for a MD5 mesh" );
+idCVar r_MD5LodBias( "r_MD5LodBias", "0", CVAR_RENDERER | CVAR_INTEGER | CVAR_CHEAT, "LOD bias for a MD5 mesh" );
+idCVar r_MD5MaxLodStages( "r_MD5MaxLodStages", "1", CVAR_RENDERER | CVAR_INTEGER | CVAR_CHEAT, "maximum number of LOD stages loaded for a MD5 mesh" );
 idCVar r_elevateForceClear( "r_elevateForceClear", "1", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_INTEGER, "" );
 idCVar r_showOverDraw(
 	"r_showOverDraw", "0", CVAR_RENDERER | CVAR_INTEGER,

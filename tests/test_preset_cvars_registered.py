@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""bse_detailLevel and r_stuffCacheMegs are registered as retail 1.5 registers them (#423).
+"""bse_detailLevel, r_stuffCacheMegs and the MD5 LOD CVars are registered as retail 1.5 registers them (#423).
 
 The presets set both: bse_detailLevel 0.5 in Low, and r_stuffCacheMegs 8, 16 and 32.
 Retail 1.5 registers bse_detailLevel as an archived float, default 1.0, "Detail setting
@@ -13,6 +13,9 @@ The Vulkan client hosts valley (a listen server: a multiplayer game, no net_allo
   P1 both read their retail defaults (1.0 and 6) before anything sets them
   P2 "set bse_detailLevel 0.5" and "set r_stuffCacheMegs 16" are accepted, twice
   P3 "writeConfig" saves both with seta
+r_MD5LodScale (Low sets 1; retail: archived float, default 3.4) is checked the same way,
+and r_MD5LodBias and r_MD5MaxLodStages, which retail registers as cheats:
+  P4 they read retail's defaults (0 and 1), and "set" is refused in the game
 
 Usage: test_preset_cvars_registered.py [--client-binary PATH] [--port N] [--log-dir DIR]
 Exit status: 0 pass, 1 fail, 77 skip (no client binary or retail data).
@@ -33,7 +36,10 @@ from test_cheat_cvar_lock import LOCKED, run, value  # noqa: E402
 from test_client_network import VulkanClient  # noqa: E402
 from test_reconnect_restart import Failed  # noqa: E402
 
-CVARS = (("bse_detailLevel", "1.0", "0.5", "0.25"), ("r_stuffCacheMegs", "6", "16", "32"))
+CVARS = (("bse_detailLevel", "1.0", "0.5", "0.25"), ("r_stuffCacheMegs", "6", "16", "32"),
+         ("r_MD5LodScale", "3.4", "1", "2"))
+# retail registers these two as cheats: they stay locked in a multiplayer game
+CHEATS = (("r_MD5LodBias", "0"), ("r_MD5MaxLodStages", "1"))
 CONFIG = "preset_cvars_probe.cfg"
 
 
@@ -80,6 +86,13 @@ def main() -> int:
             expect(not any(LOCKED in line for line in out) and now is not None and float(now) == float(second),
                    f"P2 {name} changes in a multiplayer game ({now};"
                    f" {[line.strip() for line in out if LOCKED in line][:1]})")
+        for name, default in CHEATS:
+            now = value(gfx, name)
+            out = run(gfx, f"set {name} 2")
+            after = value(gfx, name)
+            expect(now is not None and float(now) == float(default) and any(LOCKED in line for line in out)
+                   and after is not None and float(after) == float(default),
+                   f"P4 {name} is registered at its retail default {default} and locked as a cheat ({now}, then {after})")
         run(gfx, f"writeConfig {CONFIG}")
         saved = ""
         deadline = time.monotonic() + 10.0
@@ -104,7 +117,7 @@ def main() -> int:
     if failures:
         print(f"FAIL: {len(failures)} check(s) failed")
         return 1
-    print("PASS: bse_detailLevel and r_stuffCacheMegs are registered, archived and changeable in a multiplayer game")
+    print("PASS: the preset CVars are registered as retail registers them")
     return 0
 
 
