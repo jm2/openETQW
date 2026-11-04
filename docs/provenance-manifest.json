@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5628,
+  "totalFiles": 5629,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 394
   },
   "postSplitCounts": {
-    "Reconstruction_original": 345,
+    "Reconstruction_original": 346,
     "ThirdParty": 1,
     "Retail_asset": 4,
     "Doom3_GPL": 2,
@@ -17,7 +17,7 @@
   },
   "postSplitAsOf": {
     "openETQW": "the commit that last changed this manifest",
-    "openETQW-game": "e9f1c8dcd027bf95fafe24272ca5eaab2f33d434"
+    "openETQW-game": "730b7b6f845a636a7bcffdd2e1f6848c87ba61e7"
   },
   "files": [
     {
@@ -48181,9 +48181,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "99c18aac7274db4618dab76387367d7c69b638d703cfa0f1b82f5591ee4d991c",
-      "canonicalSha256": "99c18aac7274db4618dab76387367d7c69b638d703cfa0f1b82f5591ee4d991c",
-      "bytes": 169952,
+      "rawSha256": "414c632f38dcc9e4f612ecc2048e2db948a643c7efd17d2b791838c2d7e734af",
+      "canonicalSha256": "414c632f38dcc9e4f612ecc2048e2db948a643c7efd17d2b791838c2d7e734af",
+      "bytes": 170252,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": null
@@ -49501,9 +49501,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "411863e5b9d63533e87cb4c7229efc68113f95d094e06b5ef00bdf04679382d3",
-      "canonicalSha256": "411863e5b9d63533e87cb4c7229efc68113f95d094e06b5ef00bdf04679382d3",
-      "bytes": 60961,
+      "rawSha256": "187696ed33d56d442eac2587c6eaf28b04aa20b2bccebc3b62569b3671becff0",
+      "canonicalSha256": "187696ed33d56d442eac2587c6eaf28b04aa20b2bccebc3b62569b3671becff0",
+      "bytes": 61505,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": "GPL-3.0-or-later"
@@ -50538,6 +50538,18 @@
       "bytes": 16246,
       "addedAfterSplit": true,
       "addedIn": "96be8171ffa1e6299cb40d4423a3e10c3a54cd81",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
+      "path": "tests/test_sound_cvar_multiplayer.py",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "08fbe5df17ff0b9d3dddf28e4b5eae92dce4e53605b2cb612f0c3f40bc9762cb",
+      "canonicalSha256": "08fbe5df17ff0b9d3dddf28e4b5eae92dce4e53605b2cb612f0c3f40bc9762cb",
+      "bytes": 4034,
+      "addedAfterSplit": true,
+      "addedIn": "168218dfc9f44bee82a4bc0ff024ac5a111be57b",
       "spdx": "GPL-3.0-or-later"
     },
     {

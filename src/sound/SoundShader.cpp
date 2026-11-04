@@ -9,6 +9,15 @@
 #include "SoundShader.h"
 #include "../framework/DeclParseHelper.h"
 
+// The settings menu's overall preset sets it: 3 below High, 0 (no limit) at High
+// (#423). It was registered only in snd_system.cpp, which isn't built, so a set made
+// it an unregistered CVar, which counts as a cheat in a multiplayer game. The SDK's
+// snd_shader.cpp reads it when a shader is parsed, to keep at most that many samples;
+// nothing reads it here yet, since the sound backend loads no samples by shader.
+idCVar s_maxSoundsPerShader(
+	"s_maxSoundsPerShader", "0",
+	CVAR_SOUND | CVAR_ARCHIVE, "", 0, 10, idCmdSystem::ArgCompletion_Integer<0,10> );
+
 // The Bink sample each shader names, by shader name (#190).  The SDK's
 // idSoundShader keeps no sample names, and a shader read from a binary decl
 // has no text to search, so the bootstrap emitter looks its movie up here.
