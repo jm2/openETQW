@@ -19,7 +19,8 @@ bytes (MALLOC_PERTURB_ 85 and 170; before the fix 85 gave 1874 events at tick 11
   H2 every tick's SIM_HASH (positions, health, objectives and the serviced event count)
      is the same in both
 
-glibc only: elsewhere MALLOC_PERTURB_ does nothing, and the test skips (exit 77).
+glibc only: elsewhere MALLOC_PERTURB_ does nothing, and the test skips (exit 77); so
+does an AddressSanitizer build, whose allocator ignores it.
 
 Usage: test_determinism_heap_fill.py [--port N] [--log-dir DIR]
 Exit status: 0 pass, 1 fail, 77 skip (not glibc, no client binary or no retail data).
@@ -52,6 +53,10 @@ def main() -> int:
     if not replay.CLIENT_BIN.is_file():
         print(f"[SKIP] {replay.CLIENT_BIN} does not exist (the listen host needs the client binary)")
         return h.EXIT_SKIP
+    # ASan's allocator ignores MALLOC_PERTURB_: both runs would see the same memory
+    if b"__asan_init" in replay.CLIENT_BIN.read_bytes():
+        print("[SKIP] an AddressSanitizer build: its allocator ignores MALLOC_PERTURB_")
+        return h.EXIT_SKIP
     missing = h.missing_required_paks(replay.DATA_PATH)
     if missing:
         print(f"[SKIP] Retail 1.5 data incomplete at {replay.DATA_PATH / 'base'} (missing: {', '.join(missing)})")
@@ -75,8 +80,8 @@ def main() -> int:
                     args.log_dir.mkdir(parents=True, exist_ok=True)
                     (args.log_dir / f"heap-fill-{fill}.log").write_text("\n".join(lines) + "\n")
             runs[fill] = hashes
-    except RuntimeError as e:
-        print(f"FAIL: {e}")
+    except Exception as e:  # a schedule that raised (too few ticks, a timeout, a crash)
+        print(f"FAIL: {type(e).__name__}: {e}")
         return 1
     finally:
         if old_fill is None:
