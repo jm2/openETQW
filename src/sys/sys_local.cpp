@@ -155,20 +155,17 @@ void idSysLocal::Init( void ) {
 		Sys_FreeQueuedEvents( eventQue, eventAllocator, false );
 	}
 	Sys_InitNetworking();
+}
+
+void idSysLocal::PostGameInit( void ) {
 #ifndef ID_DEDICATED
-	// mixes the playing sound world into the audio device, as Windows' does (#436)
+	// mixes the playing sound world into the audio device, as Windows' does (#436).
+	// Common calls this on every platform; Linux and macOS never call Init
 	Posix_StartSoundThread();
 #endif
 }
 
-void idSysLocal::PostGameInit( void ) {
-}
-
 void idSysLocal::Shutdown( void ) {
-#ifndef ID_DEDICATED
-	// stopped before the sound system and its device go away
-	Posix_StopSoundThread();
-#endif
 	{
 		sdScopedLock< true > queueLock( eventLock );
 		Sys_FreeQueuedEvents( eventQue, eventAllocator, false );
