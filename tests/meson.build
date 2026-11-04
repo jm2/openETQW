@@ -1329,6 +1329,23 @@ if build_engine and build_dedicated
     is_parallel: false,
   )
 
+  # s_maxSoundsPerShader (the presets set it) can be changed in a multiplayer game (#423)
+  test(
+    'sound-cvar-multiplayer',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_sound_cvar_multiplayer.py',
+      '--client-binary', campaign_client,
+      '--port', '29935',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'sound-cvar-multiplayer',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 300,
+    is_parallel: false,
+  )
+
   # reloadEngine starts the engine again at the main menu (#420)
   test(
     'reload-engine',
