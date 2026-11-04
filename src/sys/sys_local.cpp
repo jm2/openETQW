@@ -158,11 +158,6 @@ void idSysLocal::Init( void ) {
 }
 
 void idSysLocal::PostGameInit( void ) {
-#ifndef ID_DEDICATED
-	// mixes the playing sound world into the audio device, as Windows' does (#436).
-	// Common calls this on every platform; Linux and macOS never call Init
-	Posix_StartSoundThread();
-#endif
 }
 
 void idSysLocal::Shutdown( void ) {

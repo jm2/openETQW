@@ -3,7 +3,7 @@
 // The client's sound thread on Linux and macOS (#436): every USERCMD_MSEC it runs
 // soundSystem->AsyncUpdate under the sound system's lock, which mixes the playing
 // sound world into the audio device, as win_soundthread.cpp does on Windows.
-// idSysLocal::PostGameInit starts it; it stops as the process exits.
+// Sys_Init starts it and Sys_Shutdown stops it (posix_main.cpp), as on Windows.
 
 #include "../../idlib/precompiled.h"
 #pragma hdrstop
@@ -15,8 +15,6 @@
 #include "../../idlib/threading/ThreadProcess.h"
 #include "../../idlib/threading/Thread.h"
 
-#include <cstdlib>
-
 namespace {
 
 class sdPosixSoundThread : public sdThreadProcess {
@@ -27,18 +25,11 @@ public:
 		if ( thread != NULL ) {
 			return;
 		}
-		thread = new sdThread( this, THREAD_ABOVE_NORMAL, 0x100000 );
+		// normal priority: POSIX threads here can only lower theirs (SysThread_posix.cpp)
+		thread = new sdThread( this, THREAD_NORMAL, 0x100000 );
 		thread->SetName( "Sound" );
 		if ( !thread->Start( NULL, 0 ) ) {
 			common->Error( "Posix_StartSoundThread: failed to start the sound thread" );
-		}
-		// nothing on Linux or macOS calls idSys::Shutdown: stop it as the process
-		// exits. Until then an update after the sound system's shutdown does
-		// nothing (AsyncUpdate checks it is initialized, under the same lock)
-		static bool stopAtExit = false;
-		if ( !stopAtExit ) {
-			stopAtExit = true;
-			std::atexit( Posix_StopSoundThread );
 		}
 	}
 

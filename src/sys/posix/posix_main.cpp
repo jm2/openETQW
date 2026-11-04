@@ -733,9 +733,17 @@ const char *Sys_DefaultCDPath( void ) {
 #endif
 
 void Sys_Init( void ) {
+#ifndef ID_DEDICATED
+	// mixes the playing sound world into the audio device, as Windows' does (#436);
+	// it waits for common to be initialized
+	Posix_StartSoundThread();
+#endif
 }
 
 void Sys_Shutdown( void ) {
+#ifndef ID_DEDICATED
+	Posix_StopSoundThread();
+#endif
 	Posix_Shutdown();
 }
 
