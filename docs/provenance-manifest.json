@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5629,
+  "totalFiles": 5630,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 394
   },
   "postSplitCounts": {
-    "Reconstruction_original": 346,
+    "Reconstruction_original": 347,
     "ThirdParty": 1,
     "Retail_asset": 4,
     "Doom3_GPL": 2,
@@ -49501,9 +49501,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "187696ed33d56d442eac2587c6eaf28b04aa20b2bccebc3b62569b3671becff0",
-      "canonicalSha256": "187696ed33d56d442eac2587c6eaf28b04aa20b2bccebc3b62569b3671becff0",
-      "bytes": 61505,
+      "rawSha256": "5c147ff75c4dec07f3129a0b27e5316d860be0c024139dbf68eff9923a05d59f",
+      "canonicalSha256": "5c147ff75c4dec07f3129a0b27e5316d860be0c024139dbf68eff9923a05d59f",
+      "bytes": 62002,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": "GPL-3.0-or-later"
@@ -49830,6 +49830,18 @@
       "bytes": 14762,
       "addedAfterSplit": true,
       "addedIn": "94c318782a8bec73ee17f8df6f5b6d8a40c0a111",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
+      "path": "tests/test_determinism_heap_fill.py",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "bd5cb070bbca08f9f7edc49f3ff92840b30be4bc0e64e45e6f8c98a23427a1ac",
+      "canonicalSha256": "bd5cb070bbca08f9f7edc49f3ff92840b30be4bc0e64e45e6f8c98a23427a1ac",
+      "bytes": 5075,
+      "addedAfterSplit": true,
+      "addedIn": "b92adfd016900dcc278d526df16cc0863de714d7",
       "spdx": "GPL-3.0-or-later"
     },
     {
@@ -51133,8 +51145,8 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "5e9d01b1ffcde5436b7ab67c6fe0a563825c9af2847965f05e30a0b2cbfa58b6",
-      "canonicalSha256": "5e9d01b1ffcde5436b7ab67c6fe0a563825c9af2847965f05e30a0b2cbfa58b6",
+      "rawSha256": "8f3cc0018359be22034692a5303bd5e9653014dafefcfb182f0b336740c14846",
+      "canonicalSha256": "8f3cc0018359be22034692a5303bd5e9653014dafefcfb182f0b336740c14846",
       "bytes": 41,
       "addedAfterSplit": true,
       "addedIn": "96be8171ffa1e6299cb40d4423a3e10c3a54cd81",
