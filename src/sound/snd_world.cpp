@@ -1189,10 +1189,12 @@ void idSoundWorldLocal::WriteToSaveGameSoundChannel( idFile *saveGame, idSoundCh
 	saveGame->WriteInt( ch->trigger44kHzTime );
 	saveGame->WriteInt( ch->triggerGame44kHzTime );
 	WriteToSaveGameSoundShaderParams( saveGame, &ch->parms );
-	saveGame->WriteInt( (int)ch->leadinSample );
+	// pointers don't fit an int on 64-bit: whether each was set (as dhewm3); the
+	// reader restores them by name
+	saveGame->WriteInt( ch->leadinSample != NULL ? 1 : 0 );
 	saveGame->WriteInt( ch->triggerChannel );
-	saveGame->WriteInt( (int)ch->soundShader );
-	saveGame->WriteInt( (int)ch->decoder );
+	saveGame->WriteInt( ch->soundShader != NULL ? 1 : 0 );
+	saveGame->WriteInt( ch->decoder != NULL ? 1 : 0 );
 	saveGame->WriteFloat(ch->diversity );
 	saveGame->WriteFloat(ch->lastVolume );
 	for (int m = 0; m < 6; m++)
@@ -1355,10 +1357,14 @@ void idSoundWorldLocal::ReadFromSaveGameSoundChannel( idFile *saveGame, idSoundC
 	saveGame->ReadInt( ch->trigger44kHzTime );
 	saveGame->ReadInt( ch->triggerGame44kHzTime );
 	ReadFromSaveGameSoundShaderParams( saveGame, &ch->parms );
-	saveGame->ReadInt( (int&)ch->leadinSample );
+	int pointerSet;
+	saveGame->ReadInt( pointerSet );		// leadinSample: restored by name below
+	ch->leadinSample = NULL;
 	saveGame->ReadInt( ch->triggerChannel );
-	saveGame->ReadInt( (int&)ch->soundShader );
-	saveGame->ReadInt( (int&)ch->decoder );
+	saveGame->ReadInt( pointerSet );		// soundShader: restored by name below
+	ch->soundShader = NULL;
+	saveGame->ReadInt( pointerSet );		// decoder: non-NULL marks one to allocate again below
+	ch->decoder = pointerSet ? reinterpret_cast< idSampleDecoder* >( static_cast< intptr_t >( 1 ) ) : NULL;
 	saveGame->ReadFloat(ch->diversity );
 	saveGame->ReadFloat(ch->lastVolume );
 	for (int m = 0; m < 6; m++)

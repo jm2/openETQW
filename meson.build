@@ -447,7 +447,8 @@ if build_engine
       'src/sound/OggVorbis/vorbissrc/windowvb.c',
     ),
     include_directories: include_directories('src/sound/OggVorbis', 'src/sound/OggVorbis/vorbissrc'),
-    c_args: cc.get_supported_arguments(['-w', '/w']),
+    # libvorbis' os.h declares alloca through <alloca.h> only with HAVE_ALLOCA_H
+    c_args: cc.get_supported_arguments(['-w', '/w']) + (host_system != 'windows' ? ['-DHAVE_ALLOCA_H'] : []),
     install: false,
   )
 
