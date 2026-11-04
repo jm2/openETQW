@@ -474,6 +474,19 @@ if build_engine
     timeout: 360,
     is_parallel: false,
   )
+  # the same listen replay under two heap fills (glibc MALLOC_PERTURB_): the simulation
+  # must not read uninitialised memory (#427: a walker's ground normal before its first
+  # ground contact)
+  test(
+    'determinism-heap-fill',
+    py,
+    args: [meson.project_source_root() / 'tests' / 'test_determinism_heap_fill.py', '--port', '29968'],
+    env: client_test_env,
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    timeout: 240,
+    is_parallel: false,
+  )
   # key turning on a listen host: the Vulkan client turns its own player at caps 30 and
   # 240, and the server's usercmds must turn at in_yawSpeed a second at both
   test(
