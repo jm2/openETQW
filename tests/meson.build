@@ -284,6 +284,18 @@ test(
   timeout: 30,
 )
 
+# An effect segment whose "detail" is above bse_detailLevel is left out (#423)
+bse_detail_cull_test = executable(
+  'openetqw-bse-detail-cull-test',
+  files('BSEDetailCullTest.cpp'),
+  include_directories: engine_include_dirs,
+  cpp_args: common_engine_defs + ['-DID_DEDICATED'] + engine_pch_args,
+  dependencies: test_deps + [zlib_dep, threads_dep],
+  link_args: test_link_args,
+  install: false,
+)
+test('bse-detail-cull', bse_detail_cull_test, suite: 'unit', timeout: 30)
+
 # A fresh profile's graphics preset: retail's device.info table, read by PCI ID (#387)
 machine_spec_test = executable(
   'openetqw-machine-spec-test',
@@ -1329,6 +1341,23 @@ if build_engine and build_dedicated
     is_parallel: false,
   )
 
+  # bse_detailLevel and r_stuffCacheMegs (the presets set them) are registered as retail
+  # registers them: archived, so changeable in a multiplayer game and saved (#423)
+  test(
+    'preset-cvars-registered',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_preset_cvars_registered.py',
+      '--client-binary', campaign_client,
+      '--port', '29937',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'preset-cvars-registered',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 300,
+    is_parallel: false,
+  )
   # s_maxSoundsPerShader (the presets set it) can be changed in a multiplayer game (#423)
   test(
     'sound-cvar-multiplayer',

@@ -52,8 +52,8 @@ idCVar r_showStuffCache(
 );
 
 idCVar r_stuffCacheMegs(
-	"r_stuffCacheMegs", "6", CVAR_RENDERER | CVAR_INTEGER,
-	"Number of megabytes to cache stuff models\n"
+	"r_stuffCacheMegs", "6", CVAR_RENDERER | CVAR_INTEGER | CVAR_ARCHIVE,
+	"Number of megabytes to cache stuff models.\n"
 );
 
 idCVar r_stuffUpdateDistance(
