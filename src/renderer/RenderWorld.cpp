@@ -29,6 +29,8 @@
 #include <GL/gl.h>
 #endif
 
+#include "EffectGameClock.h"
+
 struct bseEffectState_t {
 	bseEffectState_t() : decl( NULL ), model( NULL ), startTime( 0 ), stopTime( 0.0f ), stopped( false ), templateEpoch( 0 ) {
 		memset( &entity, 0, sizeof( entity ) );
@@ -40,8 +42,9 @@ struct bseEffectState_t {
 	idRenderModel* model;
 	renderEntity_t entity;
 	int startTime;
-	float stopTime;
+	float stopTime;		// the draw's: from the drawn frame, for the particle fade
 	bool stopped;
+	sdEffectGameClock gameClock;	// the game's: when a stopped effect is over (#433)
 	int templateEpoch;	// BSE_EffectTemplateEpoch when the simulation was initialised
 };
 
@@ -291,6 +294,7 @@ qhandle_t idRenderWorldLocal::AddEffectDef( const renderEffect_t *effect, int ti
 		FreeEffectState( effectStates[handle] );
 		effectStates[handle] = new bseEffectState_t;
 		effectStates[handle]->startTime = time;
+		effectStates[handle]->gameClock.Start( time );
 		InitEffectSimulation( *effectStates[handle], effect->declEffect );
 		while ( stoppedEffects.Num() <= handle ) {
 			stoppedEffects.Append( false );
@@ -307,6 +311,7 @@ bool idRenderWorldLocal::UpdateEffectDef( qhandle_t handle, const renderEffect_t
 	UpdateDefinition( effectDefs, handle, effect );
 	if ( handle >= effectStates.Num() || effectStates[handle] == NULL ) return false;
 	bseEffectState_t* state = effectStates[handle];
+	state->gameClock.Update( time );
 	if ( state->decl != effect->declEffect ) {
 		InitEffectSimulation( *state, effect->declEffect );
 	}
@@ -316,7 +321,8 @@ bool idRenderWorldLocal::UpdateEffectDef( qhandle_t handle, const renderEffect_t
 	const float duration = effectTemplate != NULL ? effectTemplate->GetMaxDuration() : 0.0f;
 	if ( duration <= 0.0f ) return false;
 	if ( state->stopped ) {
-		return state->stopTime > 0.0f && effectTime > state->stopTime + duration;
+		// by game time: the removal is a game event (#433)
+		return state->gameClock.StoppedEffectOver( effectTime, duration );
 	}
 	return effectTime > duration;
 }
@@ -330,6 +336,7 @@ void idRenderWorldLocal::StopEffectDef( qhandle_t handle ) {
 			const renderEffect_t* effect = DefinitionForHandle( effectDefs, handle );
 			state->stopTime = effect != NULL && hasRenderView ?
 				Max( 0.0001f, currentRenderView.time * 0.001f + effect->shaderParms[SHADERPARM_TIMEOFFSET] ) : -1.0f;
+			state->gameClock.Stop( effect != NULL ? effect->shaderParms[SHADERPARM_TIMEOFFSET] : 0.0f );
 		}
 	}
 }
@@ -340,6 +347,7 @@ void idRenderWorldLocal::RestartEffectDef( qhandle_t handle ) {
 		if ( handle < effectStates.Num() && effectStates[handle] != NULL ) {
 			effectStates[handle]->stopped = false;
 			effectStates[handle]->stopTime = 0.0f;
+			effectStates[handle]->gameClock.Restart();
 		}
 	}
 }
