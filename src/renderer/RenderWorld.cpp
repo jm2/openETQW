@@ -32,7 +32,7 @@
 #include "EffectGameClock.h"
 
 struct bseEffectState_t {
-	bseEffectState_t() : decl( NULL ), model( NULL ), startTime( 0 ), stopTime( 0.0f ), stopped( false ), templateEpoch( 0 ) {
+	bseEffectState_t() : decl( NULL ), model( NULL ), startTime( 0 ), stopped( false ), templateEpoch( 0 ) {
 		memset( &entity, 0, sizeof( entity ) );
 		entity.axis.Identity();
 	}
@@ -42,9 +42,8 @@ struct bseEffectState_t {
 	idRenderModel* model;
 	renderEntity_t entity;
 	int startTime;
-	float stopTime;		// the draw's: from the drawn frame, for the particle fade
 	bool stopped;
-	sdEffectGameClock gameClock;	// the game's: when a stopped effect is over (#433)
+	sdEffectGameClock gameClock;	// when a stopped effect is over and fades, by game time (#433)
 	int templateEpoch;	// BSE_EffectTemplateEpoch when the simulation was initialised
 };
 
@@ -316,15 +315,10 @@ bool idRenderWorldLocal::UpdateEffectDef( qhandle_t handle, const renderEffect_t
 		InitEffectSimulation( *state, effect->declEffect );
 	}
 	if ( effect->declEffect == NULL || effect->loop ) return false;
-	const float effectTime = time * 0.001f + effect->shaderParms[SHADERPARM_TIMEOFFSET];
 	const bseEffectTemplate* effectTemplate = BSE_EffectTemplateForDecl( effect->declEffect );
 	const float duration = effectTemplate != NULL ? effectTemplate->GetMaxDuration() : 0.0f;
-	if ( duration <= 0.0f ) return false;
-	if ( state->stopped ) {
-		// by game time: the removal is a game event (#433)
-		return state->gameClock.StoppedEffectOver( effectTime, duration );
-	}
-	return effectTime > duration;
+	// by game time: the removal is a game event (#433)
+	return EffectOver( state->gameClock, time, effect->shaderParms[SHADERPARM_TIMEOFFSET], duration );
 }
 
 void idRenderWorldLocal::StopEffectDef( qhandle_t handle ) {
@@ -334,8 +328,7 @@ void idRenderWorldLocal::StopEffectDef( qhandle_t handle ) {
 			bseEffectState_t* state = effectStates[handle];
 			state->stopped = true;
 			const renderEffect_t* effect = DefinitionForHandle( effectDefs, handle );
-			state->stopTime = effect != NULL && hasRenderView ?
-				Max( 0.0001f, currentRenderView.time * 0.001f + effect->shaderParms[SHADERPARM_TIMEOFFSET] ) : -1.0f;
+			// at the newest game time the effect was given, not the last drawn frame's (#433)
 			state->gameClock.Stop( effect != NULL ? effect->shaderParms[SHADERPARM_TIMEOFFSET] : 0.0f );
 		}
 	}
@@ -346,7 +339,6 @@ void idRenderWorldLocal::RestartEffectDef( qhandle_t handle ) {
 		stoppedEffects[ handle ] = false;
 		if ( handle < effectStates.Num() && effectStates[handle] != NULL ) {
 			effectStates[handle]->stopped = false;
-			effectStates[handle]->stopTime = 0.0f;
 			effectStates[handle]->gameClock.Restart();
 		}
 	}
@@ -402,10 +394,7 @@ void idRenderWorldLocal::BackendPrepareEffects( const renderView_t* renderView )
 		memset( &owner, 0, sizeof( owner ) );
 		owner.time = renderView->time * 0.001f + effect->shaderParms[SHADERPARM_TIMEOFFSET];
 		if ( owner.time < 0.0f ) continue;
-		owner.stopTime = state->stopped ? state->stopTime : 0.0f;
-		if ( state->stopped && owner.stopTime < 0.0f ) {
-			state->stopTime = owner.stopTime = Max( 0.0001f, owner.time );
-		}
+		owner.stopTime = EffectDrawStopTime( state->gameClock );
 		owner.diversity = effect->shaderParms[SHADERPARM_DIVERSITY];
 		owner.brightness = effect->shaderParms[SHADERPARM_BRIGHTNESS];
 		if ( owner.brightness == 0.0f ) owner.brightness = 1.0f;
