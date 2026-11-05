@@ -341,14 +341,15 @@ void SoundSystemRestart_f( const idCmdArgs &args ) {
 ===============
 TestSoundAt_f
 
-testSoundAt <shader> <distance>: plays the shader from an emitter that distance
-(game units) in front of the playing world's listener, and prints the shader's
-distances (meters) and flags; for tests of the mixer's attenuation (#436)
+testSoundAt <shader> <distance> [offset ms]: plays the shader from an emitter that
+distance (game units) in front of the playing world's listener, optionally that far
+into the sample (SetChannelOffset), and prints the emitter, the shader's distances
+(meters) and flags; for tests of the mixer's attenuation and looping (#436)
 ===============
 */
 void TestSoundAt_f( const idCmdArgs &args ) {
-	if ( args.Argc() != 3 ) {
-		common->Printf( "Usage: testSoundAt <shader> <distance>\n" );
+	if ( args.Argc() != 3 && args.Argc() != 4 ) {
+		common->Printf( "Usage: testSoundAt <shader> <distance> [offset ms]\n" );
 		return;
 	}
 	idSoundWorldLocal *world = soundSystemLocal.currentSoundWorld;
@@ -364,7 +365,9 @@ void TestSoundAt_f( const idCmdArgs &args ) {
 	}
 	static idSoundEmitterLocal *emitter = NULL;
 	static idSoundWorldLocal *emitterWorld = NULL;
-	if ( emitter == NULL || emitterWorld != world ) {
+	// reused only while it is still this world's, alive, and in its slot
+	if ( emitter == NULL || emitterWorld != world || emitter->removeStatus != REMOVE_STATUS_ALIVE ||
+		emitter->index < 0 || emitter->index >= world->emitters.Num() || world->emitters[ emitter->index ] != emitter ) {
 		emitter = world->AllocLocalSoundEmitter();
 		emitterWorld = world;
 	}
@@ -377,6 +380,9 @@ void TestSoundAt_f( const idCmdArgs &args ) {
 	// from the listener's id plays as global, unattenuated
 	emitter->UpdateEmitter( origin, -2, &noOverrides );
 	const int length = emitter->StartSound( shader, SCHANNEL_ONE, SCHANNEL_ONE, 0.0f, 0 );
+	if ( args.Argc() == 4 ) {
+		emitter->SetChannelOffset( SCHANNEL_ONE, atoi( args.Argv( 3 ) ) );
+	}
 	soundShaderParms_t parms;
 	shader->GetParms( &parms );
 	common->Printf( "testSoundAt: emitter %d, %s at %g units: minDistance %g maxDistance %g volume %g flags 0x%x length %d\n",

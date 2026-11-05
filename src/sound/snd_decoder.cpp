@@ -33,6 +33,8 @@ If you have questions concerning this license or the applicable additional terms
 #include "OggVorbis/vorbis/codec.h"
 #include "OggVorbis/vorbis/vorbisfile.h"
 
+#include <errno.h>
+
 
 /*
 ===================================================================================
@@ -97,9 +99,14 @@ FS_ReadOGG
 */
 size_t FS_ReadOGG( void *dest, size_t size1, size_t size2, void *fh ) {
 	idFile *f = reinterpret_cast<idFile *>(fh);
-	// a read error (-1) is no data, not a huge size_t
+	// a read error (-1) is no data, not a huge size_t; errno tells vorbisfile it was an
+	// error, not the end of the file
 	const int read = f->Read( dest, size1 * size2 );
-	return read > 0 ? static_cast< size_t >( read ) : 0;
+	if ( read < 0 ) {
+		errno = EIO;
+		return 0;
+	}
+	return static_cast< size_t >( read );
 }
 
 /*

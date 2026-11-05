@@ -17,7 +17,9 @@ s_singleEmitter set to it so the menu's music doesn't mix:
      world, once the main menu is up; the game's plays until then)
   P2 at the listener, the mix is loud; between minDistance and maxDistance it is
      quieter; past maxDistance it is silent
-  P3 the looping shader still mixes after three seconds
+  P3 looping: started half a second before its end (SetChannelOffset), the looping
+     shader still mixes two seconds later; the control, sounds/ui/main/click started
+     past its own end, is silent, so the offset is applied
   P4 s_volume_dB -20 lowers its peak to between 2% and 25% of the 0 dB peak
 
 Usage: test_sound_params.py [--client-binary PATH] [--port N] [--log-dir DIR]
@@ -46,20 +48,25 @@ SSF_LOOPING = 1 << 5
 METERS_TO_UNITS = 1.0 / 0.0254
 WINDOW = 1.5  # seconds of each restarted sound whose peak is compared
 STARTED = re.compile(r"testSoundAt: emitter (\d+), (\S+) at \S+ units: minDistance (\S+) maxDistance (\S+) "
-                     r"volume \S+ flags 0x([0-9a-f]+)")
+                     r"volume \S+ flags 0x([0-9a-f]+) length (-?\d+)")
+CLICK = "sounds/ui/main/click"
 WORLD = re.compile(r"soundMixWorld: (-?\d+) of (\d+)")
 
 
-def play(gfx, shader: str, distance: float):
+def play(gfx, shader: str, distance: float, offset_ms: int | None = None):
+    """Plays the shader from the test emitter and mixes only that emitter; the
+    emitter's index, minDistance, maxDistance, flags and length (ms), or None."""
     mark = gfx.mark()
-    gfx.send(f"testSoundAt {shader} {distance:.1f}")
+    gfx.send(f"testSoundAt {shader} {distance:.1f}" + ("" if offset_ms is None else f" {offset_ms}"))
     found = gfx.wait_for(lambda s: STARTED.search(s) or "testSoundAt: no" in s, 15.0, mark)
     if found is None:
         return None
     m = STARTED.search(found[1].text)
     if m is None:
         return None
-    return int(m.group(1)), float(m.group(3)), float(m.group(4)), int(m.group(5), 16)
+    # the emitter can change (a new world): mix only the one that plays now
+    gfx.send(f"set s_singleEmitter {m.group(1)}")
+    return int(m.group(1)), float(m.group(3)), float(m.group(4)), int(m.group(5), 16), int(m.group(6))
 
 
 def peak_over(gfx, seconds: float) -> int:
@@ -121,7 +128,7 @@ def main() -> int:
             if len(seen) >= 4 and seen[-1] is not None and len(set(seen[-4:])) == 1:
                 break
             time.sleep(0.3)
-        expect(len(seen) >= 4 and len(set(seen[-4:])) == 1 and seen[-1] is not None,
+        expect(len(seen) >= 4 and len(set(seen[-4:])) == 1 and seen[-1] is not None and seen[-1] >= 0,
                f"P1 the playing world settles (indexes {seen})")
 
         chosen = None
@@ -133,9 +140,9 @@ def main() -> int:
         if chosen is None:
             expect(False, f"a looping shader with a maxDistance among {CANDIDATES}")
             raise SystemExit
-        shader, (emitter, min_m, max_m, flags) = chosen
-        print(f"     {shader}: emitter {emitter}, minDistance {min_m} m, maxDistance {max_m} m, flags 0x{flags:x}")
-        gfx.send(f"set s_singleEmitter {emitter}")
+        shader, (emitter, min_m, max_m, flags, length_ms) = chosen
+        print(f"     {shader}: emitter {emitter}, minDistance {min_m} m, maxDistance {max_m} m, flags 0x{flags:x},"
+              f" length {length_ms} ms")
 
         # each measurement restarts the sound and takes the same window from its start,
         # so the peaks compare the same stretch of the sample
@@ -150,10 +157,16 @@ def main() -> int:
         expect(near > 0 and 0 < mid < near and far == 0,
                f"P2 attenuation: peak {near} at the listener, {mid} at {mid_units:.0f} units, {far} past maxDistance")
 
-        play(gfx, shader, 0.0)
-        time.sleep(3.0)
+        click = play(gfx, CLICK, 0.0, 0)
+        click_len = click[4] if click else 0
+        play(gfx, CLICK, 0.0, click_len + 500)
+        past_end = peak_over(gfx, 1.0)
+        play(gfx, shader, 0.0, max(0, length_ms - 500))
+        time.sleep(2.0)
         later = peak_over(gfx, 1.5)
-        expect(later > 0, f"P3 the looping shader still mixes after three seconds (peak {later})")
+        expect(click_len > 0 and past_end == 0 and later > 0,
+               f"P3 looping: the looping shader started 0.5 s before its end still mixes 2 s later (peak {later});"
+               f" the click started past its end ({click_len} ms) is silent (peak {past_end})")
 
         full = measured(0.0)
         gfx.send("set s_volume_dB -20")
