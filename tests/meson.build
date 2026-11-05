@@ -361,12 +361,22 @@ test(
 
 # Release tooling: version bumps, changelog, asset set, source provenance, installer
 test(
-  'release-tools',
+  'release-tools-version',
   py,
-  args: [meson.project_source_root() / 'tests' / 'test_release_tools.py'],
+  args: [meson.project_source_root() / 'tests' / 'test_release_tools.py', '--group', 'version'],
   suite: 'unit',
   timeout: 60,
 )
+# the release tools' other parts, each its own test: as one, about 50 s of 60 on Windows (#443)
+foreach release_tools_group : ['assets', 'provenance', 'installer']
+  test(
+    'release-tools-' + release_tools_group,
+    py,
+    args: [meson.project_source_root() / 'tests' / 'test_release_tools.py', '--group', release_tools_group],
+    suite: 'unit',
+    timeout: 60,
+  )
+endforeach
 
 # Packaging and validation tooling: staged-payload checks, archives, AppRun
 test(
