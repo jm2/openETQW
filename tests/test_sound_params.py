@@ -24,7 +24,8 @@ s_singleEmitter set to it so the menu's music doesn't mix:
   P5 FadeSoundClasses: its sound class faded to -60 dB (soundFadeClass) is silent, and
      faded back to 0 dB mixes again
   P6 shakes: with only the ambience playing the world's shake amplitude is 0; a retail
-     explosion shader with shakes, played at the listener, raises it above 0
+     explosion shader with shakes, played at the listener, raises it above 0, and it is
+     0 again once that (non-looping) shader has ended
 
 Usage: test_sound_params.py [--client-binary PATH] [--port N] [--log-dir DIR]
 Exit status: 0 pass, 1 fail, 77 skip (no client binary or retail data).
@@ -214,6 +215,12 @@ def main() -> int:
                 time.sleep(0.1)
                 now = shake_amplitude()
                 loudest = max(loudest, now or 0.0)
+        # the control: once a non-looping shaker has ended, the amplitude is 0 again
+        after = None
+        if shaker is not None and not shaker[1][3] & SSF_LOOPING:
+            time.sleep(shaker[1][4] / 1000.0 + 1.0)
+            after = shake_amplitude()
+        expect(after == 0.0, f"P6 control: after {shaker[0] if shaker else '-'} ends, the shake amplitude is {after}")
         expect(quiet == 0.0 and shaker is not None and loudest > 0.0,
                f"P6 shake amplitude {quiet} with the ambience; {shaker[0] if shaker else 'no shader with shakes among '}"
                f"{'' if shaker else SHAKERS} (shakes {shaker[1][5] if shaker else '-'}) raises it to {loudest}")

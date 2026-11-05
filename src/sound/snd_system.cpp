@@ -369,12 +369,17 @@ void TestSoundAt_f( const idCmdArgs &args ) {
 	static idSoundEmitterLocal *emitter = NULL;
 	static idSoundWorldLocal *emitterWorld = NULL;
 	// reused only while it is still this world's, alive, and in its slot
+	// testSoundAt's emitter carries listener id -2: after a map change
+	// (ClearAllSoundEmitters) the game may own the same slot again, ALIVE
+	const int testListenerId = -2;
 	if ( emitter != NULL && emitterWorld != world && emitterWorld != NULL &&
-		soundSystemLocal.soundWorlds.FindIndex( emitterWorld ) >= 0 && emitter->removeStatus == REMOVE_STATUS_ALIVE ) {
+		soundSystemLocal.soundWorlds.FindIndex( emitterWorld ) >= 0 && emitter->removeStatus == REMOVE_STATUS_ALIVE &&
+		emitter->listenerId == testListenerId ) {
 		// the old world still lives: give its emitter back
 		emitter->Free( true );
 	}
 	if ( emitter == NULL || emitterWorld != world || emitter->removeStatus != REMOVE_STATUS_ALIVE ||
+		emitter->listenerId != testListenerId ||
 		emitter->index < 0 || emitter->index >= world->emitters.Num() || world->emitters[ emitter->index ] != emitter ) {
 		emitter = world->AllocLocalSoundEmitter();
 		emitterWorld = world;
@@ -386,7 +391,7 @@ void TestSoundAt_f( const idCmdArgs &args ) {
 	memset( &noOverrides, 0, sizeof( noOverrides ) );
 	// not the listener's own id (the menu's is -1, the game's an entity number): a sound
 	// from the listener's id plays as global, unattenuated
-	emitter->UpdateEmitter( origin, -2, &noOverrides );
+	emitter->UpdateEmitter( origin, testListenerId, &noOverrides );
 	const int length = emitter->StartSound( shader, SCHANNEL_ONE, SCHANNEL_ONE, 0.0f, 0 );
 	if ( args.Argc() == 4 ) {
 		emitter->SetChannelOffset( SCHANNEL_ONE, atoi( args.Argv( 3 ) ) );
@@ -1624,7 +1629,9 @@ void SoundFadeClass_f( const idCmdArgs &args ) {
 		common->Printf( "soundFadeClass: class %d is not 0-%d\n", soundClass, SOUND_MAX_CLASSES - 1 );
 		return;
 	}
+	Snd_EnterCriticalSection();
 	world->FadeSoundClasses( soundClass, atof( args.Argv( 2 ) ), atof( args.Argv( 3 ) ) );
+	Snd_LeaveCriticalSection();
 	common->Printf( "soundFadeClass: class %d to %s dB over %s s\n", soundClass, args.Argv( 2 ), args.Argv( 3 ) );
 }
 
