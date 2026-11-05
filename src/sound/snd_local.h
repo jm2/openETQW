@@ -747,6 +747,7 @@ public:
 
 	sdLock					lock;
 	idList<idSoundWorldLocal*>	soundWorlds;	// every world allocated, for the level-load purge
+	idList<idSoundWorldLocal*>	retiredWorlds;	// freed by the session, deleted in Shutdown
 	int						mixPeak;				// soundMixStats: loudest mixed sample since it last asked
 	int						mixBlocks;				// soundMixStats: mix buffers written
 	int						asyncUpdates;			// soundMixStats: sound thread updates
