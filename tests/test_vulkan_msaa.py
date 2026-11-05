@@ -179,8 +179,13 @@ def main() -> int:
             got = int(on_line.group(2)) if on_line.group(2) else 1
             expect(got == want, f"M2 r_multiSamples 16 runs at {want}x, the device's highest of 16 or less "
                    f"(got {got}x; {on_line.group(0)!r})")
-            _, _, rows_off = luminance_rows(shots[0])
-            _, _, rows_on = luminance_rows(shots[16])
+            width_off, height_off, rows_off = luminance_rows(shots[0])
+            width_on, height_on, rows_on = luminance_rows(shots[16])
+            # the comparisons below pair pixels up, so a size change (a resized
+            # window, a different swapchain) would silently compare part of a frame
+            if (width_off, height_off) != (width_on, height_on):
+                raise Failed(f"M3 the two screenshots differ in size ({width_off}x{height_off} at 0x, "
+                             f"{width_on}x{height_on} at 16); the views cannot be compared")
             share = same_view_share(rows_off, rows_on)
             expect(share >= SAME_VIEW_SHARE, f"M3 both frames show the same view ({100 * share:.1f}% of pixels within "
                    f"{SAME_VIEW_LUMINANCE} in luminance; need >= {100 * SAME_VIEW_SHARE:.0f}%)")
