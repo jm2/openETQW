@@ -9,11 +9,16 @@ Exercises, in temporary git repositories and directories only:
   verify_release_source_provenance.py  expected clean commits and the stage manifest
   build_windows_installer.py           --render-only output and payload checks
 
+--group runs one part (version, assets, provenance or installer); meson runs each as
+its own test, since every part starts the tools as Python processes and on Windows the
+whole took about 50 s of a 60 s bound (#443). With no --group it runs them all.
+
 Plain Python (no pytest). Exit 0 when every check passes, 1 otherwise.
 """
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import importlib.util
 import io
@@ -736,20 +741,32 @@ def test_iscc_discovery(work: Path) -> None:
                 os.environ[name] = value
 
 
+# the parts meson runs as separate tests; version's three share one repository, in order
+GROUPS = ("version", "assets", "provenance", "installer")
+
+
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--group", choices=GROUPS, help="run one part (default: all)")
+    args = parser.parse_args()
+    groups = (args.group,) if args.group else GROUPS
     if shutil.which("git") is None:
         print("SKIP: git is not on PATH")
         return 77
     work = private_dirs.make_private_dir("openetqw-release-tools-")
     try:
-        repo = init_repo(work / "engine")
-        test_release_version_first_part(repo)
-        test_changelog(repo, work)
-        test_release_version_tags(repo)
-        test_asset_set(work)
-        test_provenance(work)
-        test_installer(work)
-        test_iscc_discovery(work)
+        if "version" in groups:
+            repo = init_repo(work / "engine")
+            test_release_version_first_part(repo)
+            test_changelog(repo, work)
+            test_release_version_tags(repo)
+        if "assets" in groups:
+            test_asset_set(work)
+        if "provenance" in groups:
+            test_provenance(work)
+        if "installer" in groups:
+            test_installer(work)
+            test_iscc_discovery(work)
     finally:
         remove_tree(work)
 
@@ -758,7 +775,7 @@ def main() -> int:
         for failure in FAILURES:
             print(f"- {failure}")
         return 1
-    print(f"release tools: all {CHECKS} checks passed")
+    print(f"release tools ({', '.join(groups)}): all {CHECKS} checks passed")
     return 0
 
 
