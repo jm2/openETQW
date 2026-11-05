@@ -375,6 +375,7 @@ void idSoundEmitterLocal::Clear( void ) {
 	}
 
 	removeStatus = REMOVE_STATUS_SAMPLEFINISHED;
+	listenerId = SOUND_NO_LISTENER;
 	distance = 0.0f;
 
 	lastValidPortalArea = -1;
