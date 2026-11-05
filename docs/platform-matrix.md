@@ -43,5 +43,5 @@ Each stays listed here until a test covers it.
 
 | Check | Platform | What is missing | Decision |
 |---|---|---|---|
-| `reloadEngine` restarts the engine at the main menu (#420, #426) | Windows x64 and arm64 | No runtime evidence for `Sys_Relaunch` on Windows; the `reload-engine` test skips there (it can't follow the new process), and runs on the other platforms | Owner, 2026-11-05: "Document it as an accepted test gap and close." |
-| Menus follow the system pointer; capture only in play (#382, #404) | Windows x64 | No scripted Windows run; closed on the owner's own use | Owner, 2026-11-05: "Pretty certain cursor is good" |
+| `reloadEngine` restarts the engine at the main menu (#420, #426) | Windows (x64 and arm64) | No runtime evidence for `Sys_Relaunch` on Windows: the `reload-engine` test skips there (exit 77; it can't follow the new process). Runtime on Linux x64 (ledger row 085) | Owner, 2026-11-05: "Document it as an accepted test gap and close." |
+| Menus follow the system pointer; capture only in play (#382, #404) | Windows x64 | No recorded Windows run. The owner's own use is at most outcome-only, and it isn't recorded as evidence | Owner, 2026-11-05: "Pretty certain cursor is good" |
