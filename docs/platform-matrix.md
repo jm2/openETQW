@@ -35,3 +35,13 @@ The other platforms' rows predate the LAN-session fixes of 2026-10-30 to 2026-11
 (#363 to #412); the Linux x86_64 row covers them, apart from the last commit of #412, which
 changes only its OpenGL vertex program and the minimap test's bound (both minimap tests
 passed at that commit on the Linux x64, Windows x64 and Linux arm64 hosts).
+
+## Accepted test gaps
+
+Checks the maintainer has closed without the runtime evidence a platform would normally need.
+Each stays listed here until a test covers it.
+
+| Check | Platform | What is missing | Decision |
+|---|---|---|---|
+| `reloadEngine` restarts the engine at the main menu (#420, #426) | Windows (x64 and arm64) | No runtime evidence for `Sys_Relaunch` on Windows: the `reload-engine` test skips there (exit 77; it can't follow the new process). Runtime on Linux x64 (ledger row 085) | Owner, 2026-11-05: "Document it as an accepted test gap and close." |
+| Menus follow the system pointer; capture only in play (#382, #404) | Windows x64 | No recorded Windows run. The owner's own use is at most outcome-only, and it isn't recorded as evidence | Owner, 2026-11-05: "Pretty certain cursor is good" |
