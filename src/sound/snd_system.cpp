@@ -347,6 +347,9 @@ into the sample (SetChannelOffset), and prints the emitter, the shader's distanc
 (meters) and flags; for tests of the mixer's attenuation and looping (#436)
 ===============
 */
+void SoundFadeClass_f( const idCmdArgs &args );
+void SoundShakeAmplitude_f( const idCmdArgs &args );
+
 void TestSoundAt_f( const idCmdArgs &args ) {
 	if ( args.Argc() != 3 && args.Argc() != 4 ) {
 		common->Printf( "Usage: testSoundAt <shader> <distance> [offset ms]\n" );
@@ -366,6 +369,11 @@ void TestSoundAt_f( const idCmdArgs &args ) {
 	static idSoundEmitterLocal *emitter = NULL;
 	static idSoundWorldLocal *emitterWorld = NULL;
 	// reused only while it is still this world's, alive, and in its slot
+	if ( emitter != NULL && emitterWorld != world && emitterWorld != NULL &&
+		soundSystemLocal.soundWorlds.FindIndex( emitterWorld ) >= 0 && emitter->removeStatus == REMOVE_STATUS_ALIVE ) {
+		// the old world still lives: give its emitter back
+		emitter->Free( true );
+	}
 	if ( emitter == NULL || emitterWorld != world || emitter->removeStatus != REMOVE_STATUS_ALIVE ||
 		emitter->index < 0 || emitter->index >= world->emitters.Num() || world->emitters[ emitter->index ] != emitter ) {
 		emitter = world->AllocLocalSoundEmitter();
@@ -385,8 +393,9 @@ void TestSoundAt_f( const idCmdArgs &args ) {
 	}
 	soundShaderParms_t parms;
 	shader->GetParms( &parms );
-	common->Printf( "testSoundAt: emitter %d, %s at %g units: minDistance %g maxDistance %g volume %g flags 0x%x length %d\n",
-		emitter->Index(), shader->GetName(), distance, parms.minDistance, parms.maxDistance, parms.volume, parms.soundShaderFlags, length );
+	common->Printf( "testSoundAt: emitter %d, %s at %g units: minDistance %g maxDistance %g volume %g flags 0x%x length %d shakes %g class %d\n",
+		emitter->Index(), shader->GetName(), distance, parms.minDistance, parms.maxDistance, parms.volume, parms.soundShaderFlags, length,
+		parms.shakes, parms.soundClass );
 	world->ForegroundUpdate( soundSystemLocal.GetCurrent44kHzTime() );
 }
 
@@ -442,6 +451,8 @@ void idSoundSystemLocal::Init() {
 	cmdSystem->AddCommand( "testSound", TestSound_f, CMD_FL_SOUND | CMD_FL_CHEAT, "tests a sound", idCmdSystem::ArgCompletion_SoundName );
 	cmdSystem->AddCommand( "s_restart", SoundSystemRestart_f, CMD_FL_SOUND, "restarts the sound system" );
 	cmdSystem->AddCommand( "testSoundAt", TestSoundAt_f, CMD_FL_SOUND | CMD_FL_CHEAT, "plays a sound shader from a distance in front of the listener", idCmdSystem::ArgCompletion_SoundName );
+	cmdSystem->AddCommand( "soundFadeClass", SoundFadeClass_f, CMD_FL_SOUND | CMD_FL_CHEAT, "fades a sound class of the playing world: soundFadeClass <class> <dB> <seconds>" );
+	cmdSystem->AddCommand( "soundShakeAmplitude", SoundShakeAmplitude_f, CMD_FL_SOUND, "prints the playing world's shake amplitude at its listener" );
 	cmdSystem->AddCommand( "soundMixStats", SoundMixStats_f, CMD_FL_SOUND, "prints the mix buffers written and the loudest sample since the last call" );
 
 	common->Printf( "sound system initialized.\n" );
@@ -1588,4 +1599,48 @@ int idSoundSystemLocal::GetAudioDeviceHash( const char* name ) const {
 		}
 	}
 	return static_cast< int >( hash );
+}
+
+/*
+===============
+SoundFadeClass_f
+
+soundFadeClass <class> <dB> <seconds>: idSoundWorld::FadeSoundClasses on the playing
+world; for tests (#436)
+===============
+*/
+void SoundFadeClass_f( const idCmdArgs &args ) {
+	if ( args.Argc() != 4 ) {
+		common->Printf( "Usage: soundFadeClass <class> <dB> <seconds>\n" );
+		return;
+	}
+	idSoundWorldLocal *world = soundSystemLocal.currentSoundWorld;
+	if ( world == NULL ) {
+		common->Printf( "soundFadeClass: no playing sound world\n" );
+		return;
+	}
+	const int soundClass = atoi( args.Argv( 1 ) );
+	if ( soundClass < 0 || soundClass >= SOUND_MAX_CLASSES ) {
+		common->Printf( "soundFadeClass: class %d is not 0-%d\n", soundClass, SOUND_MAX_CLASSES - 1 );
+		return;
+	}
+	world->FadeSoundClasses( soundClass, atof( args.Argv( 2 ) ), atof( args.Argv( 3 ) ) );
+	common->Printf( "soundFadeClass: class %d to %s dB over %s s\n", soundClass, args.Argv( 2 ), args.Argv( 3 ) );
+}
+
+/*
+===============
+SoundShakeAmplitude_f
+
+the playing world's CurrentShakeAmplitudeForPosition at its listener; for tests (#436)
+===============
+*/
+void SoundShakeAmplitude_f( const idCmdArgs &args ) {
+	idSoundWorldLocal *world = soundSystemLocal.currentSoundWorld;
+	if ( world == NULL ) {
+		common->Printf( "soundShakeAmplitude: no playing sound world\n" );
+		return;
+	}
+	const float amplitude = world->CurrentShakeAmplitudeForPosition( world->gameMsec, world->listenerQU );
+	common->Printf( "soundShakeAmplitude: %g\n", amplitude );
 }
