@@ -298,6 +298,11 @@ void SoundMixStats_f( const idCmdArgs &args ) {
 	common->Printf( "soundMixStats: %d mix buffers, peak %d, hardware %s, playing world %s (%d updates, initialized %d, shut down %d)\n", blocks, peak,
 		soundSystemLocal.snd_audio_hw != NULL ? "yes" : "no", soundSystemLocal.currentSoundWorld != NULL ? "yes" : "no",
 		soundSystemLocal.asyncUpdates, soundSystemLocal.isInitialized ? 1 : 0, soundSystemLocal.shutdown ? 1 : 0 );
+	// which world plays: its index among the worlds allocated (the session's menu
+	// world is allocated first), and how many emitters it has
+	const int worldIndex = soundSystemLocal.soundWorlds.FindIndex( soundSystemLocal.currentSoundWorld );
+	common->Printf( "soundMixWorld: %d of %d, %d emitters\n", worldIndex, soundSystemLocal.soundWorlds.Num(),
+		soundSystemLocal.currentSoundWorld != NULL ? soundSystemLocal.currentSoundWorld->emitters.Num() : 0 );
 }
 
 void TestSound_f( const idCmdArgs &args ) {
@@ -323,9 +328,60 @@ restart the sound thread
 */
 void SoundSystemRestart_f( const idCmdArgs &args ) {
 	soundSystem->SetMute( true );
-	soundSystemLocal.ShutdownHW();
-	soundSystemLocal.InitHW();
+	{
+		// the sound thread writes to the hardware under this lock (#374, #436)
+		sdScopedLock< true > soundLock( soundSystem->GetLock() );
+		soundSystemLocal.ShutdownHW();
+		soundSystemLocal.InitHW();
+	}
 	soundSystem->SetMute( false );
+}
+
+/*
+===============
+TestSoundAt_f
+
+testSoundAt <shader> <distance>: plays the shader from an emitter that distance
+(game units) in front of the playing world's listener, and prints the shader's
+distances (meters) and flags; for tests of the mixer's attenuation (#436)
+===============
+*/
+void TestSoundAt_f( const idCmdArgs &args ) {
+	if ( args.Argc() != 3 ) {
+		common->Printf( "Usage: testSoundAt <shader> <distance>\n" );
+		return;
+	}
+	idSoundWorldLocal *world = soundSystemLocal.currentSoundWorld;
+	if ( world == NULL ) {
+		common->Printf( "testSoundAt: no playing sound world\n" );
+		return;
+	}
+	const qhandle_t soundType = declManager->GetDeclTypeHandle( declSoundShaderIdentifier );
+	const idSoundShader* shader = static_cast< const idSoundShader* >( declManager->FindType( soundType, args.Argv( 1 ), false ) );
+	if ( shader == NULL ) {
+		common->Printf( "testSoundAt: no sound shader '%s'\n", args.Argv( 1 ) );
+		return;
+	}
+	static idSoundEmitterLocal *emitter = NULL;
+	static idSoundWorldLocal *emitterWorld = NULL;
+	if ( emitter == NULL || emitterWorld != world ) {
+		emitter = world->AllocLocalSoundEmitter();
+		emitterWorld = world;
+	}
+	const float distance = atof( args.Argv( 2 ) );
+	const idVec3 origin = world->listenerQU + world->listenerAxis[ 0 ] * distance;
+	emitter->StopSound( SCHANNEL_ANY );
+	soundShaderParms_t noOverrides;		// zeroes: the shader's own parameters
+	memset( &noOverrides, 0, sizeof( noOverrides ) );
+	// not the listener's own id (the menu's is -1, the game's an entity number): a sound
+	// from the listener's id plays as global, unattenuated
+	emitter->UpdateEmitter( origin, -2, &noOverrides );
+	const int length = emitter->StartSound( shader, SCHANNEL_ONE, SCHANNEL_ONE, 0.0f, 0 );
+	soundShaderParms_t parms;
+	shader->GetParms( &parms );
+	common->Printf( "testSoundAt: emitter %d, %s at %g units: minDistance %g maxDistance %g volume %g flags 0x%x length %d\n",
+		emitter->Index(), shader->GetName(), distance, parms.minDistance, parms.maxDistance, parms.volume, parms.soundShaderFlags, length );
+	world->ForegroundUpdate( soundSystemLocal.GetCurrent44kHzTime() );
 }
 
 /*
@@ -379,6 +435,7 @@ void idSoundSystemLocal::Init() {
 	cmdSystem->AddCommand( "reloadSounds", SoundReloadSounds_f, CMD_FL_SOUND|CMD_FL_CHEAT, "reloads all sounds" );
 	cmdSystem->AddCommand( "testSound", TestSound_f, CMD_FL_SOUND | CMD_FL_CHEAT, "tests a sound", idCmdSystem::ArgCompletion_SoundName );
 	cmdSystem->AddCommand( "s_restart", SoundSystemRestart_f, CMD_FL_SOUND, "restarts the sound system" );
+	cmdSystem->AddCommand( "testSoundAt", TestSoundAt_f, CMD_FL_SOUND | CMD_FL_CHEAT, "plays a sound shader from a distance in front of the listener", idCmdSystem::ArgCompletion_SoundName );
 	cmdSystem->AddCommand( "soundMixStats", SoundMixStats_f, CMD_FL_SOUND, "prints the mix buffers written and the loudest sample since the last call" );
 
 	common->Printf( "sound system initialized.\n" );
@@ -392,6 +449,12 @@ idSoundSystemLocal::Shutdown
 */
 void idSoundSystemLocal::Shutdown() {
 	ShutdownHW();
+
+	// the worlds the session freed: deleted only now, after the game's shutdown has
+	// freed its emitters, which live in them (Common: session, then game, then sound)
+	Snd_EnterCriticalSection();
+	retiredWorlds.DeleteContents( true );
+	Snd_LeaveCriticalSection();
 
 	// EAX or not, the list needs to be cleared
 	EFXDatabase.Clear();
@@ -1480,8 +1543,11 @@ void idSoundSystemLocal::FreeSoundWorld( idSoundWorld* sw ) {
 		currentSoundWorld = NULL;
 	}
 	soundWorlds.Remove( static_cast< idSoundWorldLocal* >( sw ) );
+	// kept until Shutdown: the session frees its worlds before the game, whose
+	// emitters (in those worlds) are freed in its shutdown, so deleting them now
+	// would free those emitters first (#436)
+	retiredWorlds.AddUnique( static_cast< idSoundWorldLocal* >( sw ) );
 	Snd_LeaveCriticalSection();
-	delete sw;
 }
 
 /*

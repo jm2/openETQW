@@ -1359,6 +1359,24 @@ if build_engine and build_dedicated
     is_parallel: false,
   )
 
+  # the mixer attenuates by distance, keeps looping sounds going and applies the
+  # master volume (#436)
+  test(
+    'sound-params',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_sound_params.py',
+      '--client-binary', campaign_client,
+      '--port', '29943',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'sound-params',
+    ],
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 300,
+    is_parallel: false,
+  )
+
   # bse_detailLevel and r_stuffCacheMegs (the presets set them) are registered as retail
   # registers them: archived, so changeable in a multiplayer game and saved (#423)
   test(

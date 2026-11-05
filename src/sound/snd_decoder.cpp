@@ -97,7 +97,9 @@ FS_ReadOGG
 */
 size_t FS_ReadOGG( void *dest, size_t size1, size_t size2, void *fh ) {
 	idFile *f = reinterpret_cast<idFile *>(fh);
-	return f->Read( dest, size1 * size2 );
+	// a read error (-1) is no data, not a huge size_t
+	const int read = f->Read( dest, size1 * size2 );
+	return read > 0 ? static_cast< size_t >( read ) : 0;
 }
 
 /*
