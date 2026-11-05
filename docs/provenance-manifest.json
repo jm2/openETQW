@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5639,
+  "totalFiles": 5641,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 394
   },
   "postSplitCounts": {
-    "Reconstruction_original": 356,
+    "Reconstruction_original": 358,
     "ThirdParty": 1,
     "Retail_asset": 4,
     "Doom3_GPL": 2,
@@ -48693,6 +48693,18 @@
       "spdx": "GPL-3.0-or-later"
     },
     {
+      "path": "src/renderer/EffectGameClock.h",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "e1fa5ebb2dc422abd4bd32db6b302342bb7f2218ac56b79649a1110a9db21db7",
+      "canonicalSha256": "e1fa5ebb2dc422abd4bd32db6b302342bb7f2218ac56b79649a1110a9db21db7",
+      "bytes": 3377,
+      "addedAfterSplit": true,
+      "addedIn": "5819dae0e03091ee66f1c2f9094a9af6c1102021",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
       "path": "src/renderer/FrameSyncTiming.h",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -49305,6 +49317,18 @@
       "spdx": "GPL-3.0-or-later"
     },
     {
+      "path": "tests/EffectGameClockTest.cpp",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "c88af32b2c21a227ab81093bb47195e41ce5187a133e46eba8878affb2013aef",
+      "canonicalSha256": "c88af32b2c21a227ab81093bb47195e41ce5187a133e46eba8878affb2013aef",
+      "bytes": 5183,
+      "addedAfterSplit": true,
+      "addedIn": "5819dae0e03091ee66f1c2f9094a9af6c1102021",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
       "path": "tests/FullscreenChordTest.cpp",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -49573,9 +49597,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "1966320f408b924aea243c8a9b514e15aead22cd4beecaee1f80b1225af21ecf",
-      "canonicalSha256": "1966320f408b924aea243c8a9b514e15aead22cd4beecaee1f80b1225af21ecf",
-      "bytes": 64213,
+      "rawSha256": "c06c8653d25e560f03f8cd3356d2aeeed769f4561b20116dd4048acc103bcc2d",
+      "canonicalSha256": "c06c8653d25e560f03f8cd3356d2aeeed769f4561b20116dd4048acc103bcc2d",
+      "bytes": 64693,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": "GPL-3.0-or-later"

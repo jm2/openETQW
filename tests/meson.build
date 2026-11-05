@@ -296,6 +296,18 @@ bse_detail_cull_test = executable(
 )
 test('bse-detail-cull', bse_detail_cull_test, suite: 'unit', timeout: 30)
 
+# A stopped effect ends by game time, not by when frames are drawn (#433)
+effect_game_clock_test = executable(
+  'openetqw-effect-game-clock-test',
+  files('EffectGameClockTest.cpp'),
+  include_directories: engine_include_dirs,
+  cpp_args: common_engine_defs + ['-DID_DEDICATED'] + engine_pch_args,
+  dependencies: test_deps + [zlib_dep, threads_dep],
+  link_args: test_link_args,
+  install: false,
+)
+test('effect-game-clock', effect_game_clock_test, suite: 'unit', timeout: 30)
+
 # A fresh profile's graphics preset: retail's device.info table, read by PCI ID (#387)
 machine_spec_test = executable(
   'openetqw-machine-spec-test',
