@@ -1479,6 +1479,10 @@ void idSoundWorldLocal::PlayShaderDirectly( const idSoundShader* shader, const s
 	float	diversity = rnd.RandomFloat();
 
 	const soundChannel_t playChannel = ( channel == SCHANNEL_ANY ) ? SCHANNEL_ONE : channel;
+	// a sound played directly is the listener's own: its private shaders play, its
+	// anti-private ones don't (SSF_GLOBAL already leaves it unattenuated). Doom 3 left
+	// this emitter's id uninitialised (#436)
+	localSound->listenerId = listenerPrivateId;
 	const int played = localSound->StartSound( shader, playChannel, playChannel, diversity, SSF_GLOBAL );
 	if ( length != NULL ) {
 		*length = played;

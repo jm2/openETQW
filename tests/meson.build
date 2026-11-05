@@ -1359,8 +1359,8 @@ if build_engine and build_dedicated
     is_parallel: false,
   )
 
-  # the mixer attenuates by distance, keeps looping sounds going and applies the
-  # master volume (#436)
+  # the mixer attenuates by distance, keeps looping sounds going, applies the master
+  # volume and sound-class fades, and reports shake amplitude (#436)
   test(
     'sound-params',
     py,

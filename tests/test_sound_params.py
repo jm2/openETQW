@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The mixer attenuates by distance, keeps looping sounds going and applies the master
-volume (#436).
+"""The mixer attenuates by distance, keeps looping sounds going, applies the master
+volume and sound-class fades, and reports shake amplitude (#436).
 
 The client builds Doom 3's software mixer (#438). Its emitters are spatialised from the
 listener: full volume within a shader's minDistance, fading out to its maxDistance
@@ -21,6 +21,11 @@ s_singleEmitter set to it so the menu's music doesn't mix:
      shader still mixes two seconds later; the control, sounds/ui/main/click started
      past its own end, is silent, so the offset is applied
   P4 s_volume_dB -20 lowers its peak to between 2% and 25% of the 0 dB peak
+  P5 FadeSoundClasses: its sound class faded to -60 dB (soundFadeClass) is silent, and
+     faded back to 0 dB mixes again
+  P6 shakes: with only the ambience playing the world's shake amplitude is 0; a retail
+     explosion shader with shakes, played at the listener, raises it above 0, and it is
+     0 again once that (non-looping) shader has ended
 
 Usage: test_sound_params.py [--client-binary PATH] [--port N] [--log-dir DIR]
 Exit status: 0 pass, 1 fail, 77 skip (no client binary or retail data).
@@ -48,8 +53,12 @@ SSF_LOOPING = 1 << 5
 METERS_TO_UNITS = 1.0 / 0.0254
 WINDOW = 1.5  # seconds of each restarted sound whose peak is compared
 STARTED = re.compile(r"testSoundAt: emitter (\d+), (\S+) at \S+ units: minDistance (\S+) maxDistance (\S+) "
-                     r"volume \S+ flags 0x([0-9a-f]+) length (-?\d+)")
+                     r"volume \S+ flags 0x([0-9a-f]+) length (-?\d+) shakes (\S+) class (\d+)")
 CLICK = "sounds/ui/main/click"
+# retail shaders likely to shake (pak000 generated/declb/sounds); the first with shakes is used
+SHAKERS = ("sounds/deployables/artillery/explode", "sounds/deployables/artillery/impact_medium",
+           "sounds/weapons/explosions/underwater")
+SHAKE = re.compile(r"soundShakeAmplitude: (\S+)")
 WORLD = re.compile(r"soundMixWorld: (-?\d+) of (\d+)")
 
 
@@ -66,7 +75,8 @@ def play(gfx, shader: str, distance: float, offset_ms: int | None = None):
         return None
     # the emitter can change (a new world): mix only the one that plays now
     gfx.send(f"set s_singleEmitter {m.group(1)}")
-    return int(m.group(1)), float(m.group(3)), float(m.group(4)), int(m.group(5), 16), int(m.group(6))
+    return (int(m.group(1)), float(m.group(3)), float(m.group(4)), int(m.group(5), 16), int(m.group(6)),
+            float(m.group(7)), int(m.group(8)))
 
 
 def peak_over(gfx, seconds: float) -> int:
@@ -140,7 +150,7 @@ def main() -> int:
         if chosen is None:
             expect(False, f"a looping shader with a maxDistance among {CANDIDATES}")
             raise SystemExit
-        shader, (emitter, min_m, max_m, flags, length_ms) = chosen
+        shader, (emitter, min_m, max_m, flags, length_ms, _, sound_class) = chosen
         print(f"     {shader}: emitter {emitter}, minDistance {min_m} m, maxDistance {max_m} m, flags 0x{flags:x},"
               f" length {length_ms} ms")
 
@@ -174,6 +184,46 @@ def main() -> int:
         gfx.send("set s_volume_dB 0")
         ratio = quieter / full if full else 0.0
         expect(0.02 <= ratio <= 0.25, f"P4 s_volume_dB -20 scales the peak by {ratio:.3f} ({full} to {quieter})")
+
+        play(gfx, shader, 0.0)
+        gfx.send(f"soundFadeClass {sound_class} -60 0")
+        time.sleep(0.5)
+        faded = peak_over(gfx, WINDOW)
+        gfx.send(f"soundFadeClass {sound_class} 0 0")
+        time.sleep(0.5)
+        restored = peak_over(gfx, WINDOW)
+        expect(faded == 0 and restored > 0,
+               f"P5 class {sound_class} faded to -60 dB mixes peak {faded}, faded back to 0 dB peak {restored}")
+
+        def shake_amplitude():
+            mark = gfx.mark()
+            gfx.send("soundShakeAmplitude")
+            found = gfx.wait_for(lambda s: SHAKE.search(s), 15.0, mark)
+            return float(SHAKE.search(found[1].text).group(1)) if found else None
+
+        quiet = shake_amplitude()
+        shaker = None
+        for name in SHAKERS:
+            started = play(gfx, name, 0.0)
+            if started is not None and started[5] > 0.0:
+                shaker = (name, started)
+                break
+        loudest = 0.0
+        if shaker is not None:
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline and loudest <= 0.0:
+                time.sleep(0.1)
+                now = shake_amplitude()
+                loudest = max(loudest, now or 0.0)
+        # the control: once a non-looping shaker has ended, the amplitude is 0 again
+        after = None
+        if shaker is not None and not shaker[1][3] & SSF_LOOPING:
+            time.sleep(shaker[1][4] / 1000.0 + 1.0)
+            after = shake_amplitude()
+        expect(after == 0.0, f"P6 control: after {shaker[0] if shaker else '-'} ends, the shake amplitude is {after}")
+        expect(quiet == 0.0 and shaker is not None and loudest > 0.0,
+               f"P6 shake amplitude {quiet} with the ambience; {shaker[0] if shaker else 'no shader with shakes among '}"
+               f"{'' if shaker else SHAKERS} (shakes {shaker[1][5] if shaker else '-'}) raises it to {loudest}")
         gfx.send("set s_singleEmitter 0")
     except SystemExit:
         pass
@@ -185,7 +235,7 @@ def main() -> int:
     if failures:
         print(f"FAIL: {len(failures)} check(s) failed")
         return 1
-    print("PASS: the mixer attenuates by distance, keeps looping sounds going and applies the master volume")
+    print("PASS: the mixer attenuates by distance, loops, applies the master volume and class fades, and reports shakes")
     return 0
 
 

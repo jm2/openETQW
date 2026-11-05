@@ -36,6 +36,8 @@ If you have questions concerning this license or the applicable additional terms
 #include "SoundShader.h"
 #include "AudioHardware.h"
 
+#include <climits>
+
 // The mixer writes through idAudioHardware; it doesn't use OpenAL. The OpenAL types
 // stay for the declarations (precompiled.h includes al.h, alc.h and idal.h), and
 // snd_openal_none.cpp leaves idal.h's entry points NULL.
@@ -67,6 +69,11 @@ typedef enum {
 } soundDemoCommand_t;
 
 const int SOUND_MAX_CHANNELS		= 8;
+
+// an emitter's listener id before anything sets one: no listener's (the menu's is -1,
+// the game's an entity number, testSoundAt's -2), so its private sounds stay silent and
+// it is never taken for the listener's own emitter (#436; Doom 3 left it uninitialised)
+const int SOUND_NO_LISTENER			= INT_MIN;
 const int SOUND_DECODER_FREE_DELAY	= 1000 * MIXBUFFER_SAMPLES / USERCMD_MSEC;		// four seconds
 
 const int PRIMARYFREQ				= 44100;			// samples per second
