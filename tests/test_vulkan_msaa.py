@@ -22,6 +22,8 @@ and turns MSAA off.
      that lies strictly inside their range (by more than 15% of it) rises by
      0.03 or more (Apple M1 Max, valley: 0.674 at 0x, 0.727 at 2x, 0.750 at 4x;
      two runs of each agree to 0.0005)
+  M5 neither run logs a "Vulkan validation error:" line, where the
+     validation layer is installed (r_vkValidation 1 is VulkanClient's default)
 Skips (exit 77) when the device supports no count above 1. The screenshots show
 retail content and are deleted with the test's temporary directory.
 
@@ -44,6 +46,10 @@ from test_client_network import VulkanClient  # noqa: E402
 from test_limbo_command_map import read_tga  # noqa: E402
 from test_reconnect_restart import Failed, spawn  # noqa: E402
 
+# the validation layer's messages (r_vkValidation 1, VulkanClient's default where
+# the layer is installed): a pipeline whose sample count differs from the pass's
+# attachments is one
+VALIDATION_ERROR = "Vulkan validation error:"
 MSAA_LINE = re.compile(r"Vulkan MSAA: (off|(\d+)x)\b.*device supports([ 0-9x]*| none)\)")
 SAME_VIEW_SHARE = 0.85
 SAME_VIEW_LUMINANCE = 24
@@ -94,8 +100,8 @@ def run(client: Path, data: Path, port: int, samples: int, shot: Path, log: Path
     """Host valley at r_multiSamples samples, spawn and screenshot; returns the
     client's "Vulkan MSAA:" match and its exit status."""
     gfx = VulkanClient(client, data, port, map_name="valley", log_path=log,
-                       cvars={"si_rules": "sdGameRulesObjective", "r_vkValidation": "0",
-                              "r_rayTracing": "0", "r_multiSamples": str(samples)})
+                       cvars={"si_rules": "sdGameRulesObjective", "r_rayTracing": "0",
+                              "r_multiSamples": str(samples)})
     gfx.name = f"VulkanClient (r_multiSamples {samples})"
     gfx.slot = 0
     line = None
@@ -124,7 +130,8 @@ def run(client: Path, data: Path, port: int, samples: int, shot: Path, log: Path
             raise Failed(f"r_multiSamples {samples}: r_vkScreenshot wrote no complete screenshot")
     finally:
         code = gfx.quit()
-    return line, code
+    errors = [ln.text.strip() for ln in gfx.snapshot() if VALIDATION_ERROR in ln.text]
+    return line, code, errors
 
 
 def main() -> int:
@@ -155,11 +162,14 @@ def main() -> int:
     with h.PrivateTempDir(prefix="openetqw-vulkan-msaa-") as tmp:
         shots = {n: Path(tmp) / f"msaa{n}.tga" for n in (0, 16)}
         try:
-            off_line, off_code = run(client, data, args.port, 0, shots[0], logs.get(0))
+            off_line, off_code, off_errors = run(client, data, args.port, 0, shots[0], logs.get(0))
             expect(off_code == 0, f"the r_multiSamples 0 client exits 0 (exit {off_code})")
             expect(off_line.group(1) == "off", f"M1 r_multiSamples 0 logs MSAA off ({off_line.group(0)!r})")
-            on_line, on_code = run(client, data, args.port, 16, shots[16], logs.get(16))
+            on_line, on_code, on_errors = run(client, data, args.port, 16, shots[16], logs.get(16))
             expect(on_code == 0, f"the r_multiSamples 16 client exits 0 (exit {on_code})")
+            for samples, errors in ((0, off_errors), (16, on_errors)):
+                expect(not errors, f"M5 r_multiSamples {samples}: no Vulkan validation errors "
+                       f"({len(errors)}{'; first: ' + errors[0] if errors else ''})")
             supported = [int(n) for n in re.findall(r"(\d+)x", on_line.group(3))]
             usable = [n for n in supported if 2 <= n <= 16]
             if not usable:

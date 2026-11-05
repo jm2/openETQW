@@ -129,7 +129,8 @@ public:
 
 	bool IsInitialized() const;
 	// MSAA (#423): the sample counts the device supports for the main pass
-	// (VkSampleCountFlags; 0 before Init) and the count in use (1 without MSAA)
+	// (VkSampleCountFlags; 0 before Init, 1 alone with ray tracing) and the
+	// count in use (1 without MSAA)
 	unsigned int GetSupportedSampleCounts() const;
 	int GetSampleCount() const;
 	bool IsFrameActive() const;

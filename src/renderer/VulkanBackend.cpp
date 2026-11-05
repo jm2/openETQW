@@ -654,6 +654,9 @@ struct sdVulkanBackendState {
 	VkRect2D				toolScissor;
 	VkPipeline			toolPipeline;
 	VkPipeline			toolBlendPipeline;
+	// the tool blend pipeline at the main pass's sample count, for the overlay
+	// triangles drawn into it (GUI batches, the metrics overlay; #423)
+	VkPipeline			overlayBlendPipeline;
 	VkPipeline			toolDepthPipeline;
 	VkPipeline			toolDepthBlendPipeline;
 	VkPipeline			toolModelPipeline;
@@ -975,6 +978,7 @@ struct sdVulkanBackendState {
 		rayTracingWaterGeometryScratch.SetGranularity( 32 );
 		toolPipeline = VK_NULL_HANDLE;
 		toolBlendPipeline = VK_NULL_HANDLE;
+		overlayBlendPipeline = VK_NULL_HANDLE;
 		toolDepthPipeline = VK_NULL_HANDLE;
 		toolDepthBlendPipeline = VK_NULL_HANDLE;
 		toolModelPipeline = VK_NULL_HANDLE;
@@ -1859,7 +1863,7 @@ VkSampleCountFlagBits SelectMultisampleCount( const sdVulkanBackendState& state,
 		common->Printf( "Vulkan MSAA: off (r_multiSamples %d; ray tracing draws single-sampled; device supports%s)\n",
 			requested, supported.Length() > 0 ? supported.c_str() : " none" );
 	} else if ( requested > 1 && static_cast< int >( selected ) != requested ) {
-		common->Printf( "Vulkan MSAA: %dx (r_multiSamples %d clamped to the device's highest; device supports%s)\n",
+		common->Printf( "Vulkan MSAA: %dx (r_multiSamples %d rounded down to a supported count; device supports%s)\n",
 			static_cast< int >( selected ), requested, supported.Length() > 0 ? supported.c_str() : " none" );
 	} else {
 		common->Printf( "Vulkan MSAA: %s (r_multiSamples %d; device supports%s)\n",
@@ -4117,6 +4121,10 @@ void DestroyGuiResources( sdVulkanBackendState& state ) {
 		state.DestroyPipeline( state.device, state.toolBlendPipeline, NULL );
 		state.toolBlendPipeline = VK_NULL_HANDLE;
 	}
+	if ( state.overlayBlendPipeline != VK_NULL_HANDLE ) {
+		state.DestroyPipeline( state.device, state.overlayBlendPipeline, NULL );
+		state.overlayBlendPipeline = VK_NULL_HANDLE;
+	}
 	if ( state.toolPipeline != VK_NULL_HANDLE ) {
 		state.DestroyPipeline( state.device, state.toolPipeline, NULL );
 		state.toolPipeline = VK_NULL_HANDLE;
@@ -5362,7 +5370,7 @@ bool CreateToolPipelineVariant( sdVulkanBackendState& state, bool depthTest,
 	VkPipelineMultisampleStateCreateInfo multisample;
 	memset( &multisample, 0, sizeof( multisample ) );
 	multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-	multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+	multisample.rasterizationSamples = state.msaaSamples;
 	VkPipelineDepthStencilStateCreateInfo depthStencil;
 	memset( &depthStencil, 0, sizeof( depthStencil ) );
 	depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
@@ -5425,7 +5433,7 @@ bool CreateToolPipelineVariant( sdVulkanBackendState& state, bool depthTest,
 	return created;
 }
 
-bool CreateToolPipelines( sdVulkanBackendState& state ) {
+bool CreateToolPipelinesSingleSampled( sdVulkanBackendState& state ) {
 	return CreateToolPipelineVariant( state, false, false, state.toolPipeline ) &&
 		CreateToolPipelineVariant( state, false, true, state.toolBlendPipeline ) &&
 		CreateToolPipelineVariant( state, true, false, state.toolDepthPipeline ) &&
@@ -5467,6 +5475,18 @@ bool CreateToolPipelines( sdVulkanBackendState& state ) {
 				VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, true, true, false,
 				state.toolModelWireDepthBlendPipeline,
 				VK_COMPARE_OP_LESS_OR_EQUAL, true, VK_POLYGON_MODE_LINE ) ) );
+}
+
+// The tool windows and their render targets are single-sampled, so their
+// pipelines are built at one sample whatever the main pass uses; the overlay
+// triangles draw into the main pass, so theirs takes its count (#423)
+bool CreateToolPipelines( sdVulkanBackendState& state ) {
+	const VkSampleCountFlagBits mainPassSamples = state.msaaSamples;
+	state.msaaSamples = VK_SAMPLE_COUNT_1_BIT;
+	const bool toolPipelines = CreateToolPipelinesSingleSampled( state );
+	state.msaaSamples = mainPassSamples;
+	return toolPipelines &&
+		CreateToolPipelineVariant( state, false, true, state.overlayBlendPipeline );
 }
 
 // postprocess/glow's passes (glow.frag, #233): one pipeline for the quarter-size
@@ -13581,7 +13601,7 @@ bool sdVulkanBackend::DrawOverlayTriangles( const void* imageOwner,
 	int scissorY, int scissorWidth, int scissorHeight ) {
 	if ( state == NULL || !state->frameActive || imageOwner == NULL ||
 		vertices == NULL || vertexCount < 3 ||
-		state->toolBlendPipeline == VK_NULL_HANDLE ) {
+		state->overlayBlendPipeline == VK_NULL_HANDLE ) {
 		return false;
 	}
 	const sdVulkanImageResource* imageResource =
@@ -13634,7 +13654,7 @@ bool sdVulkanBackend::DrawOverlayTriangles( const void* imageOwner,
 	state->CmdSetScissor( frame.commandBuffer, 0, 1, &scissor );
 
 	state->CmdBindPipeline( frame.commandBuffer,
-		VK_PIPELINE_BIND_POINT_GRAPHICS, state->toolBlendPipeline );
+		VK_PIPELINE_BIND_POINT_GRAPHICS, state->overlayBlendPipeline );
 	state->CmdSetDepthBias( frame.commandBuffer, 0.0f, 0.0f, 0.0f );
 	state->CmdBindDescriptorSets( frame.commandBuffer,
 		VK_PIPELINE_BIND_POINT_GRAPHICS, state->guiPipelineLayout, 0, 1,
@@ -13657,8 +13677,13 @@ bool sdVulkanBackend::DrawGuiTriangles( const void* imageOwner,
 }
 
 unsigned int sdVulkanBackend::GetSupportedSampleCounts() const {
-	return state != NULL && state->physicalDevice != VK_NULL_HANDLE ?
-		static_cast< unsigned int >( state->msaaSupportedCounts ) : 0u;
+	if ( state == NULL || state->physicalDevice == VK_NULL_HANDLE ) {
+		return 0u;
+	}
+	// ray tracing runs single-sampled (SelectMultisampleCount), so no count above
+	// one would take effect
+	return state->rayTracingDeviceEnabled ? static_cast< unsigned int >( VK_SAMPLE_COUNT_1_BIT ) :
+		static_cast< unsigned int >( state->msaaSupportedCounts );
 }
 
 int sdVulkanBackend::GetSampleCount() const {
