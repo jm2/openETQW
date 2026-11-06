@@ -69,6 +69,9 @@ RULES = [
     ("openETQW-game", "legal/", ("SDK", "LicenseRef-ETQW-SDK")),
     ("openETQW-game", "", ("Reconstruction_original", "MIT")),
     ("openETQW", "LICENSES/third-party/minizip.txt", ("ThirdParty", "Zlib")),
+    # upstream Mesa commits backported unmodified to the bundled KosmicKrisp (#448); one rule per
+    # file, so a project file added under tools/build/macos keeps its own licence
+    ("openETQW", "tools/build/macos/mesa-kk-wait-for-drawable.patch", ("ThirdParty", "MIT")),
     # decision 0004: the retail ET:QW icon and launch splash, and files made from them
     ("openETQW", "assets/icons/", ("Retail_asset", "LicenseRef-ETQW-Retail")),
     ("openETQW", "assets/splash/", ("Retail_asset", "LicenseRef-ETQW-Retail")),

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5642,
+  "totalFiles": 5643,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -10,7 +10,7 @@
   },
   "postSplitCounts": {
     "Reconstruction_original": 359,
-    "ThirdParty": 1,
+    "ThirdParty": 2,
     "Retail_asset": 4,
     "Doom3_GPL": 2,
     "SDK": 2
@@ -51009,6 +51009,18 @@
       "spdx": "GPL-3.0-or-later"
     },
     {
+      "path": "tools/build/macos/mesa-kk-wait-for-drawable.patch",
+      "tier": "ThirdParty",
+      "license": "MIT",
+      "targetRepo": "openETQW",
+      "rawSha256": "2d4eaa7963e28aeea694400c978f827c1e39cb2383dccf69abc44cd0d7909395",
+      "canonicalSha256": "2d4eaa7963e28aeea694400c978f827c1e39cb2383dccf69abc44cd0d7909395",
+      "bytes": 3406,
+      "addedAfterSplit": true,
+      "addedIn": "0c0e766adc40377ac6fd437557e9b2e464f9234e",
+      "spdx": null
+    },
+    {
       "path": "tools/build/meson_sources.py",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -51121,9 +51133,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "fe6f3f35207007e7fe929e5829f5f63b242d6525f0feb33b6fe8b1d823964e32",
-      "canonicalSha256": "fe6f3f35207007e7fe929e5829f5f63b242d6525f0feb33b6fe8b1d823964e32",
-      "bytes": 14877,
+      "rawSha256": "9358d34ece5fa4e23b52ea4976936d84a0d9f10f6aa428a9ba4271ac7679245d",
+      "canonicalSha256": "9358d34ece5fa4e23b52ea4976936d84a0d9f10f6aa428a9ba4271ac7679245d",
+      "bytes": 16428,
       "addedAfterSplit": true,
       "addedIn": "ad1431f2c6d66c4321a022c5d8b2f57722be125d",
       "spdx": "GPL-3.0-or-later"
@@ -51133,9 +51145,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "4277bcf7c20e165b95e3cd0bb11186555afdf9b4d16da18f84c8c9e4c75f20d9",
-      "canonicalSha256": "4277bcf7c20e165b95e3cd0bb11186555afdf9b4d16da18f84c8c9e4c75f20d9",
-      "bytes": 8886,
+      "rawSha256": "57430e1f8c56847660af825df26c961157e27749538f2b8b02809352118e11d0",
+      "canonicalSha256": "57430e1f8c56847660af825df26c961157e27749538f2b8b02809352118e11d0",
+      "bytes": 9160,
       "addedAfterSplit": true,
       "addedIn": "e34826f68262588a43c6a673d090ae759b1ef496",
       "spdx": "GPL-3.0-or-later"
