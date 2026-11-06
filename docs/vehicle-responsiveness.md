@@ -244,7 +244,7 @@ Engine step 10 (tick frames drawn at their real fraction) is needed for full cov
   - the proxy must be an `sdTransport` that is not teleporting;
   - its current view class must have a recipe;
   - the seat's key must be allowed by `g_unlock_vehicleSeats` (the name is a proposal).
-- Keys take the form `vehicleScript:positionName:viewType`, and wildcards are allowed. The default list starts empty (retail behaviour) and grows as seats pass §3.3 (D10: on by default). Wildcards never match mounted guns (their proxy is set at game `src/game/ScriptEntity.cpp:652`) or the jetpack until those have a recipe.
+- Keys take the form `vehicleScript:positionName:viewType`, and wildcards are allowed. The default list started empty (retail behaviour); since 2026-11-06 (owner) it holds every transport view class with a recipe (D10: on by default). Wildcards never match mounted guns (their proxy is set at game `src/game/ScriptEntity.cpp:652`) or the jetpack: mounted guns have no recipe, and the jetpack's `icarus` is not on the default list.
 - The predicate is latched next to `canUnlockFrames` (game `Game_local.cpp:5252-5261`, `Game_network.cpp:3795-3803`) and re-checked at draw time.
 - A read-only cheat command, `listSeatViews`, prints for each seat:
   - position name and view type;
@@ -543,7 +543,7 @@ Done 2026-09-30: the fix, `AIR_CTL` and meson `aircraft-reprediction` are built 
 - **First candidates:** angle-driven seats (gunners, free look), as `listSeatViews` identifies them.
 - **Ground-vehicle driver seats: wait for stage 7** (owner, 2026-09-29). They get smoothness, but camera motion caused by the hull becomes 16.5 ms older on average, unless stage 7 enables a lead for that class. If the driver's view is angle-driven, their mouse look gains 16.5 ms.
 - **Pilot seats stay off until stage 7 is measured.** Without a lead they regress by 16.5 ms. A pilot holding the tophat could later get late look for the free-look part.
-- **D10 (2026-09-25): on by default.** Each seat joins the default list when it meets the prerequisites above.
+- **D10 (2026-09-25): on by default.** Each seat joins the default list when it meets the prerequisites above. On 2026-11-06 the owner put every seat with a recipe on it at once.
 
 ### 3.4 Engine steps this depends on
 
@@ -622,7 +622,7 @@ Stages 0–7 come to about 5–7 weeks of focused work for one engineer. That do
 ### 5.1 For the owner
 
 1. **The split.** Does it meet D10? Everything drawn and mouse look in angle-driven seats leave the tick. Driving keys and a pilot's mouse keep reaching physics once per 33 ms, which only a simulation change could shorten.
-2. **Which seats first.** D10 answers "on by default": seats join the default list as they qualify (§3.3). A person's review of the first seat group on a high-refresh display is still wanted (D3).
+2. **Which seats first.** D10 answers "on by default": seats join the default list as they qualify (§3.3). Answered 2026-11-06: the owner put every seat with a recipe on the default list.
 3. **Driver seats.** Accept 16.5 ms more mean age on camera motion caused by the hull in exchange for smoothness, or wait for stage 7? *Answered 2026-09-29: wait for stage 7; driver seats keep the tick-rate view until the lead is measured for their class.*
 4. **Stage 7.** Adopt the lead per class after measurement? L = 0.5 keeps today's mean age; L = 1 removes it, with a risk of overshoot.
 5. **Remote vehicles.** They are drawn one tick behind (retail, D5), and there is no vehicle antilag. Do you want vehicles to depart from retail, using the lead or remote axes and joints? That needs a ledger row. *Answered 2026-09-29: yes, each departure with a ledger row, enabled per class under a measured bound.*

@@ -201,13 +201,13 @@ The choice between S, P and H is technical: step 2's numbers decide it. The owne
 - **Question 4, the decay on your own vehicle:** keep retail's prediction-error decay. Measure its effect on the lead from a network client's `VEH_PRED` first (§6), and revisit only if it shows as wobble.
 - **Related:** turret and IK joint blending for gunner views will be built in presentation, beyond D2, with its own ledger row. The default frame cap is 240 (m5-plan step 18).
 
-**Still open:** questions 1 and 3, the per-class p95 bound and L, and which driver and pilot seats join the default list. They need the measurements below and the owner's review on a high-refresh display.
+**Still open:** questions 1 and 3, the per-class p95 bound and L, and which classes get a lead by default (every seat with a recipe has been on the seat default list since 2026-11-06). They need the measurements below and the owner's review on a high-refresh display.
 
 The questions as asked:
 
 1. **The per-class bound for enabling L.** Stage 7 said "p95 stays under a bound the owner sets by eye". The measurement step (§5) will offer p95 and max per class and state, plus the human review; the owner picks the bound and each class's L.
 2. **The impact overshoot.** Accept §3.3's three measures, which still allow a small overshoot into a wall for up to a tick, or ask for a review of a tick-side clip trace that would bound it exactly?
-3. **Driver and pilot seats.** Which classes' driver seats, then pilot seats, join `g_unlock_vehicleSeats`'s default list once their class has a lead. The 2026-09-29 decision already ties this to the measurement.
+3. **Driver and pilot seats.** Which classes' driver seats, then pilot seats, join `g_unlock_vehicleSeats`'s default list once their class has a lead (since 2026-11-06 they are all on the seat list already; the lead's own default list is still empty). The 2026-09-29 decision already ties this to the measurement.
 4. **Prediction-error decay on your own vehicle.** This is `vehicle-responsiveness.md` §5.1 question 7, still open. It matters here because, on a network client, S extrapolates the decay along with the motion (§6). P does not.
 
 ## 5. Steps

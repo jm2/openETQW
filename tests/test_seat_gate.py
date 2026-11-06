@@ -19,7 +19,7 @@ RunSeatGateSchedule): enter the badger from on foot at tick 21 (the tour's only
 entry from on foot), cycle its camera at 31 and 41, swap seat at 51, cycle at 61;
 exit and enter the icarus (a jetpack) in the same tick at 71, cycle at 81; exit and
 enter the titan at 91, swap seat at 101, cycle at 111; listSeatViews at 121; exit at
-125; quit from 130. It runs four times at com_maxFPS 120:
+125; quit from 130. It runs five times at com_maxFPS 120:
 
   A  g_unlock_vehicleSeats ""                        the baseline, nothing listed; learns the keys
   B  g_unlock_vehicleSeats *                         everything listed: the built-in recipes'
@@ -65,10 +65,10 @@ Checks:
    cycle clearing pred under a set latch, and a seat swap into a seat that also
    has a recipe (latch and pred both 1, draw 0: the identity re-check).
 6. Nothing changes: SIM_HASH, VEH_TRACE, cu and SIM_VIEW are identical tick by
-   tick in all four runs. (Until M5 step 6 the render frames of tick 21, the entry
+   tick in all five runs. (Until M5 step 6 the render frames of tick 21, the entry
    from on foot, ran the vehicle proxy branch of ClientUpdateView, whose weapon
    presentation the vehicle ticks logged, and the test allowed that wlog run as
-   ENTRY_LEAK; step 6 removed both.) All four runs execute the
+   ENTRY_LEAK; step 6 removed both.) All five runs execute the
    same new code (the latch, SEAT_GATE, listSeatViews at 121) and differ only in
    the two CVars, so this shows that the gate's state changes nothing; that the
    code itself changes nothing against main rests on vehicle-physics-golden (its
