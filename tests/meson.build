@@ -1518,6 +1518,25 @@ if build_engine and build_dedicated
     is_parallel: false,
   )
 
+  # Vulkan MSAA: r_multiSamples runs at the device's highest count up to the
+  # request and smooths the world's edges (#423)
+  test(
+    'vulkan-msaa',
+    py,
+    args: [
+      meson.project_source_root() / 'tests' / 'test_vulkan_msaa.py',
+      '--client-binary', campaign_client,
+      '--port', '29903',
+      '--log-dir', meson.project_build_root() / 'meson-logs' / 'vulkan-msaa',
+    ],
+    env: client_test_env,
+    workdir: meson.project_source_root(),
+    suite: ['client', 'integration'],
+    protocol: 'exitcode',
+    timeout: 600,
+    is_parallel: false,
+  )
+
   # The HUD minimap keeps its territory outlines inside its circle (GUI mask texture, #379)
   test(
     'hud-minimap-mask',

@@ -61,6 +61,7 @@ extern idCVar r_useExternalShadows;
 extern idCVar r_shadowPolygonFactor;
 extern idCVar r_shadowPolygonOffset;
 extern idCVar r_skipAtmosInteractions;
+extern idCVar r_multiSamples;
 
 // VulkanSlowCall.h; draw_raytracing.cpp times its passes with it too
 idCVar r_vkLogSlowCalls(
@@ -547,6 +548,11 @@ struct sdVulkanBackendState {
 	bool					textureCompressionBC;
 	bool					imageViewFormatSwizzle;	// false on a portability subset (MoltenVK) without it
 	bool					rayTracingDeviceEnabled;
+	// MSAA (#423): the sample counts the device supports for colour, depth and
+	// stencil attachments alike, and the count latched at Init for the frame's
+	// main pass (world, GUI and the glow and alpha passes drawn into it)
+	VkSampleCountFlags		msaaSupportedCounts;
+	VkSampleCountFlagBits	msaaSamples;
 	VkDeviceSize			jointUniformAlignment;
 
 	VkSwapchainKHR				swapchain;
@@ -562,6 +568,11 @@ struct sdVulkanBackendState {
 	idList< VkImageView >		depthViews;
 	idList< VkImageView >		depthSampleViews;
 	idList< byte >			depthInitialized;
+	// with msaaSamples > 1, the main pass draws into these and resolves into
+	// the swapchain image whenever it ends (#423); empty otherwise
+	idList< VkImage >			msaaColorImages;
+	idList< VkDeviceMemory >	msaaColorMemory;
+	idList< VkImageView >		msaaColorViews;
 	bool					swapchainDirty;
 	bool					swapchainTransferSource;
 	// r_vkScreenshot readback: a host buffer filled by the frame's command buffer
@@ -643,6 +654,9 @@ struct sdVulkanBackendState {
 	VkRect2D				toolScissor;
 	VkPipeline			toolPipeline;
 	VkPipeline			toolBlendPipeline;
+	// the tool blend pipeline at the main pass's sample count, for the overlay
+	// triangles drawn into it (GUI batches, the metrics overlay; #423)
+	VkPipeline			overlayBlendPipeline;
 	VkPipeline			toolDepthPipeline;
 	VkPipeline			toolDepthBlendPipeline;
 	VkPipeline			toolModelPipeline;
@@ -928,6 +942,8 @@ struct sdVulkanBackendState {
 		textureCompressionBC = false;
 		imageViewFormatSwizzle = true;
 		rayTracingDeviceEnabled = false;
+		msaaSupportedCounts = VK_SAMPLE_COUNT_1_BIT;
+		msaaSamples = VK_SAMPLE_COUNT_1_BIT;
 		jointUniformAlignment = 1;
 		swapchain = VK_NULL_HANDLE;
 		swapchainFormat = VK_FORMAT_UNDEFINED;
@@ -962,6 +978,7 @@ struct sdVulkanBackendState {
 		rayTracingWaterGeometryScratch.SetGranularity( 32 );
 		toolPipeline = VK_NULL_HANDLE;
 		toolBlendPipeline = VK_NULL_HANDLE;
+		overlayBlendPipeline = VK_NULL_HANDLE;
 		toolDepthPipeline = VK_NULL_HANDLE;
 		toolDepthBlendPipeline = VK_NULL_HANDLE;
 		toolModelPipeline = VK_NULL_HANDLE;
@@ -1798,6 +1815,9 @@ bool SelectPhysicalDevice( sdVulkanBackendState& state ) {
 				properties.limits.minUniformBufferOffsetAlignment > 1 ?
 				properties.limits.minUniformBufferOffsetAlignment : 1;
 			state.maxMemoryAllocationCount = properties.limits.maxMemoryAllocationCount;
+			state.msaaSupportedCounts = properties.limits.framebufferColorSampleCounts &
+				properties.limits.framebufferDepthSampleCounts &
+				properties.limits.framebufferStencilSampleCounts;
 		}
 	}
 
@@ -1810,6 +1830,47 @@ bool SelectPhysicalDevice( sdVulkanBackendState& state ) {
 	state.depthStencilFormat = SelectDepthStencilFormat( state );
 	DescribeVulkanDevice( state );
 	return true;
+}
+
+// The main pass's sample count (#423): r_multiSamples rounded down to a count
+// the device supports for colour, depth and stencil alike (KosmicKrisp on Apple
+// GPUs stops at 4), and 1 with ray tracing, which samples and writes the
+// single-sampled depth and swapchain images. Latched at Init, as the pipelines
+// are built once there.
+VkSampleCountFlagBits SelectMultisampleCount( const sdVulkanBackendState& state,
+	int requested, bool rayTracing ) {
+	static const VkSampleCountFlagBits counts[] = {
+		VK_SAMPLE_COUNT_64_BIT, VK_SAMPLE_COUNT_32_BIT, VK_SAMPLE_COUNT_16_BIT,
+		VK_SAMPLE_COUNT_8_BIT, VK_SAMPLE_COUNT_4_BIT, VK_SAMPLE_COUNT_2_BIT
+	};
+	idStr supported;
+	for ( int i = sizeof( counts ) / sizeof( counts[ 0 ] ) - 1; i >= 0; --i ) {
+		if ( ( state.msaaSupportedCounts & counts[ i ] ) != 0 ) {
+			supported += va( " %dx", static_cast< int >( counts[ i ] ) );
+		}
+	}
+	VkSampleCountFlagBits selected = VK_SAMPLE_COUNT_1_BIT;
+	if ( requested > 1 && !rayTracing ) {
+		for ( int i = 0; i < static_cast< int >( sizeof( counts ) / sizeof( counts[ 0 ] ) ); ++i ) {
+			if ( static_cast< int >( counts[ i ] ) <= requested &&
+				( state.msaaSupportedCounts & counts[ i ] ) != 0 ) {
+				selected = counts[ i ];
+				break;
+			}
+		}
+	}
+	if ( requested > 1 && rayTracing ) {
+		common->Printf( "Vulkan MSAA: off (r_multiSamples %d; ray tracing draws single-sampled; device supports%s)\n",
+			requested, supported.Length() > 0 ? supported.c_str() : " none" );
+	} else if ( requested > 1 && static_cast< int >( selected ) != requested ) {
+		common->Printf( "Vulkan MSAA: %dx (r_multiSamples %d rounded down to a supported count; device supports%s)\n",
+			static_cast< int >( selected ), requested, supported.Length() > 0 ? supported.c_str() : " none" );
+	} else {
+		common->Printf( "Vulkan MSAA: %s (r_multiSamples %d; device supports%s)\n",
+			selected > VK_SAMPLE_COUNT_1_BIT ? va( "%dx", static_cast< int >( selected ) ) : "off",
+			requested, supported.Length() > 0 ? supported.c_str() : " none" );
+	}
+	return selected;
 }
 
 bool CreateLogicalDevice( sdVulkanBackendState& state,
@@ -2078,6 +2139,9 @@ bool CreateCurrentRenderResource( sdVulkanBackendState& state,
 	return true;
 }
 
+void DestroyImageList( sdVulkanBackendState& state, idList< VkImage >& images,
+	idList< VkDeviceMemory >& memory, idList< VkImageView >& views );
+
 void DestroyDepthResources( sdVulkanBackendState& state ) {
 	if ( state.device != VK_NULL_HANDLE ) {
 		for ( int i = 0; i < state.depthViews.Num(); ++i ) {
@@ -2104,6 +2168,8 @@ void DestroyDepthResources( sdVulkanBackendState& state ) {
 	state.depthViews.Clear();
 	state.depthSampleViews.Clear();
 	state.depthInitialized.Clear();
+	DestroyImageList( state, state.msaaColorImages, state.msaaColorMemory,
+		state.msaaColorViews );
 }
 
 void DestroySemaphoreList( sdVulkanBackendState& state,
@@ -2138,10 +2204,104 @@ void DestroySwapchain( sdVulkanBackendState& state ) {
 	state.extent.height = 0;
 }
 
+void DestroyImageList( sdVulkanBackendState& state, idList< VkImage >& images,
+	idList< VkDeviceMemory >& memory, idList< VkImageView >& views ) {
+	if ( state.device != VK_NULL_HANDLE ) {
+		for ( int i = 0; i < views.Num(); ++i ) {
+			if ( views[ i ] != VK_NULL_HANDLE ) {
+				state.DestroyImageView( state.device, views[ i ], NULL );
+			}
+		}
+		for ( int i = 0; i < images.Num(); ++i ) {
+			if ( images[ i ] != VK_NULL_HANDLE ) {
+				state.DestroyImage( state.device, images[ i ], NULL );
+			}
+		}
+		for ( int i = 0; i < memory.Num(); ++i ) {
+			if ( memory[ i ] != VK_NULL_HANDLE ) {
+				state.FreeMemory( state.device, memory[ i ], NULL );
+			}
+		}
+	}
+	images.Clear();
+	memory.Clear();
+	views.Clear();
+}
+
+// The main pass's multisampled colour targets, one per swapchain image (#423).
+// Stored, not transient: the pass ends and resumes around each _currentRender
+// copy and glow pass, and every end resolves into the swapchain image.
+bool CreateMultisampleColorResources( sdVulkanBackendState& state, unsigned int count,
+	VkExtent2D extent, VkFormat format, VkSampleCountFlagBits samples,
+	idList< VkImage >& images, idList< VkDeviceMemory >& memory,
+	idList< VkImageView >& views ) {
+	images.SetNum( count );
+	memory.SetNum( count );
+	views.SetNum( count );
+	memset( images.Begin(), 0, count * sizeof( VkImage ) );
+	memset( memory.Begin(), 0, count * sizeof( VkDeviceMemory ) );
+	memset( views.Begin(), 0, count * sizeof( VkImageView ) );
+	for ( unsigned int i = 0; i < count; ++i ) {
+		VkImageCreateInfo imageInfo;
+		memset( &imageInfo, 0, sizeof( imageInfo ) );
+		imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+		imageInfo.imageType = VK_IMAGE_TYPE_2D;
+		imageInfo.format = format;
+		imageInfo.extent.width = extent.width;
+		imageInfo.extent.height = extent.height;
+		imageInfo.extent.depth = 1;
+		imageInfo.mipLevels = 1;
+		imageInfo.arrayLayers = 1;
+		imageInfo.samples = samples;
+		imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+		imageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+		imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		bool created = CheckVulkanResult( state.CreateImage( state.device, &imageInfo,
+			NULL, &images[ i ] ), "vkCreateImage(MSAA colour)" );
+		if ( created ) {
+			VkMemoryRequirements requirements;
+			state.GetImageMemoryRequirements( state.device, images[ i ], &requirements );
+			unsigned int memoryType = UINT_MAX;
+			created = FindMemoryType( state, requirements.memoryTypeBits,
+				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, memoryType );
+			if ( created ) {
+				VkMemoryAllocateInfo allocateInfo;
+				memset( &allocateInfo, 0, sizeof( allocateInfo ) );
+				allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+				allocateInfo.allocationSize = requirements.size;
+				allocateInfo.memoryTypeIndex = memoryType;
+				created = CheckVulkanResult( state.AllocateMemory( state.device,
+					&allocateInfo, NULL, &memory[ i ] ), "vkAllocateMemory(MSAA colour)" ) &&
+					CheckVulkanResult( state.BindImageMemory( state.device, images[ i ],
+						memory[ i ], 0 ), "vkBindImageMemory(MSAA colour)" );
+			}
+		}
+		if ( created ) {
+			VkImageViewCreateInfo viewInfo;
+			memset( &viewInfo, 0, sizeof( viewInfo ) );
+			viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+			viewInfo.image = images[ i ];
+			viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+			viewInfo.format = format;
+			viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			viewInfo.subresourceRange.levelCount = 1;
+			viewInfo.subresourceRange.layerCount = 1;
+			created = CheckVulkanResult( state.CreateImageView( state.device,
+				&viewInfo, NULL, &views[ i ] ), "vkCreateImageView(MSAA colour)" );
+		}
+		if ( !created ) {
+			DestroyImageList( state, images, memory, views );
+			return false;
+		}
+	}
+	return true;
+}
+
 bool CreateDepthResources( sdVulkanBackendState& state, unsigned int count,
 	VkExtent2D extent, idList< VkImage >& images,
 	idList< VkDeviceMemory >& memory, idList< VkImageView >& views,
-	idList< VkImageView >* sampleViews = NULL ) {
+	idList< VkImageView >* sampleViews = NULL,
+	VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT ) {
 	images.SetNum( count );
 	memory.SetNum( count );
 	views.SetNum( count );
@@ -2165,10 +2325,11 @@ bool CreateDepthResources( sdVulkanBackendState& state, unsigned int count,
 		imageInfo.extent.depth = 1;
 		imageInfo.mipLevels = 1;
 		imageInfo.arrayLayers = 1;
-		imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+		imageInfo.samples = samples;
 		imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+		// only the ray tracer samples depth, and it never runs with MSAA (#423)
 		imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
-			VK_IMAGE_USAGE_SAMPLED_BIT;
+			( samples == VK_SAMPLE_COUNT_1_BIT ? VK_IMAGE_USAGE_SAMPLED_BIT : 0 );
 		imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 		if ( !CheckVulkanResult( state.CreateImage( state.device, &imageInfo,
 			NULL, &images[ i ] ), "vkCreateImage(depth)" ) ) {
@@ -2206,7 +2367,7 @@ bool CreateDepthResources( sdVulkanBackendState& state, unsigned int count,
 			&viewInfo, NULL, &views[ i ] ), "vkCreateImageView(depth)" ) ) {
 			break;
 		}
-		if ( sampleViews != NULL ) {
+		if ( sampleViews != NULL && samples == VK_SAMPLE_COUNT_1_BIT ) {
 			viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
 			if ( !CheckVulkanResult( state.CreateImageView( state.device,
 				&viewInfo, NULL, &( *sampleViews )[ i ] ), "vkCreateImageView(depth sample)" ) ) {
@@ -2406,8 +2567,21 @@ bool CreateSwapchain( sdVulkanBackendState& state, int requestedWidth,
 	idList< VkDeviceMemory > newDepthMemory;
 	idList< VkImageView > newDepthViews;
 	idList< VkImageView > newDepthSampleViews;
+	idList< VkImage > newMsaaColorImages;
+	idList< VkDeviceMemory > newMsaaColorMemory;
+	idList< VkImageView > newMsaaColorViews;
 	if ( !CreateDepthResources( state, newImageCount, extent, newDepthImages,
-		newDepthMemory, newDepthViews, &newDepthSampleViews ) ) {
+		newDepthMemory, newDepthViews, &newDepthSampleViews, state.msaaSamples ) ||
+		( state.msaaSamples != VK_SAMPLE_COUNT_1_BIT &&
+		!CreateMultisampleColorResources( state, newImageCount, extent,
+			surfaceFormat.format, state.msaaSamples, newMsaaColorImages,
+			newMsaaColorMemory, newMsaaColorViews ) ) ) {
+		DestroyImageList( state, newDepthImages, newDepthMemory, newDepthViews );
+		for ( int i = 0; i < newDepthSampleViews.Num(); ++i ) {
+			if ( newDepthSampleViews[ i ] != VK_NULL_HANDLE ) {
+				state.DestroyImageView( state.device, newDepthSampleViews[ i ], NULL );
+			}
+		}
 		for ( unsigned int i = 0; i < newImageCount; ++i ) {
 			state.DestroyImageView( state.device, newViews[ i ], NULL );
 		}
@@ -2424,6 +2598,7 @@ bool CreateSwapchain( sdVulkanBackendState& state, int requestedWidth,
 			state.FreeMemory( state.device, newDepthMemory[ i ], NULL );
 			state.DestroyImageView( state.device, newViews[ i ], NULL );
 		}
+		DestroyImageList( state, newMsaaColorImages, newMsaaColorMemory, newMsaaColorViews );
 		state.DestroySwapchainKHR( state.device, newSwapchain, NULL );
 		return false;
 	}
@@ -2441,6 +2616,7 @@ bool CreateSwapchain( sdVulkanBackendState& state, int requestedWidth,
 			state.FreeMemory( state.device, newDepthMemory[ i ], NULL );
 			state.DestroyImageView( state.device, newViews[ i ], NULL );
 		}
+		DestroyImageList( state, newMsaaColorImages, newMsaaColorMemory, newMsaaColorViews );
 		state.DestroySwapchainKHR( state.device, newSwapchain, NULL );
 		return false;
 	}
@@ -2468,6 +2644,9 @@ bool CreateSwapchain( sdVulkanBackendState& state, int requestedWidth,
 	state.depthSampleViews = newDepthSampleViews;
 	state.depthInitialized.SetNum( newImageCount );
 	memset( state.depthInitialized.Begin(), 0, newImageCount );
+	state.msaaColorImages = newMsaaColorImages;
+	state.msaaColorMemory = newMsaaColorMemory;
+	state.msaaColorViews = newMsaaColorViews;
 	state.currentRenderResource = newCurrentRenderResource;
 	state.currentRenderInitialized = false;
 	state.swapchainTransferSource = canCopyCurrentRender;
@@ -3942,6 +4121,10 @@ void DestroyGuiResources( sdVulkanBackendState& state ) {
 		state.DestroyPipeline( state.device, state.toolBlendPipeline, NULL );
 		state.toolBlendPipeline = VK_NULL_HANDLE;
 	}
+	if ( state.overlayBlendPipeline != VK_NULL_HANDLE ) {
+		state.DestroyPipeline( state.device, state.overlayBlendPipeline, NULL );
+		state.overlayBlendPipeline = VK_NULL_HANDLE;
+	}
 	if ( state.toolPipeline != VK_NULL_HANDLE ) {
 		state.DestroyPipeline( state.device, state.toolPipeline, NULL );
 		state.toolPipeline = VK_NULL_HANDLE;
@@ -4265,7 +4448,7 @@ bool CreateWorldPipelineVariant( sdVulkanBackendState& state,
 	VkPipelineMultisampleStateCreateInfo multisample;
 	memset( &multisample, 0, sizeof( multisample ) );
 	multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-	multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+	multisample.rasterizationSamples = state.msaaSamples;
 	VkPipelineDepthStencilStateCreateInfo depthStencil;
 	memset( &depthStencil, 0, sizeof( depthStencil ) );
 	depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
@@ -4639,7 +4822,7 @@ bool CreateShadowPipelines( sdVulkanBackendState& state ) {
 	VkPipelineMultisampleStateCreateInfo multisample;
 	memset( &multisample, 0, sizeof( multisample ) );
 	multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-	multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+	multisample.rasterizationSamples = state.msaaSamples;
 
 	VkPipelineColorBlendAttachmentState blendAttachment;
 	memset( &blendAttachment, 0, sizeof( blendAttachment ) );
@@ -4866,7 +5049,7 @@ bool CreateInteractionPipeline( sdVulkanBackendState& state ) {
 	VkPipelineMultisampleStateCreateInfo multisample;
 	memset( &multisample, 0, sizeof( multisample ) );
 	multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-	multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+	multisample.rasterizationSamples = state.msaaSamples;
 
 	VkPipelineColorBlendAttachmentState blendAttachment;
 	memset( &blendAttachment, 0, sizeof( blendAttachment ) );
@@ -5187,7 +5370,7 @@ bool CreateToolPipelineVariant( sdVulkanBackendState& state, bool depthTest,
 	VkPipelineMultisampleStateCreateInfo multisample;
 	memset( &multisample, 0, sizeof( multisample ) );
 	multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-	multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+	multisample.rasterizationSamples = state.msaaSamples;
 	VkPipelineDepthStencilStateCreateInfo depthStencil;
 	memset( &depthStencil, 0, sizeof( depthStencil ) );
 	depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
@@ -5250,7 +5433,7 @@ bool CreateToolPipelineVariant( sdVulkanBackendState& state, bool depthTest,
 	return created;
 }
 
-bool CreateToolPipelines( sdVulkanBackendState& state ) {
+bool CreateToolPipelinesSingleSampled( sdVulkanBackendState& state ) {
 	return CreateToolPipelineVariant( state, false, false, state.toolPipeline ) &&
 		CreateToolPipelineVariant( state, false, true, state.toolBlendPipeline ) &&
 		CreateToolPipelineVariant( state, true, false, state.toolDepthPipeline ) &&
@@ -5292,6 +5475,18 @@ bool CreateToolPipelines( sdVulkanBackendState& state ) {
 				VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, true, true, false,
 				state.toolModelWireDepthBlendPipeline,
 				VK_COMPARE_OP_LESS_OR_EQUAL, true, VK_POLYGON_MODE_LINE ) ) );
+}
+
+// The tool windows and their render targets are single-sampled, so their
+// pipelines are built at one sample whatever the main pass uses; the overlay
+// triangles draw into the main pass, so theirs takes its count (#423)
+bool CreateToolPipelines( sdVulkanBackendState& state ) {
+	const VkSampleCountFlagBits mainPassSamples = state.msaaSamples;
+	state.msaaSamples = VK_SAMPLE_COUNT_1_BIT;
+	const bool toolPipelines = CreateToolPipelinesSingleSampled( state );
+	state.msaaSamples = mainPassSamples;
+	return toolPipelines &&
+		CreateToolPipelineVariant( state, false, true, state.overlayBlendPipeline );
 }
 
 // postprocess/glow's passes (glow.frag, #233): one pipeline for the quarter-size
@@ -5417,7 +5612,9 @@ void CreateGlowPipelines( sdVulkanBackendState& state ) {
 			&pipelineInfo, NULL, &state.glowBufferPipeline ), "vkCreateGraphicsPipelines(glow buffer)" );
 	}
 	// the screen pass runs inside the swapchain rendering, so it names the depth
-	// and stencil formats too; it writes colour only, as the HUD draws over it
+	// and stencil formats too, and has the main pass's sample count (#423); it
+	// writes colour only, as the HUD draws over it
+	multisample.rasterizationSamples = state.msaaSamples;
 	renderingInfo.pColorAttachmentFormats = &state.swapchainFormat;
 	const VkFormat depthFormat = state.depthStencilFormat != VK_FORMAT_UNDEFINED ?
 		state.depthStencilFormat : VK_FORMAT_D32_SFLOAT_S8_UINT;
@@ -5728,7 +5925,7 @@ bool CreateGuiResources( sdVulkanBackendState& state ) {
 	VkPipelineMultisampleStateCreateInfo multisample;
 	memset( &multisample, 0, sizeof( multisample ) );
 	multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-	multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+	multisample.rasterizationSamples = state.msaaSamples;
 	VkPipelineColorBlendAttachmentState blendAttachment;
 	memset( &blendAttachment, 0, sizeof( blendAttachment ) );
 	blendAttachment.blendEnable = VK_TRUE;
@@ -7134,14 +7331,66 @@ bool GetVulkanSceneAlbedoDescriptor( sdVulkanBackendState& state,
 	return true;
 }
 
+// The main pass's colour attachment: the swapchain image, or with MSAA (#423)
+// the frame's multisampled image resolved into it (averaged) as the pass ends,
+// so the copies, the glow passes, the screenshot and the present all read a
+// resolved frame.
+void SetMainColorAttachment( const sdVulkanBackendState& state,
+	VkRenderingAttachmentInfo& attachment ) {
+	attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	if ( state.msaaSamples == VK_SAMPLE_COUNT_1_BIT ||
+		state.msaaColorViews.Num() <= static_cast< int >( state.imageIndex ) ) {
+		attachment.imageView = state.swapchainViews[ state.imageIndex ];
+		return;
+	}
+	attachment.imageView = state.msaaColorViews[ state.imageIndex ];
+	attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+	attachment.resolveImageView = state.swapchainViews[ state.imageIndex ];
+	attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+}
+
+// Orders the multisampled colour image's earlier writes (the last pass, or the
+// last frame's) before the pass that starts next; with clear, the old contents
+// are discarded (#423)
+void BarrierMultisampleColor( const sdVulkanBackendState& state,
+	VkCommandBuffer commandBuffer, bool discard ) {
+	if ( state.msaaSamples == VK_SAMPLE_COUNT_1_BIT ||
+		state.msaaColorImages.Num() <= static_cast< int >( state.imageIndex ) ) {
+		return;
+	}
+	VkImageMemoryBarrier2 barrier;
+	memset( &barrier, 0, sizeof( barrier ) );
+	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+	barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+	barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+	barrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+	barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT |
+		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+	barrier.oldLayout = discard ? VK_IMAGE_LAYOUT_UNDEFINED :
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.image = state.msaaColorImages[ state.imageIndex ];
+	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	barrier.subresourceRange.levelCount = 1;
+	barrier.subresourceRange.layerCount = 1;
+	VkDependencyInfo dependencyInfo;
+	memset( &dependencyInfo, 0, sizeof( dependencyInfo ) );
+	dependencyInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+	dependencyInfo.imageMemoryBarrierCount = 1;
+	dependencyInfo.pImageMemoryBarriers = &barrier;
+	state.CmdPipelineBarrier2( commandBuffer, &dependencyInfo );
+}
+
 // Restarts the frame's rendering on the swapchain image, keeping its colour,
 // depth and stencil (after a copy or an offscreen pass ended it).
 void BeginSwapchainRendering( sdVulkanBackendState& state, VkCommandBuffer commandBuffer ) {
+	BarrierMultisampleColor( state, commandBuffer, false );
 	VkRenderingAttachmentInfo colorAttachment;
 	memset( &colorAttachment, 0, sizeof( colorAttachment ) );
 	colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-	colorAttachment.imageView = state.swapchainViews[ state.imageIndex ];
-	colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	SetMainColorAttachment( state, colorAttachment );
 	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	VkRenderingAttachmentInfo depthAttachment;
@@ -7478,6 +7727,8 @@ bool sdVulkanBackend::Init( void* nativeWindow, int width, int height ) {
 	// images, only when the device was created with bufferDeviceAddress and the
 	// acceleration-structure extension.
 	state->rayTracingDeviceEnabled = rayTracingAvailable;
+	state->msaaSamples = SelectMultisampleCount( *state,
+		Max( 0, r_multiSamples.GetInteger() ), rayTracingAvailable );
 	if ( !CreateLogicalDevice( *state, rayTracingConfiguration, rayTracingAvailable ) ||
 		!CreateSwapchain( *state, width, height ) ||
 		!CreateGuiResources( *state ) ||
@@ -7785,12 +8036,12 @@ bool sdVulkanBackend::BeginFrame( int width, int height ) {
 	dependencyInfo.imageMemoryBarrierCount = 2;
 	dependencyInfo.pImageMemoryBarriers = frameBarriers;
 	state->CmdPipelineBarrier2( frame.commandBuffer, &dependencyInfo );
+	BarrierMultisampleColor( *state, frame.commandBuffer, true );
 
 	VkRenderingAttachmentInfo colorAttachment;
 	memset( &colorAttachment, 0, sizeof( colorAttachment ) );
 	colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-	colorAttachment.imageView = state->swapchainViews[ state->imageIndex ];
-	colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	SetMainColorAttachment( *state, colorAttachment );
 	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	colorAttachment.clearValue.color.float32[ 0 ] = 0.04f;
@@ -13350,7 +13601,7 @@ bool sdVulkanBackend::DrawOverlayTriangles( const void* imageOwner,
 	int scissorY, int scissorWidth, int scissorHeight ) {
 	if ( state == NULL || !state->frameActive || imageOwner == NULL ||
 		vertices == NULL || vertexCount < 3 ||
-		state->toolBlendPipeline == VK_NULL_HANDLE ) {
+		state->overlayBlendPipeline == VK_NULL_HANDLE ) {
 		return false;
 	}
 	const sdVulkanImageResource* imageResource =
@@ -13403,7 +13654,7 @@ bool sdVulkanBackend::DrawOverlayTriangles( const void* imageOwner,
 	state->CmdSetScissor( frame.commandBuffer, 0, 1, &scissor );
 
 	state->CmdBindPipeline( frame.commandBuffer,
-		VK_PIPELINE_BIND_POINT_GRAPHICS, state->toolBlendPipeline );
+		VK_PIPELINE_BIND_POINT_GRAPHICS, state->overlayBlendPipeline );
 	state->CmdSetDepthBias( frame.commandBuffer, 0.0f, 0.0f, 0.0f );
 	state->CmdBindDescriptorSets( frame.commandBuffer,
 		VK_PIPELINE_BIND_POINT_GRAPHICS, state->guiPipelineLayout, 0, 1,
@@ -13423,6 +13674,20 @@ bool sdVulkanBackend::DrawGuiTriangles( const void* imageOwner,
 	return DrawOverlayTriangles( imageOwner, vertices, vertexCount, 0, 0,
 		static_cast< int >( state->extent.width ),
 		static_cast< int >( state->extent.height ) );
+}
+
+unsigned int sdVulkanBackend::GetSupportedSampleCounts() const {
+	if ( state == NULL || state->physicalDevice == VK_NULL_HANDLE ) {
+		return 0u;
+	}
+	// ray tracing runs single-sampled (SelectMultisampleCount), so no count above
+	// one would take effect
+	return state->rayTracingDeviceEnabled ? static_cast< unsigned int >( VK_SAMPLE_COUNT_1_BIT ) :
+		static_cast< unsigned int >( state->msaaSupportedCounts );
+}
+
+int sdVulkanBackend::GetSampleCount() const {
+	return state != NULL ? static_cast< int >( state->msaaSamples ) : 1;
 }
 
 bool sdVulkanBackend::IsInitialized() const {

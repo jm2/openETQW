@@ -337,18 +337,49 @@ idImage *idRenderSystemLocal::LoadImageFromFile( const char* name, imageParams_t
 	return globalImages != NULL ? globalImages->ImageFromFile( name, params ) : NULL;
 }
 bool idRenderSystemLocal::IsDisplayModeAvailable( int width, int height ) const { return width > 0 && height > 0; }
-int idRenderSystemLocal::GetNumMSAAModes() const { return 1; }
+// The anti-aliasing choices the options menu lists (#423): Off, then each of 2x,
+// 4x, 8x and 16x the renderer can use. Under Vulkan that is the device's colour,
+// depth and stencil sample counts (KosmicKrisp on Apple GPUs stops at 4x); the
+// OpenGL fallback asks SDL for the count and retries without it if refused.
+namespace {
+const int msaaModeCounts[] = { 0, 2, 4, 8, 16 };
+const char* const msaaModeNames[] = { "Off", "2x", "4x", "8x", "16x" };
+const int numMsaaModeCounts = sizeof( msaaModeCounts ) / sizeof( msaaModeCounts[ 0 ] );
 
-const char *idRenderSystemLocal::GetMSAAMode( int idx, int &val ) const {
-	if ( idx != 0 ) {
-		val = 0;
-		return NULL;
+bool MsaaCountUsable( int count ) {
+	if ( count <= 1 ) {
+		return count >= 0;
 	}
-	val = 0;
-	return "Off";
+	if ( vulkanBackend.IsInitialized() ) {
+		return ( vulkanBackend.GetSupportedSampleCounts() & static_cast< unsigned int >( count ) ) != 0;
+	}
+	return count <= 8;
+}
 }
 
-bool idRenderSystemLocal::IsMSAACountAvailable( int msaa ) const { return msaa == 0; }
+int idRenderSystemLocal::GetNumMSAAModes() const {
+	int num = 0;
+	for ( int i = 0; i < numMsaaModeCounts; ++i ) {
+		num += MsaaCountUsable( msaaModeCounts[ i ] ) ? 1 : 0;
+	}
+	return num;
+}
+
+const char *idRenderSystemLocal::GetMSAAMode( int idx, int &val ) const {
+	for ( int i = 0; i < numMsaaModeCounts; ++i ) {
+		if ( !MsaaCountUsable( msaaModeCounts[ i ] ) ) {
+			continue;
+		}
+		if ( idx-- == 0 ) {
+			val = msaaModeCounts[ i ];
+			return msaaModeNames[ i ];
+		}
+	}
+	val = 0;
+	return NULL;
+}
+
+bool idRenderSystemLocal::IsMSAACountAvailable( int msaa ) const { return MsaaCountUsable( msaa ); }
 void idRenderSystemLocal::LockThreads() { threadsLocked = true; }
 void idRenderSystemLocal::UnlockThreads() { threadsLocked = false; }
 int idRenderSystemLocal::GetDoubleBufferIndex() { return doubleBufferIndex; }
