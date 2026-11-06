@@ -54,4 +54,8 @@ Step 13 builds the switch and its evidence, and nothing that uses it: no consume
 - The copied `IsFPSUnlock` checks can drift from the original; the predicate's comment names `IsFPSUnlock`, and a change to either must change both.
 - The IK column misses joints moved by scripts, animation and wheels.
 - The network client runs the latch on re-predicted frames, but only the single-player replay is tested.
-- Ledger row 054 records the deviation from retail 1.5 that D10 makes (retail draws every seat at the tick rate), which takes effect when step 14 presents the first seat.
+- Ledger row 054 records the deviation from retail 1.5 that D10 makes (retail draws every seat at the tick rate).
+
+## Update, 2026-11-06
+
+The owner put the seats on by default: `seatDefaultList` holds every transport view class with a built-in recipe (`*:*:standard`, `smooth`, `smooth_free`, `smooth_locked`, `pivot`, `freepivot`). The jetpack keeps its recipe but is not on the list, and the hull lead stays off. `seat-gate` run A now lists nothing explicitly (`""`), and a new run E checks the shipped `default`.
