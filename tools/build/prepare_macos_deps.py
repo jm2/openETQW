@@ -80,8 +80,9 @@ MESA_PATCHES = (
      "if (cmd->drawable) mtl_release(cmd->drawable);    mtl_retain(drawable)"),
 )
 # Upstream Mesa commits backported to MESA_VERSION, their diffs unmodified (git format-patch,
-# the header trimmed of e-mail addresses; applied with patch -p1): (file under tools/build/macos, SHA-256, (source file, text that must then be
-# present)). Drop each once MESA_VERSION carries it.
+# the header trimmed of e-mail addresses; applied with patch -p1): (file under
+# tools/build/macos, SHA-256, (source file, text that must then be present)). Drop each once
+# MESA_VERSION carries it.
 MESA_UPSTREAM_PATCHES = (
     # bfe08f7c878448ea7112c449862684dc03772528 (first in 26.3), "kk: Wait on drawable
     # availability before rendering to it": kk_queue_submit never waited on the drawable, so
@@ -154,7 +155,8 @@ def build_kosmickrisp(prefix: Path, work: Path, python: Path) -> None:
         patch_digest = hashlib.sha256(patch_file.read_bytes()).hexdigest()
         if patch_digest != patch_sha256:
             raise SystemExit(f"prepare_macos_deps: {patch_name} has SHA-256 {patch_digest}, expected {patch_sha256}")
-        run(["patch", "-p1", "--forward", "--batch", "--input", str(patch_file)], cwd=source)
+        # the tree is extracted afresh above, so each patch meets the clean 26.2.4 sources
+        run(["patch", "-p1", "--batch", "--input", str(patch_file)], cwd=source)
         if expected not in (source / name).read_text(encoding="utf-8"):
             raise SystemExit(f"prepare_macos_deps: {patch_name} did not apply to {name}")
     for name, pattern, replacement, expected in MESA_PATCHES:
