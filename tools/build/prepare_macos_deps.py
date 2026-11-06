@@ -79,6 +79,18 @@ MESA_PATCHES = (
      "   if (cmd->drawable) mtl_release(cmd->drawable);    mtl_retain(drawable);",
      "if (cmd->drawable) mtl_release(cmd->drawable);    mtl_retain(drawable)"),
 )
+# Upstream Mesa commits backported to MESA_VERSION, their diffs unmodified (git format-patch,
+# the header trimmed of e-mail addresses; applied with patch -p1): (file under tools/build/macos, SHA-256, (source file, text that must then be
+# present)). Drop each once MESA_VERSION carries it.
+MESA_UPSTREAM_PATCHES = (
+    # bfe08f7c878448ea7112c449862684dc03772528 (first in 26.3), "kk: Wait on drawable
+    # availability before rendering to it": kk_queue_submit never waited on the drawable, so
+    # the GPU could draw into one the display still showed (stale or bouncing frames; #448)
+    ("mesa-kk-wait-for-drawable.patch",
+     "2d4eaa7963e28aeea694400c978f827c1e39cb2383dccf69abc44cd0d7909395",
+     ("src/kosmickrisp/vulkan/kk_queue.c", "mtl_command_queue_wait_for_drawable(queue->mtl_handle,")),
+)
+PATCH_DIR = Path(__file__).resolve().parent / "macos"
 ARCHITECTURES = {"arm64": "arm64"}  # macOS is arm64 only (owner, 2026-09-30)
 
 
@@ -137,6 +149,14 @@ def build_kosmickrisp(prefix: Path, work: Path, python: Path) -> None:
     shutil.rmtree(source, ignore_errors=True)
     with tarfile.open(archive) as tar:
         tar.extractall(work, filter="data")
+    for patch_name, patch_sha256, (name, expected) in MESA_UPSTREAM_PATCHES:
+        patch_file = PATCH_DIR / patch_name
+        patch_digest = hashlib.sha256(patch_file.read_bytes()).hexdigest()
+        if patch_digest != patch_sha256:
+            raise SystemExit(f"prepare_macos_deps: {patch_name} has SHA-256 {patch_digest}, expected {patch_sha256}")
+        run(["patch", "-p1", "--forward", "--batch", "--input", str(patch_file)], cwd=source)
+        if expected not in (source / name).read_text(encoding="utf-8"):
+            raise SystemExit(f"prepare_macos_deps: {patch_name} did not apply to {name}")
     for name, pattern, replacement, expected in MESA_PATCHES:
         path = source / name
         text, count = re.subn(pattern, replacement, path.read_text(encoding="utf-8"), flags=re.M)
