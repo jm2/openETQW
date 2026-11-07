@@ -2,7 +2,7 @@
 
 This is the plan for decision D10 of [`m5-plan.md`](m5-plan.md), written 2026-09-25 from a design study (three readers, three designs from different angles, two adversarial judges). It is a proposal for review; the owner's questions are in §5.1. The owner's goal (D10): "let's get vehicles feeling as modern/responsive as possible without breaking game physics. If we can move vehicles entirely out of tick rate and modernize them safely, we should explore that."
 
-*Update 2026-10-18:* most of this plan has been built since. Stages 0–4 and 6 have landed, most of stage 5 has, and so have stage 7 (the hull lead, off by default; `hull-lead.md`) and §3.6's joint blending. Each stage's status line says what. What is left: the owner's default seat list (the open owner questions). Late look for `freepivot` views and the one presented `clampDamped*` seat, the husky driver, landed 2026-10-20 (ledger 064). The text below was written before the build: nothing in it was built or run then, except the stage 6 spike (2026-09-30), which is marked *[measured]*. The analysis comes from reading the code. Every millisecond, degree and distance below is arithmetic from the 33 ms tick, unless it says "measured".
+*Update 2026-10-18:* most of this plan has been built since. Stages 0–4 and 6 have landed, most of stage 5 has, and so have stage 7 (the hull lead, on by default per class since 2026-11-06; `hull-lead.md`) and §3.6's joint blending. Each stage's status line says what. What is left: the owner's default seat list (the open owner questions). Late look for `freepivot` views and the one presented `clampDamped*` seat, the husky driver, landed 2026-10-20 (ledger 064). The text below was written before the build: nothing in it was built or run then, except the stage 6 spike (2026-09-30), which is marked *[measured]*. The analysis comes from reading the code. Every millisecond, degree and distance below is arithmetic from the 33 ms tick, unless it says "measured".
 
 **How to read the references**
 - `game` = openETQW-game at `f00f4d3`.
@@ -22,7 +22,7 @@ This is the plan for decision D10 of [`m5-plan.md`](m5-plan.md), written 2026-09
 - **Vehicle physics stays on the 30 Hz tick.** Moving it off the tick would change handling, the server's results and client prediction. It also would not remove the delay the driver feels most: keys and the pilot's mouse reach physics once per tick whatever rate the physics runs at.
 - **What the player sees can leave the tick.** So can mouse look, in seats where the mouse only aims the view. This needs no protocol change and no change to the simulation.
 - **The plan has eight stages.** Stages 0–5 make every allowed seat smooth and give angle-driven seats on-foot mouse latency. Stage 6 fixes a client-prediction bug in network pilots' cyclic and collective (measured and fixed 2026-09-30). Stage 7 is optional: it removes the 33 ms that interpolation costs, for each vehicle class where the physics' own next pose can be predicted.
-- **On by default, seat by seat.** The owner decided D10 on 2026-09-25: vehicles should feel as modern and responsive as possible out of the box, without breaking game physics. A seat joins the default list once it passes the prerequisites in §3.3 (the captures, the replays and a human review); until then it keeps retail's tick-rate view.
+- **On by default, seat by seat.** The owner decided D10 on 2026-09-25: vehicles should feel as modern and responsive as possible out of the box, without breaking game physics. A seat joins the default list once it passes the prerequisites in §3.3 (the captures, the replays and a human review); until then it keeps retail's tick-rate view. On 2026-11-06 the owner put every seat with a recipe on the default list at once (ledger 054); the jetpack stays off it.
 
 ## 1. What a player feels in vehicles today, and why
 
@@ -244,7 +244,7 @@ Engine step 10 (tick frames drawn at their real fraction) is needed for full cov
   - the proxy must be an `sdTransport` that is not teleporting;
   - its current view class must have a recipe;
   - the seat's key must be allowed by `g_unlock_vehicleSeats` (the name is a proposal).
-- Keys take the form `vehicleScript:positionName:viewType`, and wildcards are allowed. The default list starts empty (retail behaviour) and grows as seats pass §3.3 (D10: on by default). Wildcards never match mounted guns (their proxy is set at game `src/game/ScriptEntity.cpp:652`) or the jetpack until those have a recipe.
+- Keys take the form `vehicleScript:positionName:viewType`, and wildcards are allowed. The default list started empty (retail behaviour); since 2026-11-06 (owner) it holds every transport view class with a recipe (D10: on by default). Wildcards never match mounted guns (their proxy is set at game `src/game/ScriptEntity.cpp:652`) or the jetpack: mounted guns have no recipe, and the jetpack's `icarus` is not on the default list.
 - The predicate is latched next to `canUnlockFrames` (game `Game_local.cpp:5252-5261`, `Game_network.cpp:3795-3803`) and re-checked at draw time.
 - A read-only cheat command, `listSeatViews`, prints for each seat:
   - position name and view type;
@@ -543,7 +543,7 @@ Done 2026-09-30: the fix, `AIR_CTL` and meson `aircraft-reprediction` are built 
 - **First candidates:** angle-driven seats (gunners, free look), as `listSeatViews` identifies them.
 - **Ground-vehicle driver seats: wait for stage 7** (owner, 2026-09-29). They get smoothness, but camera motion caused by the hull becomes 16.5 ms older on average, unless stage 7 enables a lead for that class. If the driver's view is angle-driven, their mouse look gains 16.5 ms.
 - **Pilot seats stay off until stage 7 is measured.** Without a lead they regress by 16.5 ms. A pilot holding the tophat could later get late look for the free-look part.
-- **D10 (2026-09-25): on by default.** Each seat joins the default list when it meets the prerequisites above.
+- **D10 (2026-09-25): on by default.** Each seat joins the default list when it meets the prerequisites above. On 2026-11-06 the owner put every seat with a recipe on it at once, and with it the hull lead for every measured class (`hull-lead.md` §4), so driver and pilot seats don't lose the 16.5 ms: the aircraft and the desecrator lead by a full tick, the ground classes by half a tick (retail's mean age). The prerequisites' person's review on a high-refresh display is still to come.
 
 ### 3.4 Engine steps this depends on
 
@@ -622,9 +622,9 @@ Stages 0–7 come to about 5–7 weeks of focused work for one engineer. That do
 ### 5.1 For the owner
 
 1. **The split.** Does it meet D10? Everything drawn and mouse look in angle-driven seats leave the tick. Driving keys and a pilot's mouse keep reaching physics once per 33 ms, which only a simulation change could shorten.
-2. **Which seats first.** D10 answers "on by default": seats join the default list as they qualify (§3.3). A person's review of the first seat group on a high-refresh display is still wanted (D3).
+2. **Which seats first.** D10 answers "on by default": seats join the default list as they qualify (§3.3). Answered 2026-11-06: the owner put every seat with a recipe on the default list.
 3. **Driver seats.** Accept 16.5 ms more mean age on camera motion caused by the hull in exchange for smoothness, or wait for stage 7? *Answered 2026-09-29: wait for stage 7; driver seats keep the tick-rate view until the lead is measured for their class.*
-4. **Stage 7.** Adopt the lead per class after measurement? L = 0.5 keeps today's mean age; L = 1 removes it, with a risk of overshoot.
+4. **Stage 7.** Adopt the lead per class after measurement? L = 0.5 keeps today's mean age; L = 1 removes it, with a risk of overshoot. *Answered 2026-11-06 (owner): L = 1 for the aircraft and the desecrator, 0.5 for the measured ground classes (`hull-lead.md` §4).*
 5. **Remote vehicles.** They are drawn one tick behind (retail, D5), and there is no vehicle antilag. Do you want vehicles to depart from retail, using the lead or remote axes and joints? That needs a ledger row. *Answered 2026-09-29: yes, each departure with a ledger row, enabled per class under a measured bound.*
 6. **Aircraft state.** If loopback shows a residual, network the air-control state (a protocol minor bump)? *Answered 2026-09-29: yes.*
 7. **Prediction-error decay on your own vehicle.** It has no exclusion for the local player (game `src/game/ScriptEntity.cpp:2244-2255`). Keep it, or replace it with a faster fade in presentation? *Answered 2026-10-07: keep retail's decay, and revisit only if a network client's `VEH_PRED` shows it as wobble ([`hull-lead.md`](hull-lead.md) §6 has the first client numbers).*

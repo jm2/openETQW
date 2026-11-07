@@ -19,14 +19,17 @@ RunSeatGateSchedule): enter the badger from on foot at tick 21 (the tour's only
 entry from on foot), cycle its camera at 31 and 41, swap seat at 51, cycle at 61;
 exit and enter the icarus (a jetpack) in the same tick at 71, cycle at 81; exit and
 enter the titan at 91, swap seat at 101, cycle at 111; listSeatViews at 121; exit at
-125; quit from 130. It runs four times at com_maxFPS 120:
+125; quit from 130. It runs five times at com_maxFPS 120:
 
-  A  g_unlock_vehicleSeats default                   the baseline; learns the keys
+  A  g_unlock_vehicleSeats ""                        the baseline, nothing listed; learns the keys
   B  g_unlock_vehicleSeats *                         everything listed: the built-in recipes'
                                                      seats are presented (M5 step 14)
   C  items built from A's keys, two of them malformed  key matching
      and three aimed at idStr::Filter's defects
   D  * and g_seatGateTestRecipe "T,U,icarus"          the positive control
+  E  g_unlock_vehicleSeats default                   the shipped default (D10, on by default):
+     and g_unlock_vehicleLead default                the built-in seat list, DEFAULT_LIST, and
+                                                     the built-in hull leads
 
 T is the view class of the badger's driver seat in its first view, U that of the
 seat the tick-51 swap lands in (learned from run A). A test recipe opens the gate
@@ -50,7 +53,9 @@ Checks:
 4. Key matching: listed agrees on every seated tick and every listed seat view with
    a reference matcher (per ':' field, whole field, ignoring case, * and ?; '*'
    alone lists everything; 'default' is the built-in list, DEFAULT_LIST; whitespace
-   removed; malformed items ignored). Run A lists nothing and run B everything; run
+   removed; malformed items ignored). Run A lists nothing, run B everything and run E
+   exactly DEFAULT_LIST's seats (every transport seat of a built-in class, not the
+   jetpack); run
    C reports bad=2, each of its well-formed items lists what it should, and nothing
    else is listed: its items include a field that is a strict prefix of a seat's, a
    '?' past the end of a class and a '*' that has to backtrack, the three ways
@@ -61,12 +66,12 @@ Checks:
    cycle clearing pred under a set latch, and a seat swap into a seat that also
    has a recipe (latch and pred both 1, draw 0: the identity re-check).
 6. Nothing changes: SIM_HASH, VEH_TRACE, cu and SIM_VIEW are identical tick by
-   tick in all four runs. (Until M5 step 6 the render frames of tick 21, the entry
+   tick in all five runs. (Until M5 step 6 the render frames of tick 21, the entry
    from on foot, ran the vehicle proxy branch of ClientUpdateView, whose weapon
    presentation the vehicle ticks logged, and the test allowed that wlog run as
-   ENTRY_LEAK; step 6 removed both.) All four runs execute the
+   ENTRY_LEAK; step 6 removed both.) All five runs execute the
    same new code (the latch, SEAT_GATE, listSeatViews at 121) and differ only in
-   the two CVars, so this shows that the gate's state changes nothing; that the
+   the three CVars (seats, test recipe, lead), so this shows that the gate's state changes nothing; that the
    code itself changes nothing against main rests on vehicle-physics-golden (its
    golden predates step 13) and high-refresh-determinism.
 7. listSeatViews: the badger, the titan and the icarus (kind=jetpack) are listed;
@@ -100,8 +105,10 @@ ENTRY_TICK = 21         # the tour's only entry from on foot
 SWAP_TICK = 51          # the badger seat swap: U is the class of the seat it lands in
 SEATED_TICKS = range(21, 125)
 # the game's built-in default list (seatDefaultList in openETQW-game vehicles/SeatGate.cpp):
-# empty in step 13; keep it in step as seats join it
-DEFAULT_LIST: tuple[str, ...] = ()
+# empty in step 13; since the owner's decision of 2026-11-06 (D10, on by default) every
+# transport seat whose view class has a built-in recipe; keep it in step with the game
+DEFAULT_LIST: tuple[str, ...] = ("*:*:standard", "*:*:smooth", "*:*:smooth_free", "*:*:smooth_locked",
+                                 "*:*:pivot", "*:*:freepivot")
 # the view classes the game's built-in recipes cover for transports (game SeatGate.cpp,
 # seatRecipes; M5 step 14: the first-person standard view and the chase views sdPresentation draws)
 BUILTIN_RECIPES = frozenset({"standard", "smooth", "smooth_free", "smooth_locked", "pivot", "freepivot"})
@@ -476,6 +483,24 @@ def view_fields(body: str) -> dict[str, str]:
     return dict(FIELD_RE.findall(body))
 
 
+def check_default(run: Run) -> list[str]:
+    """Run E, the shipped default: every seated transport tick in a built-in recipe class is
+    listed and the jetpack is not, so the default draws every seat it can present."""
+    problems = []
+    transport = [g for g in run.gate if g["kind"] == "transport" and g["key"] != "-"]
+    jetpack = [g for g in run.gate if g["kind"] == "jetpack" and g["key"] != "-"]
+    unlisted = [(g["tick"], g["key"]) for g in transport if g["type"].lower() in BUILTIN_RECIPES and not g["listed"]]
+    if unlisted:
+        problems.append(f"run {run.name}: transport seats of a built-in class not listed by default: {unlisted[:5]}")
+    if not any(g["listed"] for g in transport):
+        problems.append(f"run {run.name}: the default lists no transport seat of the tour")
+    if not jetpack:
+        problems.append(f"run {run.name}: the tour has no jetpack tick to check")
+    elif any(g["listed"] for g in jetpack):
+        problems.append(f"run {run.name}: the default lists the jetpack ({jetpack[0]['key']})")
+    return problems
+
+
 def check_unchanged(base: Run, runs: list[Run]) -> list[str]:
     problems = []
     for run in runs:
@@ -588,7 +613,7 @@ def main() -> int:
     savepath = h.private_savepath("etqw-seat-gate-")
 
     failures: list[str] = []
-    a = run_tour(client, data, savepath, "A", "default", "")
+    a = run_tour(client, data, savepath, "A", "", "")
     failures += check_format(a) + check_tour(a)
     if failures:
         # the other runs are built from A's keys
@@ -602,7 +627,9 @@ def main() -> int:
     b = run_tour(client, data, savepath, "B", "*", "", lead="*:1")
     c = run_tour(client, data, savepath, "C", list_c, "")
     d = run_tour(client, data, savepath, "D", "*", recipe_d)
-    runs = (a, b, c, d)
+    # run E is the shipped configuration: the default seat list and the default lead list
+    e = run_tour(client, data, savepath, "E", "default", "", lead="default")
+    runs = (a, b, c, d, e)
     recipe_types = set(BUILTIN_RECIPES) | {x.lower() for x in (t, u, "icarus")}
 
     for run in runs[1:]:
@@ -614,8 +641,9 @@ def main() -> int:
         failures += check_listing(run, types)
     failures += check_list_c(c, expect_c)
     failures += check_plumbing(d, recipe_types)
-    failures += check_presented(a, False) + check_presented(b, True)
-    failures += check_unchanged(a, [b, c, d])
+    failures += check_presented(a, False) + check_presented(b, True) + check_presented(e, True)
+    failures += check_default(e)
+    failures += check_unchanged(a, [b, c, d, e])
 
     print_seat_table(a)
     return report(failures)
