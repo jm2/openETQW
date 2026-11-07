@@ -201,7 +201,7 @@ The choice between S, P and H is technical: step 2's numbers decide it. The owne
 - **Question 4, the decay on your own vehicle:** keep retail's prediction-error decay. Measure its effect on the lead from a network client's `VEH_PRED` first (§6), and revisit only if it shows as wobble.
 - **Related:** turret and IK joint blending for gunner views will be built in presentation, beyond D2, with its own ledger row. The default frame cap is 240 (m5-plan step 18).
 
-**Decided (owner, 2026-11-06), questions 1 and 3:** from the measurements below, the built-in lead list is the anansi, bumblebee and hornet at L = 1 with H, the desecrator at L = 1 with S, and the badger, hog, husky, trojan and titan at L = 0.5 with H. The goliath and the platypus were never measured and get no lead. The titan's L rests on the scripted replay only (§2.1); by default it applies in the titan's first-person gunner seats, since its driver's first view is third-person and takes no lead. Every seat with a recipe has been on the seat default list since the same day. A person's review on a high-refresh display is still to come.
+**Decided (owner, 2026-11-06), questions 1 and 3:** from the measurements below, the built-in lead list is the anansi, bumblebee and hornet at L = 1 with H, the desecrator at L = 1 with S, and the badger, hog, husky, trojan and titan at L = 0.5 with H. The goliath and the platypus were never measured and get no lead. The titan's L rests on the scripted replay only (§2.1); by default it applies in the titan's first-person gunner seats, since its driver's first view is third-person and takes no lead. Every transport seat with a recipe has been on the seat default list since the same day; the jetpack, whose `icarus` view also has a recipe, is not on it. A person's review on a high-refresh display is still to come.
 
 The questions as asked:
 
@@ -230,7 +230,7 @@ The questions as asked:
    - **H4, the simulation is untouched:** `SIM_HASH` with the lead on equals the lead off over the same scripted drive (`seat-gate` already compares `SIM_HASH`, `VEH_TRACE` and `SIM_VIEW` across the gate; the lead CVar joins that comparison).
    - **A negative control:** an unlisted class draws at L = 0.
    - The A/B latency check from stage 7: one throttle step at a known tick, and the first draw whose hull differs from a run without it, for hold, the blend and L = 1. It is reported, not failed, because it depends on the display.
-5. **Human review (D3)** on a high-refresh display, per class, in driver and pilot seats: smoothness, the feel at walls, and vehicles alongside. Then the owner's §4 decisions, and the classes that pass go into `g_unlock_vehicleLead`'s default list. *On 2026-11-06 the owner put the measured classes on the default list before this review, from the measurements (§4); the review is still to come.*
+5. **Human review (D3)** on a high-refresh display, per class, in driver and pilot seats, and in the titan's first-person gunner seats: smoothness, the feel at walls, and vehicles alongside. Then the owner's §4 decisions, and the classes that pass go into `g_unlock_vehicleLead`'s default list. *On 2026-11-06 the owner put the measured classes on the default list before this review, from the measurements (§4); the review is still to come.*
 
 **Effort** *[inferred]*: step 2 is about 2 days, step 3 about 3 days, and step 4 about 2 days, plus the review.
 
