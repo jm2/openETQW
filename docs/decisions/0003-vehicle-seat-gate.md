@@ -58,4 +58,4 @@ Step 13 builds the switch and its evidence, and nothing that uses it: no consume
 
 ## Update, 2026-11-06
 
-The owner put the seats on by default: `seatDefaultList` holds every transport view class with a built-in recipe (`*:*:standard`, `smooth`, `smooth_free`, `smooth_locked`, `pivot`, `freepivot`). The jetpack keeps its recipe but is not on the list, and the hull lead stays off. `seat-gate` run A now lists nothing explicitly (`""`), and a new run E checks the shipped `default`.
+The owner put the seats on by default: `seatDefaultList` holds every transport view class with a built-in recipe (`*:*:standard`, `smooth`, `smooth_free`, `smooth_locked`, `pivot`, `freepivot`). The jetpack keeps its recipe but is not on the list, and the hull lead is on per class (ledger 067: the aircraft and the desecrator at L = 1, the ground classes at 0.5). `seat-gate` run A now lists nothing explicitly (`""`), and a new run E checks the shipped `default`.

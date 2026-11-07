@@ -111,10 +111,12 @@ with g_unlock_vehicleLead listing the badger at L = 1:
               tick's lead is one point (within 0.05 u): the hull is drawn along the lead
   H2 steps    with the fade on (the default), S4's rule: the hull's median step across a tick
               is at most 2.5 x its median step within one, and the drawn view's too (H2v)
-  H3 off      the seat-drive phases (the built-in lead list, empty) and a phase listing only
+  H3 off      the seat-drive phases (an empty lead list) and a phase listing only
               the titan (moving in the badger's driver seat) draw no lead= at all; a titan
               phase where the badger barely moved (#160) is reported and driven once more,
               and a second stall fails the test
+  H5 default  the shipped list ('default') leads the badger at L = 0.5: 30-70% of the moving
+              draws carry lead=, alpha never above 0.5, and S4's step rule holds (H5s)
 
 Safety (nothing presented reaches tick state) is shown by meson seat-gate: its run B lists
 every seat and leads every class, so the presentation runs during the seat tour, and SIM_HASH, VEH_TRACE and
@@ -281,6 +283,10 @@ def moving_poses(poses):
 
 
 LEAD_SHARE = 0.8      # H0: the share of moving draws that must carry a lead
+# H5: the built-in lead list leads the badger at 0.5 (openETQW-game SeatGate.cpp builtInLeads),
+# so only draws in the second half of a tick (f >= 0.5) carry a lead
+DEFAULT_BADGER_LEAD = 0.5
+DEFAULT_LEAD_SHARE = (0.3, 0.7)
 LEAD_LINEAR_U = 0.05  # H1: the spread of hull - alpha x lead within a tick
 
 
@@ -474,7 +480,9 @@ def main(argv):
     log_dir = Path(args.log_dir) if args.log_dir else None
     if log_dir:
         log_dir.mkdir(parents=True, exist_ok=True)
-    view_cvars = {"com_unlockFPS": "1", "r_swapInterval": "0", "r_vkValidation": "0"}
+    # no hull lead unless a phase sets one: since 2026-11-06 the built-in lead list ('default')
+    # leads the badger at 0.5, and the seat-drive phases check the plain blend (S3, H3)
+    view_cvars = {"com_unlockFPS": "1", "r_swapInterval": "0", "r_vkValidation": "0", "g_unlock_vehicleLead": ""}
     def log(name):
         return (log_dir / f"{args.mode}-{name}.log") if log_dir else None
     if args.mode == "join":
@@ -1120,7 +1128,7 @@ def main(argv):
             cockpit = cockpit_check(poses)
             results = {"S0": {"ok": ok0, "detail": f"{len(poses) - 1} draw pairs, seats {sorted(s or '-' for s in seats)}"},
                        "S1": view, "S2": hull, "S3": path, "S4": steps, "S5": cockpit,
-                       "H3": {"ok": led == 0, "detail": f"{led} draws with a lead under the built-in (empty) lead list"}}
+                       "H3": {"ok": led == 0, "detail": f"{led} draws with a lead under an empty lead list"}}
             print(f"[seat] cap {cap}: {rate(poses):.1f} fps")
             for check, res in results.items():
                 print(f"  {cap:3} {check}  {'pass' if res['ok'] else 'FAIL'}  {res['detail']}")
@@ -1172,7 +1180,26 @@ def main(argv):
               f" ({len(seated)} moving draws in the badger's driver seat, need {MIN_PAIRS})")
         if not ok3:
             failures.append(f"H3: {led} draws led with only the titan listed, {len(seated)} moving seated draws")
+        # H5: the shipped lead list ('default', owner 2026-11-06) leads the badger at L = 0.5, so
+        # alpha = f + L - 1 is never above 0.5 and about half the moving draws are led
         obs.send("set g_unlock_vehicleLead default")
+        seated_up()
+        poses = phase("leaddefault", caps[0], drive)
+        moving = moving_poses(poses)
+        alphas = [p["lead"][0] for p in moving if p["lead"] is not None]
+        share = len(alphas) / max(1, len(moving))
+        top = max(alphas, default=0.0)
+        ok5 = len(moving) >= MIN_PAIRS and DEFAULT_LEAD_SHARE[0] <= share <= DEFAULT_LEAD_SHARE[1] \
+            and top <= DEFAULT_BADGER_LEAD + 0.02
+        h5 = {"H5": {"ok": ok5, "detail": f"{len(alphas)} of {len(moving)} moving draws led ({100 * share:.0f}%, need"
+                                          f" {100 * DEFAULT_LEAD_SHARE[0]:.0f}-{100 * DEFAULT_LEAD_SHARE[1]:.0f}%),"
+                                          f" alpha at most {top:.3f} (need <= {DEFAULT_BADGER_LEAD})"},
+              "H5s": step_check(poses)}
+        for check, res in h5.items():
+            print(f"  {caps[0]:3} {check}  {'pass' if res['ok'] else 'FAIL'}  {res['detail']}")
+            if not res["ok"]:
+                failures.append(f"cap {caps[0]} {check}: {res['detail']}")
+        obs.send("set g_unlock_vehicleLead \"\"")
 
         # negative control: the seat not listed
         cap = caps[0]

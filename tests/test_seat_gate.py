@@ -28,7 +28,8 @@ enter the titan at 91, swap seat at 101, cycle at 111; listSeatViews at 121; exi
      and three aimed at idStr::Filter's defects
   D  * and g_seatGateTestRecipe "T,U,icarus"          the positive control
   E  g_unlock_vehicleSeats default                   the shipped default (D10, on by default):
-                                                     the built-in list, DEFAULT_LIST
+     and g_unlock_vehicleLead default                the built-in seat list, DEFAULT_LIST, and
+                                                     the built-in hull leads
 
 T is the view class of the badger's driver seat in its first view, U that of the
 seat the tick-51 swap lands in (learned from run A). A test recipe opens the gate
@@ -626,7 +627,8 @@ def main() -> int:
     b = run_tour(client, data, savepath, "B", "*", "", lead="*:1")
     c = run_tour(client, data, savepath, "C", list_c, "")
     d = run_tour(client, data, savepath, "D", "*", recipe_d)
-    e = run_tour(client, data, savepath, "E", "default", "")
+    # run E is the shipped configuration: the default seat list and the default lead list
+    e = run_tour(client, data, savepath, "E", "default", "", lead="default")
     runs = (a, b, c, d, e)
     recipe_types = set(BUILTIN_RECIPES) | {x.lower() for x in (t, u, "icarus")}
 

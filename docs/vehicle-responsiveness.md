@@ -2,7 +2,7 @@
 
 This is the plan for decision D10 of [`m5-plan.md`](m5-plan.md), written 2026-09-25 from a design study (three readers, three designs from different angles, two adversarial judges). It is a proposal for review; the owner's questions are in §5.1. The owner's goal (D10): "let's get vehicles feeling as modern/responsive as possible without breaking game physics. If we can move vehicles entirely out of tick rate and modernize them safely, we should explore that."
 
-*Update 2026-10-18:* most of this plan has been built since. Stages 0–4 and 6 have landed, most of stage 5 has, and so have stage 7 (the hull lead, off by default; `hull-lead.md`) and §3.6's joint blending. Each stage's status line says what. What is left: the owner's default seat list (the open owner questions). Late look for `freepivot` views and the one presented `clampDamped*` seat, the husky driver, landed 2026-10-20 (ledger 064). The text below was written before the build: nothing in it was built or run then, except the stage 6 spike (2026-09-30), which is marked *[measured]*. The analysis comes from reading the code. Every millisecond, degree and distance below is arithmetic from the 33 ms tick, unless it says "measured".
+*Update 2026-10-18:* most of this plan has been built since. Stages 0–4 and 6 have landed, most of stage 5 has, and so have stage 7 (the hull lead, on by default per class since 2026-11-06; `hull-lead.md`) and §3.6's joint blending. Each stage's status line says what. What is left: the owner's default seat list (the open owner questions). Late look for `freepivot` views and the one presented `clampDamped*` seat, the husky driver, landed 2026-10-20 (ledger 064). The text below was written before the build: nothing in it was built or run then, except the stage 6 spike (2026-09-30), which is marked *[measured]*. The analysis comes from reading the code. Every millisecond, degree and distance below is arithmetic from the 33 ms tick, unless it says "measured".
 
 **How to read the references**
 - `game` = openETQW-game at `f00f4d3`.
@@ -543,7 +543,7 @@ Done 2026-09-30: the fix, `AIR_CTL` and meson `aircraft-reprediction` are built 
 - **First candidates:** angle-driven seats (gunners, free look), as `listSeatViews` identifies them.
 - **Ground-vehicle driver seats: wait for stage 7** (owner, 2026-09-29). They get smoothness, but camera motion caused by the hull becomes 16.5 ms older on average, unless stage 7 enables a lead for that class. If the driver's view is angle-driven, their mouse look gains 16.5 ms.
 - **Pilot seats stay off until stage 7 is measured.** Without a lead they regress by 16.5 ms. A pilot holding the tophat could later get late look for the free-look part.
-- **D10 (2026-09-25): on by default.** Each seat joins the default list when it meets the prerequisites above. On 2026-11-06 the owner put every seat with a recipe on it at once.
+- **D10 (2026-09-25): on by default.** Each seat joins the default list when it meets the prerequisites above. On 2026-11-06 the owner put every seat with a recipe on it at once, and with it the hull lead for every measured class (`hull-lead.md` §4), so driver and pilot seats don't lose the 16.5 ms: the aircraft and the desecrator lead by a full tick, the ground classes by half a tick (retail's mean age). The prerequisites' person's review on a high-refresh display is still to come.
 
 ### 3.4 Engine steps this depends on
 

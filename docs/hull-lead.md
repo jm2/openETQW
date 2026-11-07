@@ -201,7 +201,7 @@ The choice between S, P and H is technical: step 2's numbers decide it. The owne
 - **Question 4, the decay on your own vehicle:** keep retail's prediction-error decay. Measure its effect on the lead from a network client's `VEH_PRED` first (§6), and revisit only if it shows as wobble.
 - **Related:** turret and IK joint blending for gunner views will be built in presentation, beyond D2, with its own ledger row. The default frame cap is 240 (m5-plan step 18).
 
-**Still open:** questions 1 and 3, the per-class p95 bound and L, and which classes get a lead by default (every seat with a recipe has been on the seat default list since 2026-11-06). They need the measurements below and the owner's review on a high-refresh display.
+**Decided (owner, 2026-11-06), questions 1 and 3:** from the measurements below, the built-in lead list is the anansi, bumblebee and hornet at L = 1 with H, the desecrator at L = 1 with S, and the badger, hog, husky, trojan and titan at L = 0.5 with H. The goliath and the platypus were never measured and get no lead. Every seat with a recipe has been on the seat default list since the same day. A person's review on a high-refresh display is still to come.
 
 The questions as asked:
 
