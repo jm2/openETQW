@@ -71,7 +71,7 @@ Checks:
    presentation the vehicle ticks logged, and the test allowed that wlog run as
    ENTRY_LEAK; step 6 removed both.) All five runs execute the
    same new code (the latch, SEAT_GATE, listSeatViews at 121) and differ only in
-   the two CVars, so this shows that the gate's state changes nothing; that the
+   the three CVars (seats, test recipe, lead), so this shows that the gate's state changes nothing; that the
    code itself changes nothing against main rests on vehicle-physics-golden (its
    golden predates step 13) and high-refresh-determinism.
 7. listSeatViews: the badger, the titan and the icarus (kind=jetpack) are listed;

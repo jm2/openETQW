@@ -104,7 +104,7 @@ starts on open ground (JETPACK_SPOT, the game's placeVehicle), forward then back
 jetpack is entered, walls can sit closer than a drive leg.
 
 Hull lead (M5 step 14b, docs/hull-lead.md), at caps 60 and 120 in the driver's standard view
-with g_unlock_vehicleLead listing the badger at L = 1:
+with g_unlock_vehicleLead "default,badger:1" (the last matching item wins: the badger at L = 1):
 
   H0 lead     the lead was on: at least 80% of the moving draws carry lead= (alpha >= 0)
   H1 linear   with g_vehicleLeadFadeMsec 0, within each tick the drawn hull minus alpha x the
@@ -115,8 +115,10 @@ with g_unlock_vehicleLead listing the badger at L = 1:
               the titan (moving in the badger's driver seat) draw no lead= at all; a titan
               phase where the badger barely moved (#160) is reported and driven once more,
               and a second stall fails the test
-  H5 default  the shipped list ('default') leads the badger at L = 0.5: 30-70% of the moving
-              draws carry lead=, alpha never above 0.5, and S4's step rule holds (H5s)
+  H5 default  the shipped list ('default') leads the badger at L = 0.5: on every moving draw in
+              its driver's seat lead= is present exactly when fr > 0.5, at alpha = fr - 0.5
+              (within 0.01), at least a quarter of them are led, and S4's step rule holds (H5s);
+              a stalled badger is driven once more, as in H3
 
 Safety (nothing presented reaches tick state) is shown by meson seat-gate: its run B lists
 every seat and leads every class, so the presentation runs during the seat tour, and SIM_HASH, VEH_TRACE and
@@ -286,7 +288,8 @@ LEAD_SHARE = 0.8      # H0: the share of moving draws that must carry a lead
 # H5: the built-in lead list leads the badger at 0.5 (openETQW-game SeatGate.cpp builtInLeads),
 # so only draws in the second half of a tick (f >= 0.5) carry a lead
 DEFAULT_BADGER_LEAD = 0.5
-DEFAULT_LEAD_SHARE = (0.3, 0.7)
+DEFAULT_LEAD_MIN_SHARE = 0.25  # a floor only: the per-draw rule is the check
+LEAD_ALPHA_EPS = 0.01
 LEAD_LINEAR_U = 0.05  # H1: the spread of hull - alpha x lead within a tick
 
 
@@ -1138,7 +1141,9 @@ def main(argv):
         # the hull lead (step 14b): the badger at L = 1; H1 with the fade off, H0/H2 with it on
         for cap in (60, 120):
             obs.send(f"set com_maxFPS {cap}")
-            obs.send("set g_unlock_vehicleLead badger:1")
+            # after 'default' (badger 0.5): the last matching item wins, so the badger leads at 1,
+            # which H0's share needs (at 0.5 only about half the draws are led)
+            obs.send("set g_unlock_vehicleLead default,badger:1")
             for fade, name in (("0", "leadlinear"), ("25", "leaddrive")):
                 obs.send(f"set g_vehicleLeadFadeMsec {fade}")
                 seated_up()
@@ -1180,25 +1185,29 @@ def main(argv):
               f" ({len(seated)} moving draws in the badger's driver seat, need {MIN_PAIRS})")
         if not ok3:
             failures.append(f"H3: {led} draws led with only the titan listed, {len(seated)} moving seated draws")
-        # H5: the shipped lead list ('default', owner 2026-11-06) leads the badger at L = 0.5, so
-        # alpha = f + L - 1 is never above 0.5 and about half the moving draws are led
+        # H5: the shipped lead list ('default', owner 2026-11-06) leads the badger at L = 0.5, so a
+        # draw at fraction f is led exactly when alpha = f + L - 1 = f - 0.5 is >= 0, at that alpha
+        cap = caps[0]
+        obs.send(f"set com_maxFPS {cap}")
         obs.send("set g_unlock_vehicleLead default")
         seated_up()
-        poses = phase("leaddefault", caps[0], drive)
-        moving = moving_poses(poses)
-        alphas = [p["lead"][0] for p in moving if p["lead"] is not None]
-        share = len(alphas) / max(1, len(moving))
-        top = max(alphas, default=0.0)
-        ok5 = len(moving) >= MIN_PAIRS and DEFAULT_LEAD_SHARE[0] <= share <= DEFAULT_LEAD_SHARE[1] \
-            and top <= DEFAULT_BADGER_LEAD + 0.02
-        h5 = {"H5": {"ok": ok5, "detail": f"{len(alphas)} of {len(moving)} moving draws led ({100 * share:.0f}%, need"
-                                          f" {100 * DEFAULT_LEAD_SHARE[0]:.0f}-{100 * DEFAULT_LEAD_SHARE[1]:.0f}%),"
-                                          f" alpha at most {top:.3f} (need <= {DEFAULT_BADGER_LEAD})"},
+        poses = phase("leaddefault", cap, drive, stalled=badger_stalled, reseat=seated_up)
+        seated = driver_seated_moving(poses)
+        led = [p for p in seated if p["lead"] is not None]
+        share = len(led) / max(1, len(seated))
+        wrong = [p for p in seated if abs(p["fr"] - DEFAULT_BADGER_LEAD) > LEAD_ALPHA_EPS
+                 and ((p["lead"] is not None) != (p["fr"] > DEFAULT_BADGER_LEAD)
+                      or (p["lead"] is not None and abs(p["lead"][0] - (p["fr"] - DEFAULT_BADGER_LEAD)) > LEAD_ALPHA_EPS))]
+        ok5 = len(seated) >= MIN_PAIRS and not wrong and share >= DEFAULT_LEAD_MIN_SHARE
+        h5 = {"H5": {"ok": ok5, "detail": f"{len(led)} of {len(seated)} moving draws in the badger's driver seat led"
+                                          f" ({100 * share:.0f}%, need >= {100 * DEFAULT_LEAD_MIN_SHARE:.0f}%);"
+                                          f" {len(wrong)} draws where lead= is not alpha = fr - {DEFAULT_BADGER_LEAD}"
+                                          f" (within {LEAD_ALPHA_EPS}) exactly when fr > {DEFAULT_BADGER_LEAD}"},
               "H5s": step_check(poses)}
         for check, res in h5.items():
-            print(f"  {caps[0]:3} {check}  {'pass' if res['ok'] else 'FAIL'}  {res['detail']}")
+            print(f"  {cap:3} {check}  {'pass' if res['ok'] else 'FAIL'}  {res['detail']}")
             if not res["ok"]:
-                failures.append(f"cap {caps[0]} {check}: {res['detail']}")
+                failures.append(f"cap {cap} {check}: {res['detail']}")
         obs.send("set g_unlock_vehicleLead \"\"")
 
         # negative control: the seat not listed

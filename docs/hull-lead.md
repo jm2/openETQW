@@ -171,7 +171,7 @@ A hull trace in `SampleTick` against the world is **not** proposed. It would bou
 ### 3.4 Configuration
 
 - **`g_unlock_vehicleLead`** (CVAR_GAME, archive, profile). A comma-separated list of `vehicleClass:L` items, with `*` and `?` wildcards in the class, the same parser style as `g_unlock_vehicleSeats`.
-  - Default: `"default"`, a built-in list that starts empty.
+  - Default: `"default"`, a built-in list: empty until 2026-11-06, then the owner's per-class leads (§4). The last matching item wins, so `default,badger:1` leads the badger at 1 and `default,badger:0` turns it off.
   - The class is the transport's vehicle script name, the first field of a seat key (`badger`, `anansi`).
   - L is clamped to [0, 1].
   - The lead applies only in a seat the seat gate presents (ledger 062). Being listed here does not turn a seat on.
@@ -201,13 +201,13 @@ The choice between S, P and H is technical: step 2's numbers decide it. The owne
 - **Question 4, the decay on your own vehicle:** keep retail's prediction-error decay. Measure its effect on the lead from a network client's `VEH_PRED` first (§6), and revisit only if it shows as wobble.
 - **Related:** turret and IK joint blending for gunner views will be built in presentation, beyond D2, with its own ledger row. The default frame cap is 240 (m5-plan step 18).
 
-**Decided (owner, 2026-11-06), questions 1 and 3:** from the measurements below, the built-in lead list is the anansi, bumblebee and hornet at L = 1 with H, the desecrator at L = 1 with S, and the badger, hog, husky, trojan and titan at L = 0.5 with H. The goliath and the platypus were never measured and get no lead. Every seat with a recipe has been on the seat default list since the same day. A person's review on a high-refresh display is still to come.
+**Decided (owner, 2026-11-06), questions 1 and 3:** from the measurements below, the built-in lead list is the anansi, bumblebee and hornet at L = 1 with H, the desecrator at L = 1 with S, and the badger, hog, husky, trojan and titan at L = 0.5 with H. The goliath and the platypus were never measured and get no lead. The titan's L rests on the scripted replay only (§2.1); by default it applies in the titan's first-person gunner seats, since its driver's first view is third-person and takes no lead. Every seat with a recipe has been on the seat default list since the same day. A person's review on a high-refresh display is still to come.
 
 The questions as asked:
 
 1. **The per-class bound for enabling L.** Stage 7 said "p95 stays under a bound the owner sets by eye". The measurement step (§5) will offer p95 and max per class and state, plus the human review; the owner picks the bound and each class's L.
 2. **The impact overshoot.** Accept §3.3's three measures, which still allow a small overshoot into a wall for up to a tick, or ask for a review of a tick-side clip trace that would bound it exactly?
-3. **Driver and pilot seats.** Which classes' driver seats, then pilot seats, join `g_unlock_vehicleSeats`'s default list once their class has a lead (since 2026-11-06 they are all on the seat list already; the lead's own default list is still empty). The 2026-09-29 decision already ties this to the measurement.
+3. **Driver and pilot seats.** Which classes' driver seats, then pilot seats, join `g_unlock_vehicleSeats`'s default list once their class has a lead (answered 2026-11-06, §4 above). The 2026-09-29 decision already ties this to the measurement.
 4. **Prediction-error decay on your own vehicle.** This is `vehicle-responsiveness.md` §5.1 question 7, still open. It matters here because, on a network client, S extrapolates the decay along with the motion (§6). P does not.
 
 ## 5. Steps
@@ -230,7 +230,7 @@ The questions as asked:
    - **H4, the simulation is untouched:** `SIM_HASH` with the lead on equals the lead off over the same scripted drive (`seat-gate` already compares `SIM_HASH`, `VEH_TRACE` and `SIM_VIEW` across the gate; the lead CVar joins that comparison).
    - **A negative control:** an unlisted class draws at L = 0.
    - The A/B latency check from stage 7: one throttle step at a known tick, and the first draw whose hull differs from a run without it, for hold, the blend and L = 1. It is reported, not failed, because it depends on the display.
-5. **Human review (D3)** on a high-refresh display, per class, in driver and pilot seats: smoothness, the feel at walls, and vehicles alongside. Then the owner's §4 decisions, and the classes that pass go into `g_unlock_vehicleLead`'s default list.
+5. **Human review (D3)** on a high-refresh display, per class, in driver and pilot seats: smoothness, the feel at walls, and vehicles alongside. Then the owner's §4 decisions, and the classes that pass go into `g_unlock_vehicleLead`'s default list. *On 2026-11-06 the owner put the measured classes on the default list before this review, from the measurements (§4); the review is still to come.*
 
 **Effort** *[inferred]*: step 2 is about 2 days, step 3 about 3 days, and step 4 about 2 days, plus the review.
 
