@@ -134,6 +134,16 @@ md5_deferred_mesh_test = executable(
 )
 test('md5-deferred-mesh', md5_deferred_mesh_test, suite: 'unit', timeout: 30)
 
+# 5a1c. sound fades refuse a non-finite target or length (#458), which the mixer would
+#       turn into a NaN volume (#453)
+sound_fade_arguments_test = executable(
+  'openetqw-sound-fade-arguments-test',
+  files('SoundFadeArgumentsTest.cpp'),
+  include_directories: include_directories('../src/sound'),
+  install: false,
+)
+test('sound-fade-arguments', sound_fade_arguments_test, suite: 'unit', timeout: 30)
+
 # 5a2. the character a key types on the SDL keyboard (#366): printable ASCII only, so
 #      F3 and the other special keys are named by their localized strings, not by a
 #      negative char the HUD drew as an empty box

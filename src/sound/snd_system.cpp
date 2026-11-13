@@ -104,6 +104,22 @@ void Snd_EnterCriticalSection() {
 void Snd_LeaveCriticalSection() {
 	soundCriticalSection.unlock();
 }
+
+/*
+===================
+Snd_ReportNonFiniteFade
+
+A fade to a non-finite volume, or over a non-finite time, is refused (#458); the first
+one is reported, since whatever made it is a bug too.
+===================
+*/
+void Snd_ReportNonFiniteFade( const char* function, float to, float over ) {
+	static bool reported = false;
+	if ( !reported ) {
+		reported = true;
+		common->Warning( "%s: refused a fade to %f dB over %f seconds (#458)", function, to, over );
+	}
+}
 bool idSoundSystemLocal::useEAXReverb = false;
 int idSoundSystemLocal::EAXAvailable = -1;
 
