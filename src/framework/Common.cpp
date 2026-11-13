@@ -39,6 +39,7 @@
 #include "../navigation/Navigation.h"
 #include "../sdnet/SDNet.h"
 #include "../sys/sys_render.h"
+#include "../sys/sdl/VideoModeAvailability.h"
 #include "../tools/compilers/compiler_public.h"
 #ifdef ETQW_WITH_RADIANT
 #include "../tools/edit_public.h"
@@ -240,8 +241,14 @@ typedef std::lock_guard< std::recursive_mutex > comPrintLock_t;
 static std::thread::id com_mainThreadId;
 
 // The retail table is a 26-entry, 20-byte array at r_vidModes.  Aspect values
-// are the SDK's 4:3, 16:9, 16:10 and 5:4 indices.
-static vidmode_t r_vidModes[ 26 ] = {
+// are the SDK's 4:3, 16:9, 16:10 and 5:4 indices.  Modes 26-29 are not retail's:
+// it stopped at 2560x1440, so the menu could not offer a 4K panel its own size
+// (#455; owner, 2026-11-12, ledger 087).  The last entry is left for the
+// display's native size when no other entry has it (Com_SetNativeVideoMode).
+static const int COM_NUM_FIXED_VIDMODES = 30;
+static char r_nativeVidModeDescription[ 48 ];
+static int r_numVidModes = COM_NUM_FIXED_VIDMODES;
+static vidmode_t r_vidModes[ COM_NUM_FIXED_VIDMODES + 1 ] = {
 	{ "Mode  0: 320x240",   320,  240, 0, false },
 	{ "Mode  1: 400x300",   400,  300, 0, false },
 	{ "Mode  2: 512x384",   512,  384, 0, false },
@@ -267,8 +274,26 @@ static vidmode_t r_vidModes[ 26 ] = {
 	{ "Mode 22: 1920x1200",1920, 1200, 2, false },
 	{ "Mode 23: 2560x1600",2560, 1600, 2, false },
 	{ "Mode 24: 1280x1024",1280, 1024, 3, false },
-	{ "Mode 25: 2560x2048",2560, 2048, 3, false }
+	{ "Mode 25: 2560x2048",2560, 2048, 3, false },
+	{ "Mode 26: 3200x1800",3200, 1800, 1, false },
+	{ "Mode 27: 3840x2160",3840, 2160, 1, false },
+	{ "Mode 28: 2880x1800",2880, 1800, 2, false },
+	{ "Mode 29: 3840x2400",3840, 2400, 2, false },
+	{ r_nativeVidModeDescription, 0, 0, 0, false }
 };
+
+/*
+====================
+Com_SetNativeVideoMode
+
+The display's native size in pixels, from the SDL layer each time it looks at the
+display: when none of the fixed modes has it, it becomes the last mode (#455).
+====================
+*/
+void Com_SetNativeVideoMode( int width, int height ) {
+	r_numVidModes = Sys_AddNativeVideoMode( r_vidModes, COM_NUM_FIXED_VIDMODES, r_nativeVidModeDescription,
+		sizeof( r_nativeVidModeDescription ), width, height );
+}
 
 class idCommonLocal : public idCommon {
 public:
@@ -899,11 +924,11 @@ idWStr idCommonLocal::LocalizeText( const char* declName, const idWStrList& argu
 }
 
 int idCommonLocal::GetNumVideoModes() const {
-	return _arraycount( r_vidModes );
+	return r_numVidModes;
 }
 
 vidmode_t& idCommonLocal::GetVideoMode( int index ) const {
-	if ( index < 0 || index >= _arraycount( r_vidModes ) ) {
+	if ( index < 0 || index >= r_numVidModes ) {
 		index = 3;
 	}
 	return r_vidModes[ index ];
@@ -1627,6 +1652,9 @@ void idCommonLocal::InitGame( bool resetConfigs ) {
 	if ( !com_skipRenderer.GetBool() && ( networkSystem == NULL || !networkSystem->IsDedicated() ) ) {
 		glimpParms_t parms;
 		memset( &parms, 0, sizeof( parms ) );
+		// the display's native size is a mode of its own (#455), so look at the display
+		// before r_mode is read: a saved r_mode may name that mode
+		sys3D->EnumerateMonitors();
 		const int modeIndex = cvarSystem->GetCVarInteger( "r_mode" );
 		if ( modeIndex >= 0 && modeIndex < GetNumVideoModes() ) {
 			const vidmode_t& mode = GetVideoMode( modeIndex );

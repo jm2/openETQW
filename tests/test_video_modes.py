@@ -10,7 +10,7 @@ display lists (src/sys/sdl/VideoModeAvailability.h).
 The Vulkan client hosts valley on a real display; `listModes` then prints the table,
 with " - Not available for fullscreen" after each mode not marked:
   V1 at least one mode the menu lists (mode 3 on) is available
-  V2 the client logged how many ("SDL3: N of 26 video modes are available fullscreen")
+  V2 the client logged how many ("SDL3: N of M video modes are available fullscreen")
 It skips (77) without retail data, the client binary or an X display, and on SDL's
 headless drivers, which report no real display; so it runs on Linux X11 only. V1 needs
 the display to list one of the table's sizes, which a desktop monitor does.

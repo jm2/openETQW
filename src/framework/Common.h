@@ -57,6 +57,9 @@ typedef enum {
 #define STRTABLE_ID_LENGTH		5
 
 extern idCVar		com_version;
+
+// the display's native size in pixels, added to the r_mode table when no mode has it (#455)
+void Com_SetNativeVideoMode( int width, int height );
 extern idCVar		com_skipRenderer;
 extern idCVar		com_asyncInput;
 extern idCVar		com_asyncSound;
