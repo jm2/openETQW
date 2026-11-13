@@ -883,6 +883,16 @@ float idSoundSystemLocal::dB2Scale( const float val ) const {
 		return 1.0f;				// most common
 	} else if ( val <= -60.0f ) {
 		return 0.0f;
+	} else if ( val != val ) {
+		// a NaN fails every comparison above and below, and its index read far outside
+		// volumesDB: the Windows client crashed here closing its window in a map (#453).
+		// It is silent; the first one is reported, since whatever made it is a bug too
+		static bool reported = false;
+		if ( !reported ) {
+			reported = true;
+			common->Warning( "dB2Scale: a volume is not a number; playing it silent (#453)" );
+		}
+		return 0.0f;
 	} else if ( val >= 60.0f ) {
 		return powf( 2.0f, val * ( 1.0f / 6.0f ) ); 
 	}
