@@ -394,9 +394,9 @@ public:
 			useVulkanGpuSkinning && surfaceIndex < modelSurfaces.Num();
 			++surfaceIndex ) {
 			const modelSurface_t& surface = modelSurfaces[ surfaceIndex ];
-			// (a group's first mesh can be left with no indexes once its deferred meshes
-			// are surfaces of their own, #461: it has nothing to draw, and no index cache)
-			if ( surface.geometry == NULL || surface.geometry->numIndexes == 0 ) {
+			// (a surface with no indexes has nothing to draw and no index cache; see
+			// SnapshotTakesSurface)
+			if ( !SnapshotTakesSurface( surface ) ) {
 				continue;
 			}
 			if ( md5SkinSurfaces[ surfaceIndex ].noAnimate ) {
@@ -456,7 +456,7 @@ public:
 			dynamic_cast< idRenderModelStatic* >( cachedModel );
 		int expectedSurfaces = 0;
 		for ( int i = 0; i < modelSurfaces.Num(); ++i ) {
-			if ( modelSurfaces[ i ].geometry != NULL ) {
+			if ( SnapshotTakesSurface( modelSurfaces[ i ] ) ) {
 				++expectedSurfaces;
 			}
 		}
@@ -467,10 +467,10 @@ public:
 		if ( reuseSnapshot ) {
 			int snapshotSurface = 0;
 			for ( int sourceSurface = 0; sourceSurface < modelSurfaces.Num(); ++sourceSurface ) {
-				const srfTriangles_t* sourceGeometry = modelSurfaces[ sourceSurface ].geometry;
-				if ( sourceGeometry == NULL ) {
+				if ( !SnapshotTakesSurface( modelSurfaces[ sourceSurface ] ) ) {
 					continue;
 				}
+				const srfTriangles_t* sourceGeometry = modelSurfaces[ sourceSurface ].geometry;
 				const srfTriangles_t* cachedGeometry =
 					snapshot->modelSurfaces[ snapshotSurface++ ].geometry;
 				if ( cachedGeometry == NULL ||
@@ -497,7 +497,7 @@ public:
 		int snapshotSurfaceIndex = 0;
 		for ( int surfaceIndex = 0; surfaceIndex < modelSurfaces.Num(); ++surfaceIndex ) {
 			const modelSurface_t& sourceSurface = modelSurfaces[ surfaceIndex ];
-			if ( sourceSurface.geometry == NULL ) {
+			if ( !SnapshotTakesSurface( sourceSurface ) ) {
 				continue;
 			}
 
@@ -644,6 +644,15 @@ public:
 	}
 
 private:
+	// Whether the snapshot carries a copy of this surface. A group's first mesh can be
+	// left with no indexes once its deferred meshes are surfaces of their own (#461): it
+	// has nothing to draw, and the CPU-skinning copy refused its NULL index list, which
+	// dropped the whole snapshot. Snapshot surfaces keep their source surface's id, so
+	// leaving one out does not shift the hide-mask bits of the others.
+	static bool SnapshotTakesSurface( const modelSurface_t& surface ) {
+		return surface.geometry != NULL && surface.geometry->numIndexes > 0;
+	}
+
 	static void FreeSurfaceVertexCache( srfTriangles_t* triangles ) {
 		if ( triangles == NULL ) {
 			return;
