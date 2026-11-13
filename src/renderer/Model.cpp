@@ -14,6 +14,7 @@
 #include "VulkanBackend.h"
 #include "draw_local.h"
 #include "draw_raytracing.h"
+#include "MD5DeferredMesh.h"
 #include "../decllib/declTypeHolder.h"
 
 namespace {
@@ -1165,37 +1166,75 @@ private:
 		return -1;
 	}
 
-	bool AppendMD5Indexes( int surfaceId, const idList< unsigned short >& indexes ) {
-		if ( surfaceId < 0 || surfaceId >= modelSurfaces.Num() ||
-			 modelSurfaces[ surfaceId ].geometry == NULL ) {
+	/*
+	A deferred mesh as its own surface (#461): the vertices its indexes use, copied from
+	its group's first mesh with their skin weights, and its own surface id, so a vehicle
+	part that hides the mesh by name (sdVehiclePart::HideSurfaces) hides only that mesh.
+	Merged into the group's surface, the mesh had the group's id, and a broken-off mirror
+	or door hid every mesh with the hull's material. The new surface is not a group: later
+	deferred meshes of the material still index the first mesh's vertices.
+	*/
+	bool AddDeferredMD5Surface( int groupId, const idStr& meshName, const idList< unsigned short >& indexes ) {
+		if ( groupId < 0 || groupId >= modelSurfaces.Num() || groupId >= md5SkinSurfaces.Num() ) {
+			return false;
+		}
+		const srfTriangles_t* source = modelSurfaces[ groupId ].geometry;
+		if ( source == NULL || source->verts == NULL ) {
+			return false;
+		}
+		if ( indexes.Num() == 0 ) {
+			return true;	// nothing to draw or hide
+		}
+
+		idList< int > remap;
+		idList< int > sourceOfCompact;
+		idList< int > compactIndexes;
+		remap.SetNum( source->numVerts );
+		sourceOfCompact.SetNum( indexes.Num() );
+		compactIndexes.SetNum( indexes.Num() );
+		const int numVerts = R_CompactDeferredMeshIndexes( indexes.Begin(), indexes.Num(), source->numVerts,
+			sourceOfCompact.Begin(), compactIndexes.Begin(), remap.Begin() );
+		if ( numVerts <= 0 ) {
 			return false;
 		}
 
-		srfTriangles_t* triangles = modelSurfaces[ surfaceId ].geometry;
+		srfTriangles_t* triangles = AllocSurfaceTriangles( numVerts, indexes.Num() );
+		if ( triangles == NULL ) {
+			return false;
+		}
+		triangles->bounds.Clear();
+		triangles->tangentsCalculated = true;
+		for ( int i = 0; i < numVerts; ++i ) {
+			triangles->verts[ i ] = source->verts[ sourceOfCompact[ i ] ];
+			triangles->bounds += triangles->verts[ i ].xyz;
+		}
 		for ( int i = 0; i < indexes.Num(); ++i ) {
-			if ( indexes[ i ] >= triangles->numVerts ) {
-				return false;
+			triangles->indexes[ i ] = static_cast< glIndex_t >( compactIndexes[ i ] );
+		}
+
+		const md5SkinSurface_t& sourceSkin = md5SkinSurfaces[ groupId ];
+		md5SkinSurface_t skin;
+		skin.referencedJoints = sourceSkin.referencedJoints;
+		skin.noAnimate = sourceSkin.noAnimate;
+		if ( sourceSkin.weights.Num() == source->numVerts ) {
+			skin.weights.SetNum( numVerts );
+			for ( int i = 0; i < numVerts; ++i ) {
+				skin.weights[ i ] = sourceSkin.weights[ sourceOfCompact[ i ] ];
 			}
 		}
+		skin.gpuSkinningEligible = ValidateGpuSkinningData( skin );
 
-		const long long newCount64 = static_cast< long long >( triangles->numIndexes ) + indexes.Num();
-		if ( newCount64 > 0x7fffffffLL ) {
-			return false;
-		}
-		const int oldCount = triangles->numIndexes;
-		const int newCount = static_cast< int >( newCount64 );
-		glIndex_t* newIndexes = newCount > 0 ?
-			static_cast< glIndex_t* >( Mem_Alloc( newCount * sizeof( glIndex_t ) ) ) : NULL;
-		for ( int i = 0; i < oldCount; ++i ) {
-			newIndexes[ i ] = triangles->indexes[ i ];
-		}
-		for ( int i = 0; i < indexes.Num(); ++i ) {
-			newIndexes[ oldCount + i ] = static_cast< glIndex_t >( indexes[ i ] );
-		}
-		Mem_Free( triangles->indexes );
-		triangles->indexes = newIndexes;
-		triangles->numIndexes = newCount;
-		triangles->numAllocedIndices = newCount;
+		const int surfaceId = modelSurfaces.Num();
+		modelSurface_t surface;
+		surface.id = surfaceId;
+		surface.material = modelSurfaces[ groupId ].material;
+		surface.geometry = triangles;
+		modelSurfaces.Append( surface );
+		md5SkinSurfaces.Append( skin );
+		surfaceGroupMaterials.Append( "" );
+		surfaceGroupNoAnimate.Append( -1 );
+		surfaceNames.Append( meshName );
+		surfaceIds.Append( surfaceId );
 		return true;
 	}
 
@@ -1286,7 +1325,8 @@ private:
 		}
 
 		// A deferred MD5 mesh owns only an index range.  Its vertices are stored
-		// once on the first mesh in the matching material/noAnimate group.
+		// once on the first mesh in the matching material/noAnimate group; it is
+		// drawn as its own surface with a copy of the ones it uses (#461).
 		srfTriangles_t* triangles = keepSurface && !deferred ? AllocSurfaceTriangles( numOutputVerts, numIndexes ) : NULL;
 		if ( keepSurface && !deferred && triangles == NULL ) {
 			return false;
@@ -1375,13 +1415,10 @@ private:
 			}
 		} else if ( valid && keepSurface && deferred ) {
 			const int groupId = FindMD5SurfaceGroup( materialName, noAnimate );
-			if ( groupId < 0 || !AppendMD5Indexes( groupId, indexes ) ) {
+			if ( groupId < 0 || !AddDeferredMD5Surface( groupId, meshName, indexes ) ) {
 				common->Warning( "MD5 binary '%s': deferred mesh '%s' has no compatible surface group",
 					modelName.c_str(), meshName.c_str() );
 				valid = false;
-			} else {
-				surfaceNames.Append( meshName );
-				surfaceIds.Append( groupId );
 			}
 		}
 
