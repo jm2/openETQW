@@ -69,6 +69,39 @@ int main() {
 		Expect( !any, "no display modes: every flag cleared" );
 	}
 
+	// the nearest of the menu's four aspects (#455)
+	{
+		Expect( Sys_NearestVideoModeAspect( 3840, 2160 ) == 1, "aspect: 3840x2160 is 16:9" );
+		Expect( Sys_NearestVideoModeAspect( 3456, 2234 ) == 2, "aspect: 3456x2234 (a MacBook Pro panel) is 16:10" );
+		Expect( Sys_NearestVideoModeAspect( 3440, 1440 ) == 1, "aspect: 3440x1440 (ultrawide) is 16:9, the widest" );
+		Expect( Sys_NearestVideoModeAspect( 2048, 1536 ) == 0, "aspect: 2048x1536 is 4:3" );
+		Expect( Sys_NearestVideoModeAspect( 1280, 1024 ) == 3, "aspect: 1280x1024 is 5:4" );
+		Expect( Sys_NearestVideoModeAspect( 0, 1080 ) == 0, "aspect: no size gives 4:3" );
+	}
+	// the display's native size becomes a mode when the table lacks it (#455)
+	{
+		vidmode_t table[] = {
+			{ "Mode  0: 1920x1080", 1920, 1080, 1, false },
+			{ "Mode  1: 3840x2160", 3840, 2160, 1, true },
+			{ "", 0, 0, 0, true },
+		};
+		char description[ 48 ] = { 0 };
+		int num = Sys_AddNativeVideoMode( table, 2, description, sizeof( description ), 3840, 2160 );
+		Expect( num == 2, "native: a size the table has adds nothing" );
+		num = Sys_AddNativeVideoMode( table, 2, description, sizeof( description ), 0, 0 );
+		Expect( num == 2, "native: no display size adds nothing" );
+		num = Sys_AddNativeVideoMode( table, 2, description, sizeof( description ), 3456, 2234 );
+		Expect( num == 3, "native: 3456x2234 is added" );
+		Expect( table[2].width == 3456 && table[2].height == 2234, "native: the new mode has the display's size" );
+		Expect( table[2].aspectRatio == 2, "native: the new mode is 16:10" );
+		Expect( !table[2].available, "native: availability is left to the display's mode list" );
+		Expect( table[2].description == description && idStr::Cmp( description, "Mode  2: 3456x2234 (native)" ) == 0,
+			"native: described as the next mode, (native)" );
+		const int display[] = { 3456, 2234 };
+		const int marked = Sys_MarkAvailableVideoModes( table, num, display, 1 );
+		Expect( marked == 1 && table[2].available, "native: marked available when the display lists it" );
+	}
+
 	if ( failures ) {
 		std::printf( "FAIL: %d check(s) failed\n", failures );
 		return 1;
