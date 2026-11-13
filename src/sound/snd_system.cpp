@@ -896,7 +896,8 @@ float idSoundSystemLocal::dB2Scale( const float val ) const {
 	} else if ( val >= 60.0f ) {
 		return powf( 2.0f, val * ( 1.0f / 6.0f ) ); 
 	}
-	int ival = (int)( ( val + 60.0f ) * 10.0f );
+	// the largest float under 60 rounds to index 1200, one past the table
+	const int ival = Min( (int)( ( val + 60.0f ) * 10.0f ), 1199 );
 	return volumesDB[ival];
 }
 
