@@ -392,7 +392,9 @@ public:
 		primaryMonitor.monitor.h = h;
 		primaryMonitor.workArea = primaryMonitor.monitor;
 		primaryMonitor.primary = true;
-		MarkAvailableVideoModes( displayID );
+		// the desktop mode, not the current one: a fullscreen window at a smaller mode
+		// changes the current mode, and the native size stays the desktop's
+		MarkAvailableVideoModes( displayID, SDL_GetDesktopDisplayMode( displayID ) );
 		// SDL's headless drivers (the Linux tests and screenshot sets run on offscreen) report
 		// a made-up 1024x768 display; a window there is not on any screen, so it is not capped.
 		const char *driver = SDL_GetCurrentVideoDriver();
@@ -410,11 +412,21 @@ public:
 private:
 	// Marks the r_mode table's modes the display can show fullscreen as available
 	// (VideoModeAvailability.h); none were, so the menu's fullscreen mode list was empty.
-	static void MarkAvailableVideoModes( SDL_DisplayID displayID ) {
+	// The desktop mode, in pixels, is the display's native size; it is added to the table
+	// when no mode has it (#455), and is always available.
+	static void MarkAvailableVideoModes( SDL_DisplayID displayID, const SDL_DisplayMode* desktop ) {
 		if ( common == NULL ) {
 			return;
 		}
 		idList< int > sizes;
+		if ( desktop != NULL ) {
+			const float density = desktop->pixel_density > 0.0f ? desktop->pixel_density : 1.0f;
+			const int nativeWidth = idMath::Ftoi( desktop->w * density + 0.5f );
+			const int nativeHeight = idMath::Ftoi( desktop->h * density + 0.5f );
+			Com_SetNativeVideoMode( nativeWidth, nativeHeight );
+			sizes.Append( nativeWidth );
+			sizes.Append( nativeHeight );
+		}
 		int count = 0;
 		SDL_DisplayMode **displayModes = SDL_GetFullscreenDisplayModes( displayID, &count );
 		for ( int i = 0; displayModes != NULL && i < count; i++ ) {
