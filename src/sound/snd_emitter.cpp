@@ -1033,6 +1033,10 @@ void idSoundEmitterLocal::FadeSound( const soundChannel_t channel, float to, flo
 	if ( !soundWorld ) {
 		return;
 	}
+	if ( !Snd_FadeArgumentsFinite( to, over ) ) {
+		Snd_ReportNonFiniteFade( "FadeSound", to, over );
+		return;
+	}
 	if ( soundWorld->writeDemo ) {
 		soundWorld->writeDemo->WriteInt( DS_SOUND );
 		soundWorld->writeDemo->WriteInt( SCMD_FADE );
@@ -1052,6 +1056,10 @@ void idSoundEmitterLocal::FadeSound( const soundChannel_t channel, float to, flo
 	}
 
 	int	length44kHz = soundSystemLocal.MillisecondsToSamples( over * 1000 );
+
+	// the sound thread reads the channels' fades while it mixes (AsyncUpdateWrite);
+	// changing one unlocked could tear it into a NaN volume (#458)
+	Snd_EnterCriticalSection();
 
 	for( int i = 0; i < SOUND_MAX_CHANNELS ; i++ ) {
 		idSoundChannel	*chan = &channels[i];
@@ -1075,6 +1083,8 @@ void idSoundEmitterLocal::FadeSound( const soundChannel_t channel, float to, flo
 		chan->channelFade.fadeEnd44kHz = start44kHz + length44kHz;
 		chan->channelFade.fadeEndVolume = to;
 	}
+
+	Snd_LeaveCriticalSection();
 }
 
 /*

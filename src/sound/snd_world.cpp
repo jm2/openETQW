@@ -2114,6 +2114,15 @@ void	idSoundWorldLocal::FadeSoundClasses( const int soundClass, const float to, 
 		common->Error( "idSoundWorldLocal::FadeSoundClasses: bad soundClass %i", soundClass );
 	}
 
+	if ( !Snd_FadeArgumentsFinite( to, over ) ) {
+		Snd_ReportNonFiniteFade( "FadeSoundClasses", to, over );
+		return;
+	}
+
+	// the sound thread reads the fade while it mixes (AsyncUpdateWrite); changing it
+	// unlocked could tear it, mixing old times with new ones into a NaN volume (#458)
+	Snd_EnterCriticalSection();
+
 	idSoundFade	*fade = &soundClassFade[ soundClass ];
 
 	int	length44kHz = soundSystemLocal.MillisecondsToSamples( over * 1000 );
@@ -2121,6 +2130,7 @@ void	idSoundWorldLocal::FadeSoundClasses( const int soundClass, const float to, 
 	// if it is already fading to this volume at this rate, don't change it
 	if ( fade->fadeEndVolume == to && 
 		fade->fadeEnd44kHz - fade->fadeStart44kHz == length44kHz ) {
+		Snd_LeaveCriticalSection();
 		return;
 	}
 
@@ -2138,6 +2148,8 @@ void	idSoundWorldLocal::FadeSoundClasses( const int soundClass, const float to, 
 	fade->fadeStart44kHz = start44kHz;
 	fade->fadeEnd44kHz = start44kHz + length44kHz;
 	fade->fadeEndVolume = to;
+
+	Snd_LeaveCriticalSection();
 }
 
 /*

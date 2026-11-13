@@ -37,6 +37,7 @@ If you have questions concerning this license or the applicable additional terms
 #include "AudioHardware.h"
 
 #include <climits>
+#include "SoundFadeArguments.h"
 
 // The mixer writes through idAudioHardware; it doesn't use OpenAL. The OpenAL types
 // stay for the declarations (precompiled.h includes al.h, alc.h and idal.h), and
@@ -852,6 +853,8 @@ extern	idSoundSystemLocal	soundSystemLocal;
 // Doom 3's Sys_Enter/LeaveCriticalSection for the mixer (snd_system.cpp)
 void Snd_EnterCriticalSection();
 void Snd_LeaveCriticalSection();
+// warns once that a fade with a non-finite target or length was refused (#458)
+void Snd_ReportNonFiniteFade( const char* function, float to, float over );
 
 
 /*
