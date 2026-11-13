@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5646,
+  "totalFiles": 5648,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 394
   },
   "postSplitCounts": {
-    "Reconstruction_original": 362,
+    "Reconstruction_original": 364,
     "ThirdParty": 2,
     "Retail_asset": 4,
     "Doom3_GPL": 2,
@@ -48897,6 +48897,18 @@
       "spdx": "GPL-3.0-or-later"
     },
     {
+      "path": "src/sound/SoundFadeArguments.h",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "c3d835cf93e0a3500972b17388e4f8bda69b8e35fccf42f25726c6ae273a4580",
+      "canonicalSha256": "c3d835cf93e0a3500972b17388e4f8bda69b8e35fccf42f25726c6ae273a4580",
+      "bytes": 798,
+      "addedAfterSplit": true,
+      "addedIn": "7b297b7f6f89d929971d92bc5ad9d6e99020a69c",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
       "path": "src/sound/SoundHardwareShutdown.h",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -49485,6 +49497,18 @@
       "spdx": "GPL-3.0-or-later"
     },
     {
+      "path": "tests/SoundFadeArgumentsTest.cpp",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "f494d309562408ef5ec15ce80af435fecf264f77d0213463844b11876e5594e3",
+      "canonicalSha256": "f494d309562408ef5ec15ce80af435fecf264f77d0213463844b11876e5594e3",
+      "bytes": 1549,
+      "addedAfterSplit": true,
+      "addedIn": "7b297b7f6f89d929971d92bc5ad9d6e99020a69c",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
       "path": "tests/SoundHardwareShutdownTest.cpp",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -49633,9 +49657,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "f53309579ed6170aca65e4cd33d7e19c6cb98344b34fbf019374e3959f6aaa9f",
-      "canonicalSha256": "f53309579ed6170aca65e4cd33d7e19c6cb98344b34fbf019374e3959f6aaa9f",
-      "bytes": 66134,
+      "rawSha256": "70d8e2d2bc6280b911263b3784bd236d9fa27bd58d1987d75a5a5cfb47700482",
+      "canonicalSha256": "70d8e2d2bc6280b911263b3784bd236d9fa27bd58d1987d75a5a5cfb47700482",
+      "bytes": 66543,
       "addedAfterSplit": true,
       "addedIn": "35abac45526b7b9f11c0e8fda2040e29f443eecd",
       "spdx": "GPL-3.0-or-later"
