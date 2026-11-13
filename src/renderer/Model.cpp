@@ -349,6 +349,15 @@ public:
 		}
 		for ( int i = 0; i < surfaceNames.Num(); ++i ) {
 			if ( !surfaceNames[ i ].Icmp( surfaceName ) ) {
+				// the hide mask has MAX_SURFACE_BITS - 1 bits (renderEntity_t::hideSurfaceMask),
+				// and callers set the bit unchecked (sdVehiclePart::HideSurfaces): a mesh past
+				// them is reported as not found, which the game warns about, rather than
+				// written outside the mask (#461 gave each deferred mesh its own id)
+				if ( surfaceIds[ i ] >= MAX_SURFACE_BITS - 1 ) {
+					common->DWarning( "model '%s': surface '%s' has id %d, past the %d hideable surfaces",
+						modelName.c_str(), surfaceName, surfaceIds[ i ], MAX_SURFACE_BITS - 1 );
+					return -1;
+				}
 				return surfaceIds[ i ];
 			}
 		}
@@ -385,7 +394,9 @@ public:
 			useVulkanGpuSkinning && surfaceIndex < modelSurfaces.Num();
 			++surfaceIndex ) {
 			const modelSurface_t& surface = modelSurfaces[ surfaceIndex ];
-			if ( surface.geometry == NULL ) {
+			// (a group's first mesh can be left with no indexes once its deferred meshes
+			// are surfaces of their own, #461: it has nothing to draw, and no index cache)
+			if ( surface.geometry == NULL || surface.geometry->numIndexes == 0 ) {
 				continue;
 			}
 			if ( md5SkinSurfaces[ surfaceIndex ].noAnimate ) {
