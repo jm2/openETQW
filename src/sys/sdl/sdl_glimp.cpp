@@ -392,8 +392,8 @@ public:
 		primaryMonitor.monitor.h = h;
 		primaryMonitor.workArea = primaryMonitor.monitor;
 		primaryMonitor.primary = true;
-		// the desktop mode, not the current one: a fullscreen window at a smaller mode
-		// changes the current mode, and the native size stays the desktop's
+		// the native size is the desktop mode's: the size the desktop is set to, in pixels
+		// (on macOS, the scaled resolution chosen in System Settings times its density)
 		MarkAvailableVideoModes( displayID, SDL_GetDesktopDisplayMode( displayID ) );
 		// SDL's headless drivers (the Linux tests and screenshot sets run on offscreen) report
 		// a made-up 1024x768 display; a window there is not on any screen, so it is not capped.
