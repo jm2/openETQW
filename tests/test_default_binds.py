@@ -20,8 +20,9 @@ test_retired_cvars.py does, with stand-in defaults files under base/localization
 4. A saved binding file (fs_savepath/base/etqwdedbinds.cfg, starting with unbindall as
    the engine writes it): its bindings replace the defaults.
 5. A saved binding file with only its header comment and unbindall, as v0.1.0 drafts
-   before #363 wrote it (#454): it is not run, so the defaults stay, and the engine says
-   so. This fails while the engine runs it and every key ends up unbound.
+   before #363 wrote it (#454): it is not run, so the defaults stay, the engine says so,
+   and it rewrites the file with them. This fails while the engine runs it and every key
+   ends up unbound.
 
 Usage: test_default_binds.py [--ded-binary PATH] [--game-module PATH] (meson passes
 the binary and the game module this build directory uses).
@@ -117,11 +118,15 @@ def main() -> int:
 
         print(f"5. a saved binding file with only unbindall ({SAVED_FILE}, #454): the defaults stay")
         (saved / SAVED_FILE).write_text(SAVED_EMPTY, encoding="utf-8")
-        code, out = run_server(ded, root, "+listBinds")
+        # wait: quit in a frame, once the engine is fully up, so its shutdown saves
+        code, out = run_server(ded, root, "+listBinds", "+wait", "+wait")
         expect(ready_keys(out) == ["F3"], f"F3 is bound to _ready (keys: {ready_keys(out)}, exit {code})", out)
         expect(re.search(r'^w\s+"_forward"', out, re.MULTILINE) is not None, "w is bound to _forward", out)
         expect(f"{SAVED_FILE} holds no key bindings" in out, "the engine says it kept the defaults", out)
         expect(code == 0, f"the server exits 0 (exit {code})", out)
+        rewritten = (saved / SAVED_FILE).read_text(encoding="utf-8", errors="replace")
+        expect(re.search(r'^bind "F3" "_ready"', rewritten, re.MULTILINE) is not None,
+               "the engine rewrote the file with the defaults", rewritten)
 
     if failures:
         print(f"FAIL: {len(failures)} check(s) failed")

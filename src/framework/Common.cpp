@@ -1593,10 +1593,12 @@ void idCommonLocal::InitGame( bool resetConfigs ) {
 	// once the GPU is known (InitMachineSpec). Safe mode leaves the saved one unread,
 	// so it doesn't count
 	const bool freshProfile = !safeMode && fileSystem->ReadFile( CONFIG_FILE, NULL, NULL ) <= 0;
+	bool emptyBindingFile = false;
 	if ( !safeMode ) {
 		// a binding file with no bindings (saved by a v0.1.0 draft before #363) would
-		// unbind every key the defaults just bound, so the defaults are kept (#454);
-		// the file is written again, with them, when the engine next saves
+		// unbind every key the defaults just bound, so the defaults are kept (#454,
+		// ledger 088); the settings are marked changed below, so the next save writes
+		// the file again with them
 		char* bindings = NULL;
 		const bool haveBindingFile = fileSystem->ReadFile( BINDING_FILE, reinterpret_cast< void** >( &bindings ), NULL ) > 0;
 		const bool hasBindings = haveBindingFile && Com_BindingFileHasBindings( bindings );
@@ -1607,6 +1609,7 @@ void idCommonLocal::InitGame( bool resetConfigs ) {
 			cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec " BINDING_FILE "\n" );
 		} else if ( haveBindingFile ) {
 			Printf( "%s holds no key bindings (saved by an early build); keeping the default bindings\n", BINDING_FILE );
+			emptyBindingFile = true;
 		}
 		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec " CONFIG_FILE "\n" );
 	}
@@ -1614,6 +1617,9 @@ void idCommonLocal::InitGame( bool resetConfigs ) {
 	cmdSystem->ExecuteCommandBuffer();
 	StartupVariable( NULL );
 	cvarSystem->ClearModifiedFlags( CVAR_ARCHIVE );
+	if ( emptyBindingFile ) {
+		cvarSystem->SetModifiedFlags( CVAR_ARCHIVE );	// rewrite it with the defaults (#454)
+	}
 
 	if ( networkService != NULL ) {
 		networkService->Init();
