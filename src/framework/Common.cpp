@@ -29,6 +29,7 @@
 #include "Session_local.h"
 #include "MachineSpec.h"
 #include "ReloadEngine.h"
+#include "BindingFile.h"
 #include "../decllib/declLocStr.h"
 #include "../renderer/DeviceContext.h"
 #include "../renderer/FrameSyncTiming.h"
@@ -1617,14 +1618,33 @@ void idCommonLocal::InitGame( bool resetConfigs ) {
 	// once the GPU is known (InitMachineSpec). Safe mode leaves the saved one unread,
 	// so it doesn't count
 	const bool freshProfile = !safeMode && fileSystem->ReadFile( CONFIG_FILE, NULL, NULL ) <= 0;
+	bool emptyBindingFile = false;
 	if ( !safeMode ) {
-		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec " BINDING_FILE "\n" );
+		// a binding file with no bindings (saved by a v0.1.0 draft before #363) would
+		// unbind every key the defaults just bound, so the defaults are kept (#454,
+		// ledger 088); the settings are marked changed below, so the next save writes
+		// the file again with them
+		char* bindings = NULL;
+		const bool haveBindingFile = fileSystem->ReadFile( BINDING_FILE, reinterpret_cast< void** >( &bindings ), NULL ) > 0;
+		const bool hasBindings = haveBindingFile && Com_BindingFileHasBindings( bindings );
+		if ( bindings != NULL ) {
+			fileSystem->FreeFile( bindings );
+		}
+		if ( hasBindings ) {
+			cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec " BINDING_FILE "\n" );
+		} else if ( haveBindingFile ) {
+			Printf( "%s holds no key bindings (saved by an early build); keeping the default bindings\n", BINDING_FILE );
+			emptyBindingFile = true;
+		}
 		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec " CONFIG_FILE "\n" );
 	}
 	cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec autoexec.cfg\n" );
 	cmdSystem->ExecuteCommandBuffer();
 	StartupVariable( NULL );
 	cvarSystem->ClearModifiedFlags( CVAR_ARCHIVE );
+	if ( emptyBindingFile ) {
+		cvarSystem->SetModifiedFlags( CVAR_ARCHIVE );	// rewrite it with the defaults (#454)
+	}
 
 	if ( networkService != NULL ) {
 		networkService->Init();
