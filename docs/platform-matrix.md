@@ -25,14 +25,15 @@ not GPU evidence.
 |---|---|---|---|---|
 | Linux arm64 | 77 tests | 2026-10-26 | `527c1ef` / `7fbdf80` | 76 OK, 0 FAIL, 1 SKIP (`cross-os`) on the post-merge leg at `-O2`. The 2026-10-28 run at `7031119` (79 OK, 0 FAIL, 1 SKIP) was reported but has not been recorded from its raw log yet |
 | Linux x86_64 | 112 tests | 2026-11-02 | `main` `2f8eb52` with #408, #410, #411 and #412 merged in / game #70 `5b59b20` | 110 OK, 0 FAIL, 2 SKIP (`cross-os`; `text-input-x11`, which needs Xvfb and xdotool on the host); clean |
-| Windows 11 x64 | 85 tests | 2026-11-14 | `main` `1cfd3f9` / game `b821709` | 77 OK, 0 FAIL, 8 SKIP; clean. The skips are platform skips: `cross-os` (no remote server), `client-server-timeout` (no SIGSTOP), `determinism-heap-fill` (no glibc), `reload-engine` (a new process on Windows), `text-input-x11` (Linux only), and `escape-menu`, `menu-cursor` and `video-modes` (they need an X display). The display was 640x480 (the session was disconnected) |
+| Windows 11 x64 | 85 tests | 2026-11-14 | `main` `1cfd3f9` / game `b821709` | 77 OK, 0 FAIL, 8 SKIP. One skip is a setup skip, `cross-os` (no second host was used); the rest are platform skips: `client-server-timeout` (no SIGSTOP), `determinism-heap-fill` (no glibc), `reload-engine` (a new process on Windows), `text-input-x11` (Linux only), and `escape-menu`, `menu-cursor` and `video-modes` (they need an X display). The display was 640x480 (the session was disconnected) |
 | Windows 11 arm64 | 80 tests | 2026-10-28 | `7031119` / `7fbdf80` | 78 OK, 0 FAIL, 2 SKIP; clean, and the first suite on Vulkan (no OpenGL/D3D12 fallback) |
 | macOS arm64 | 80 tests | 2026-10-28 | `7031119` / `7fbdf80` | 78 OK, 1 FAIL, 1 SKIP; the first GPU suite (MoltenVK). The failure, `mixed-caps` A10 (#335), is fixed by #336 at `ce94b9e`; not yet re-run as a full suite |
 
 A result stands for the commits named in its row, not for `main` today. The Windows 11 x64
 row is from after the 0.1.0 fixes (#457, #459, #460, #462 and #464) and covers everything
-merged before them. For the other rows: since 2026-10-28, #336 (the macOS `mixed-caps`
-failure), #340, #344, #345 and #346 have merged.
+merged before them. The other four rows also predate everything merged from #413 on,
+including the seat defaults (#450) and the 0.1.0 fixes. Since 2026-10-28, #336 (the macOS
+`mixed-caps` failure), #340, #344, #345 and #346 have also merged.
 The arm64 and macOS rows predate the LAN-session fixes of 2026-10-30 to 2026-11-02
 (#363 to #412); the Linux x86_64 row covers them, apart from the last commit of #412, which
 changes only its OpenGL vertex program and the minimap test's bound (both minimap tests
